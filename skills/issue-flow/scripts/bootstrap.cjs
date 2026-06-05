@@ -15,6 +15,7 @@ const AGENTRIX_GITLAB_FILES = [
 ];
 const AGENTRIX_CONFIG = ['config.json', '.github/agentrix/issue-flow/config.json'];
 const AGENTRIX_PLUGIN_ROOT = '.agentrix/plugins/issue-flow';
+const AGENTRIX_PLUGIN_MANIFEST = ['.claude-plugin/plugin.json', `${AGENTRIX_PLUGIN_ROOT}/.claude-plugin/plugin.json`];
 const AGENTRIX_PLUGIN_DIRS = [
   [
     'skills/issue-flow',
@@ -26,6 +27,10 @@ const AGENTRIX_PLUGIN_DIRS = [
       ],
     },
   ],
+];
+const AGENTRIX_PLUGIN_SPECS = [
+  AGENTRIX_PLUGIN_MANIFEST,
+  ...AGENTRIX_PLUGIN_DIRS,
 ];
 const VALUE_OPTIONS = new Set(['--runtime']);
 
@@ -191,7 +196,7 @@ function installAgentrixPlugin(options = {}) {
   if (options.force && !options.dryRun && path.resolve(packageRootDir()) !== targetRoot && fs.existsSync(targetRoot)) {
     fs.rmSync(targetRoot, { recursive: true, force: true });
   }
-  return installPackageSpecs(AGENTRIX_PLUGIN_DIRS, options);
+  return installPackageSpecs(AGENTRIX_PLUGIN_SPECS, options);
 }
 
 function installGithub(options = {}) {
@@ -248,7 +253,9 @@ module.exports = {
   AGENTRIX_GITHUB_WORKFLOWS,
   AGENTRIX_GITLAB_FILES,
   AGENTRIX_PLUGIN_DIRS,
+  AGENTRIX_PLUGIN_MANIFEST,
   AGENTRIX_PLUGIN_ROOT,
+  AGENTRIX_PLUGIN_SPECS,
   installAgentrixPlugin,
   installGithub,
   installGitlab,

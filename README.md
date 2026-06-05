@@ -32,7 +32,7 @@ The installer clones `issue-flow` into a temporary directory, then writes the ru
 
 ## What It Installs
 
-- `.agentrix/plugins/issue-flow/` - minimal runtime skill, scripts, and default prompts/templates
+- `.agentrix/plugins/issue-flow/` - plugin manifest, minimal runtime skill, scripts, and default prompts/templates
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions

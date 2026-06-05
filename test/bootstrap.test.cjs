@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  AGENTRIX_PLUGIN_DIRS,
+  AGENTRIX_PLUGIN_SPECS,
   installGithub,
   installGitlab,
   parseArgs,
@@ -55,7 +55,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     const results = installGithub({ cwd: root });
     const written = results.map((result) => path.relative(root, result.target)).sort();
     assert.deepEqual(written, [
-      ...AGENTRIX_PLUGIN_DIRS.map(([, target]) => target),
+      ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
       '.github/agentrix/issue-flow/config.json',
       '.github/workflows/issue-flow-auto.yml',
       '.github/workflows/issue-flow-comment.yml',
@@ -68,6 +68,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.equal(fs.existsSync(path.join(root, '.github/agentrix/issue-flow/config.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
@@ -107,6 +108,7 @@ test('bootstrap force removes stale plugin files when installing from source', (
 
     installGithub({ cwd: root, force: true });
     assert.equal(fs.existsSync(stalePackage), false);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -119,7 +121,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     const results = installGitlab({ cwd: root });
     const written = results.map((result) => path.relative(root, result.target)).sort();
     assert.deepEqual(written, [
-      ...AGENTRIX_PLUGIN_DIRS.map(([, target]) => target),
+      ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
       '.github/agentrix/issue-flow/config.json',
       '.gitlab/issue-flow.gitlab-ci.yml',
     ].sort());

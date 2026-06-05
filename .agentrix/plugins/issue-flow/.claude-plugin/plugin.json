@@ -1,0 +1,5 @@
+{
+  "name": "issue-flow",
+  "description": "Label-based issue state machine and deterministic git provider operations for development automation.",
+  "version": "0.1.0"
+}
