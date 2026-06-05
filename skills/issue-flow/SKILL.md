@@ -1,7 +1,7 @@
 ---
 name: issue-flow
 version: 0.1.0
-description: "Label-based issue 状态流转工具。通过确定性脚本操作 GitHub/GitLab issue labels、body、PR/MR。当需要变更 issue label、提交 plan/build PR、处理 PR merge 后的状态流转、路由决策时使用。"
+description: "Label-based issue 状态流转工具。通过确定性脚本操作 GitHub/GitLab issue labels、body、PR/MR。当需要变更 issue label、提交 plan/build PR 时使用。"
 metadata:
   requires:
     bins: ["node"]
@@ -19,18 +19,9 @@ node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 --flow flow::plan 
 
 # 提交 PR
 node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan --issue-number 123 --title "Plan #123: ..." --body-file plan.md
-
-# 路由决策（纯判断，无副作用）
-node ${CLAUDE_SKILL_DIR}/scripts/resolve.cjs auto --event "$GITHUB_EVENT_PATH"
-
-# 新 issue 补默认 label
-node ${CLAUDE_SKILL_DIR}/scripts/intake.cjs --issue-number 123
-
-# PR merged 后自动流转
-node ${CLAUDE_SKILL_DIR}/scripts/pr-merged.cjs --event "$GITHUB_EVENT_PATH" --auto-resume
 ```
 
-所有脚本支持 `--dry-run`。
+上面两个脚本支持 `--dry-run`。
 
 ## Label 体系
 
@@ -42,6 +33,8 @@ node ${CLAUDE_SKILL_DIR}/scripts/pr-merged.cjs --event "$GITHUB_EVENT_PATH" --au
 | `automation::` | plan, build | 同 prefix 只留一个 |
 | `priority::` | p0, p1, p2, p3 | 同 prefix 只留一个 |
 | `mr-by::` | plan, build | PR/MR 专属 |
+
+详情请参考：`references/labels.md`。
 
 ## 脚本详情
 
@@ -75,44 +68,12 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan|build \
   [--draft] [--no-push] [--dry-run]
 ```
 
-- Push 当前分支 → 创建/更新 PR/MR
-- 自动加 `mr-by::plan` 或 `mr-by::build`
-- 插入 `<!-- issue-flow:source-issue=<num> -->` marker
-- Source issue 自动转 `flow::approve`
-
-### resolve.cjs — 路由决策（无副作用）
-
-```bash
-node ${CLAUDE_SKILL_DIR}/scripts/resolve.cjs auto --event <path> [--auto-default off|triage|plan|build]
-node ${CLAUDE_SKILL_DIR}/scripts/resolve.cjs resume --event <path>
-node ${CLAUDE_SKILL_DIR}/scripts/resolve.cjs comment --event <path>
-```
-
-输出 JSON：`{ shouldRun, action, reason }`
-
-### intake.cjs — 新 Issue 默认 Label
-
-```bash
-node ${CLAUDE_SKILL_DIR}/scripts/intake.cjs --issue-number <num> [--dry-run]
-```
-
-缺 `status::` → `status::active`，缺 `flow::` → `flow::triage`。
-
-### pr-merged.cjs — Merge 后流转
-
-```bash
-node ${CLAUDE_SKILL_DIR}/scripts/pr-merged.cjs --event <path> [--auto-resume] [--dry-run]
-```
-
-- `mr-by::plan` merged → source issue `flow::build`
-- `mr-by::build` merged → source issue `status::done` + clear flow
-
 ## 典型 Agent 工作流
 
 ### Triage
 
 ```bash
-# 1. 读取 issue 内容，判断类型和优先级
+# 1. 读取 issue 内容，判断类型 type、优先级 priority 和自动化级别 automation
 # 2. 决定下一步 flow
 node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 \
   --type type::feature --priority priority::p1 --flow flow::plan

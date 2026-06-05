@@ -110,7 +110,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 处理 merged PR/MR 事件，转移 source issue。
 
 ```bash
-node pr-merged.cjs --event <path> [--auto-resume] [common-options]
+node pr-merged.cjs --event <path> [common-options]
 ```
 
 ### 行为
@@ -119,7 +119,60 @@ node pr-merged.cjs --event <path> [--auto-resume] [common-options]
 2. PR/MR 必须有恰好一个 `mr-by::plan` 或 `mr-by::build` label
 3. 解析 source issue number
 4. 执行对应转移
-5. `--auto-resume` 时，调用 resolve.cjs 决定是否继续
+5. 只执行 source issue 状态流转；是否启动后续 agent 由 `dispatch.cjs pr-merged` 负责
+
+## dispatch.cjs
+
+开箱调度入口。默认内置 Agentrix runtime，负责 event routing、duplicate task lock、prompt 构建和启动 Agentrix task。
+
+```bash
+node dispatch.cjs auto --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs comment --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs pr-merged --event <path> [common-options]
+node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
+```
+
+### Agentrix 路径配置
+
+只支持配置路径，不支持改文件名、branch pattern 或 label/flow 语义。
+
+```json
+{
+  "agentrix": {
+    "promptsDir": ".github/agentrix/issue-flow",
+    "templatesDir": ".github/agentrix/issue-flow/templates",
+    "planRootDir": ".agentrix/issues"
+  }
+}
+```
+
+### Agentrix 行为
+
+1. comment mention 固定为 `@agentrix`
+2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`
+3. template 文件名固定：`plan-bug.md`、`plan-impl.md`
+4. plan 查找固定为 `<planRootDir>/<issue-number>-<slug>/plan/*.md`
+5. branch 固定为 `<issue-number>-<slug>/plan` 和 `<issue-number>-<slug>/build`
+6. task lock marker 使用 `<!-- issue-flow:task:agentrix:<action> -->`
+7. `pr-merged` 在应用 source issue 状态流转后会立即执行一次自动路由；`mr-by::plan` merge 后可直接启动 build，`mr-by::build` merge 后因 `status::done` 跳过
+
+## bootstrap.cjs
+
+安装 runtime 约定的 CI 文件。默认 runtime 是 `agentrix`。
+
+```bash
+node bootstrap.cjs github [--runtime agentrix] [--force] [--dry-run]
+node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
+```
+
+### 行为
+
+- GitHub：写入 `.github/workflows/issue-flow-auto.yml`、`.github/workflows/issue-flow-comment.yml`、`.github/workflows/issue-flow-pr-merged.yml`
+- GitLab：写入 `.gitlab/issue-flow.gitlab-ci.yml`
+- Agentrix config：写入 `.github/agentrix/issue-flow/config.json`
+- Runtime 资源来自包根目录 `assets/agentrix/`
+- 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定
+- 已存在文件默认跳过，`--force` 才覆盖
 
 ### Source Issue 解析优先级
 

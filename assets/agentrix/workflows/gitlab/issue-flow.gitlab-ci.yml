@@ -1,0 +1,25 @@
+image: node:20
+
+issue-flow-auto:
+  rules:
+    - if: '$GITLAB_EVENT_NAME == "issue"'
+  script:
+    - node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs auto --event "$GITLAB_EVENT_PATH"
+  variables:
+    ISSUE_FLOW_RUNTIME: agentrix
+
+issue-flow-comment:
+  rules:
+    - if: '$GITLAB_EVENT_NAME == "note"'
+  script:
+    - node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs comment --event "$GITLAB_EVENT_PATH"
+  variables:
+    ISSUE_FLOW_RUNTIME: agentrix
+
+issue-flow-merged:
+  rules:
+    - if: '$CI_MERGE_REQUEST_EVENT_TYPE == "merged"'
+  script:
+    - node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs pr-merged --event "$GITLAB_EVENT_PATH"
+  variables:
+    ISSUE_FLOW_RUNTIME: agentrix

@@ -29,7 +29,7 @@ const MANAGED_LABELS = {
 
 function usage() {
   return [
-    'Usage: issue-flow-apply --issue-number <number> [options]',
+    'Usage: apply.cjs --issue-number <number> [options]',
     '',
     'Label options:',
     '  --type <type::...>',

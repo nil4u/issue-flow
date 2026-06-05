@@ -26,7 +26,7 @@ const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
 
 function usage() {
   return [
-    'Usage: issue-flow-submit <kind> --issue-number <number> --title <title> --body-file <path> [options]',
+    'Usage: submit.cjs <kind> --issue-number <number> --title <title> --body-file <path> [options]',
     '',
     'Kinds:',
     '  plan    Publish a plan PR and move the issue to flow::approve',

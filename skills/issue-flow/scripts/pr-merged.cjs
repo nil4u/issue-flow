@@ -20,7 +20,7 @@ const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=(\d+)\s*-->/
 
 function usage() {
   return [
-    'Usage: issue-flow-pr-merged --event <path> [options]',
+    'Usage: pr-merged.cjs --event <path> [options]',
     '',
     'Applies the source issue transition for merged plan/build PRs.',
     '',
@@ -28,7 +28,6 @@ function usage() {
     '  --event <path>       Merge event JSON path. Defaults to GITHUB_EVENT_PATH or GITLAB_EVENT_PATH.',
     '  --provider <name>    Git hosting provider: github or gitlab. Defaults from event/environment.',
     '  --repo <owner/repo>  Repository/project override. Defaults from provider environment or event repository.',
-    '  --auto-resume        Resume issue-flow automation after applying the source issue transition.',
     '  --dry-run           Print intended behavior without changing remote state.',
     '  --help',
   ].join('\n');
@@ -47,10 +46,6 @@ function parseArgs(argv) {
     }
     if (arg === '--dry-run') {
       options.dryRun = true;
-      continue;
-    }
-    if (arg === '--auto-resume') {
-      options.autoResume = true;
       continue;
     }
     if (!arg.startsWith('--')) {
@@ -242,27 +237,17 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   });
 }
 
-function resumeAutomaticIssueFlow(provider, repo, issueNumber, eventPath, options) {
-  const args = [
-    path.join(__dirname, 'resolve.cjs'),
-    'auto',
-    '--issue-number',
-    String(issueNumber),
-    '--provider',
-    provider.name,
-    '--repo',
-    repo.fullName,
-  ];
-  if (eventPath) {
-    args.push('--event', eventPath);
-  }
-  if (options.dryRun) {
-    args.push('--dry-run');
-  }
-
-  runChecked('node', args, {
-    inherit: true,
-  });
+function buildSourceIssueContext(provider, repo, issueNumber, transition) {
+  return {
+    provider: provider.name,
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    projectId: repo.projectId,
+    number: issueNumber,
+    state: 'open',
+    labels: [transition.status, transition.flow].filter(Boolean),
+  };
 }
 
 async function runPrMerged(options) {
@@ -295,15 +280,14 @@ async function runPrMerged(options) {
 
   const repo = resolveRepo(payload, options);
   applyIssueTransition(provider, repo, issueNumber, transition, options);
-  if (options.autoResume) {
-    resumeAutomaticIssueFlow(provider, repo, issueNumber, options.event || process.env.GITHUB_EVENT_PATH || process.env.GITLAB_EVENT_PATH, options);
-  }
+  const sourceIssue = buildSourceIssueContext(provider, repo, issueNumber, transition);
 
   const result = {
     action: 'applied',
     provider: provider.name,
     kind: transition.kind,
     issueNumber,
+    sourceIssue,
     flow: transition.flow,
     status: transition.status,
     clearFlow: Boolean(transition.clearFlow),
@@ -326,12 +310,12 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   applyIssueTransition,
+  buildSourceIssueContext,
   main,
   normalizeMergeRequestPayload,
   parseArgs,
   parseSourceIssueNumber,
   pullRequestLabels,
-  resumeAutomaticIssueFlow,
   resolveMergedPrTransition,
   runPrMerged,
 };

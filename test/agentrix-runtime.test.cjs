@@ -1,0 +1,104 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+
+const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
+
+test('agentrix mention extraction keeps manual instruction text', () => {
+  assert.deepEqual(agentrix.extractMention('@agentrix: please plan this'), {
+    triggered: true,
+    instruction: 'please plan this',
+  });
+  assert.deepEqual(agentrix.extractMention('@bot please plan this'), {
+    triggered: false,
+    instruction: '',
+  });
+});
+
+test('agentrix config only customizes prompt, template, and plan root paths', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-test-'));
+  try {
+    const configPath = path.join(root, 'issue-flow.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        agentrix: {
+          promptsDir: 'custom/prompts',
+          templatesDir: 'custom/templates',
+          planRootDir: 'custom/issues',
+        },
+      })
+    );
+
+    const config = agentrix.resolveAgentrixConfig({ config: configPath });
+    assert.equal(agentrix.normalizeRepoPath(config.projectPromptsDir), 'custom/prompts');
+    assert.equal(agentrix.normalizeRepoPath(config.projectTemplatesDir), 'custom/templates');
+    assert.equal(agentrix.normalizeRepoPath(config.planRootDir), 'custom/issues');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('agentrix prompt falls back to built-in defaults and injects fixed plan conventions', () => {
+  const prompt = agentrix.buildPrompt(
+    'plan',
+    {
+      number: 42,
+      state: 'open',
+      labels: ['type::bug', 'flow::plan'],
+      title: 'Broken login',
+      body: 'Cannot log in.',
+    },
+    {},
+    { planRootDir: '.work/items' }
+  );
+
+  assert.match(prompt, /针对当前 issue 产出可审阅的根因与修复方案/);
+  assert.match(prompt, /## Plan Output/);
+  assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
+  assert.match(prompt, /Plan branch: `42-broken-login\/plan`/);
+  assert.doesNotMatch(prompt, /## Required Skill/);
+  assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
+  assert.doesNotMatch(prompt, /Prompt override directory/);
+  assert.doesNotMatch(prompt, /Template override directory/);
+  assert.doesNotMatch(prompt, /Plan root directory/);
+});
+
+test('agentrix build prompt injects build context without plan output section', () => {
+  const prompt = agentrix.buildPrompt(
+    'build',
+    {
+      number: 42,
+      state: 'open',
+      labels: ['type::feature', 'flow::build'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    },
+    {},
+    { planRootDir: '.work/items' }
+  );
+
+  assert.match(prompt, /## Branch/);
+  assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
+  assert.match(prompt, /## Plan Files/);
+  assert.doesNotMatch(prompt, /## Plan Output/);
+  assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
+});
+
+test('agentrix default prompts delegate script details to the issue-flow skill', () => {
+  const promptsDir = path.resolve(__dirname, '..', 'assets', 'agentrix', 'prompts');
+  for (const entry of fs.readdirSync(promptsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.prompt.md')) {
+      continue;
+    }
+    const body = fs.readFileSync(path.join(promptsDir, entry.name), 'utf8');
+    assert.doesNotMatch(body, /\$\{CLAUDE_SKILL_DIR\}/, entry.name);
+    assert.doesNotMatch(body, /scripts\/[a-z-]+\.cjs/, entry.name);
+  }
+});
+
+test('agentrix task marker uses issue-flow namespace', () => {
+  assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:task:agentrix:build -->');
+});

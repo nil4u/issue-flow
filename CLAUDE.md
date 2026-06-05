@@ -5,9 +5,9 @@ Label-based issue state machine and deterministic git provider operations.
 ## Structure
 
 - `.claude-plugin/plugin.json` — plugin manifest
+- `assets/` — packaged runtime assets (workflow files, default prompts, templates, config)
 - `skills/issue-flow/SKILL.md` — single skill entry point (agent-facing)
 - `skills/issue-flow/scripts/` — deterministic CJS scripts
-- `skills/issue-flow/defaults/` — default configuration
 - `docs/` — human-facing documentation (labels, state machine, CI integration, provider API)
 - `test/` — node:test based test suite
 

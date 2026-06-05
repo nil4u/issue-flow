@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  buildSourceIssueContext,
   normalizeMergeRequestPayload,
   parseArgs: parsePrMergedArgs,
   parseSourceIssueNumber,
@@ -32,12 +33,25 @@ test('merged PR transition is selected from exactly one source label', () => {
   );
 });
 
-test('merged PR parser accepts auto resume option', () => {
-  assert.deepEqual(parsePrMergedArgs(['--event', '/tmp/event.json', '--auto-resume']), {
-    _: [],
-    event: '/tmp/event.json',
-    autoResume: true,
-  });
+test('merged PR source issue context simulates post-transition labels', () => {
+  assert.deepEqual(
+    buildSourceIssueContext(
+      { name: 'github' },
+      { owner: 'example', repo: 'platform', fullName: 'example/platform' },
+      42,
+      { kind: 'plan', label: 'mr-by::plan', flow: 'flow::build' }
+    ),
+    {
+      provider: 'github',
+      owner: 'example',
+      repo: 'platform',
+      repoFullName: 'example/platform',
+      projectId: undefined,
+      number: 42,
+      state: 'open',
+      labels: ['flow::build'],
+    }
+  );
 });
 
 test('gitlab merge request payload normalizes for merged source transition', () => {

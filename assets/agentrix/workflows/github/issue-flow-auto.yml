@@ -1,0 +1,54 @@
+name: Issue Flow Auto
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+      - labeled
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-flow-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    if: github.event.issue.pull_request == null && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout issue-flow files
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/agentrix
+            .agentrix/plugins/issue-flow
+            .agentrix/issues
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Ensure intake labels
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/intake.cjs --issue-number "${{ github.event.issue.number }}"
+
+      - name: Route automatic issue-flow action
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENTRIX_BASE_URL: ${{ vars.AGENTRIX_BASE_URL }}
+          AGENTRIX_API_KEY: ${{ secrets.AGENTRIX_API_KEY }}
+          AGENTRIX_RUNNER_ID: ${{ vars.AGENTRIX_RUNNER_ID }}
+          AGENTRIX_ISSUE_FLOW_AGENT: ${{ vars.AGENTRIX_ISSUE_FLOW_AGENT }}
+          AGENTRIX_CAPABILITY_PROFILE: ${{ vars.AGENTRIX_CAPABILITY_PROFILE }}
+          ISSUE_FLOW_AUTO_DEFAULT: ${{ vars.ISSUE_FLOW_AUTO_DEFAULT }}
+        run: node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs auto --event "$GITHUB_EVENT_PATH"
