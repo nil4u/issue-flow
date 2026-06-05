@@ -62,6 +62,11 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       '.github/workflows/issue-flow-pr-merged.yml',
     ].sort());
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
+    const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
+    assert.match(autoWorkflow, /- opened/);
+    assert.match(autoWorkflow, /- labeled/);
+    assert.doesNotMatch(autoWorkflow, /- edited/);
+    assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.equal(fs.existsSync(path.join(root, '.github/agentrix/issue-flow/config.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
