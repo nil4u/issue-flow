@@ -1,0 +1,567 @@
+#!/usr/bin/env node
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { resolveProvider } = require('./providers.cjs');
+
+const SUBMIT_KINDS = {
+  plan: {
+    label: 'mr-by::plan',
+    flow: 'flow::approve',
+    titlePrefix: 'Plan',
+    labelColor: '0052CC',
+    labelDescription: 'PR or MR was created by the plan action',
+  },
+  build: {
+    label: 'mr-by::build',
+    flow: 'flow::approve',
+    titlePrefix: 'Build',
+    labelColor: '1D76DB',
+    labelDescription: 'PR or MR was created by the build action',
+  },
+};
+const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
+
+function usage() {
+  return [
+    'Usage: submit.cjs <kind> --issue-number <number> --title <title> --body-file <path> [options]',
+    '',
+    'Kinds:',
+    '  plan    Publish a plan PR and move the issue to flow::approve',
+    '  build   Publish a build PR/MR and move the issue to flow::approve',
+    '',
+    'Options:',
+    '  --issue-number <num>    Source issue number.',
+    '  --title <title>         PR title. #<issue-number> is prepended when missing.',
+    '  --body-file <path>      PR body markdown file.',
+    '  --provider <provider>   Git hosting provider: github or gitlab. Defaults from environment/repo.',
+    '  --repo <owner/repo>     Repository/project override. Defaults to provider environment or git remote origin.',
+    '  --base <branch>         PR base branch. Defaults to origin HEAD, develop, main, then master.',
+    '  --head <branch>         PR head branch. Defaults to the current branch.',
+    '  --label <mr-by::...>    PR/MR label override. Defaults by kind.',
+    '  --draft                Create the PR as draft.',
+    '  --no-push              Do not push the current branch before creating the PR.',
+    '  --dry-run              Print intended behavior without changing remote state.',
+    '  --help',
+  ].join('\n');
+}
+
+function parseArgs(argv) {
+  if (argv[0] === '--help') {
+    return {
+      kind: undefined,
+      options: {
+        _: [],
+        help: true,
+      },
+    };
+  }
+
+  const kind = argv[0];
+  const options = {
+    _: [],
+  };
+
+  for (let index = 1; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--help') {
+      options.help = true;
+      continue;
+    }
+    if (arg === '--dry-run') {
+      options.dryRun = true;
+      continue;
+    }
+    if (arg === '--draft') {
+      options.draft = true;
+      continue;
+    }
+    if (arg === '--no-push') {
+      options.noPush = true;
+      continue;
+    }
+    if (!arg.startsWith('--')) {
+      options._.push(arg);
+      continue;
+    }
+
+    const key = arg.slice(2).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) {
+      throw new Error(`Missing value for ${arg}`);
+    }
+    options[key] = value;
+    index += 1;
+  }
+
+  return { kind, options };
+}
+
+function runOutput(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    cwd: options.cwd,
+  });
+  if (result.error) {
+    if (options.optional) {
+      return '';
+    }
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    if (options.optional) {
+      return '';
+    }
+    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+  }
+  return result.stdout.trim();
+}
+
+function runChecked(command, args, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, command, args }, null, 2));
+    return '';
+  }
+
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+  }
+  return result.stdout ? result.stdout.trim() : '';
+}
+
+function getGitOriginUrl() {
+  return runOutput('git', ['config', '--get', 'remote.origin.url'], { optional: true });
+}
+
+function resolveRepoHint(options) {
+  return options.repo || process.env.GITHUB_REPOSITORY || process.env.GITLAB_PROJECT_PATH || process.env.CI_PROJECT_PATH || getGitOriginUrl();
+}
+
+function resolveSubmitProvider(options) {
+  return resolveProvider({ ...options, repo: resolveRepoHint(options) }, {});
+}
+
+function parsePositiveInteger(value, name) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function resolveHeadBranch(options) {
+  const branch = options.head || runOutput('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (!branch || branch === 'HEAD') {
+    throw new Error('Unable to resolve current branch. Check out a named branch before publishing.');
+  }
+  return branch;
+}
+
+function gitRefExists(ref) {
+  return Boolean(runOutput('git', ['rev-parse', '--verify', '--quiet', ref], { optional: true }));
+}
+
+function resolveBaseBranch(options) {
+  if (options.base) {
+    return options.base;
+  }
+
+  const originHead = runOutput('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], {
+    optional: true,
+  });
+  if (originHead.startsWith('origin/')) {
+    return originHead.slice('origin/'.length);
+  }
+
+  for (const candidate of ['develop', 'main', 'master']) {
+    if (gitRefExists(`refs/remotes/origin/${candidate}`) || gitRefExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 'main';
+}
+
+function assertCleanWorktree(options) {
+  const status = runOutput('git', ['status', '--porcelain']);
+  if (status) {
+    if (options.dryRun) {
+      console.log(JSON.stringify({ dryRun: true, dirtyWorktree: status.split('\n') }, null, 2));
+      return;
+    }
+    throw new Error('Working tree has uncommitted changes. Commit the plan before publishing the PR.');
+  }
+}
+
+function assertPublishBranch(headBranch, baseBranch, options) {
+  if (headBranch !== baseBranch) {
+    return;
+  }
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, sameHeadAndBase: headBranch }, null, 2));
+    return;
+  }
+  throw new Error(`Head branch and base branch are both ${headBranch}. Create a topic branch before publishing.`);
+}
+
+function normalizePrTitle(kindConfig, issueNumber, title) {
+  const trimmed = (title || '').trim() || `${kindConfig.titlePrefix} for issue`;
+  const issuePattern = new RegExp(`#${issueNumber}(\\b|\\D)`);
+  if (issuePattern.test(trimmed)) {
+    return trimmed;
+  }
+  return `${kindConfig.titlePrefix} #${issueNumber}: ${trimmed}`;
+}
+
+function validateBodyFile(bodyFile) {
+  if (!bodyFile) {
+    throw new Error('--body-file is required');
+  }
+  if (!fs.existsSync(bodyFile)) {
+    throw new Error(`PR body file does not exist: ${bodyFile}`);
+  }
+}
+
+function buildSourceIssueMarker(issueNumber) {
+  return `<!-- issue-flow:source-issue=${issueNumber} -->`;
+}
+
+function buildPrBodyWithSourceMarker(body, issueNumber) {
+  const marker = buildSourceIssueMarker(issueNumber);
+  const content = String(body || '').trimStart();
+  if (SOURCE_ISSUE_MARKER_PATTERN.test(content)) {
+    return content.replace(SOURCE_ISSUE_MARKER_PATTERN, marker);
+  }
+  return `${marker}\n${content}`.trimEnd();
+}
+
+function writePrBodyWithSourceMarker(bodyFile, issueNumber) {
+  const body = fs.readFileSync(bodyFile, 'utf8');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-pr-body-'));
+  const markedBodyFile = path.join(tempDir, 'body.md');
+  fs.writeFileSync(markedBodyFile, `${buildPrBodyWithSourceMarker(body, issueNumber)}\n`, 'utf8');
+  return {
+    path: markedBodyFile,
+    cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
+  };
+}
+
+function validateLabel(label) {
+  const allowed = new Set(Object.values(SUBMIT_KINDS).map((config) => config.label));
+  if (!allowed.has(label)) {
+    throw new Error(`--label must be one of: ${[...allowed].join(', ')}`);
+  }
+}
+
+function labelConfigFor(label) {
+  return Object.values(SUBMIT_KINDS).find((config) => config.label === label);
+}
+
+function ensureGithubLabel(repo, label, options) {
+  const config = labelConfigFor(label);
+  if (!config) {
+    validateLabel(label);
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, ensureLabel: label, repo: repo.fullName }, null, 2));
+    return;
+  }
+
+  const existing = runOutput(
+    'gh',
+    ['label', 'list', '--repo', repo.fullName, '--search', label, '--json', 'name', '--jq', '.[].name']
+  )
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (existing.includes(label)) {
+    return;
+  }
+
+  try {
+    runChecked('gh', [
+      'label',
+      'create',
+      label,
+      '--repo',
+      repo.fullName,
+      '--color',
+      config.labelColor,
+      '--description',
+      config.labelDescription,
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/already exists/i.test(message)) {
+      throw error;
+    }
+  }
+}
+
+function ensureMergeRequestLabel(provider, repo, label, options) {
+  if (provider.name === 'github') {
+    ensureGithubLabel(repo, label, options);
+    return;
+  }
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, provider: provider.name, ensureLabel: label, repo: repo.fullName }, null, 2));
+  }
+}
+
+function uniqueNonEmpty(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function headBranchFilterCandidates(repo, headBranch) {
+  const branch = String(headBranch || '').trim();
+  if (!branch) {
+    return [];
+  }
+  if (branch.includes(':')) {
+    return [branch];
+  }
+  return uniqueNonEmpty([branch, `${repo.owner}:${branch}`]);
+}
+
+function existingPullRequestApiHead(repo, headBranch) {
+  const branch = String(headBranch || '').trim();
+  if (!branch || branch.includes(':')) {
+    return branch;
+  }
+  return `${repo.owner}:${branch}`;
+}
+
+function normalizeOptionalUrl(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed === 'null' ? '' : trimmed;
+}
+
+function findExistingPullRequest(repo, headBranch, options) {
+  if (options.dryRun) {
+    return '';
+  }
+
+  for (const candidate of headBranchFilterCandidates(repo, headBranch)) {
+    const url = normalizeOptionalUrl(
+      runOutput(
+        'gh',
+        [
+          'pr',
+          'list',
+          '--repo',
+          repo.fullName,
+          '--head',
+          candidate,
+          '--state',
+          'open',
+          '--json',
+          'url',
+          '--jq',
+          '.[0].url',
+        ],
+        { optional: true }
+      )
+    );
+    if (url) {
+      return url;
+    }
+  }
+
+  const apiHead = existingPullRequestApiHead(repo, headBranch);
+  if (!apiHead) {
+    return '';
+  }
+  return normalizeOptionalUrl(
+    runOutput(
+      'gh',
+      [
+        'api',
+        '--method',
+        'GET',
+        `repos/${repo.fullName}/pulls`,
+        '-f',
+        `head=${apiHead}`,
+        '-f',
+        'state=open',
+        '--jq',
+        '.[0].html_url',
+      ],
+      { optional: true }
+    )
+  );
+}
+
+function pushCurrentBranch(headBranch, options) {
+  if (options.noPush) {
+    return;
+  }
+  runChecked('git', ['push', '-u', 'origin', `HEAD:${headBranch}`], {
+    dryRun: options.dryRun,
+    inherit: true,
+  });
+}
+
+function editPullRequest(prUrl, title, bodyFile, label, options) {
+  runChecked('gh', ['pr', 'edit', prUrl, '--title', title, '--body-file', bodyFile, '--add-label', label], {
+    dryRun: options.dryRun,
+  });
+}
+
+function isExistingPullRequestError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /pull request .*already exists/i.test(message) || /already exists for [^\s]+:[^\s]+/i.test(message);
+}
+
+async function createOrUpdatePullRequest({ provider, repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
+  if (provider.name === 'gitlab') {
+    return provider.createOrUpdateMergeRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
+  }
+
+  const existingUrl = findExistingPullRequest(repo, headBranch, options);
+  if (existingUrl) {
+    editPullRequest(existingUrl, title, bodyFile, label, options);
+    return existingUrl;
+  }
+
+  const args = [
+    'pr',
+    'create',
+    '--repo',
+    repo.fullName,
+    '--title',
+    title,
+    '--body-file',
+    bodyFile,
+    '--label',
+    label,
+    '--base',
+    baseBranch,
+    '--head',
+    headBranch,
+  ];
+  if (draft) {
+    args.push('--draft');
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, command: 'gh', args }, null, 2));
+    return `https://github.com/${repo.fullName}/pulls/dry-run`;
+  }
+
+  try {
+    return runChecked('gh', args);
+  } catch (error) {
+    if (!isExistingPullRequestError(error)) {
+      throw error;
+    }
+    const duplicateUrl = findExistingPullRequest(repo, headBranch, options);
+    if (!duplicateUrl) {
+      throw error;
+    }
+    editPullRequest(duplicateUrl, title, bodyFile, label, options);
+    return duplicateUrl;
+  }
+}
+
+function applyIssueFlow(provider, repo, issueNumber, flow, options) {
+  const args = [
+    path.join(__dirname, 'apply.cjs'),
+    '--issue-number',
+    String(issueNumber),
+    '--provider',
+    provider.name,
+    '--repo',
+    repo.fullName,
+    '--flow',
+    flow,
+  ];
+  if (options.dryRun) {
+    args.push('--dry-run');
+  }
+
+  runChecked('node', args, {
+    dryRun: false,
+    inherit: true,
+  });
+}
+
+async function main(argv = process.argv.slice(2)) {
+  const { kind, options } = parseArgs(argv);
+  if (options.help || !kind) {
+    console.log(usage());
+    return 0;
+  }
+
+  const kindConfig = SUBMIT_KINDS[kind];
+  if (!kindConfig) {
+    throw new Error(`Unknown submit kind: ${kind}. Expected one of: ${Object.keys(SUBMIT_KINDS).join(', ')}`);
+  }
+
+  const issueNumber = parsePositiveInteger(options.issueNumber || options.issue, '--issue-number');
+  const provider = resolveSubmitProvider(options);
+  const repo = provider.resolveRepo({}, { ...options, repo: resolveRepoHint(options) });
+  options.provider = provider.name;
+  const label = options.label || kindConfig.label;
+  validateLabel(label);
+  validateBodyFile(options.bodyFile);
+
+  const headBranch = resolveHeadBranch(options);
+  const baseBranch = resolveBaseBranch(options);
+  const title = normalizePrTitle(kindConfig, issueNumber, options.title);
+
+  assertCleanWorktree(options);
+  assertPublishBranch(headBranch, baseBranch, options);
+  ensureMergeRequestLabel(provider, repo, label, options);
+  pushCurrentBranch(headBranch, options);
+
+  const markedBody = writePrBodyWithSourceMarker(options.bodyFile, issueNumber);
+  try {
+    const prUrl = await createOrUpdatePullRequest({
+      provider,
+      repo,
+      title,
+      bodyFile: markedBody.path,
+      label,
+      baseBranch,
+      headBranch,
+      draft: options.draft,
+      options,
+    });
+
+    applyIssueFlow(provider, repo, issueNumber, kindConfig.flow, options);
+    console.log(JSON.stringify({ kind, provider: provider.name, issueNumber, prUrl, issueFlow: kindConfig.flow, label }, null, 2));
+  } finally {
+    markedBody.cleanup();
+  }
+}
+
+module.exports = {
+  buildPrBodyWithSourceMarker,
+  buildSourceIssueMarker,
+  existingPullRequestApiHead,
+  headBranchFilterCandidates,
+  isExistingPullRequestError,
+  main,
+  normalizeOptionalUrl,
+  normalizePrTitle,
+  parseArgs,
+  resolveBaseBranch,
+  SUBMIT_KINDS,
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

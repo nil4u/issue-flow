@@ -1,0 +1,7 @@
+{
+  "agentrix": {
+    "promptsDir": ".github/agentrix/issue-flow",
+    "templatesDir": ".github/agentrix/issue-flow/templates",
+    "planRootDir": ".agentrix/issues"
+  }
+}
