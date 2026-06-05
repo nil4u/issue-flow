@@ -140,7 +140,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs build \
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 --flow flow::clarify
-# 然后在 issue 中评论说明缺什么信息
+# 然后按照具体agent的说明在指定的位置进行问题澄清
 ```
 
 ## Hard Rules
