@@ -88,7 +88,7 @@ test('agentrix build prompt injects build context without plan output section', 
 });
 
 test('agentrix default prompts delegate script details to the issue-flow skill', () => {
-  const promptsDir = path.resolve(__dirname, '..', 'assets', 'agentrix', 'prompts');
+  const promptsDir = path.resolve(__dirname, '..', 'skills', 'issue-flow', 'assets', 'agentrix', 'runtime', 'prompts');
   for (const entry of fs.readdirSync(promptsDir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith('.prompt.md')) {
       continue;

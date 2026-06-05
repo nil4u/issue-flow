@@ -5,17 +5,18 @@
 推荐用 bootstrap 安装默认 Agentrix runtime workflows：
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs github
+node <issue-flow-package>/skills/issue-flow/scripts/bootstrap.cjs github
 ```
 
-这会按 Agentrix runtime 约定写入：
+这会按 Agentrix runtime 约定写入最小运行时文件、workflow 和配置：
 
+- `.agentrix/plugins/issue-flow/`
 - `.github/workflows/issue-flow-auto.yml`
 - `.github/workflows/issue-flow-comment.yml`
 - `.github/workflows/issue-flow-pr-merged.yml`
 - `.github/agentrix/issue-flow/config.json`
 
-这些文件由 issue-flow 包根目录下的 `assets/agentrix/` 提供；`skills/issue-flow/` 只保留 agent-facing skill 和确定性脚本。
+workflow 和默认配置由 `skills/issue-flow/assets/agentrix/bootstrap/` 提供；运行时入口固定安装到 `.agentrix/plugins/issue-flow/`，只包含 CI/agent 执行会用到的 skill、脚本和默认 prompt/template。
 
 已有文件默认跳过，需要覆盖时使用 `--force`。
 
@@ -124,10 +125,10 @@ jobs:
 推荐用 bootstrap 安装默认 Agentrix runtime include 片段：
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs gitlab
+node <issue-flow-package>/skills/issue-flow/scripts/bootstrap.cjs gitlab
 ```
 
-这会按 Agentrix runtime 约定写入 `.gitlab/issue-flow.gitlab-ci.yml` 和 `.github/agentrix/issue-flow/config.json`。GitLab 项目仍需要在自己的 `.gitlab-ci.yml` 中 include 该文件。
+这会按 Agentrix runtime 约定写入 `.agentrix/plugins/issue-flow/` 最小运行时文件、`.gitlab/issue-flow.gitlab-ci.yml` 和 `.github/agentrix/issue-flow/config.json`。GitLab 项目仍需要在自己的 `.gitlab-ci.yml` 中 include 该文件。
 
 ### Issue 事件
 

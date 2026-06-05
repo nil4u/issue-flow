@@ -33,12 +33,12 @@ const TEMPLATE_FILES = {
 
 const SUPPORTED_ACTIONS = ['triage', 'plan', 'build', 'general'];
 
-function packageRootDir() {
-  return path.resolve(__dirname, '..', '..', '..', '..');
+function skillRootDir() {
+  return path.resolve(__dirname, '..', '..');
 }
 
 function agentrixAssetsDir() {
-  return path.join(packageRootDir(), 'assets', 'agentrix');
+  return path.join(skillRootDir(), 'assets', 'agentrix', 'runtime');
 }
 
 function readJsonFile(filePath, required = false) {

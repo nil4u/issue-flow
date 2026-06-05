@@ -14,21 +14,38 @@ const AGENTRIX_GITLAB_FILES = [
   ['workflows/gitlab/issue-flow.gitlab-ci.yml', '.gitlab/issue-flow.gitlab-ci.yml'],
 ];
 const AGENTRIX_CONFIG = ['config.json', '.github/agentrix/issue-flow/config.json'];
+const AGENTRIX_PLUGIN_ROOT = '.agentrix/plugins/issue-flow';
+const AGENTRIX_PLUGIN_DIRS = [
+  [
+    'skills/issue-flow',
+    `${AGENTRIX_PLUGIN_ROOT}/skills/issue-flow`,
+    {
+      exclude: [
+        'assets/agentrix/bootstrap',
+        'scripts/bootstrap.cjs',
+      ],
+    },
+  ],
+];
 const VALUE_OPTIONS = new Set(['--runtime']);
 
 function packageRootDir() {
   return path.resolve(__dirname, '..', '..', '..');
 }
 
-function agentrixAssetsDir() {
-  return path.join(packageRootDir(), 'assets', 'agentrix');
+function skillRootDir() {
+  return path.resolve(__dirname, '..');
+}
+
+function agentrixBootstrapAssetsDir() {
+  return path.join(skillRootDir(), 'assets', 'agentrix', 'bootstrap');
 }
 
 function usage() {
   return [
     'Usage: bootstrap.cjs <github|gitlab> [options]',
     '',
-    'Installs issue-flow workflow files using the selected runtime conventions.',
+    'Installs issue-flow runtime files and workflows using the selected runtime conventions.',
     '',
     'Options:',
     '  --runtime <name>  Runtime preset. Defaults to agentrix.',
@@ -39,6 +56,16 @@ function usage() {
 }
 
 function parseArgs(argv) {
+  if (argv[0] === '--help') {
+    return {
+      target: undefined,
+      options: {
+        _: [],
+        help: true,
+      },
+    };
+  }
+
   const target = argv[0];
   const options = {
     _: [],
@@ -87,10 +114,28 @@ function resolveRuntime(options = {}) {
 }
 
 function copySpec(sourceRelative, targetRelative, options = {}) {
-  const source = path.join(agentrixAssetsDir(), sourceRelative);
+  const source = path.join(agentrixBootstrapAssetsDir(), sourceRelative);
   const target = path.resolve(options.cwd || process.cwd(), targetRelative);
+  return copyPath(source, target, options);
+}
+
+function copyPackageSpec(sourceRelative, targetRelative, specOptions = {}, options = {}) {
+  const source = path.join(packageRootDir(), sourceRelative);
+  const target = path.resolve(options.cwd || process.cwd(), targetRelative);
+  return copyPath(source, target, options, specOptions);
+}
+
+function copyPath(source, target, options = {}, specOptions = {}) {
   if (!fs.existsSync(source)) {
     throw new Error(`Bootstrap source file is missing: ${source}`);
+  }
+  if (path.resolve(source) === path.resolve(target)) {
+    return {
+      action: 'skipped',
+      reason: 'source',
+      source,
+      target,
+    };
   }
   if (fs.existsSync(target) && !options.force) {
     return {
@@ -102,8 +147,20 @@ function copySpec(sourceRelative, targetRelative, options = {}) {
   }
 
   if (!options.dryRun) {
+    const sourceStats = fs.statSync(source);
+    if (fs.existsSync(target) && options.force && sourceStats.isDirectory()) {
+      fs.rmSync(target, { recursive: true, force: true });
+    }
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(source, target);
+    if (sourceStats.isDirectory()) {
+      fs.cpSync(source, target, {
+        recursive: true,
+        force: true,
+        filter: buildCopyFilter(source, specOptions.exclude),
+      });
+    } else {
+      fs.copyFileSync(source, target);
+    }
   }
   return {
     action: options.dryRun ? 'would_write' : 'written',
@@ -112,18 +169,45 @@ function copySpec(sourceRelative, targetRelative, options = {}) {
   };
 }
 
+function buildCopyFilter(sourceRoot, excludes = []) {
+  if (!Array.isArray(excludes) || excludes.length === 0) {
+    return undefined;
+  }
+  const excludeRoots = excludes.map((entry) => path.resolve(sourceRoot, entry));
+  return (source) => !excludeRoots.some((excludeRoot) => source === excludeRoot || source.startsWith(`${excludeRoot}${path.sep}`));
+}
+
 function installSpecs(specs, options = {}) {
   return specs.map(([source, target]) => copySpec(source, target, options));
 }
 
+function installPackageSpecs(specs, options = {}) {
+  return specs.map(([source, target, specOptions]) => copyPackageSpec(source, target, specOptions, options));
+}
+
+function installAgentrixPlugin(options = {}) {
+  resolveRuntime(options);
+  const targetRoot = path.resolve(options.cwd || process.cwd(), AGENTRIX_PLUGIN_ROOT);
+  if (options.force && !options.dryRun && path.resolve(packageRootDir()) !== targetRoot && fs.existsSync(targetRoot)) {
+    fs.rmSync(targetRoot, { recursive: true, force: true });
+  }
+  return installPackageSpecs(AGENTRIX_PLUGIN_DIRS, options);
+}
+
 function installGithub(options = {}) {
   resolveRuntime(options);
-  return installSpecs([...AGENTRIX_GITHUB_WORKFLOWS, AGENTRIX_CONFIG], options);
+  return [
+    ...installAgentrixPlugin(options),
+    ...installSpecs([...AGENTRIX_GITHUB_WORKFLOWS, AGENTRIX_CONFIG], options),
+  ];
 }
 
 function installGitlab(options = {}) {
   resolveRuntime(options);
-  return installSpecs([...AGENTRIX_GITLAB_FILES, AGENTRIX_CONFIG], options);
+  return [
+    ...installAgentrixPlugin(options),
+    ...installSpecs([...AGENTRIX_GITLAB_FILES, AGENTRIX_CONFIG], options),
+  ];
 }
 
 function printResults(results) {
@@ -163,6 +247,9 @@ module.exports = {
   AGENTRIX_CONFIG,
   AGENTRIX_GITHUB_WORKFLOWS,
   AGENTRIX_GITLAB_FILES,
+  AGENTRIX_PLUGIN_DIRS,
+  AGENTRIX_PLUGIN_ROOT,
+  installAgentrixPlugin,
   installGithub,
   installGitlab,
   main,

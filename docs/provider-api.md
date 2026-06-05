@@ -158,7 +158,7 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 
 ## bootstrap.cjs
 
-安装 runtime 约定的 CI 文件。默认 runtime 是 `agentrix`。
+安装 runtime 约定的最小运行时文件、CI 文件和配置。默认 runtime 是 `agentrix`。
 
 ```bash
 node bootstrap.cjs github [--runtime agentrix] [--force] [--dry-run]
@@ -167,10 +167,11 @@ node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
 
 ### 行为
 
+- Runtime：写入 `.agentrix/plugins/issue-flow/`，只包含运行时需要的 skill、脚本和默认 prompt/template；安装期 workflow/config 不进入该目录
 - GitHub：写入 `.github/workflows/issue-flow-auto.yml`、`.github/workflows/issue-flow-comment.yml`、`.github/workflows/issue-flow-pr-merged.yml`
 - GitLab：写入 `.gitlab/issue-flow.gitlab-ci.yml`
 - Agentrix config：写入 `.github/agentrix/issue-flow/config.json`
-- Runtime 资源来自包根目录 `assets/agentrix/`
+- Runtime 资源来自 `skills/issue-flow/assets/agentrix/runtime/`，workflow/config 资源来自 `skills/issue-flow/assets/agentrix/bootstrap/`
 - 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定
 - 已存在文件默认跳过，`--force` 才覆盖
 
