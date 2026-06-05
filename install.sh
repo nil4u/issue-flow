@@ -60,13 +60,13 @@ clone_source() {
   else
     git clone --quiet --depth 1 "$repo" "$temp_root/issue-flow"
   fi
-  printf '%s\n' "$temp_root/issue-flow"
+  source_dir="$temp_root/issue-flow"
 }
 
 resolve_source_dir() {
   dir="$(script_dir)"
   if [ -n "$dir" ] && [ -f "$dir/skills/issue-flow/scripts/bootstrap.cjs" ]; then
-    printf '%s\n' "$dir"
+    source_dir="$dir"
     return
   fi
   clone_source
@@ -97,7 +97,8 @@ if [ "$target" = "auto" ]; then
   target="$(detect_target)"
 fi
 
-source_dir="$(resolve_source_dir)"
+source_dir=""
+resolve_source_dir
 bootstrap="$source_dir/skills/issue-flow/scripts/bootstrap.cjs"
 [ -f "$bootstrap" ] || die "bootstrap script not found: $bootstrap"
 
