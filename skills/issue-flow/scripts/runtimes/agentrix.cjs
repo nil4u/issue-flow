@@ -216,6 +216,14 @@ function formatIssueForPrompt(issue) {
   ].join('\n');
 }
 
+function formatRequiredSkill() {
+  return [
+    '## Required Skill',
+    '',
+    `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
+  ].join('\n');
+}
+
 function formatPlanOutput(issue, options = {}) {
   const lines = [
     '## Plan Output',
@@ -231,7 +239,7 @@ function formatPlanOutput(issue, options = {}) {
 
 function buildPrompt(action, issue, data = {}, options = {}) {
   const prompt = readPrompt(action, issue, options);
-  const blocks = [prompt.body];
+  const blocks = [formatRequiredSkill(), '', prompt.body];
 
   if (action === 'plan') {
     blocks.push('', formatPlanOutput(issue, options));

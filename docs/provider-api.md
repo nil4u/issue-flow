@@ -165,8 +165,9 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 3. template 文件名固定：`plan-bug.md`、`plan-impl.md`
 4. plan 查找固定为 `<planRootDir>/<issue-number>-<slug>/plan/*.md`
 5. branch 固定为 `<issue-number>-<slug>/plan` 和 `<issue-number>-<slug>/build`
-6. task lock marker 使用 `<!-- issue-flow:task:agentrix:<action> -->`
-7. `pr-merged` 在应用 source issue 状态流转后会立即执行一次自动路由；`mr-by::plan` merge 后可直接启动 build，`mr-by::build` merge 后因 `status::done` 跳过
+6. prompt 首位固定注入项目级 `issue-flow` skill 文件路径，例如 `.agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md`
+7. task lock marker 使用 `<!-- issue-flow:task:agentrix:<action> -->`
+8. `pr-merged` 在应用 source issue 状态流转后会立即执行一次自动路由；`mr-by::plan` merge 后可直接启动 build，`mr-by::build` merge 后因 `status::done` 跳过
 
 ## bootstrap.cjs
 
