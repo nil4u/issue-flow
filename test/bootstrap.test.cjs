@@ -64,6 +64,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       '.github/workflows/issue-flow-auto.yml',
       '.github/workflows/issue-flow-comment.yml',
       '.github/workflows/issue-flow-pr-merged.yml',
+      '.issue-flow/install-manifest.json',
     ].sort());
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
     const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
@@ -72,6 +73,16 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/config.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
+    assert.equal(manifest.version, 1);
+    assert.equal(manifest.files['.github/workflows/issue-flow-auto.yml'].mode, 'managed');
+    assert.equal(manifest.files['.issue-flow/templates/plan-impl.md'].mode, 'customizable');
+    assert.equal(
+      manifest.files['.issue-flow/templates/plan-impl.md'].source,
+      'skills/issue-flow/assets/agentrix/runtime/templates/plan-impl.md'
+    );
+    assert.match(manifest.files['.issue-flow/templates/plan-impl.md'].sha256, /^[a-f0-9]{64}$/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
@@ -88,20 +99,70 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
   }
 });
 
-test('bootstrap skips existing files unless force is set', () => {
+test('bootstrap updates legacy managed files and force overwrites conflicts', () => {
   const root = makeTempRoot();
   try {
     const workflowPath = path.join(root, '.github/workflows/issue-flow-auto.yml');
     fs.mkdirSync(path.dirname(workflowPath), { recursive: true });
     fs.writeFileSync(workflowPath, 'custom');
 
-    const skipped = installGithub({ cwd: root }).find((result) => result.target === workflowPath);
-    assert.equal(skipped.action, 'skipped');
-    assert.equal(fs.readFileSync(workflowPath, 'utf8'), 'custom');
+    const updated = installGithub({ cwd: root }).find((result) => result.target === workflowPath);
+    assert.equal(updated.action, 'updated');
+    assert.match(fs.readFileSync(workflowPath, 'utf8'), /Issue Flow Auto/);
+
+    fs.writeFileSync(workflowPath, 'custom again');
+    assert.throws(
+      () => installGithub({ cwd: root }),
+      /Install conflicts require an interactive terminal\.[\s\S]*\.github\/workflows\/issue-flow-auto\.yml/
+    );
+    assert.equal(fs.readFileSync(workflowPath, 'utf8'), 'custom again');
 
     const overwritten = installGithub({ cwd: root, force: true }).find((result) => result.target === workflowPath);
     assert.equal(overwritten.action, 'written');
     assert.match(fs.readFileSync(workflowPath, 'utf8'), /Issue Flow Auto/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap fails non-interactively when a tracked customizable file changed', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const templatePath = path.join(root, '.issue-flow/templates/plan-impl.md');
+    fs.writeFileSync(templatePath, 'custom plan template');
+
+    assert.throws(
+      () => installGithub({ cwd: root }),
+      /Install conflicts require an interactive terminal\.[\s\S]*\.issue-flow\/templates\/plan-impl\.md/
+    );
+    assert.equal(fs.readFileSync(templatePath, 'utf8'), 'custom plan template');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap removes unmodified stale files tracked by the manifest', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const stalePath = path.join(root, '.agentrix/plugins/issue-flow/stale.txt');
+    fs.writeFileSync(stalePath, 'old generated file');
+
+    const manifestPath = path.join(root, '.issue-flow/install-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files['.agentrix/plugins/issue-flow/stale.txt'] = {
+      source: 'old/stale.txt',
+      mode: 'managed',
+      sha256: require('node:crypto').createHash('sha256').update('old generated file').digest('hex'),
+    };
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const removed = installGithub({ cwd: root }).find((result) => result.target === stalePath);
+    assert.equal(removed.action, 'removed');
+    assert.equal(fs.existsSync(stalePath), false);
+    const nextManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(nextManifest.files['.agentrix/plugins/issue-flow/stale.txt'], undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -151,6 +212,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
       ...AGENTRIX_PROJECT_DIRS.map(([, target]) => target),
       '.gitlab-ci.yml',
       '.gitlab/issue-flow.gitlab-ci.yml',
+      '.issue-flow/install-manifest.json',
     ].sort());
     assert.match(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');

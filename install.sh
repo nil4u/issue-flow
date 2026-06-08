@@ -35,7 +35,11 @@ script_dir() {
       CDPATH= cd -- "$(dirname -- "$0")" && pwd
       ;;
     *)
-      printf ''
+      if [ -f "$0" ]; then
+        pwd
+      else
+        printf ''
+      fi
       ;;
   esac
 }

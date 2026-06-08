@@ -10,8 +10,8 @@
  * or modify any state. It only reads event payloads and outputs a JSON decision.
  */
 
-const fs = require('node:fs');
 const { resolveProvider } = require('./providers.cjs');
+const { loadEventPayload } = require('./events.cjs');
 
 const FLOW_PREFIX = 'flow::';
 const STATUS_PREFIX = 'status::';
@@ -335,11 +335,7 @@ function parseArgs(argv) {
 }
 
 function loadEvent(options) {
-  const eventPath = options.event || process.env.GITHUB_EVENT_PATH || process.env.GITLAB_EVENT_PATH;
-  if (!eventPath) {
-    return {};
-  }
-  return JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+  return loadEventPayload(options).payload;
 }
 
 function main(argv = process.argv.slice(2)) {

@@ -21,8 +21,6 @@ node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 --flow flow::plan 
 node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan --issue-number 123 --title "Plan #123: ..." --body-file plan.md
 ```
 
-上面两个脚本支持 `--dry-run`。
-
 ## Label 体系
 
 | Prefix | Values | 互斥规则 |

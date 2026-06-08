@@ -1,0 +1,7 @@
+{
+  "agentrix": {
+    "promptsDir": ".issue-flow/prompts",
+    "templatesDir": ".issue-flow/templates",
+    "planRootDir": ".issue-flow/issues"
+  }
+}

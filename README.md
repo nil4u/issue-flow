@@ -30,6 +30,18 @@ curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | 
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.
 
+## Reinstall and Upgrade
+
+The installer writes `.issue-flow/install-manifest.json` with the source path, mode, and sha256 for installed files. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, and removes stale files that were installed before and have not been edited.
+
+If an installed file was edited locally, reinstall prompts in an interactive terminal:
+
+```text
+skip / overwrite / skip all / overwrite all
+```
+
+In non-interactive environments, conflicts fail without changing files. Re-run the installer in a terminal to choose per conflict, or use the existing `--force` flag to overwrite generated files.
+
 ## What It Installs
 
 - `.agentrix/plugins/issue-flow/` - plugin manifest, minimal runtime skill, scripts, and default prompts/templates
@@ -37,6 +49,7 @@ The installer clones `issue-flow` into a temporary directory, then writes the ru
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions
 - `.issue-flow/config.json` - issue-flow runtime path config
+- `.issue-flow/install-manifest.json` - reinstall tracking metadata
 - `.issue-flow/prompts/` - default prompt files you can edit
 - `.issue-flow/templates/` - default plan templates you can edit
 - `.issue-flow/issues/` - generated issue plan workspace

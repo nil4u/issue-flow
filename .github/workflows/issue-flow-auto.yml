@@ -26,9 +26,8 @@ jobs:
         with:
           fetch-depth: 1
           sparse-checkout: |
-            .github/agentrix
             .agentrix/plugins/issue-flow
-            .agentrix/issues
+            .issue-flow
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

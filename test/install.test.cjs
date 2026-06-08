@@ -38,6 +38,7 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);
@@ -62,6 +63,21 @@ test('install script dry-run does not write target files', () => {
   }
 });
 
+test('install script uses checkout source when invoked without slash from checkout cwd', () => {
+  const result = spawnSync('sh', ['install.sh', 'github', '--dry-run'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ISSUE_FLOW_REPO: 'https://invalid.invalid/nil4u/issue-flow.git',
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stdout, /\(exists\)/);
+  assert.match(result.stdout, /\.issue-flow\/install-manifest\.json/);
+});
+
 test('install script installs GitLab root include from checkout source', () => {
   const root = makeTempRoot();
   try {
@@ -76,6 +92,7 @@ test('install script installs GitLab root include from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     assert.match(
       fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'),
       /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/
