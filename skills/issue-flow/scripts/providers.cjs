@@ -27,6 +27,9 @@ function detectProvider(options = {}, payload = {}) {
   if (options.provider || process.env.ISSUE_FLOW_PROVIDER) {
     return normalizeProviderName(options.provider || process.env.ISSUE_FLOW_PROVIDER);
   }
+  if (process.env.AGENTRIX_PROVIDER) {
+    return normalizeProviderName(process.env.AGENTRIX_PROVIDER);
+  }
   if (options.gitlabUrl || options.gitlabApiUrl || process.env.GITLAB_BASE_URL || process.env.GITLAB_API_URL) {
     return 'gitlab';
   }
@@ -445,37 +448,52 @@ function gitlabHostname(options = {}) {
   }
 }
 
+function gitlabApiBodyArgs(body) {
+  if (body === undefined) {
+    return [];
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('GitLab glab fallback body must be an object');
+  }
+
+  const args = [];
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (typeof value === 'string') {
+      args.push('--raw-field', `${key}=${value}`);
+      continue;
+    }
+    if (value === null || typeof value === 'boolean' || typeof value === 'number') {
+      args.push('--field', `${key}=${value === null ? 'null' : String(value)}`);
+      continue;
+    }
+    throw new Error(`GitLab glab fallback does not support non-scalar body field: ${key}`);
+  }
+  return args;
+}
+
 function requestGitlabWithGlab(method, apiPath, body, options = {}) {
   const args = ['api', apiPath.replace(/^\//, ''), '--method', method];
   const hostname = gitlabHostname(options);
-  let inputPath = '';
 
   if (hostname && hostname !== 'gitlab.com') {
     args.push('--hostname', hostname);
   }
 
-  if (body !== undefined) {
-    inputPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-glab-')), 'body.json');
-    fs.writeFileSync(inputPath, JSON.stringify(body), 'utf8');
-    args.push('--input', inputPath);
-  }
+  args.push(...gitlabApiBodyArgs(body));
 
-  try {
-    const result = spawnSync('glab', args, {
-      encoding: 'utf8',
-    });
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status !== 0) {
-      throw new Error(result.stderr.trim() || `glab api exited with status ${result.status ?? 1}`);
-    }
-    return parseJsonText(result.stdout.trim());
-  } finally {
-    if (inputPath) {
-      fs.rmSync(path.dirname(inputPath), { recursive: true, force: true });
-    }
+  const result = spawnSync('glab', args, {
+    encoding: 'utf8',
+  });
+  if (result.error) {
+    throw result.error;
   }
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `glab api exited with status ${result.status ?? 1}`);
+  }
+  return parseJsonText(result.stdout.trim());
 }
 
 async function requestGitlab(method, apiPath, body, options = {}) {
@@ -533,6 +551,9 @@ function resolveGitlabRepo(payload = {}, options = {}) {
     options.gitlabProject,
     process.env.GITLAB_PROJECT_PATH,
     process.env.CI_PROJECT_PATH,
+    process.env.AGENTRIX_REPOSITORY_OWNER && process.env.AGENTRIX_REPOSITORY_NAME
+      ? `${process.env.AGENTRIX_REPOSITORY_OWNER}/${process.env.AGENTRIX_REPOSITORY_NAME}`
+      : '',
   ]) {
     const parsed = parseRepoFullName(candidate);
     if (parsed.fullName) {
@@ -957,6 +978,7 @@ const providers = {
 module.exports = {
   detectProvider,
   extractTokenFromRemoteUrl,
+  gitlabApiBodyArgs,
   getGitlabToken,
   gitlabApiBaseUrl,
   gitlabHostname,

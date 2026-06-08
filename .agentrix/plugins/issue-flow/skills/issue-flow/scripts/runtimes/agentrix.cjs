@@ -360,7 +360,6 @@ function run(action, issue, options = {}, data = {}) {
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
-  appendOptionalArg(args, '--capability-profile', options.capabilityProfile || process.env.AGENTRIX_CAPABILITY_PROFILE);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',

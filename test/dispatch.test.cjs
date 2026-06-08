@@ -12,6 +12,29 @@ const {
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 
+function withEnv(values, callback) {
+  const previous = {};
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  return Promise.resolve()
+    .then(callback)
+    .finally(() => {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+}
+
 test('dispatch parser accepts runtime and Agentrix path options', () => {
   assert.deepEqual(parseArgs([
     'auto',
@@ -20,20 +43,20 @@ test('dispatch parser accepts runtime and Agentrix path options', () => {
     '--runtime',
     'agentrix',
     '--prompts-dir',
-    '.github/agentrix/issue-flow',
+    '.issue-flow/prompts',
     '--templates-dir',
-    '.github/agentrix/issue-flow/templates',
+    '.issue-flow/templates',
     '--plan-root-dir',
-    '.agentrix/issues',
+    '.issue-flow/issues',
   ]), {
     command: 'auto',
     options: {
       _: [],
       event: '/tmp/event.json',
       runtime: 'agentrix',
-      promptsDir: '.github/agentrix/issue-flow',
-      templatesDir: '.github/agentrix/issue-flow/templates',
-      planRootDir: '.agentrix/issues',
+      promptsDir: '.issue-flow/prompts',
+      templatesDir: '.issue-flow/templates',
+      planRootDir: '.issue-flow/issues',
     },
   });
 });
@@ -121,4 +144,40 @@ test('dispatch pr-merged auto-resumes plan merges into build action', async () =
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('dispatch pr-merged accepts Agentrix GitLab bridge MR labels and body', async () => {
+  await withEnv({
+    AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
+    AGENTRIX_PROVIDER: 'gitlab',
+    AGENTRIX_EVENT_NAME: 'pull_request',
+    AGENTRIX_EVENT_ACTION: 'closed',
+    AGENTRIX_PULL_REQUEST_MERGED: 'true',
+    AGENTRIX_PR_NUMBER: '7',
+    AGENTRIX_HEAD_REF: '42-add-widget-support/plan',
+    AGENTRIX_BASE_REF: 'main',
+    AGENTRIX_MR_TITLE: 'Plan #42: Add widget support',
+    AGENTRIX_PR_BODY: '<!-- issue-flow:source-issue=42 -->\nSource issue: #42',
+    AGENTRIX_MR_DESCRIPTION: '<!-- issue-flow:source-issue=42 -->\nSource issue: #42',
+    AGENTRIX_MR_URL: 'https://gitlab.example/example/platform/-/merge_requests/7',
+    AGENTRIX_LABELS: 'mr-by::plan',
+    AGENTRIX_LABELS_JSON: '["mr-by::plan"]',
+    CI_PROJECT_ID: '99',
+    CI_PROJECT_PATH: 'example/platform',
+    GITHUB_EVENT_PATH: undefined,
+    GITLAB_EVENT_PATH: undefined,
+  }, async () => {
+    const result = await runPrMerged({
+      provider: 'gitlab',
+      dryRun: true,
+      autoDefault: 'build',
+    });
+
+    assert.equal(result.transition.provider, 'gitlab');
+    assert.equal(result.transition.action, 'applied');
+    assert.equal(result.transition.issueNumber, 42);
+    assert.equal(result.transition.flow, 'flow::build');
+    assert.equal(result.autoResume.action, 'build');
+    assert.equal(result.autoResume.result.status, 'dry-run');
+  });
 });

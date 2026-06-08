@@ -42,7 +42,15 @@ script_dir() {
 
 detect_target() {
   remote="$(git config --get remote.origin.url 2>/dev/null || true)"
-  if [ -f ".gitlab-ci.yml" ] || printf '%s' "$remote" | grep -qi 'gitlab'; then
+  if [ -f ".gitlab-ci.yml" ]; then
+    printf 'gitlab'
+    return
+  fi
+  if printf '%s' "$remote" | grep -qi 'github'; then
+    printf 'github'
+    return
+  fi
+  if [ -n "$remote" ]; then
     printf 'gitlab'
     return
   fi

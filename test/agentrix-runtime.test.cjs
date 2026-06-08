@@ -11,6 +11,10 @@ test('agentrix mention extraction keeps manual instruction text', () => {
     triggered: true,
     instruction: 'please plan this',
   });
+  assert.deepEqual(agentrix.extractMention('/agentrix please plan this'), {
+    triggered: true,
+    instruction: 'please plan this',
+  });
   assert.deepEqual(agentrix.extractMention('@bot please plan this'), {
     triggered: false,
     instruction: '',

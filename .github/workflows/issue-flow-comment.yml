@@ -41,5 +41,4 @@ jobs:
           AGENTRIX_API_KEY: ${{ secrets.AGENTRIX_API_KEY }}
           AGENTRIX_RUNNER_ID: ${{ vars.AGENTRIX_RUNNER_ID }}
           AGENTRIX_ISSUE_FLOW_AGENT: ${{ vars.AGENTRIX_ISSUE_FLOW_AGENT }}
-          AGENTRIX_CAPABILITY_PROFILE: ${{ vars.AGENTRIX_CAPABILITY_PROFILE }}
         run: node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs comment --event "$GITHUB_EVENT_PATH"

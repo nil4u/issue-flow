@@ -13,8 +13,20 @@ const AGENTRIX_GITHUB_WORKFLOWS = [
 const AGENTRIX_GITLAB_FILES = [
   ['workflows/gitlab/issue-flow.gitlab-ci.yml', '.gitlab/issue-flow.gitlab-ci.yml'],
 ];
-const AGENTRIX_CONFIG = ['config.json', '.github/agentrix/issue-flow/config.json'];
+const GITLAB_ROOT_CI = '.gitlab-ci.yml';
+const GITLAB_PROJECT_CI = '.gitlab/issue-flow-project.gitlab-ci.yml';
+const GITLAB_ISSUE_FLOW_CI = '.gitlab/issue-flow.gitlab-ci.yml';
+const AGENTRIX_CONFIG = ['config.json', '.issue-flow/config.json'];
+const AGENTRIX_PROJECT_FILES = [
+  AGENTRIX_CONFIG,
+  ['issue-flow/issues/README.md', '.issue-flow/issues/README.md'],
+];
+const AGENTRIX_PROJECT_DIRS = [
+  ['skills/issue-flow/assets/agentrix/runtime/prompts', '.issue-flow/prompts'],
+  ['skills/issue-flow/assets/agentrix/runtime/templates', '.issue-flow/templates'],
+];
 const AGENTRIX_PLUGIN_ROOT = '.agentrix/plugins/issue-flow';
+const LEGACY_AGENTRIX_PROJECT_ROOT = '.agentrix/issue-flow';
 const AGENTRIX_PLUGIN_MANIFEST = ['.claude-plugin/plugin.json', `${AGENTRIX_PLUGIN_ROOT}/.claude-plugin/plugin.json`];
 const AGENTRIX_PLUGIN_DIRS = [
   [
@@ -199,29 +211,117 @@ function installAgentrixPlugin(options = {}) {
   return installPackageSpecs(AGENTRIX_PLUGIN_SPECS, options);
 }
 
+function removeLegacyAgentrixProjectRoot(options = {}) {
+  const cwd = options.cwd || process.cwd();
+  const target = path.resolve(cwd, LEGACY_AGENTRIX_PROJECT_ROOT);
+  if (!options.force || !fs.existsSync(target)) {
+    return [];
+  }
+
+  if (!options.dryRun) {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+  return [{
+    action: options.dryRun ? 'would_remove' : 'removed',
+    source: target,
+    target,
+  }];
+}
+
+function installAgentrixProjectScaffold(options = {}) {
+  return [
+    ...installSpecs(AGENTRIX_PROJECT_FILES, options),
+    ...installPackageSpecs(AGENTRIX_PROJECT_DIRS, options),
+  ];
+}
+
 function installGithub(options = {}) {
   resolveRuntime(options);
   return [
+    ...removeLegacyAgentrixProjectRoot(options),
     ...installAgentrixPlugin(options),
-    ...installSpecs([...AGENTRIX_GITHUB_WORKFLOWS, AGENTRIX_CONFIG], options),
+    ...installSpecs(AGENTRIX_GITHUB_WORKFLOWS, options),
+    ...installAgentrixProjectScaffold(options),
   ];
+}
+
+function gitlabRootCiContent(includeProjectCi = false) {
+  const lines = [
+    'include:',
+    `  - local: ${GITLAB_ISSUE_FLOW_CI}`,
+  ];
+  if (includeProjectCi) {
+    lines.push(`  - local: ${GITLAB_PROJECT_CI}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function hasIssueFlowGitlabInclude(content) {
+  return String(content || '').includes(GITLAB_ISSUE_FLOW_CI);
+}
+
+function installGitlabRootCi(options = {}) {
+  const cwd = options.cwd || process.cwd();
+  const target = path.resolve(cwd, GITLAB_ROOT_CI);
+  const projectTarget = path.resolve(cwd, GITLAB_PROJECT_CI);
+  if (!fs.existsSync(target)) {
+    return copySpec('workflows/gitlab/root.gitlab-ci.yml', GITLAB_ROOT_CI, options);
+  }
+
+  const current = fs.readFileSync(target, 'utf8');
+  if (hasIssueFlowGitlabInclude(current)) {
+    return {
+      action: 'skipped',
+      reason: 'configured',
+      source: target,
+      target,
+    };
+  }
+
+  if (fs.existsSync(projectTarget) && !options.force) {
+    return {
+      action: 'skipped',
+      reason: 'project-ci-exists',
+      source: target,
+      target,
+      message: `${GITLAB_PROJECT_CI} already exists; re-run with --force or add ${GITLAB_ISSUE_FLOW_CI} to ${GITLAB_ROOT_CI}.`,
+    };
+  }
+
+  if (!options.dryRun) {
+    fs.mkdirSync(path.dirname(projectTarget), { recursive: true });
+    fs.writeFileSync(projectTarget, current, 'utf8');
+    fs.writeFileSync(target, gitlabRootCiContent(true), 'utf8');
+  }
+
+  return {
+    action: options.dryRun ? 'would_wrap' : 'wrapped',
+    source: target,
+    target,
+    projectTarget,
+    message: `${GITLAB_ROOT_CI} now includes issue-flow and ${GITLAB_PROJECT_CI}.`,
+  };
 }
 
 function installGitlab(options = {}) {
   resolveRuntime(options);
   return [
+    ...removeLegacyAgentrixProjectRoot(options),
     ...installAgentrixPlugin(options),
-    ...installSpecs([...AGENTRIX_GITLAB_FILES, AGENTRIX_CONFIG], options),
+    installGitlabRootCi(options),
+    ...installSpecs(AGENTRIX_GITLAB_FILES, options),
+    ...installAgentrixProjectScaffold(options),
   ];
 }
 
 function printResults(results) {
   for (const result of results) {
     const relativeTarget = path.relative(process.cwd(), result.target) || result.target;
+    const suffix = result.message ? ` - ${result.message}` : '';
     if (result.action === 'skipped') {
-      console.log(`skip ${relativeTarget} (${result.reason})`);
+      console.log(`skip ${relativeTarget} (${result.reason})${suffix}`);
     } else {
-      console.log(`${result.action} ${relativeTarget}`);
+      console.log(`${result.action} ${relativeTarget}${suffix}`);
     }
   }
 }
@@ -252,11 +352,15 @@ module.exports = {
   AGENTRIX_CONFIG,
   AGENTRIX_GITHUB_WORKFLOWS,
   AGENTRIX_GITLAB_FILES,
+  AGENTRIX_PROJECT_DIRS,
+  AGENTRIX_PROJECT_FILES,
   AGENTRIX_PLUGIN_DIRS,
   AGENTRIX_PLUGIN_MANIFEST,
   AGENTRIX_PLUGIN_ROOT,
   AGENTRIX_PLUGIN_SPECS,
+  LEGACY_AGENTRIX_PROJECT_ROOT,
   installAgentrixPlugin,
+  installAgentrixProjectScaffold,
   installGithub,
   installGitlab,
   main,

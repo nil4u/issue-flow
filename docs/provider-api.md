@@ -14,12 +14,13 @@
 
 1. `--provider` 参数
 2. `ISSUE_FLOW_PROVIDER` env
-3. GitLab 特有 env（`GITLAB_BASE_URL` 等）
-4. repo 路径中包含 gitlab/github
-5. GitLab token env（`GITLAB_TOKEN` 等）
-6. event payload 结构（`object_kind` → gitlab）
-7. git remote host
-8. 默认 github
+3. Agentrix bridge env（`AGENTRIX_PROVIDER=gitlab`）
+4. GitLab 特有 env（`GITLAB_BASE_URL` 等）
+5. repo 路径中包含 gitlab/github
+6. GitLab token env（`GITLAB_TOKEN` 等）
+7. event payload 结构（`object_kind` → gitlab）
+8. git remote host
+9. 默认 github
 
 ## Token
 
@@ -34,6 +35,17 @@
 读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN`
 
 无 token 时尝试 `glab` CLI fallback。
+
+## Event payload
+
+GitHub Actions 使用 `GITHUB_EVENT_PATH` 读取事件文件。
+
+GitLab 的推荐入口是 Agentrix daemon webhook bridge。bridge 触发 pipeline 时没有事件文件，
+脚本会从 `AGENTRIX_TRIGGER_SOURCE=agentrix_daemon_webhook`、`AGENTRIX_EVENT_NAME`、
+`AGENTRIX_EVENT_ACTION`、`AGENTRIX_ISSUE_NUMBER`、`AGENTRIX_PR_NUMBER`、
+`AGENTRIX_LABELS_JSON`、`AGENTRIX_PR_BODY` 等变量合成兼容 payload。
+
+如果显式传入 `--event` 或设置 `GITLAB_EVENT_PATH`，事件文件优先。
 
 ## apply.cjs
 
@@ -139,9 +151,9 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 ```json
 {
   "agentrix": {
-    "promptsDir": ".github/agentrix/issue-flow",
-    "templatesDir": ".github/agentrix/issue-flow/templates",
-    "planRootDir": ".agentrix/issues"
+    "promptsDir": ".issue-flow/prompts",
+    "templatesDir": ".issue-flow/templates",
+    "planRootDir": ".issue-flow/issues"
   }
 }
 ```
@@ -169,8 +181,10 @@ node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
 
 - Runtime：写入 `.agentrix/plugins/issue-flow/`，只包含运行时需要的 skill、脚本和默认 prompt/template；安装期 workflow/config 不进入该目录
 - GitHub：写入 `.github/workflows/issue-flow-auto.yml`、`.github/workflows/issue-flow-comment.yml`、`.github/workflows/issue-flow-pr-merged.yml`
-- GitLab：写入 `.gitlab/issue-flow.gitlab-ci.yml`
-- Agentrix config：写入 `.github/agentrix/issue-flow/config.json`
+- GitLab：写入 `.gitlab-ci.yml` 和 `.gitlab/issue-flow.gitlab-ci.yml`
+- 如果目标项目已有 `.gitlab-ci.yml` 且尚未 include issue-flow，安装器会把原内容保存为
+  `.gitlab/issue-flow-project.gitlab-ci.yml`，并将根 `.gitlab-ci.yml` 改成同时 include 原 pipeline 和 issue-flow
+- issue-flow 项目配置：写入 `.issue-flow/config.json`、`.issue-flow/prompts/`、`.issue-flow/templates/`、`.issue-flow/issues/README.md`
 - Runtime 资源来自 `skills/issue-flow/assets/agentrix/runtime/`，workflow/config 资源来自 `skills/issue-flow/assets/agentrix/bootstrap/`
 - 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定
 - 已存在文件默认跳过，`--force` 才覆盖

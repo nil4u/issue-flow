@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const fs = require('node:fs');
 const { providers, resolveProvider } = require('./providers.cjs');
+const { loadEventPayload } = require('./events.cjs');
 const {
   resolveAutomationDecision: resolveCoreAutomationDecision,
   resolveResumeDecision,
@@ -112,18 +112,20 @@ function parseArgs(argv) {
   return { command, options };
 }
 
-function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
 function loadEvent(options = {}) {
-  const eventPath = options.event || process.env.GITHUB_EVENT_PATH || process.env.GITLAB_EVENT_PATH;
-  if (!eventPath) {
+  const loaded = loadEventPayload(options);
+  if (loaded.source === 'empty') {
     logIssueFlow('No event path provided; using empty payload');
     return {};
   }
-  logIssueFlow('Loading event payload', { eventPath });
-  const payload = readJsonFile(eventPath);
+
+  if (loaded.source === 'file') {
+    logIssueFlow('Loading event payload', { eventPath: loaded.eventPath });
+  } else {
+    logIssueFlow('Loading event payload from Agentrix GitLab bridge');
+  }
+
+  const payload = loaded.payload;
   const provider = resolveProvider(options, payload);
   logIssueFlow('Loaded event payload', {
     provider: provider.name,

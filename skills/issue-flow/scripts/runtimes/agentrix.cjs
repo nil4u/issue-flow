@@ -8,10 +8,12 @@ const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
 const DEFAULT_AGENTRIX_RUN_VERSION = '0.4.0';
 const DEFAULT_MENTION = '@agentrix';
-const DEFAULT_PROJECT_CONFIG_PATH = '.github/agentrix/issue-flow/config.json';
-const DEFAULT_PROMPTS_DIR = '.github/agentrix/issue-flow';
-const DEFAULT_TEMPLATES_DIR = '.github/agentrix/issue-flow/templates';
-const DEFAULT_PLAN_ROOT_DIR = '.agentrix/issues';
+const MENTION_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/i;
+const MENTION_REPLACE_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/gi;
+const DEFAULT_PROJECT_CONFIG_PATH = '.issue-flow/config.json';
+const DEFAULT_PROMPTS_DIR = '.issue-flow/prompts';
+const DEFAULT_TEMPLATES_DIR = '.issue-flow/templates';
+const DEFAULT_PLAN_ROOT_DIR = '.issue-flow/issues';
 const PLAN_SUBDIR = 'plan';
 const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
@@ -256,10 +258,6 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   return blocks.join('\n');
 }
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function extractMention(body) {
   if (typeof body !== 'string') {
     return {
@@ -268,17 +266,15 @@ function extractMention(body) {
     };
   }
 
-  const mentionPattern = new RegExp(`(^|\\s)${escapeRegExp(DEFAULT_MENTION)}\\b`, 'i');
-  if (!mentionPattern.test(body)) {
+  if (!MENTION_PATTERN.test(body)) {
     return {
       triggered: false,
       instruction: '',
     };
   }
 
-  const replacePattern = new RegExp(`(^|\\s)${escapeRegExp(DEFAULT_MENTION)}\\b`, 'gi');
   const instruction = body
-    .replace(replacePattern, ' ')
+    .replace(MENTION_REPLACE_PATTERN, ' ')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/^[\s:：,，;；-]+/, '')
     .trim();
@@ -360,7 +356,6 @@ function run(action, issue, options = {}, data = {}) {
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
-  appendOptionalArg(args, '--capability-profile', options.capabilityProfile || process.env.AGENTRIX_CAPABILITY_PROFILE);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',

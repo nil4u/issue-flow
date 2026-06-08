@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
+const { loadEventPayload } = require('./events.cjs');
 
 const MERGED_PR_TRANSITIONS = {
   plan: {
@@ -65,16 +65,12 @@ function parseArgs(argv) {
   return options;
 }
 
-function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
 function loadEvent(options) {
-  const eventPath = options.event || process.env.GITHUB_EVENT_PATH || process.env.GITLAB_EVENT_PATH;
-  if (!eventPath) {
-    throw new Error('Missing event path. Pass --event or set GITHUB_EVENT_PATH or GITLAB_EVENT_PATH.');
+  const loaded = loadEventPayload(options);
+  if (loaded.source === 'empty') {
+    throw new Error('Missing event payload. Pass --event, set GITHUB_EVENT_PATH/GITLAB_EVENT_PATH, or run from an Agentrix GitLab bridge pipeline.');
   }
-  return readJsonFile(eventPath);
+  return loaded.payload;
 }
 
 function resolveRepo(payload, options) {
