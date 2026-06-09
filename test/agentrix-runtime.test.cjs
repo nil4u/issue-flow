@@ -51,7 +51,7 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
     {
       number: 42,
       state: 'open',
-      labels: ['type::bug', 'flow::plan'],
+      labels: ['status::active', 'type::bug', 'flow::plan', 'automation::plan', 'priority::p2'],
       title: 'Broken login',
       body: 'Cannot log in.',
     },
@@ -65,6 +65,11 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.match(prompt, /Plan branch: `42-broken-login\/plan`/);
   assert.match(prompt, /## Required Skill/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
+  assert.match(prompt, /^Labels: type::bug, priority::p2$/m);
+  assert.doesNotMatch(prompt, /^State: open$/m);
+  assert.doesNotMatch(prompt, /^Labels: .*status::active/m);
+  assert.doesNotMatch(prompt, /^Labels: .*flow::plan/m);
+  assert.doesNotMatch(prompt, /^Labels: .*automation::plan/m);
   assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
   assert.doesNotMatch(prompt, /Prompt override directory/);
   assert.doesNotMatch(prompt, /Template override directory/);
