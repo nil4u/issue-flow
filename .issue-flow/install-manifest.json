@@ -9,7 +9,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "4b5b2108f4dba383966a24cf612d45159778c324201956d0208c0afd1fffe11c"
+      "sha256": "91663a901fa9cfed90360022e988e9ebf09d3403f2b0a87160b7522bb824507e"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md",
@@ -34,7 +34,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md",
       "mode": "managed",
-      "sha256": "eba35e9c6d3caf86246b9f0c37cf6493411790d2acad10e8db5bd5e2c39ec425"
+      "sha256": "46232237934f5fda2dd363a4e674ca0eb1b79161963dd4b147e48809b17ded6e"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/templates/README.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/templates/README.md",
@@ -74,7 +74,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/references/labels.md": {
       "source": "skills/issue-flow/references/labels.md",
       "mode": "managed",
-      "sha256": "882ae82e14c11fa19090bd3842cd56098d6a56abcc33ff1f9efabc94e251f982"
+      "sha256": "7f231d9818633b61260f664f30628f96502509504222e2b5e3ec5dc8ae2d45de"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/apply.cjs": {
       "source": "skills/issue-flow/scripts/apply.cjs",
@@ -114,7 +114,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
       "mode": "managed",
-      "sha256": "7f6c9653ea87df9bfa6495e3e6153935de7d2b4d194bccfa5f6bde213a21a418"
+      "sha256": "9333a10ec3aff1d0ed9550af7d68026b204470bea6d5addac2a6777d8f1fd337"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
@@ -169,7 +169,7 @@
     ".issue-flow/prompts/triage.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md",
       "mode": "customizable",
-      "sha256": "eba35e9c6d3caf86246b9f0c37cf6493411790d2acad10e8db5bd5e2c39ec425"
+      "sha256": "46232237934f5fda2dd363a4e674ca0eb1b79161963dd4b147e48809b17ded6e"
     },
     ".issue-flow/templates/README.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/templates/README.md",

@@ -19,6 +19,7 @@ const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
 const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
+const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
@@ -202,13 +203,19 @@ function findIssuePlanFiles(issue, options = {}) {
   return planFiles.sort();
 }
 
+function formatIssueLabelsForPrompt(issue) {
+  const labels = Array.isArray(issue.labels)
+    ? issue.labels.filter((label) => !PROMPT_CONTEXT_LABEL_SKIP_PREFIXES.some((prefix) => label.startsWith(prefix)))
+    : [];
+  return labels.length > 0 ? labels.join(', ') : '(none)';
+}
+
 function formatIssueForPrompt(issue) {
   return [
     '## Issue',
     '',
     `Number: #${issue.number}`,
-    `State: ${issue.state || '(unknown)'}`,
-    `Labels: ${Array.isArray(issue.labels) && issue.labels.length > 0 ? issue.labels.join(', ') : '(none)'}`,
+    `Labels: ${formatIssueLabelsForPrompt(issue)}`,
     `Title: ${issue.title || '(untitled)'}`,
     '',
     'Body:',

@@ -9,32 +9,31 @@ metadata:
 
 # Issue Flow
 
-确定性 issue 状态流转。Agent 通过脚本操作 git provider，不直接调 API。
+issue-flow 定义了一套基于 issue 和 PR/MR 的 agent 自动化开发流程。
 
-## Quick Reference
+Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态机的 source of truth。PR/MR 是 human review 和审批介入的关键环节；agent 通过 PR/MR 提交 plan/build 产物，merge 后再推进 source issue。
 
-```bash
-# 变更 label
-node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 --flow flow::plan --type type::feature
+在 issue-flow 下工作时，必须遵循两条操作规范：
 
-# 提交 PR
-node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan --issue-number 123 --title "Plan #123: ..." --body-file plan.md
-```
+1. 使用 `apply.cjs` 操作 issue 的 managed labels。
+2. 使用 `submit.cjs` 创建或更新 plan/build PR/MR。
 
 ## Label 体系
 
-| Prefix | Values | 互斥规则 |
-|--------|--------|----------|
-| `type::` | feature, bug, debt, ops | 同 prefix 只留一个 |
-| `status::` | active, done, drop, suspend | 同 prefix 只留一个 |
-| `flow::` | triage, plan, build, review, clarify, approve | 同 prefix 只留一个 |
-| `automation::` | plan, build | 同 prefix 只留一个 |
-| `priority::` | p0, p1, p2, p3 | 同 prefix 只留一个 |
-| `mr-by::` | plan, build | PR/MR 专属 |
+所有 managed label 按 prefix 分组，同一 prefix 内互斥。未指定某个 prefix 时，脚本不触碰该 prefix 的现有 label。
+
+| Prefix | Scope | 作用 | Values |
+|--------|-------|------|--------|
+| `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops` |
+| `status::` | Issue | 生命周期状态 | `active`, `done`, `drop`, `suspend` |
+| `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `review`, `clarify`, `approve` |
+| `automation::` | Issue | 允许自动化推进到的级别 | `plan`, `build` |
+| `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
+| `mr-by::` | PR/MR | 标记 PR/MR 来源动作 | `plan`, `build` |
 
 详情请参考：`references/labels.md`。
 
-## 脚本详情
+## Provider 写操作
 
 ### apply.cjs — 变更 Label / Body
 
@@ -52,7 +51,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs \
 ```
 
 - 只移除指定 prefix 的旧 label，不动其他 prefix
-- `flow::clarify` 时忽略 `--normalized-body-file`
+- 设置 `flow::clarify` 时不会更新 issue body（会忽略 `--normalized-body-file`）
 - 不接受 `mr-by::*`
 
 ### submit.cjs — 发布 PR/MR
@@ -70,11 +69,15 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan|build \
 
 ### Triage
 
+`flow::`（下一步动作）与 `automation::`（自动化推进上限）是独立判断，不要求一致：
+
 ```bash
-# 1. 读取 issue 内容，判断类型 type、优先级 priority 和自动化级别 automation
-# 2. 决定下一步 flow
+# 实现路径已确定的简单改动，直接进入 build：
 node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 \
-  --type type::feature --priority priority::p1 --flow flow::plan
+  --type type::feature --priority priority::p1 --flow flow::build --automation automation::build
+# 需要先规划，plan PR 合并后自动续推到 build：
+node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 \
+  --type type::feature --priority priority::p1 --flow flow::plan --automation automation::build
 ```
 
 ### Plan → Submit
@@ -101,11 +104,3 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs build \
 node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 --flow flow::clarify
 # 然后按照具体agent的说明在指定的位置进行问题澄清
 ```
-
-## Hard Rules
-
-1. **不直接调 provider API** — 所有 label/body/PR 操作走脚本
-2. **`mr-by::*` 只加在 PR/MR** — 不加在 source issue
-3. **`flow::clarify` 永不改写 body** — 脚本自动忽略
-4. **无 token 时** — 脚本输出可重跑命令，不静默失败
-5. **Label 互斥** — 同 prefix 只保留一个（脚本自动处理）
