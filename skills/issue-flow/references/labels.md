@@ -30,9 +30,11 @@ Issue 生命周期状态。
 
 ### flow::
 
-当前所处的工作流阶段。
+当前所处的工作流阶段（下一步动作）。
 
-| Label | 语义 | 自动执行？ |
+「可自动化」列指该步是否可被自动化驱动（而非人工 gate）；标 `是` 的步骤是否真正自动触发，还要由 `automation::` 上限决定（见下）。
+
+| Label | 语义 | 可自动化？ |
 |-------|------|-----------|
 | `flow::triage` | 等待分类/规范化 | 是 |
 | `flow::plan` | 等待方案规划 | 是 |
@@ -43,18 +45,18 @@ Issue 生命周期状态。
 
 ### automation::
 
-Issue 级别的自动化策略。
+Issue 级别的自动化策略：**允许自动化推进到的上限**。与 `flow::` 正交——`flow::` 是当前这一步，`automation::` 是这个 issue 能自动跑多远。
 
 | Label | 语义 |
 |-------|------|
-| `automation::plan` | 允许自动执行到 plan 级别 |
-| `automation::build` | 允许自动执行到 build 级别 |
+| `automation::plan` | 自动推进到 plan 为止，build 需人工触发 |
+| `automation::build` | 自动推进到 build；若走 plan，plan PR 合并后自动续推 |
 
 自动化级别排序：`off` < `triage` < `plan` < `build`
 
 有效级别 = max(repo 默认级别, issue automation:: label)
 
-重要：issue label 只能**提升**自动化级别，不能降低 repo 默认级别。
+重要：issue label 只能**提升**自动化级别，不能降低 repo 默认级别。不确定时不标，沿用 repo 默认。
 
 apply.cjs 只接受 `automation::plan` 和 `automation::build`。
 `automation::triage` 和 `automation::off` 不是合法 label 值。

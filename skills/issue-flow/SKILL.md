@@ -69,11 +69,15 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan|build \
 
 ### Triage
 
+`flow::`（下一步动作）与 `automation::`（自动化推进上限）是独立判断，不要求一致：
+
 ```bash
-# 1. 读取 issue 内容，判断类型 type、优先级 priority 和自动化级别 automation
-# 2. 决定下一步 flow
+# 实现路径已确定的简单改动，直接进入 build：
 node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 \
-  --type type::feature --priority priority::p1 --flow flow::plan
+  --type type::feature --priority priority::p1 --flow flow::build --automation automation::build
+# 需要先规划，plan PR 合并后自动续推到 build：
+node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 \
+  --type type::feature --priority priority::p1 --flow flow::plan --automation automation::build
 ```
 
 ### Plan → Submit
