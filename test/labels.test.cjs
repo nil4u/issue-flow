@@ -18,6 +18,13 @@ test('apply script exposes only plan and build automation issue labels', () => {
   );
 });
 
+test('apply script rejects review as an issue flow label', () => {
+  assert.throws(
+    () => collectDesiredLabels({ flow: 'flow::review' }),
+    /flow must be one of: flow::triage, flow::plan, flow::build, flow::clarify, flow::approve/
+  );
+});
+
 test('managed label changes remove only selected conflicting prefixes', () => {
   assert.deepEqual(
     computeLabelChanges(

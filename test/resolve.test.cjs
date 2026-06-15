@@ -115,6 +115,24 @@ test('automation decision runs build when manual automation label allows current
   );
 });
 
+test('automation decision rejects old flow::review without resolving a review action', () => {
+  assert.deepEqual(
+    resolveAutomationDecision(
+      {
+        state: 'open',
+        labels: ['status::active', 'flow::review', 'automation::build'],
+      },
+      { autoDefault: 'build' }
+    ),
+    {
+      shouldRun: false,
+      reason: 'unsupported_flow',
+      flowLabel: 'flow::review',
+      automationLabel: 'automation::build',
+    }
+  );
+});
+
 test('automation decision never runs closed issues', () => {
   assert.deepEqual(
     resolveAutomationDecision(

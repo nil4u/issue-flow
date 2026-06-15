@@ -102,6 +102,32 @@ test('agentrix build prompt injects build context without plan output section', 
   assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
 });
 
+test('agentrix review prompt uses PR/MR context instead of issue flow instructions', () => {
+  const prompt = agentrix.buildPullRequestPrompt({
+    provider: 'github',
+    repoFullName: 'example/platform',
+    number: 9,
+    state: 'open',
+    draft: false,
+    merged: false,
+    baseRef: 'main',
+    headRef: '42-add-export-button/build',
+    labels: ['mr-by::build'],
+    author: 'alice',
+    htmlUrl: 'https://github.com/example/platform/pull/9',
+    title: 'Build #42: Add export button',
+    body: '<!-- issue-flow:source-issue=42 -->\nAdds export support.',
+  });
+
+  assert.match(prompt, /## Pull Request/);
+  assert.match(prompt, /Number: #9/);
+  assert.match(prompt, /Possible source issue: #42/);
+  assert.match(prompt, /不要修改 source issue label/);
+  assert.doesNotMatch(prompt, /## Issue/);
+  assert.doesNotMatch(prompt, /flow::triage/);
+  assert.doesNotMatch(prompt, /automation::build/);
+});
+
 test('agentrix default prompts delegate script details to the issue-flow skill', () => {
   const promptsDir = path.resolve(__dirname, '..', 'skills', 'issue-flow', 'assets', 'agentrix', 'runtime', 'prompts');
   for (const entry of fs.readdirSync(promptsDir, { withFileTypes: true })) {

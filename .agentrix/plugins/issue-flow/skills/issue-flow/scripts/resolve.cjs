@@ -21,7 +21,6 @@ const SUPPORTED_FLOW_COMMANDS = new Map([
   ['flow::triage', 'triage'],
   ['flow::plan', 'plan'],
   ['flow::build', 'build'],
-  ['flow::review', 'review'],
 ]);
 const AUTOMATION_LEVELS = ['off', 'triage', 'plan', 'build'];
 const AUTOMATION_LEVEL_RANK = new Map(AUTOMATION_LEVELS.map((level, index) => [level, index]));
@@ -50,8 +49,7 @@ function maxAutomationLevel(...levels) {
 }
 
 function automationCanRunAction(effectiveLevel, action) {
-  const actionLevel = action === 'review' ? 'build' : action;
-  const requiredLevel = normalizeAutomationLevel(actionLevel, 'issue-flow action');
+  const requiredLevel = normalizeAutomationLevel(action, 'issue-flow action');
   return AUTOMATION_LEVEL_RANK.get(normalizeAutomationLevel(effectiveLevel)) >= AUTOMATION_LEVEL_RANK.get(requiredLevel);
 }
 

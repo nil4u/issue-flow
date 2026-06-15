@@ -106,3 +106,12 @@ Source issue 通过以下优先级确定：
 
 - `flow::clarify` — agent 缺少信息，需人工回答
 - `flow::approve` — plan/build PR 等待人工审批
+
+## PR/MR Review Check
+
+Review 是 PR/MR 级别的独立自动检查任务，不是 source issue 状态机节点，也不是 `flow::approve` 的替代语义。
+
+- 触发入口：PR/MR opened、synchronize、ready_for_review，或人工触发 `dispatch.cjs pr-review --pr-number <num>`
+- 开关：`ISSUE_FLOW_REVIEW_ENABLED`，默认关闭；只有 `true` 或 `1` 会启用
+- 策略隔离：不受 `automation::` label 或 `ISSUE_FLOW_AUTO_DEFAULT` 影响
+- 状态隔离：review 不修改 source issue label，不推进 `flow::`，不清理 `automation::`

@@ -15,7 +15,7 @@ const MANAGED_LABELS = {
   },
   flow: {
     prefix: 'flow::',
-    values: ['flow::triage', 'flow::plan', 'flow::build', 'flow::review', 'flow::clarify', 'flow::approve'],
+    values: ['flow::triage', 'flow::plan', 'flow::build', 'flow::clarify', 'flow::approve'],
   },
   automation: {
     prefix: 'automation::',

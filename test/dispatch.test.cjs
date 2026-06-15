@@ -7,10 +7,13 @@ const test = require('node:test');
 const {
   parseArgs,
   resolveAutomationDecision,
+  resolveReviewEnabled,
   resolveRuntimeResumeDecision,
   runPrMerged,
+  runPrReview,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
+const { providers } = require('../skills/issue-flow/scripts/providers.cjs');
 
 function withEnv(values, callback) {
   const previous = {};
@@ -48,6 +51,10 @@ test('dispatch parser accepts runtime and Agentrix path options', () => {
     '.issue-flow/templates',
     '--plan-root-dir',
     '.issue-flow/issues',
+    '--pr-number',
+    '12',
+    '--review-enabled',
+    'true',
   ]), {
     command: 'auto',
     options: {
@@ -57,6 +64,8 @@ test('dispatch parser accepts runtime and Agentrix path options', () => {
       promptsDir: '.issue-flow/prompts',
       templatesDir: '.issue-flow/templates',
       planRootDir: '.issue-flow/issues',
+      prNumber: '12',
+      reviewEnabled: 'true',
     },
   });
 });
@@ -72,7 +81,7 @@ test('dispatch rejects workflow and plugin directory overrides', () => {
   );
 });
 
-test('dispatch automation skips flow actions unsupported by runtime', () => {
+test('dispatch automation treats old flow::review as unsupported issue flow', () => {
   assert.deepEqual(
     resolveAutomationDecision(
       {
@@ -85,17 +94,13 @@ test('dispatch automation skips flow actions unsupported by runtime', () => {
     {
       shouldRun: false,
       reason: 'unsupported_flow',
-      action: 'review',
       flowLabel: 'flow::review',
       automationLabel: 'automation::build',
-      repoDefaultLevel: 'build',
-      issueAutomationLevel: 'build',
-      effectiveLevel: 'build',
     }
   );
 });
 
-test('dispatch resume skips flow actions unsupported by runtime', () => {
+test('dispatch resume treats old flow::review as unsupported issue flow', () => {
   assert.deepEqual(
     resolveRuntimeResumeDecision(
       {
@@ -107,10 +112,87 @@ test('dispatch resume skips flow actions unsupported by runtime', () => {
     {
       shouldRun: false,
       reason: 'unsupported_flow',
-      action: 'review',
       flowLabel: 'flow::review',
     }
   );
+});
+
+test('dispatch pr-review uses its own enable flag', async () => {
+  assert.equal(resolveReviewEnabled({ reviewEnabled: 'true' }), true);
+  assert.equal(resolveReviewEnabled({ reviewEnabled: '1' }), true);
+  assert.equal(resolveReviewEnabled({ reviewEnabled: 'false' }), false);
+
+  await withEnv({
+    ISSUE_FLOW_AUTO_DEFAULT: 'build',
+    ISSUE_FLOW_REVIEW_ENABLED: undefined,
+  }, async () => {
+    assert.deepEqual(await runPrReview({ dryRun: true }), {
+      action: 'skipped',
+      reason: 'review_disabled',
+    });
+  });
+});
+
+test('dispatch pr-review queues runtime review when enabled', async () => {
+  const result = await runPrReview(
+    {
+      dryRun: true,
+      reviewEnabled: '1',
+    },
+    {
+      payload: {
+        pull_request: {
+          number: 9,
+          state: 'open',
+          draft: false,
+          merged: false,
+          title: 'Build #42: Add widget support',
+          body: '<!-- issue-flow:source-issue=42 -->',
+          html_url: 'https://github.com/example/platform/pull/9',
+          base: { ref: 'main' },
+          head: { ref: '42-add-widget-support/build' },
+          labels: [{ name: 'mr-by::build' }],
+          user: { login: 'alice' },
+        },
+        repository: { full_name: 'example/platform' },
+      },
+    }
+  );
+
+  assert.equal(result.action, 'pr-review');
+  assert.equal(result.result.status, 'dry-run');
+});
+
+test('dispatch pr-review manual path fetches PR/MR and skips draft state', async () => {
+  const original = providers.github.fetchCurrentPullRequest;
+  let fetched = false;
+  providers.github.fetchCurrentPullRequest = async (pr) => {
+    fetched = true;
+    return {
+      ...pr,
+      state: 'open',
+      draft: true,
+      merged: false,
+      title: 'Draft: work in progress',
+      labels: [],
+    };
+  };
+
+  try {
+    const result = await runPrReview({
+      provider: 'github',
+      repo: 'example/platform',
+      prNumber: '5',
+      dryRun: true,
+      reviewEnabled: 'true',
+    });
+
+    assert.equal(fetched, true);
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'draft_pull_request');
+  } finally {
+    providers.github.fetchCurrentPullRequest = original;
+  }
 });
 
 test('dispatch pr-merged auto-resumes plan merges into build action', async () => {

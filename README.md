@@ -47,6 +47,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 - `.agentrix/plugins/issue-flow/` - plugin manifest, minimal runtime skill, scripts, and default prompts/templates
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
+- `.github/workflows/issue-flow-pr-review.yml` - optional PR/MR automatic review checks
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions
 - `.issue-flow/config.json` - issue-flow runtime path config
 - `.issue-flow/install-manifest.json` - reinstall tracking metadata
@@ -65,6 +66,7 @@ Set these repository variables/secrets as needed:
 - `AGENTRIX_RUNNER_ID` - optional runner id
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
+- `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review check switch, defaults to off; set to `true` or `1` to run on PR opened, synchronize, ready_for_review, or manual dispatch
 
 ## GitLab Configuration
 
@@ -83,6 +85,7 @@ Set these CI variables as needed:
 - `AGENTRIX_RUNNER_ID` - optional runner id
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
+- `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review check switch, defaults to off; set to `true` or `1` to run on PR/MR opened, synchronize, ready_for_review, or manual job
 
 ## Development Install
 

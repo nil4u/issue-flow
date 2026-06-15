@@ -61,7 +61,7 @@ node apply.cjs --issue-number <num> [label-options] [body-options] [common-optio
 |------|-----|
 | `--type` | `type::feature\|bug\|debt\|ops` |
 | `--status` | `status::active\|done\|drop\|suspend` |
-| `--flow` | `flow::triage\|plan\|build\|review\|clarify\|approve` |
+| `--flow` | `flow::triage\|plan\|build\|clarify\|approve` |
 | `--automation` | `automation::plan\|build` |
 | `--priority` | `priority::p0\|p1\|p2\|p3` |
 | `--clear-flow` | 移除所有 `flow::` label（不添加新的） |
@@ -140,6 +140,8 @@ node pr-merged.cjs --event <path> [common-options]
 ```bash
 node dispatch.cjs auto --event <path> [--runtime agentrix] [common-options]
 node dispatch.cjs comment --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs pr-review --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs pr-review --pr-number <num> [--runtime agentrix] [common-options]
 node dispatch.cjs pr-merged --event <path> [common-options]
 node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 ```
@@ -161,13 +163,14 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 ### Agentrix 行为
 
 1. comment mention 固定为 `@agentrix`
-2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`
+2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`、`review.prompt.md`
 3. template 文件名固定：`plan-bug.md`、`plan-impl.md`
 4. plan 查找固定为 `<planRootDir>/<issue-number>-<slug>/plan/*.md`
 5. branch 固定为 `<issue-number>-<slug>/plan` 和 `<issue-number>-<slug>/build`
 6. prompt 首位固定注入项目级 `issue-flow` skill 文件路径，例如 `.agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md`
 7. task lock marker 使用 `<!-- issue-flow:task:agentrix:<action> -->`
 8. `pr-merged` 在应用 source issue 状态流转后会立即执行一次自动路由；`mr-by::plan` merge 后可直接启动 build，`mr-by::build` merge 后因 `status::done` 跳过
+9. `pr-review` 只处理 PR/MR review check；它不读取 source issue `flow::` label，不受 `ISSUE_FLOW_AUTO_DEFAULT` 影响，只在 `ISSUE_FLOW_REVIEW_ENABLED=true` 或 `1` 时运行
 
 ## bootstrap.cjs
 

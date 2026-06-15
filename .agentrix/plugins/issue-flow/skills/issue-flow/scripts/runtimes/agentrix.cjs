@@ -25,6 +25,7 @@ const PROMPT_FILES = {
   triage: 'triage.prompt.md',
   general: 'general.prompt.md',
   build: 'build.prompt.md',
+  prReview: 'review.prompt.md',
   planBug: 'plan-bug.prompt.md',
   planImpl: 'plan-impl.prompt.md',
 };
@@ -34,7 +35,7 @@ const TEMPLATE_FILES = {
   planImpl: 'plan-impl.md',
 };
 
-const SUPPORTED_ACTIONS = ['triage', 'plan', 'build', 'general'];
+const SUPPORTED_ACTIONS = ['triage', 'plan', 'build', 'general', 'pr-review'];
 
 function skillRootDir() {
   return path.resolve(__dirname, '..', '..');
@@ -107,6 +108,9 @@ function readFirstExisting(paths, label) {
 }
 
 function promptNameForAction(action, issue) {
+  if (action === 'pr-review') {
+    return 'prReview';
+  }
   if (action !== 'plan') {
     return action;
   }
@@ -223,6 +227,28 @@ function formatIssueForPrompt(issue) {
   ].join('\n');
 }
 
+function formatPullRequestForPrompt(pr) {
+  return [
+    '## Pull Request',
+    '',
+    `Provider: ${pr.provider || '(unknown)'}`,
+    `Repository: ${pr.repoFullName || '(unknown)'}`,
+    `Number: #${pr.number}`,
+    `State: ${pr.state || '(unknown)'}`,
+    `Draft: ${pr.draft ? 'yes' : 'no'}`,
+    `Merged: ${pr.merged ? 'yes' : 'no'}`,
+    `Base: ${pr.baseRef || '(unknown)'}`,
+    `Head: ${pr.headRef || '(unknown)'}`,
+    `Labels: ${Array.isArray(pr.labels) && pr.labels.length > 0 ? pr.labels.join(', ') : '(none)'}`,
+    `Author: ${pr.author || '(unknown)'}`,
+    `URL: ${pr.htmlUrl || '(none)'}`,
+    `Title: ${pr.title || '(untitled)'}`,
+    '',
+    'Body:',
+    pr.body || '(empty)',
+  ].join('\n');
+}
+
 function formatRequiredSkill() {
   return [
     '## Required Skill',
@@ -251,6 +277,10 @@ function formatPlanOutput(issue, options = {}) {
 }
 
 function buildPrompt(action, issue, data = {}, options = {}) {
+  if (action === 'pr-review') {
+    return buildPullRequestPrompt(issue, data, options);
+  }
+
   const prompt = readPrompt(action, issue, options);
   const blocks = [formatRequiredSkill(), '', prompt.body];
 
@@ -280,6 +310,45 @@ function buildPrompt(action, issue, data = {}, options = {}) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
 
+  return blocks.join('\n');
+}
+
+function extractSourceIssueNumberFromPullRequest(pr = {}) {
+  const candidates = [
+    pr.body,
+    pr.title,
+    pr.headRef,
+    pr.baseRef,
+  ].filter(Boolean).map(String);
+
+  const patterns = [
+    /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i,
+    /Source issue:\s*#(\d+)/i,
+    /\b(?:Plan|Build)\s+#(\d+)/i,
+    /^(\d+)-[^/]+\/(?:plan|build)$/i,
+  ];
+
+  for (const candidate of candidates) {
+    for (const pattern of patterns) {
+      const match = candidate.match(pattern);
+      if (match) {
+        return Number.parseInt(match[1], 10);
+      }
+    }
+  }
+  return undefined;
+}
+
+function buildPullRequestPrompt(pr, data = {}, options = {}) {
+  const prompt = readPrompt('pr-review', pr, options);
+  const blocks = [formatRequiredSkill(), '', prompt.body, '', formatPullRequestForPrompt(pr)];
+  const sourceIssueNumber = data.sourceIssueNumber || extractSourceIssueNumberFromPullRequest(pr);
+  if (sourceIssueNumber) {
+    blocks.push('', '## Source Issue Hint', '', `Possible source issue: #${sourceIssueNumber}`);
+  }
+  if (data.instruction) {
+    blocks.push('', '## Instruction', '', data.instruction);
+  }
   return blocks.join('\n');
 }
 
@@ -337,6 +406,9 @@ function appendOptionalArg(args, flag, value) {
 }
 
 function buildRunTitle(action, issue) {
+  if (action === 'pr-review') {
+    return `Review PR #${issue.number}: ${truncate(issue.title || 'untitled pull request', 80)}`;
+  }
   const actionTitle = action === 'general' ? 'General' : action[0].toUpperCase() + action.slice(1);
   return `${actionTitle} #${issue.number}: ${truncate(issue.title || 'untitled issue', 80)}`;
 }
@@ -350,13 +422,17 @@ function run(action, issue, options = {}, data = {}) {
       detailUrl: '',
       result: '',
     };
-    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, issue: issue.number, prompt }, null, 2));
+    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, prompt }, null, 2));
     return result;
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-'));
   const resultFile = path.join(tempDir, 'result.json');
   const provider = resolveProvider(options, data.payload || {});
+  const metadataSubject = action === 'pr-review'
+    ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
+    : ['--issue-number', String(issue.number), '--metadata', `issue_flow_issue=${issue.repoFullName}#${issue.number}`];
+  const sourceIssueNumber = data.sourceIssueNumber || (action === 'pr-review' ? extractSourceIssueNumberFromPullRequest(issue) : undefined);
   const args = [
     '--yes',
     resolveAgentrixRunPackage(),
@@ -370,13 +446,13 @@ function run(action, issue, options = {}, data = {}) {
     resolveResponseMode(options),
     '--result-file',
     resultFile,
-    '--issue-number',
-    String(issue.number),
+    ...metadataSubject,
     '--metadata',
     `issue_flow_action=${action}`,
-    '--metadata',
-    `issue_flow_issue=${issue.repoFullName}#${issue.number}`,
   ];
+  if (sourceIssueNumber) {
+    args.push('--metadata', `issue_flow_source_issue=${issue.repoFullName}#${sourceIssueNumber}`);
+  }
 
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
@@ -413,7 +489,7 @@ function buildTaskCommentMarker(action) {
 function buildTaskComment(action, result, data = {}) {
   const lines = [buildTaskCommentMarker(action)];
   if (result.status === 'starting') {
-    lines.push('Agentrix task starting. This comment prevents duplicate issue-flow tasks for the same issue/action.');
+    lines.push(`Agentrix task starting. This comment prevents duplicate issue-flow tasks for the same ${action === 'pr-review' ? 'PR/MR' : 'issue'}/action.`);
   } else if (result.detailUrl) {
     lines.push(`Agentrix task queued: [open task](${result.detailUrl}).`);
   } else {
@@ -426,6 +502,8 @@ function buildTaskComment(action, result, data = {}) {
   }
   if (data.comment && data.comment.htmlUrl) {
     lines.push(`Trigger: ${data.comment.htmlUrl}`);
+  } else if (data.pullRequest) {
+    lines.push('Trigger: PR/MR review check.');
   } else if (data.auto) {
     lines.push('Trigger: automatic issue-flow.');
   }
@@ -444,9 +522,11 @@ module.exports = {
   buildIssuePlanFile,
   buildIssuePlanPattern,
   buildPrompt,
+  buildPullRequestPrompt,
   buildTaskComment,
   buildTaskCommentMarker,
   extractMention,
+  extractSourceIssueNumberFromPullRequest,
   findIssuePlanFiles,
   issueDirectoryName,
   normalizeRepoPath,
