@@ -65,6 +65,8 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan|build \
   [--draft] [--no-push] [--dry-run]
 ```
 
+`--body-file` 用 repo 外临时文件（如 `mktemp`）；不要提交 PR body 文件。
+
 ## 典型 Agent 工作流
 
 ### Triage
@@ -86,7 +88,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/apply.cjs --issue-number 123 \
 # 1. 编写 plan，输出到文件
 # 2. 提交 PR
 node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan \
-  --issue-number 123 --title "Plan #123: Add auth" --body-file plan.md
+  --issue-number 123 --title "Plan #123: Add auth" --body-file <tmp-body-file>
 ```
 
 ### Build → Submit
@@ -95,7 +97,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan \
 # 1. 按 plan 实现代码
 # 2. 提交 PR
 node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs build \
-  --issue-number 123 --title "Build #123: Add auth" --body-file build.md
+  --issue-number 123 --title "Build #123: Add auth" --body-file <tmp-body-file>
 ```
 
 ### 信息不足

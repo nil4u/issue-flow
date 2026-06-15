@@ -9,7 +9,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "91663a901fa9cfed90360022e988e9ebf09d3403f2b0a87160b7522bb824507e"
+      "sha256": "37f6a4bcc78577b76be2ead1ff7e1b3b1490a21fce12d0563bc25a98e81fe52e"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md",
@@ -114,12 +114,12 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
       "mode": "managed",
-      "sha256": "9333a10ec3aff1d0ed9550af7d68026b204470bea6d5addac2a6777d8f1fd337"
+      "sha256": "3f42cc11ddcbfd9290b981a464ee689a6f9581daa68f4587ef9c4f054d0eaf34"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
       "mode": "managed",
-      "sha256": "6ffef1e63eb754654c8e79f373cc7105576fb4727b6da884e18548ddd421bb3e"
+      "sha256": "035f8df4ce9187efd72ae6fb16c6c118d6fec803fbc0e885c425284483f3e344"
     },
     ".github/workflows/issue-flow-auto.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-auto.yml",

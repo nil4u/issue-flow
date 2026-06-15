@@ -231,6 +231,12 @@ function formatRequiredSkill() {
   ].join('\n');
 }
 
+function formatPrBodyFileRule() {
+  return [
+    'PR body: write it to a repo-external temp file (for example `mktemp`) for `submit.cjs --body-file`; do not put it in git.',
+  ].join('\n');
+}
+
 function formatPlanOutput(issue, options = {}) {
   const lines = [
     '## Plan Output',
@@ -247,6 +253,10 @@ function formatPlanOutput(issue, options = {}) {
 function buildPrompt(action, issue, data = {}, options = {}) {
   const prompt = readPrompt(action, issue, options);
   const blocks = [formatRequiredSkill(), '', prompt.body];
+
+  if ((action === 'plan' || action === 'build') && !prompt.body.includes('repo-external temp file')) {
+    blocks.push('', formatPrBodyFileRule());
+  }
 
   if (action === 'plan') {
     blocks.push('', formatPlanOutput(issue, options));
