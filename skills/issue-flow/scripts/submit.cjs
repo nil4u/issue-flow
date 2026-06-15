@@ -231,6 +231,32 @@ function validateBodyFile(bodyFile) {
   }
 }
 
+function isGitTrackedFile(filePath) {
+  const relativePath = path.relative(process.cwd(), path.resolve(filePath));
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return false;
+  }
+
+  return Boolean(
+    runOutput('git', ['ls-files', '--error-unmatch', '--', relativePath], {
+      optional: true,
+    })
+  );
+}
+
+function assertBodyFileNotTracked(bodyFile) {
+  if (!isGitTrackedFile(bodyFile)) {
+    return;
+  }
+
+  throw new Error(
+    [
+      `PR body file must not be committed to the repository: ${bodyFile}`,
+      'Write the PR body to a temporary path outside the repo, then pass that path with --body-file.',
+    ].join('\n')
+  );
+}
+
 function buildSourceIssueMarker(issueNumber) {
   return `<!-- issue-flow:source-issue=${issueNumber} -->`;
 }
@@ -514,6 +540,7 @@ async function main(argv = process.argv.slice(2)) {
   const label = options.label || kindConfig.label;
   validateLabel(label);
   validateBodyFile(options.bodyFile);
+  assertBodyFileNotTracked(options.bodyFile);
 
   const headBranch = resolveHeadBranch(options);
   const baseBranch = resolveBaseBranch(options);
@@ -546,11 +573,13 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
+  assertBodyFileNotTracked,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
   existingPullRequestApiHead,
   headBranchFilterCandidates,
   isExistingPullRequestError,
+  isGitTrackedFile,
   main,
   normalizeOptionalUrl,
   normalizePrTitle,

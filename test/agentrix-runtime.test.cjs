@@ -63,6 +63,8 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.match(prompt, /## Plan Output/);
   assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
   assert.match(prompt, /Plan branch: `42-broken-login\/plan`/);
+  assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /do not put it in git/);
   assert.match(prompt, /## Required Skill/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
   assert.match(prompt, /^Labels: type::bug, priority::p2$/m);
@@ -93,6 +95,8 @@ test('agentrix build prompt injects build context without plan output section', 
   assert.match(prompt, /## Branch/);
   assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
   assert.match(prompt, /## Plan Files/);
+  assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /do not put it in git/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
   assert.doesNotMatch(prompt, /## Plan Output/);
   assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);

@@ -2,11 +2,13 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  assertBodyFileNotTracked,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
   existingPullRequestApiHead,
   headBranchFilterCandidates,
   isExistingPullRequestError,
+  isGitTrackedFile,
   normalizeOptionalUrl,
   normalizePrTitle,
   SUBMIT_KINDS,
@@ -59,6 +61,14 @@ test('submit PR create falls back to update on duplicate PR errors', () => {
 test('submit PR lookup treats null query output as no existing PR', () => {
   assert.equal(normalizeOptionalUrl('null'), '');
   assert.equal(normalizeOptionalUrl(' https://github.com/acme-org/webapp/pull/482\n'), 'https://github.com/acme-org/webapp/pull/482');
+});
+
+test('submit rejects PR body files that are tracked in git', () => {
+  assert.equal(isGitTrackedFile('package.json'), true);
+  assert.throws(
+    () => assertBodyFileNotTracked('package.json'),
+    /PR body file must not be committed to the repository/
+  );
 });
 
 test('PR title normalization keeps existing issue number', () => {
