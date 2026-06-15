@@ -1,0 +1,12 @@
+database:
+  path: data/dashboard.db
+
+gitlab:
+  base_url: https://git.lianjia.com
+
+collection:
+  lookback_days: 120
+  keep_raw_runs: 3
+
+agentrix:
+  workspacesDir: ~/.agentrix/workspaces

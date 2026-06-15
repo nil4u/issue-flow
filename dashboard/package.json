@@ -1,0 +1,32 @@
+{
+  "name": "issue-flow-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx scripts/migrate.ts",
+    "collect": "tsx scripts/collect.ts",
+    "agentrix:sync": "tsx scripts/agentrix-sync.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "lucide-react": "^1.18.0",
+    "next": "^15.3.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^2.15.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.31",
+    "@types/react": "^19.1.7",
+    "@types/react-dom": "^19.1.6",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
