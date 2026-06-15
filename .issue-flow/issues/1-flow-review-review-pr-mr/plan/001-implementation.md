@@ -45,12 +45,14 @@
 
 3. 新增 PR/MR review 路由入口。
    - 在 `dispatch.cjs` 增加 `pr-review` command，入口只处理 PR/MR payload，不读取 source issue `flow::` label。
+   - 为 `pr-review` 增加 `--pr-number <num>` 选项。常规 PR/MR 事件从 payload 构造上下文；`workflow_dispatch` 或 GitLab manual job 没有完整 PR/MR payload 时，脚本必须用 provider API 按 `--pr-number` 拉取当前 PR/MR，再判断 draft/open/merged 状态。
    - 新增 `resolveReviewEnabled(options)`：优先读 `options.reviewEnabled`，否则读 `process.env.ISSUE_FLOW_REVIEW_ENABLED`；只有大小写不敏感的 `true` 或 `1` 视为启用，未设置、空值、`false`、`0` 都视为关闭。
    - `pr-review` 在关闭时返回 `{ action: 'skipped', reason: 'review_disabled' }`；在非 PR/MR 事件、draft PR/MR、closed/merged PR/MR 时返回明确 skip reason。
    - `pr-review` 不调用 `resolveAutomationDecision`、`resolveResumeDecision` 或 `ISSUE_FLOW_AUTO_DEFAULT`，避免 issue 自动化策略影响 review。
 
 4. 增加 PR/MR 上下文读取能力。
    - 在 provider 层新增 `buildPullRequestContext(payload, options)`，返回统一字段：`provider`、`repoFullName`、`number`、`title`、`body`、`htmlUrl`、`state`、`draft`、`merged`、`baseRef`、`headRef`、`labels`、`author`。
+   - 在 provider 层新增 `fetchCurrentPullRequest(pr, options)` 或等价方法，供 `workflow_dispatch` / manual job 通过 `--pr-number` 拉取 PR/MR 详情；GitHub 使用 pulls API，GitLab 使用 merge requests API。
    - GitHub 从 `payload.pull_request` 读取；GitLab 从 `payload.object_attributes` / `payload.merge_request` 读取，并复用 `events.cjs` 中 Agentrix bridge 已有的 PR/MR payload 构造。
    - 解析 PR/MR body/title/branch 中既有 source issue marker 作为提示上下文，但不要求存在；缺失时 review 仍可运行。
 
@@ -64,8 +66,9 @@
    - GitHub 新增 `.github/workflows/issue-flow-pr-review.yml` 源模板，触发：
      - `pull_request` types: `opened`、`synchronize`、`ready_for_review`
      - `workflow_dispatch`，输入 `pr_number` 供人工触发
-   - GitHub job 的 `if` 同时检查 `vars.ISSUE_FLOW_REVIEW_ENABLED == 'true'` 且 PR 不是 draft；人工触发也使用同一开关，避免误运行。
-   - GitLab CI 新增 `issue-flow-review` job，匹配 Agentrix bridge 的 `pull_request` opened/synchronize/ready_for_review 类事件，并提供 `when: manual` 人工触发路径；脚本调用 `dispatch.cjs pr-review --provider gitlab`。
+   - GitHub workflow 的启用判断要与 `resolveReviewEnabled` 保持一致，接受 `true` 或 `1`。因为 `workflow_dispatch` 没有 `github.event.pull_request`，不要在 job-level `if` 中直接读取 `github.event.pull_request.draft`；统一由 `dispatch.cjs pr-review` 在拉取/解析 PR 后跳过 draft、closed、merged PR。
+   - GitHub `workflow_dispatch` 脚本必须把输入转换为 `dispatch.cjs pr-review --pr-number "${{ inputs.pr_number }}"`；常规 `pull_request` 事件继续传 `--event "$GITHUB_EVENT_PATH"`。
+   - GitLab CI 新增 `issue-flow-review` job，匹配 Agentrix bridge 的 `pull_request` opened/synchronize/ready_for_review 类事件，并提供 `when: manual` 人工触发路径；manual 路径要求提供 `AGENTRIX_PR_NUMBER` 或等价 CI 变量，并调用 `dispatch.cjs pr-review --provider gitlab --pr-number "$AGENTRIX_PR_NUMBER"`。
    - 更新 `bootstrap.cjs` 的 GitHub/GitLab install spec、manifest 测试和 README “What It Installs”，确保新 workflow/job 会被安装和升级跟踪。
 
 7. 更新项目级插件和文档。
@@ -78,8 +81,9 @@
 8. 测试覆盖。
    - `test/labels.test.cjs`：覆盖 `flow::review` 被 `apply.cjs` 拒绝。
    - `test/resolve.test.cjs`：覆盖带旧 `flow::review` label 的 issue 返回 `unsupported_flow`，且没有 `action: 'review'`。
-   - `test/dispatch.test.cjs`：覆盖 `pr-review` 在 `ISSUE_FLOW_REVIEW_ENABLED` 未设置/false 时 skip，在 true 时 dry-run 排队 runtime review；同时确认 `ISSUE_FLOW_AUTO_DEFAULT=build` 不会启用 review。
-   - `test/bootstrap.test.cjs`：覆盖 GitHub 新 workflow 被安装，GitLab CI 包含 `issue-flow-review` job，并传递 `ISSUE_FLOW_REVIEW_ENABLED`。
+   - `test/dispatch.test.cjs`：覆盖 `pr-review` 在 `ISSUE_FLOW_REVIEW_ENABLED` 未设置/false 时 skip，在 true 或 1 时 dry-run 排队 runtime review；同时确认 `ISSUE_FLOW_AUTO_DEFAULT=build` 不会启用 review。
+   - `test/dispatch.test.cjs`：覆盖 `--pr-number` 手动触发路径会调用 provider fetch，并在拉取到 draft/closed/merged PR 时跳过。
+   - `test/bootstrap.test.cjs`：覆盖 GitHub 新 workflow 被安装，GitLab CI 包含 `issue-flow-review` job，启用条件接受 `true`/`1`，且 `workflow_dispatch` / manual 路径会传 `--pr-number`。
    - `test/agentrix-runtime.test.cjs`：覆盖 review prompt 使用 PR/MR 上下文，不包含 `flow::`/`automation::` 作为 issue action 指令。
 
 ## 验证方案
