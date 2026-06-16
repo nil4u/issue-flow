@@ -57,6 +57,8 @@ issue-flow-merged:
   script:
     - |
       set -eu
+      git fetch origin "${CI_DEFAULT_BRANCH:-main}" --depth 1
+      git checkout FETCH_HEAD -- .agentrix/plugins/issue-flow .issue-flow
       set -- --provider gitlab
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"
@@ -80,6 +82,8 @@ issue-flow-review:
   script:
     - |
       set -eu
+      git fetch origin "${CI_DEFAULT_BRANCH:-main}" --depth 1
+      git checkout FETCH_HEAD -- .agentrix/plugins/issue-flow .issue-flow
       set -- --provider gitlab
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"

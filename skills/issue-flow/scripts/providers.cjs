@@ -309,6 +309,7 @@ function normalizeGithubPullRequest(pr, repo, fallback = {}) {
     merged: Boolean(pr.merged),
     baseRef: pr.base && typeof pr.base.ref === 'string' ? pr.base.ref : fallback.baseRef || '',
     headRef: pr.head && typeof pr.head.ref === 'string' ? pr.head.ref : fallback.headRef || '',
+    headSha: pr.head && typeof pr.head.sha === 'string' ? pr.head.sha : fallback.headSha || '',
     labels: normalizeLabels(pr.labels || fallback.labels),
     author: pr.user && typeof pr.user.login === 'string' ? pr.user.login : fallback.author || '',
   };
@@ -826,6 +827,8 @@ function pickGitlabMergeRequestPayload(payload = {}) {
 function normalizeGitlabPullRequest(pr, repo, fallback = {}) {
   const labels = pr.labels || fallback.labels;
   const state = normalizeGitlabState(pr.state || fallback.state);
+  const diffRefs = pr.diff_refs || {};
+  const lastCommit = pr.last_commit || {};
   const draft =
     pr.work_in_progress === true ||
     pr.draft === true ||
@@ -845,6 +848,7 @@ function normalizeGitlabPullRequest(pr, repo, fallback = {}) {
     merged: state === 'merged' || pr.merged === true || fallback.merged === true,
     baseRef: typeof pr.target_branch === 'string' ? pr.target_branch : fallback.baseRef || '',
     headRef: typeof pr.source_branch === 'string' ? pr.source_branch : fallback.headRef || '',
+    headSha: pr.sha || diffRefs.head_sha || lastCommit.id || fallback.headSha || '',
     labels: normalizeLabels(labels),
     author:
       (pr.author && (pr.author.username || pr.author.name)) ||

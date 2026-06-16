@@ -239,6 +239,7 @@ function formatPullRequestForPrompt(pr) {
     `Merged: ${pr.merged ? 'yes' : 'no'}`,
     `Base: ${pr.baseRef || '(unknown)'}`,
     `Head: ${pr.headRef || '(unknown)'}`,
+    `Head SHA: ${pr.headSha || '(unknown)'}`,
     `Labels: ${Array.isArray(pr.labels) && pr.labels.length > 0 ? pr.labels.join(', ') : '(none)'}`,
     `Author: ${pr.author || '(unknown)'}`,
     `URL: ${pr.htmlUrl || '(none)'}`,
@@ -482,12 +483,16 @@ function run(action, issue, options = {}, data = {}) {
   }
 }
 
-function buildTaskCommentMarker(action) {
+function buildTaskCommentMarker(action, data = {}) {
+  const pr = data.pullRequest || data;
+  if (action === 'pr-review' && pr && pr.headSha) {
+    return `<!-- issue-flow:task:agentrix:${action}:${pr.headSha} -->`;
+  }
   return `<!-- issue-flow:task:agentrix:${action} -->`;
 }
 
 function buildTaskComment(action, result, data = {}) {
-  const lines = [buildTaskCommentMarker(action)];
+  const lines = [buildTaskCommentMarker(action, data)];
   if (result.status === 'starting') {
     lines.push(`Agentrix task starting. This comment prevents duplicate issue-flow tasks for the same ${action === 'pr-review' ? 'PR/MR' : 'issue'}/action.`);
   } else if (result.detailUrl) {

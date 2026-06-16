@@ -265,8 +265,8 @@ async function addIssueReaction(issue, options = {}) {
   await provider.addIssueReaction(issue, TRIGGER_COMMENT_REACTION, options);
 }
 
-function findActionTaskComment(comments, action, runtime) {
-  const marker = runtime.buildTaskCommentMarker(action);
+function findActionTaskComment(comments, action, runtime, data = {}) {
+  const marker = runtime.buildTaskCommentMarker(action, data);
   return Array.isArray(comments)
     ? comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker))
     : undefined;
@@ -314,7 +314,7 @@ async function claimActionTask(issue, action, runtime, data, options = {}) {
 }
 
 async function claimPullRequestActionTask(pr, action, runtime, data, options = {}) {
-  const existing = findActionTaskComment(await listPullRequestComments(pr, options), action, runtime);
+  const existing = findActionTaskComment(await listPullRequestComments(pr, options), action, runtime, data);
   if (existing) {
     return {
       claimed: false,
@@ -330,7 +330,7 @@ async function claimPullRequestActionTask(pr, action, runtime, data, options = {
     };
   }
 
-  const winner = findActionTaskComment(await listPullRequestComments(pr, options), action, runtime);
+  const winner = findActionTaskComment(await listPullRequestComments(pr, options), action, runtime, data);
   if (winner && normalizeCommentId(winner) !== normalizeCommentId(created)) {
     try {
       await deletePullRequestComment(pr, created.id, options);

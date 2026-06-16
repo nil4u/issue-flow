@@ -142,4 +142,8 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
 
 test('agentrix task marker uses issue-flow namespace', () => {
   assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:task:agentrix:build -->');
+  assert.equal(
+    agentrix.buildTaskCommentMarker('pr-review', { headSha: 'abc123' }),
+    '<!-- issue-flow:task:agentrix:pr-review:abc123 -->'
+  );
 });

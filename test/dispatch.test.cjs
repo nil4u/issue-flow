@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  findActionTaskComment,
   parseArgs,
   resolveAutomationDecision,
   resolveReviewEnabled,
@@ -150,7 +151,7 @@ test('dispatch pr-review queues runtime review when enabled', async () => {
           body: '<!-- issue-flow:source-issue=42 -->',
           html_url: 'https://github.com/example/platform/pull/9',
           base: { ref: 'main' },
-          head: { ref: '42-add-widget-support/build' },
+          head: { ref: '42-add-widget-support/build', sha: 'abc123' },
           labels: [{ name: 'mr-by::build' }],
           user: { login: 'alice' },
         },
@@ -161,6 +162,25 @@ test('dispatch pr-review queues runtime review when enabled', async () => {
 
   assert.equal(result.action, 'pr-review');
   assert.equal(result.result.status, 'dry-run');
+});
+
+test('dispatch pr-review task lock is scoped to the PR head SHA', () => {
+  const comments = [
+    {
+      body: agentrix.buildTaskComment('pr-review', { status: 'starting' }, {
+        pullRequest: { headSha: 'old-sha' },
+      }),
+    },
+  ];
+
+  assert.equal(
+    findActionTaskComment(comments, 'pr-review', agentrix, { pullRequest: { headSha: 'new-sha' } }),
+    undefined
+  );
+  assert.equal(
+    findActionTaskComment(comments, 'pr-review', agentrix, { pullRequest: { headSha: 'old-sha' } }),
+    comments[0]
+  );
 });
 
 test('dispatch pr-review manual path fetches PR/MR and skips draft state', async () => {
