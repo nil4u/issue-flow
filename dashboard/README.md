@@ -13,7 +13,7 @@ Issue Flow Dashboard 是 issue-flow 的本地观测看板，用 GitLab Issue 作
 ## 快速启动
 
 ```bash
-cd /Users/liubingfei/issue-flow/dashboard
+cd issue-flow/dashboard
 npm install
 npm run migrate
 npm run dev -- --hostname 127.0.0.1 --port 3001
@@ -51,7 +51,7 @@ export DASHBOARD_PROJECTS_JSON='[
     "provider": "gitlab",
     "baseUrl": "https://git.lianjia.com",
     "pathWithNamespace": "huilian/wandou-kanban",
-    "token": "glpat-xxxx"
+    "token": "your-gitlab-token"
   }
 ]'
 npm run collect
