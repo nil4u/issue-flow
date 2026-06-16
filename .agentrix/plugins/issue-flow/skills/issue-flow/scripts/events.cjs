@@ -198,6 +198,7 @@ function buildGitlabBridgeMergeRequestPayload(env = process.env, project = build
     state: merged ? 'merged' : action === 'closed' ? 'closed' : 'opened',
     source_branch: env.AGENTRIX_HEAD_REF || '',
     target_branch: env.AGENTRIX_BASE_REF || '',
+    last_commit: env.AGENTRIX_HEAD_SHA || env.CI_COMMIT_SHA ? { id: env.AGENTRIX_HEAD_SHA || env.CI_COMMIT_SHA } : undefined,
     url: env.AGENTRIX_MR_URL || '',
     labels: labelsFromEnv(env),
   };

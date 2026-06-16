@@ -16,8 +16,10 @@ const VALUE_OPTIONS = new Set([
   '--repo',
   '--runtime',
   '--issue-number',
+  '--pr-number',
   '--instruction',
   '--auto-default',
+  '--review-enabled',
   '--config',
   '--prompts-dir',
   '--templates-dir',
@@ -42,6 +44,7 @@ function usage() {
     'Commands:',
     '  auto       Run the current flow:: action when automation policy allows it',
     '  comment    Route an issue comment for the selected runtime mention',
+    '  review     Run an independent PR/MR automatic review check',
     '  pr-merged  Apply merged plan/build PR transition',
     '  resume     Run the action selected by the current flow:: label',
     '  general    Start a broad runtime action from a manual instruction',
@@ -55,8 +58,10 @@ function usage() {
     '  --repo <owner/repo>     Repository/project override.',
     '  --runtime <name>        Runtime preset. Defaults to agentrix.',
     '  --issue-number <num>    Issue number override.',
+    '  --pr-number <num>       PR/MR number for manual review dispatch.',
     '  --instruction <text>    Manual instruction for the general command.',
     '  --auto-default <level>  Repository default automation level: off, triage, plan, or build.',
+    '  --review-enabled <bool> Enable review when true or 1. Defaults to ISSUE_FLOW_REVIEW_ENABLED.',
     '  --config <path>         Runtime config path.',
     '  --prompts-dir <path>    Agentrix prompt override directory.',
     '  --templates-dir <path>  Agentrix template override directory.',
@@ -147,6 +152,10 @@ function buildIssueContext(payload, options = {}) {
   return resolveProvider(options, payload).buildIssueContext(payload, options);
 }
 
+function buildPullRequestContext(payload, options = {}) {
+  return resolveProvider(options, payload).buildPullRequestContext(payload, options);
+}
+
 function isPullRequestIssue(payload, options = {}) {
   return resolveProvider(options, payload).isPullRequestIssue(payload);
 }
@@ -181,9 +190,39 @@ async function fetchCurrentIssue(issue, options = {}) {
   return currentIssue;
 }
 
+async function fetchCurrentPullRequest(pr, options = {}) {
+  const provider = providers[pr.provider] || resolveProvider(options);
+  const shouldFetch = Boolean(options.prNumber) || (!options.dryRun && provider.hasToken(options));
+  if (!shouldFetch) {
+    logIssueFlow('Using payload PR/MR state', {
+      pr: `#${pr.number}`,
+      dryRun: Boolean(options.dryRun),
+      provider: provider.name,
+      hasToken: Boolean(provider.hasToken(options)),
+    });
+    return pr;
+  }
+
+  logIssueFlow('Fetching current PR/MR state', { pr: `#${pr.number}`, provider: provider.name });
+  const currentPr = await provider.fetchCurrentPullRequest(pr, options);
+  logIssueFlow('Fetched current PR/MR state', {
+    pr: `#${currentPr.number}`,
+    state: currentPr.state,
+    draft: Boolean(currentPr.draft),
+    merged: Boolean(currentPr.merged),
+    labels: currentPr.labels.join(',') || '(none)',
+  });
+  return currentPr;
+}
+
 async function listIssueComments(issue, options = {}) {
   const provider = providers[issue.provider] || resolveProvider(options);
   return provider.listIssueComments(issue, options);
+}
+
+async function listPullRequestComments(pr, options = {}) {
+  const provider = providers[pr.provider] || resolveProvider(options);
+  return provider.listPullRequestComments(pr, options);
 }
 
 async function createIssueComment(issue, body, options = {}) {
@@ -191,14 +230,29 @@ async function createIssueComment(issue, body, options = {}) {
   return provider.createIssueComment(issue, body, options);
 }
 
+async function createPullRequestComment(pr, body, options = {}) {
+  const provider = providers[pr.provider] || resolveProvider(options);
+  return provider.createPullRequestComment(pr, body, options);
+}
+
 async function updateIssueComment(issue, commentId, body, options = {}) {
   const provider = providers[issue.provider] || resolveProvider(options);
   await provider.updateIssueComment(issue, commentId, body, options);
 }
 
+async function updatePullRequestComment(pr, commentId, body, options = {}) {
+  const provider = providers[pr.provider] || resolveProvider(options);
+  await provider.updatePullRequestComment(pr, commentId, body, options);
+}
+
 async function deleteIssueComment(issue, commentId, options = {}) {
   const provider = providers[issue.provider] || resolveProvider(options);
   await provider.deleteIssueComment(issue, commentId, options);
+}
+
+async function deletePullRequestComment(pr, commentId, options = {}) {
+  const provider = providers[pr.provider] || resolveProvider(options);
+  await provider.deletePullRequestComment(pr, commentId, options);
 }
 
 async function addTriggerCommentReaction(issue, comment, options = {}) {
@@ -211,8 +265,8 @@ async function addIssueReaction(issue, options = {}) {
   await provider.addIssueReaction(issue, TRIGGER_COMMENT_REACTION, options);
 }
 
-function findActionTaskComment(comments, action, runtime) {
-  const marker = runtime.buildTaskCommentMarker(action);
+function findActionTaskComment(comments, action, runtime, data = {}) {
+  const marker = runtime.buildTaskCommentMarker(action, data);
   return Array.isArray(comments)
     ? comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker))
     : undefined;
@@ -259,6 +313,43 @@ async function claimActionTask(issue, action, runtime, data, options = {}) {
   };
 }
 
+async function claimPullRequestActionTask(pr, action, runtime, data, options = {}) {
+  const existing = findActionTaskComment(await listPullRequestComments(pr, options), action, runtime, data);
+  if (existing) {
+    return {
+      claimed: false,
+      comment: existing,
+    };
+  }
+
+  const created = await createPullRequestComment(pr, runtime.buildTaskComment(action, { status: 'starting' }, data), options);
+  if (options.dryRun) {
+    return {
+      claimed: true,
+      comment: created,
+    };
+  }
+
+  const winner = findActionTaskComment(await listPullRequestComments(pr, options), action, runtime, data);
+  if (winner && normalizeCommentId(winner) !== normalizeCommentId(created)) {
+    try {
+      await deletePullRequestComment(pr, created.id, options);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`Unable to delete duplicate issue-flow PR/MR task lock comment; continuing. ${detail}`);
+    }
+    return {
+      claimed: false,
+      comment: winner,
+    };
+  }
+
+  return {
+    claimed: true,
+    comment: created,
+  };
+}
+
 async function acknowledgeAutoIssue(issue, action, runtime, data, options = {}) {
   if (!runtime.shouldAcknowledgeAutoIssue(action, data)) {
     return;
@@ -287,6 +378,12 @@ function runtimeCanRunAction(runtime, action) {
 
 function resolveRepoDefaultAutomationLevel(options = {}) {
   return options.autoDefault || process.env.ISSUE_FLOW_AUTO_DEFAULT || 'off';
+}
+
+function resolveReviewEnabled(options = {}) {
+  const raw = options.reviewEnabled !== undefined ? options.reviewEnabled : process.env.ISSUE_FLOW_REVIEW_ENABLED;
+  const normalized = String(raw || '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1';
 }
 
 function resolveAutomationDecision(issue, runtime, options = {}) {
@@ -372,6 +469,82 @@ async function startAction(action, issue, options = {}, data = {}) {
     action,
     result,
   };
+}
+
+async function startPullRequestReview(pr, options = {}, data = {}) {
+  const action = 'review';
+  const runtime = loadRuntime(options);
+  if (!runtimeCanRunAction(runtime, action)) {
+    throw new Error(`Runtime does not support issue-flow action: ${action}`);
+  }
+
+  logIssueFlow('Starting PR/MR review', {
+    pr: `#${pr.number}`,
+    dryRun: Boolean(options.dryRun),
+  });
+  const currentPr = data.currentPullRequest || await fetchCurrentPullRequest(pr, options);
+  const taskData = {
+    ...data,
+    pullRequest: currentPr,
+    sourceIssueNumber: options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr),
+  };
+  const taskClaim = await claimPullRequestActionTask(currentPr, action, runtime, taskData, options);
+  if (!taskClaim.claimed) {
+    logIssueFlow('Skipping duplicate PR/MR review task', {
+      pr: `#${currentPr.number}`,
+      comment: taskClaim.comment && taskClaim.comment.id,
+    });
+    return {
+      action,
+      skipped: true,
+      reason: 'duplicate_task',
+      existingCommentId: taskClaim.comment && taskClaim.comment.id,
+      existingCommentUrl: taskClaim.comment && (taskClaim.comment.html_url || taskClaim.comment.htmlUrl || taskClaim.comment.web_url),
+    };
+  }
+
+  let result;
+  try {
+    result = runtime.run(action, currentPr, options, taskData);
+  } catch (error) {
+    if (taskClaim.comment && taskClaim.comment.id) {
+      try {
+        await deletePullRequestComment(currentPr, taskClaim.comment.id, options);
+      } catch (deleteError) {
+        const detail = deleteError instanceof Error ? deleteError.message : String(deleteError);
+        console.warn(`Unable to delete failed issue-flow PR/MR task lock comment; continuing. ${detail}`);
+      }
+    }
+    throw error;
+  }
+
+  if (taskClaim.comment && taskClaim.comment.id) {
+    await updatePullRequestComment(currentPr, taskClaim.comment.id, runtime.buildTaskComment(action, result, taskData), options);
+  }
+  logIssueFlow('Finished PR/MR review', {
+    pr: `#${currentPr.number}`,
+    runId: result.runId,
+  });
+  return {
+    action,
+    result,
+  };
+}
+
+function shouldSkipPullRequestReview(pr) {
+  if (!pr || !pr.number) {
+    return 'not_pull_request';
+  }
+  if (pr.draft) {
+    return 'draft_pull_request';
+  }
+  if (pr.merged) {
+    return 'merged_pull_request';
+  }
+  if (pr.state && pr.state !== 'open' && pr.state !== 'opened') {
+    return 'pull_request_not_open';
+  }
+  return '';
 }
 
 async function runAuto(options = {}, provided = {}) {
@@ -515,6 +688,52 @@ async function runPrMerged(options = {}) {
   };
 }
 
+async function runReview(options = {}, provided = {}) {
+  if (!resolveReviewEnabled(options)) {
+    logIssueFlow('PR/MR review skipped', { reason: 'review_disabled' });
+    return {
+      action: 'skipped',
+      reason: 'review_disabled',
+    };
+  }
+
+  const payload = provided.payload || loadEvent(options);
+  let pr;
+  try {
+    pr = provided.pullRequest || buildPullRequestContext(payload, options);
+  } catch (error) {
+    if (options.prNumber) {
+      throw error;
+    }
+    logIssueFlow('PR/MR review skipped', { reason: 'not_pull_request' });
+    return {
+      action: 'skipped',
+      reason: 'not_pull_request',
+    };
+  }
+
+  const currentPr = await fetchCurrentPullRequest(pr, options);
+  const skipReason = shouldSkipPullRequestReview(currentPr);
+  if (skipReason) {
+    logIssueFlow('PR/MR review skipped', {
+      pr: currentPr.number ? `#${currentPr.number}` : '',
+      reason: skipReason,
+    });
+    return {
+      action: 'skipped',
+      reason: skipReason,
+      pullRequest: currentPr,
+    };
+  }
+
+  return startPullRequestReview(currentPr, options, {
+    ...provided,
+    payload,
+    pullRequest: currentPr,
+    currentPullRequest: currentPr,
+  });
+}
+
 async function runDirectAction(action, options = {}, provided = {}) {
   const payload = provided.payload || loadEvent(options);
   const issue = provided.issue || buildIssueContext(payload, options);
@@ -551,6 +770,9 @@ async function main(argv = process.argv.slice(2)) {
     case 'comment':
       await runComment(options);
       break;
+    case 'review':
+      await runReview(options);
+      break;
     case 'pr-merged':
       await runPrMerged(options);
       break;
@@ -572,19 +794,23 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   buildIssueContext,
+  buildPullRequestContext,
   findActionTaskComment,
   loadRuntime,
   main,
   parseArgs,
   resolveAutomationDecision,
   resolveRepoDefaultAutomationLevel,
+  resolveReviewEnabled,
   resolveRuntimeResumeDecision,
   runAuto,
   runComment,
   runDirectAction,
   runPrMerged,
+  runReview,
   runResume,
   startAction,
+  startPullRequestReview,
 };
 
 if (require.main === module) {

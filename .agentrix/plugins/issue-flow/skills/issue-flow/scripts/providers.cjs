@@ -260,6 +260,10 @@ function githubIssueApiPath(issue) {
   return `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}/issues/${issue.number}`;
 }
 
+function githubPullRequestApiPath(pr) {
+  return `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/pulls/${pr.number}`;
+}
+
 function githubIssueCommentApiPath(issue, comment) {
   return `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}/issues/comments/${comment.id}`;
 }
@@ -288,6 +292,45 @@ function buildGithubIssueContext(payload = {}, options = {}) {
     author: issue.user && typeof issue.user.login === 'string' ? issue.user.login : '',
     labels: normalizeLabels(issue.labels),
   };
+}
+
+function normalizeGithubPullRequest(pr, repo, fallback = {}) {
+  return {
+    provider: 'github',
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    number: parsePositiveInteger(pr.number || fallback.number, 'pull request number'),
+    title: typeof pr.title === 'string' ? pr.title : fallback.title || '',
+    body: typeof pr.body === 'string' ? pr.body : fallback.body || '',
+    htmlUrl: typeof pr.html_url === 'string' ? pr.html_url : fallback.htmlUrl || '',
+    state: typeof pr.state === 'string' ? pr.state : fallback.state || '',
+    draft: Boolean(pr.draft),
+    merged: Boolean(pr.merged),
+    baseRef: pr.base && typeof pr.base.ref === 'string' ? pr.base.ref : fallback.baseRef || '',
+    headRef: pr.head && typeof pr.head.ref === 'string' ? pr.head.ref : fallback.headRef || '',
+    headSha: pr.head && typeof pr.head.sha === 'string' ? pr.head.sha : fallback.headSha || '',
+    labels: normalizeLabels(pr.labels || fallback.labels),
+    author: pr.user && typeof pr.user.login === 'string' ? pr.user.login : fallback.author || '',
+  };
+}
+
+function buildGithubPullRequestContext(payload = {}, options = {}) {
+  const repo = resolveGithubRepo(payload, options);
+  const pr = payload.pull_request || {};
+  const number = options.prNumber
+    ? parsePositiveInteger(options.prNumber, '--pr-number')
+    : parsePositiveInteger(pr.number, 'payload.pull_request.number');
+  return normalizeGithubPullRequest({ ...pr, number }, repo);
+}
+
+async function fetchCurrentGithubPullRequest(pr, options = {}) {
+  if (options.dryRun) {
+    return pr;
+  }
+
+  const current = await requestGithub('GET', githubPullRequestApiPath(pr));
+  return normalizeGithubPullRequest(current, pr, pr);
 }
 
 function getGithubCommentContext(payload = {}) {
@@ -343,6 +386,23 @@ async function createGithubIssueComment(issue, body, options = {}) {
   }
 
   return requestGithub('POST', `${githubIssueApiPath(issue)}/comments`, { body });
+}
+
+async function submitGithubPullRequestReview(pr, body, options = {}) {
+  const requestBody = {
+    body,
+    event: 'COMMENT',
+  };
+  if (options.commitId || pr.headSha) {
+    requestBody.commit_id = options.commitId || pr.headSha;
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, reviewPullRequest: pr.number, body: requestBody }, null, 2));
+    return { id: 'dry-run-review', html_url: '' };
+  }
+
+  return requestGithub('POST', `${githubPullRequestApiPath(pr)}/reviews`, requestBody);
 }
 
 async function updateGithubIssueComment(issue, commentId, body, options = {}) {
@@ -763,6 +823,129 @@ function gitlabMergeRequestsApiPath(repo) {
   return `/projects/${gitlabProjectRef(repo)}/merge_requests`;
 }
 
+function gitlabMergeRequestApiPath(pr) {
+  return `${gitlabMergeRequestsApiPath(pr)}/${encodeURIComponent(pr.number)}`;
+}
+
+function gitlabMergeRequestNotesApiPath(pr) {
+  return `${gitlabMergeRequestApiPath(pr)}/notes`;
+}
+
+function pickGitlabMergeRequestPayload(payload = {}) {
+  if (payload.merge_request) {
+    return payload.merge_request;
+  }
+  if (payload.object_kind === 'merge_request') {
+    return payload.object_attributes || {};
+  }
+  return {};
+}
+
+function normalizeGitlabPullRequest(pr, repo, fallback = {}) {
+  const labels = pr.labels || fallback.labels;
+  const state = normalizeGitlabState(pr.state || fallback.state);
+  const diffRefs = pr.diff_refs || {};
+  const lastCommit = pr.last_commit || {};
+  const draft =
+    pr.work_in_progress === true ||
+    pr.draft === true ||
+    /^draft:/i.test(pr.title || fallback.title || '');
+  return {
+    provider: 'gitlab',
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    projectId: repo.projectId,
+    number: parsePositiveInteger(pr.iid || pr.number || fallback.number, 'merge request iid'),
+    title: typeof pr.title === 'string' ? pr.title : fallback.title || '',
+    body: typeof pr.description === 'string' ? pr.description : typeof pr.body === 'string' ? pr.body : fallback.body || '',
+    htmlUrl: typeof pr.web_url === 'string' ? pr.web_url : typeof pr.url === 'string' ? pr.url : fallback.htmlUrl || '',
+    state,
+    draft,
+    merged: state === 'merged' || pr.merged === true || fallback.merged === true,
+    baseRef: typeof pr.target_branch === 'string' ? pr.target_branch : fallback.baseRef || '',
+    headRef: typeof pr.source_branch === 'string' ? pr.source_branch : fallback.headRef || '',
+    headSha: pr.sha || diffRefs.head_sha || lastCommit.id || fallback.headSha || '',
+    labels: normalizeLabels(labels),
+    author:
+      (pr.author && (pr.author.username || pr.author.name)) ||
+      (fallback.author || ''),
+  };
+}
+
+function buildGitlabPullRequestContext(payload = {}, options = {}) {
+  const repo = resolveGitlabRepo(payload, options);
+  const pr = pickGitlabMergeRequestPayload(payload);
+  const number = options.prNumber
+    ? parsePositiveInteger(options.prNumber, '--pr-number')
+    : parsePositiveInteger(pr.iid || pr.number, 'GitLab merge request iid');
+  return normalizeGitlabPullRequest({ ...pr, iid: number }, repo);
+}
+
+async function fetchCurrentGitlabPullRequest(pr, options = {}) {
+  if (options.dryRun) {
+    return pr;
+  }
+
+  const current = await requestGitlab('GET', gitlabMergeRequestApiPath(pr), undefined, options);
+  return normalizeGitlabPullRequest(current, pr, pr);
+}
+
+async function listGitlabPullRequestComments(pr, options = {}) {
+  if (options.dryRun) {
+    return [];
+  }
+
+  const comments = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGitlab(
+      'GET',
+      `${gitlabMergeRequestNotesApiPath(pr)}?per_page=100&page=${page}`,
+      undefined,
+      options
+    );
+    if (!Array.isArray(pageItems) || pageItems.length === 0) {
+      break;
+    }
+    comments.push(...pageItems);
+    if (pageItems.length < 100) {
+      break;
+    }
+  }
+  return comments;
+}
+
+async function createGitlabPullRequestComment(pr, body, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, commentPullRequest: pr.number, body }, null, 2));
+    return { id: 'dry-run-comment', web_url: '' };
+  }
+
+  return requestGitlab('POST', gitlabMergeRequestNotesApiPath(pr), { body }, options);
+}
+
+async function submitGitlabPullRequestReview(pr, body, options = {}) {
+  return createGitlabPullRequestComment(pr, body, options);
+}
+
+async function updateGitlabPullRequestComment(pr, commentId, body, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, updateComment: commentId, body }, null, 2));
+    return;
+  }
+
+  await requestGitlab('PUT', `${gitlabMergeRequestNotesApiPath(pr)}/${encodeURIComponent(commentId)}`, { body }, options);
+}
+
+async function deleteGitlabPullRequestComment(pr, commentId, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, deleteComment: commentId }, null, 2));
+    return;
+  }
+
+  await requestGitlab('DELETE', `${gitlabMergeRequestNotesApiPath(pr)}/${encodeURIComponent(commentId)}`, undefined, options);
+}
+
 function readBodyFile(bodyFile) {
   return fs.readFileSync(bodyFile, 'utf8');
 }
@@ -928,17 +1111,25 @@ const githubProvider = {
   hasToken: () => Boolean(getGithubToken()),
   resolveRepo: resolveGithubRepo,
   buildIssueContext: buildGithubIssueContext,
+  buildPullRequestContext: buildGithubPullRequestContext,
   isPullRequestIssue: (payload) => Boolean(payload.issue && payload.issue.pull_request),
   isBotComment: (payload) => Boolean(payload.comment && payload.comment.user && payload.comment.user.type === 'Bot'),
   getCommentContext: getGithubCommentContext,
   fetchCurrentIssue: fetchCurrentGithubIssue,
+  fetchCurrentPullRequest: fetchCurrentGithubPullRequest,
   listIssueComments: listGithubIssueComments,
   createIssueComment: createGithubIssueComment,
   updateIssueComment: updateGithubIssueComment,
   deleteIssueComment: deleteGithubIssueComment,
+  listPullRequestComments: listGithubIssueComments,
+  createPullRequestComment: createGithubIssueComment,
+  submitPullRequestReview: submitGithubPullRequestReview,
+  updatePullRequestComment: updateGithubIssueComment,
+  deletePullRequestComment: deleteGithubIssueComment,
   addTriggerCommentReaction: addGithubTriggerCommentReaction,
   addIssueReaction: addGithubIssueReaction,
   issueApiPath: githubIssueApiPath,
+  pullRequestApiPath: githubPullRequestApiPath,
   issueCommentApiPath: githubIssueCommentApiPath,
   issueReactionApiPath: githubIssueReactionApiPath,
   getIssueForApply: getGithubIssueForApply,
@@ -953,17 +1144,25 @@ const gitlabProvider = {
   hasToken: (options) => Boolean(getGitlabToken(options)) || hasGlab(),
   resolveRepo: resolveGitlabRepo,
   buildIssueContext: buildGitlabIssueContext,
+  buildPullRequestContext: buildGitlabPullRequestContext,
   isPullRequestIssue: isGitlabMergeRequestOrNonIssue,
   isBotComment: isGitlabBotComment,
   getCommentContext: getGitlabCommentContext,
   fetchCurrentIssue: fetchCurrentGitlabIssue,
+  fetchCurrentPullRequest: fetchCurrentGitlabPullRequest,
   listIssueComments: listGitlabIssueComments,
   createIssueComment: createGitlabIssueComment,
   updateIssueComment: updateGitlabIssueComment,
   deleteIssueComment: deleteGitlabIssueComment,
+  listPullRequestComments: listGitlabPullRequestComments,
+  createPullRequestComment: createGitlabPullRequestComment,
+  submitPullRequestReview: submitGitlabPullRequestReview,
+  updatePullRequestComment: updateGitlabPullRequestComment,
+  deletePullRequestComment: deleteGitlabPullRequestComment,
   addTriggerCommentReaction: addGitlabTriggerCommentReaction,
   addIssueReaction: addGitlabIssueReaction,
   issueApiPath: gitlabIssueApiPath,
+  pullRequestApiPath: gitlabMergeRequestApiPath,
   getIssueForApply: getGitlabIssueForApply,
   applyLabels: applyGitlabLabels,
   updateIssueBody: updateGitlabIssueBody,

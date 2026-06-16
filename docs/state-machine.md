@@ -106,3 +106,14 @@ Source issue 通过以下优先级确定：
 
 - `flow::clarify` — agent 缺少信息，需人工回答
 - `flow::approve` — plan/build PR 等待人工审批
+
+## PR/MR Review Check
+
+| 项 | 值 |
+|----|----|
+| Scope | PR/MR |
+| Trigger | opened, synchronize, ready_for_review, manual |
+| Command | `dispatch.cjs review` |
+| Submit result | `review.cjs` |
+| Config | `ISSUE_FLOW_REVIEW_ENABLED=true` or `1` |
+| Issue state | 不读取或修改 source issue `flow::` |
