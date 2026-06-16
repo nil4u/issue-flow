@@ -104,9 +104,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs build \
 
 PR/MR review check:
 
-- Start: `dispatch.cjs review`
-- Submit: `review.cjs --pr-number <num> --body-file <tmp-body-file>`
-- Config: `ISSUE_FLOW_REVIEW_ENABLED=true` or `1`
+- Publish review result: `review.cjs --pr-number <num> --body-file <tmp-body-file>`
 
 ### 信息不足
 

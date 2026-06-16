@@ -486,7 +486,7 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   const taskData = {
     ...data,
     pullRequest: currentPr,
-    sourceIssueNumber: runtime.extractSourceIssueNumberFromPullRequest(currentPr),
+    sourceIssueNumber: options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr),
   };
   const taskClaim = await claimPullRequestActionTask(currentPr, action, runtime, taskData, options);
   if (!taskClaim.claimed) {

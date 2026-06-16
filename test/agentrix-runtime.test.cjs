@@ -130,6 +130,31 @@ test('agentrix review prompt uses target URL and review submission script', () =
   assert.doesNotMatch(prompt, /automation::build/);
 });
 
+test('agentrix review run args include source issue number', () => {
+  const args = agentrix.buildRunArgs(
+    'review',
+    {
+      provider: 'github',
+      repoFullName: 'example/platform',
+      number: 9,
+      title: 'Build #42: Add export button',
+      body: '<!-- issue-flow:source-issue=42 -->',
+    },
+    {
+      baseUrl: 'https://agentrix.example.test',
+      apiKey: 'test-key',
+      runnerId: 'runner-1',
+    },
+    {},
+    'prompt',
+    '/tmp/result.json'
+  );
+
+  assert.equal(args[args.indexOf('--issue-number') + 1], '42');
+  assert.ok(args.includes('issue_flow_pr=example/platform#9'));
+  assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
+});
+
 test('agentrix default prompts delegate script details to the issue-flow skill', () => {
   const promptsDir = path.resolve(__dirname, '..', 'skills', 'issue-flow', 'assets', 'agentrix', 'runtime', 'prompts');
   for (const entry of fs.readdirSync(promptsDir, { withFileTypes: true })) {
