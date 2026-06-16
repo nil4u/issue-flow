@@ -102,7 +102,7 @@ test('agentrix build prompt injects build context without plan output section', 
   assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
 });
 
-test('agentrix review prompt uses PR/MR context instead of issue flow instructions', () => {
+test('agentrix review prompt uses target URL and review submission script', () => {
   const prompt = agentrix.buildPullRequestPrompt({
     provider: 'github',
     repoFullName: 'example/platform',
@@ -119,11 +119,13 @@ test('agentrix review prompt uses PR/MR context instead of issue flow instructio
     body: '<!-- issue-flow:source-issue=42 -->\nAdds export support.',
   });
 
-  assert.match(prompt, /## Pull Request/);
-  assert.match(prompt, /Number: #9/);
-  assert.match(prompt, /Possible source issue: #42/);
-  assert.match(prompt, /不要修改 source issue label/);
+  assert.match(prompt, /## Review Target/);
+  assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
+  assert.match(prompt, /## Review Submission/);
+  assert.match(prompt, /scripts\/review\.cjs --pr-number 9 --body-file <tmp-review-body-file>/);
+  assert.match(prompt, /使用下方 review 提交命令发布结果/);
   assert.doesNotMatch(prompt, /## Issue/);
+  assert.doesNotMatch(prompt, /Possible source issue/);
   assert.doesNotMatch(prompt, /flow::triage/);
   assert.doesNotMatch(prompt, /automation::build/);
 });
@@ -143,7 +145,7 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
 test('agentrix task marker uses issue-flow namespace', () => {
   assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:task:agentrix:build -->');
   assert.equal(
-    agentrix.buildTaskCommentMarker('pr-review', { headSha: 'abc123' }),
-    '<!-- issue-flow:task:agentrix:pr-review:abc123 -->'
+    agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
+    '<!-- issue-flow:task:agentrix:review:abc123 -->'
   );
 });

@@ -140,11 +140,21 @@ node pr-merged.cjs --event <path> [common-options]
 ```bash
 node dispatch.cjs auto --event <path> [--runtime agentrix] [common-options]
 node dispatch.cjs comment --event <path> [--runtime agentrix] [common-options]
-node dispatch.cjs pr-review --event <path> [--runtime agentrix] [common-options]
-node dispatch.cjs pr-review --pr-number <num> [--runtime agentrix] [common-options]
+node dispatch.cjs review --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs review --pr-number <num> [--runtime agentrix] [common-options]
 node dispatch.cjs pr-merged --event <path> [common-options]
 node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 ```
+
+## review.cjs
+
+Submit a PR/MR review result.
+
+```bash
+node review.cjs --pr-number <num> --body-file <path> [common-options]
+```
+
+GitHub submits one Pull Request Review. GitLab posts one MR note.
 
 ### Agentrix 路径配置
 
@@ -170,7 +180,7 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 6. prompt 首位固定注入项目级 `issue-flow` skill 文件路径，例如 `.agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md`
 7. task lock marker 使用 `<!-- issue-flow:task:agentrix:<action> -->`
 8. `pr-merged` 在应用 source issue 状态流转后会立即执行一次自动路由；`mr-by::plan` merge 后可直接启动 build，`mr-by::build` merge 后因 `status::done` 跳过
-9. `pr-review` 只处理 PR/MR review check；它不读取 source issue `flow::` label，不受 `ISSUE_FLOW_AUTO_DEFAULT` 影响，只在 `ISSUE_FLOW_REVIEW_ENABLED=true` 或 `1` 时运行
+9. `review`: PR/MR check; controlled by `ISSUE_FLOW_REVIEW_ENABLED=true` or `1`
 
 ## bootstrap.cjs
 

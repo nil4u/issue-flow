@@ -4,7 +4,7 @@
   "description": "Label-based issue state machine and deterministic git provider operations for development automation.",
   "license": "MIT",
   "scripts": {
-    "test": "node --test test/agentrix-runtime.test.cjs test/bootstrap.test.cjs test/dispatch.test.cjs test/install.test.cjs test/intake.test.cjs test/labels.test.cjs test/merged.test.cjs test/providers.test.cjs test/resolve.test.cjs test/submit.test.cjs",
+    "test": "node --test test/agentrix-runtime.test.cjs test/bootstrap.test.cjs test/dispatch.test.cjs test/install.test.cjs test/intake.test.cjs test/labels.test.cjs test/merged.test.cjs test/providers.test.cjs test/resolve.test.cjs test/review.test.cjs test/submit.test.cjs",
     "test:integration": "node --test test/integration.test.cjs test/integration-lifecycle.test.cjs"
   }
 }

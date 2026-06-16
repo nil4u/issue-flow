@@ -44,7 +44,7 @@ function usage() {
     'Commands:',
     '  auto       Run the current flow:: action when automation policy allows it',
     '  comment    Route an issue comment for the selected runtime mention',
-    '  pr-review  Run an independent PR/MR automatic review check',
+    '  review     Run an independent PR/MR automatic review check',
     '  pr-merged  Apply merged plan/build PR transition',
     '  resume     Run the action selected by the current flow:: label',
     '  general    Start a broad runtime action from a manual instruction',
@@ -58,10 +58,10 @@ function usage() {
     '  --repo <owner/repo>     Repository/project override.',
     '  --runtime <name>        Runtime preset. Defaults to agentrix.',
     '  --issue-number <num>    Issue number override.',
-    '  --pr-number <num>       PR/MR number for manual pr-review dispatch.',
+    '  --pr-number <num>       PR/MR number for manual review dispatch.',
     '  --instruction <text>    Manual instruction for the general command.',
     '  --auto-default <level>  Repository default automation level: off, triage, plan, or build.',
-    '  --review-enabled <bool> Enable pr-review when true or 1. Defaults to ISSUE_FLOW_REVIEW_ENABLED.',
+    '  --review-enabled <bool> Enable review when true or 1. Defaults to ISSUE_FLOW_REVIEW_ENABLED.',
     '  --config <path>         Runtime config path.',
     '  --prompts-dir <path>    Agentrix prompt override directory.',
     '  --templates-dir <path>  Agentrix template override directory.',
@@ -472,7 +472,7 @@ async function startAction(action, issue, options = {}, data = {}) {
 }
 
 async function startPullRequestReview(pr, options = {}, data = {}) {
-  const action = 'pr-review';
+  const action = 'review';
   const runtime = loadRuntime(options);
   if (!runtimeCanRunAction(runtime, action)) {
     throw new Error(`Runtime does not support issue-flow action: ${action}`);
@@ -688,7 +688,7 @@ async function runPrMerged(options = {}) {
   };
 }
 
-async function runPrReview(options = {}, provided = {}) {
+async function runReview(options = {}, provided = {}) {
   if (!resolveReviewEnabled(options)) {
     logIssueFlow('PR/MR review skipped', { reason: 'review_disabled' });
     return {
@@ -770,8 +770,8 @@ async function main(argv = process.argv.slice(2)) {
     case 'comment':
       await runComment(options);
       break;
-    case 'pr-review':
-      await runPrReview(options);
+    case 'review':
+      await runReview(options);
       break;
     case 'pr-merged':
       await runPrMerged(options);
@@ -807,7 +807,7 @@ module.exports = {
   runComment,
   runDirectAction,
   runPrMerged,
-  runPrReview,
+  runReview,
   runResume,
   startAction,
   startPullRequestReview,

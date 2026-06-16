@@ -42,8 +42,6 @@ Issue 生命周期状态。
 | `flow::clarify` | 等待人工补充信息 | 否（gate） |
 | `flow::approve` | 等待人工审批 | 否（gate） |
 
-Review 不再是 issue `flow::` label。它是 PR/MR 级别的独立自动检查任务，由 `ISSUE_FLOW_REVIEW_ENABLED` 控制。
-
 ### automation::
 
 Issue 级别的自动化策略：**允许自动化推进到的上限**。与 `flow::` 正交——`flow::` 是当前这一步，`automation::` 是这个 issue 能自动跑多远。

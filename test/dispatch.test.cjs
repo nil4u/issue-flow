@@ -11,7 +11,7 @@ const {
   resolveReviewEnabled,
   resolveRuntimeResumeDecision,
   runPrMerged,
-  runPrReview,
+  runReview,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 const { providers } = require('../skills/issue-flow/scripts/providers.cjs');
@@ -118,7 +118,7 @@ test('dispatch resume treats old flow::review as unsupported issue flow', () => 
   );
 });
 
-test('dispatch pr-review uses its own enable flag', async () => {
+test('dispatch review uses its own enable flag', async () => {
   assert.equal(resolveReviewEnabled({ reviewEnabled: 'true' }), true);
   assert.equal(resolveReviewEnabled({ reviewEnabled: '1' }), true);
   assert.equal(resolveReviewEnabled({ reviewEnabled: 'false' }), false);
@@ -127,15 +127,15 @@ test('dispatch pr-review uses its own enable flag', async () => {
     ISSUE_FLOW_AUTO_DEFAULT: 'build',
     ISSUE_FLOW_REVIEW_ENABLED: undefined,
   }, async () => {
-    assert.deepEqual(await runPrReview({ dryRun: true }), {
+    assert.deepEqual(await runReview({ dryRun: true }), {
       action: 'skipped',
       reason: 'review_disabled',
     });
   });
 });
 
-test('dispatch pr-review queues runtime review when enabled', async () => {
-  const result = await runPrReview(
+test('dispatch review queues runtime review when enabled', async () => {
+  const result = await runReview(
     {
       dryRun: true,
       reviewEnabled: '1',
@@ -160,30 +160,30 @@ test('dispatch pr-review queues runtime review when enabled', async () => {
     }
   );
 
-  assert.equal(result.action, 'pr-review');
+  assert.equal(result.action, 'review');
   assert.equal(result.result.status, 'dry-run');
 });
 
-test('dispatch pr-review task lock is scoped to the PR head SHA', () => {
+test('dispatch review task lock is scoped to the PR head SHA', () => {
   const comments = [
     {
-      body: agentrix.buildTaskComment('pr-review', { status: 'starting' }, {
+      body: agentrix.buildTaskComment('review', { status: 'starting' }, {
         pullRequest: { headSha: 'old-sha' },
       }),
     },
   ];
 
   assert.equal(
-    findActionTaskComment(comments, 'pr-review', agentrix, { pullRequest: { headSha: 'new-sha' } }),
+    findActionTaskComment(comments, 'review', agentrix, { pullRequest: { headSha: 'new-sha' } }),
     undefined
   );
   assert.equal(
-    findActionTaskComment(comments, 'pr-review', agentrix, { pullRequest: { headSha: 'old-sha' } }),
+    findActionTaskComment(comments, 'review', agentrix, { pullRequest: { headSha: 'old-sha' } }),
     comments[0]
   );
 });
 
-test('dispatch pr-review manual path fetches PR/MR and skips draft state', async () => {
+test('dispatch review manual path fetches PR/MR and skips draft state', async () => {
   const original = providers.github.fetchCurrentPullRequest;
   let fetched = false;
   providers.github.fetchCurrentPullRequest = async (pr) => {
@@ -199,7 +199,7 @@ test('dispatch pr-review manual path fetches PR/MR and skips draft state', async
   };
 
   try {
-    const result = await runPrReview({
+    const result = await runReview({
       provider: 'github',
       repo: 'example/platform',
       prNumber: '5',

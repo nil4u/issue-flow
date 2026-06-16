@@ -97,4 +97,4 @@ issue-flow-review:
         fi
         set -- "$@" --pr-number "$AGENTRIX_PR_NUMBER"
       fi
-      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs pr-review "$@"
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"

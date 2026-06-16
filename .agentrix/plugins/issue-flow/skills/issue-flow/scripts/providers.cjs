@@ -388,6 +388,23 @@ async function createGithubIssueComment(issue, body, options = {}) {
   return requestGithub('POST', `${githubIssueApiPath(issue)}/comments`, { body });
 }
 
+async function submitGithubPullRequestReview(pr, body, options = {}) {
+  const requestBody = {
+    body,
+    event: 'COMMENT',
+  };
+  if (options.commitId || pr.headSha) {
+    requestBody.commit_id = options.commitId || pr.headSha;
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, reviewPullRequest: pr.number, body: requestBody }, null, 2));
+    return { id: 'dry-run-review', html_url: '' };
+  }
+
+  return requestGithub('POST', `${githubPullRequestApiPath(pr)}/reviews`, requestBody);
+}
+
 async function updateGithubIssueComment(issue, commentId, body, options = {}) {
   if (options.dryRun) {
     console.log(JSON.stringify({ dryRun: true, updateComment: commentId, body }, null, 2));
@@ -907,6 +924,10 @@ async function createGitlabPullRequestComment(pr, body, options = {}) {
   return requestGitlab('POST', gitlabMergeRequestNotesApiPath(pr), { body }, options);
 }
 
+async function submitGitlabPullRequestReview(pr, body, options = {}) {
+  return createGitlabPullRequestComment(pr, body, options);
+}
+
 async function updateGitlabPullRequestComment(pr, commentId, body, options = {}) {
   if (options.dryRun) {
     console.log(JSON.stringify({ dryRun: true, updateComment: commentId, body }, null, 2));
@@ -1102,6 +1123,7 @@ const githubProvider = {
   deleteIssueComment: deleteGithubIssueComment,
   listPullRequestComments: listGithubIssueComments,
   createPullRequestComment: createGithubIssueComment,
+  submitPullRequestReview: submitGithubPullRequestReview,
   updatePullRequestComment: updateGithubIssueComment,
   deletePullRequestComment: deleteGithubIssueComment,
   addTriggerCommentReaction: addGithubTriggerCommentReaction,
@@ -1134,6 +1156,7 @@ const gitlabProvider = {
   deleteIssueComment: deleteGitlabIssueComment,
   listPullRequestComments: listGitlabPullRequestComments,
   createPullRequestComment: createGitlabPullRequestComment,
+  submitPullRequestReview: submitGitlabPullRequestReview,
   updatePullRequestComment: updateGitlabPullRequestComment,
   deletePullRequestComment: deleteGitlabPullRequestComment,
   addTriggerCommentReaction: addGitlabTriggerCommentReaction,

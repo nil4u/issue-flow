@@ -16,10 +16,10 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
-  group: issue-flow-pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  group: issue-flow-review-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: false
 
 jobs:
@@ -53,7 +53,7 @@ jobs:
           ISSUE_FLOW_REVIEW_ENABLED: ${{ vars.ISSUE_FLOW_REVIEW_ENABLED }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs pr-review --pr-number "${{ inputs.pr_number }}"
+            node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review --pr-number "${{ inputs.pr_number }}"
           else
-            node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs pr-review --event "$GITHUB_EVENT_PATH"
+            node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review --event "$GITHUB_EVENT_PATH"
           fi
