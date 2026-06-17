@@ -210,14 +210,30 @@ function extractTokenFromRemoteUrl(remoteUrl) {
   if (!remoteUrl) {
     return '';
   }
-  const match = String(remoteUrl).match(/^https?:\/\/(?:[^:]+:)?([^@]+)@/);
-  if (!match) {
+  let parsed;
+  try {
+    parsed = new URL(String(remoteUrl));
+  } catch {
     return '';
   }
-  const candidate = match[1];
+  if (!/^https?:$/.test(parsed.protocol) || !parsed.username) {
+    return '';
+  }
+
+  const password = decodeURIComponent(parsed.password || '');
+  if (password) {
+    return password.length >= 8 ? password : '';
+  }
+
+  const candidate = decodeURIComponent(parsed.username);
   if (candidate === 'git' || candidate.length < 8) {
     return '';
   }
+
+  if (!/^(github_pat_|gh[pousr]_|glpat-|gldt-|glcbt-|glrt-)/.test(candidate)) {
+    return '';
+  }
+
   return candidate;
 }
 

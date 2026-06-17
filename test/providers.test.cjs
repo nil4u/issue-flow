@@ -10,6 +10,7 @@ const {
 } = require('../skills/issue-flow/scripts/events.cjs');
 
 const {
+  extractTokenFromRemoteUrl,
   gitlabApiBodyArgs,
   gitlabApiBaseUrl,
   gitlabHostname,
@@ -121,6 +122,14 @@ test('provider detection accepts gitlab remotes and project paths', () => {
     repo: 'project',
     fullName: 'group/sub/project',
   });
+});
+
+test('remote token extraction ignores username-only HTTPS remotes', () => {
+  assert.equal(extractTokenFromRemoteUrl('https://alice-dev@github.com/acme/webapp.git'), '');
+  assert.equal(extractTokenFromRemoteUrl('https://git@gitlab.com/acme/webapp.git'), '');
+  assert.equal(extractTokenFromRemoteUrl('https://x-access-token:ghp_1234567890abcdef@github.com/acme/webapp.git'), 'ghp_1234567890abcdef');
+  assert.equal(extractTokenFromRemoteUrl('https://oauth2:glpat-1234567890abcdef@gitlab.com/acme/webapp.git'), 'glpat-1234567890abcdef');
+  assert.equal(extractTokenFromRemoteUrl('https://github_pat_1234567890abcdef@github.com/acme/webapp.git'), 'github_pat_1234567890abcdef');
 });
 
 test('github submit operations use token API without gh CLI', async () => {
