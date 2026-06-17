@@ -19,7 +19,7 @@ function makeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-bootstrap-test-'));
 }
 
-test('bootstrap parser accepts runtime, force, and dry-run only as behavior options', () => {
+test('bootstrap parser accepts runtime, force, and dry-run behavior options', () => {
   assert.deepEqual(parseArgs(['github', '--runtime', 'agentrix', '--force', '--dry-run']), {
     target: 'github',
     options: {
@@ -61,16 +61,23 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
       ...AGENTRIX_PROJECT_FILES.map(([, target]) => target),
       ...AGENTRIX_PROJECT_DIRS.map(([, target]) => target),
+      '.github/workflows/issue-flow-labels.yml',
       '.github/workflows/issue-flow-auto.yml',
       '.github/workflows/issue-flow-comment.yml',
       '.github/workflows/issue-flow-pr-merged.yml',
       '.github/workflows/issue-flow-pr-review.yml',
       '.issue-flow/install-manifest.json',
     ].sort());
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml')), true);
+    const labelsWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-labels.yml'), 'utf8');
     const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
     const reviewWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml'), 'utf8');
+    assert.match(labelsWorkflow, /Issue Flow Labels/);
+    assert.match(labelsWorkflow, /issues: write/);
+    assert.match(labelsWorkflow, /sync-labels\.cjs --provider github/);
+    assert.match(labelsWorkflow, /github\.repository/);
     assert.match(autoWorkflow, /- opened/);
     assert.match(autoWorkflow, /- labeled/);
     assert.doesNotMatch(autoWorkflow, /- edited/);
@@ -230,6 +237,9 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ].sort());
     assert.match(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
+    assert.match(gitlabWorkflow, /issue-flow-labels:/);
+    assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
+    assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
     assert.match(gitlabWorkflow, /AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook"/);
     assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "pull_request"/);
     assert.match(gitlabWorkflow, /\$\{AGENTRIX_EVENT_ACTION:-\}" = "opened"/);

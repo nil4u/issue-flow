@@ -137,10 +137,42 @@ Catalog 中颜色保存为 GitHub 兼容的 6 位 hex（例如 `1D76DB`）。Git
 GitLab 同步时提交 `#RRGGBB`。名称和说明在两个 provider 上保持一致。如果某个 GitLab 实例版本或权限
 不接受 description/update 字段，命令会失败并暴露 provider 错误，不会静默降级成部分成功。
 
+### 内置 Label Catalog
+
+| Label | Scope | Color | Description |
+|-------|-------|-------|-------------|
+| `type::feature` | Issue | `0E8A16` | Issue is a feature or enhancement |
+| `type::bug` | Issue | `D73A4A` | Issue reports a defect or regression |
+| `type::debt` | Issue | `5319E7` | Issue tracks technical debt or cleanup |
+| `type::ops` | Issue | `1D76DB` | Issue tracks operations or maintenance work |
+| `status::active` | Issue | `0052CC` | Issue is active and eligible for workflow actions |
+| `status::done` | Issue | `0E8A16` | Issue is complete |
+| `status::drop` | Issue | `6A737D` | Issue has been dropped and should not continue |
+| `status::suspend` | Issue | `FBCA04` | Issue is suspended until conditions change |
+| `flow::triage` | Issue | `BFDADC` | Waiting for triage |
+| `flow::plan` | Issue | `0052CC` | Waiting for a plan action |
+| `flow::build` | Issue | `1D76DB` | Waiting for implementation |
+| `flow::clarify` | Issue | `D4C5F9` | Waiting for clarification |
+| `flow::approve` | Issue | `0E8A16` | Waiting for approval of a plan or build PR/MR |
+| `automation::plan` | Issue | `7057FF` | Automation may create plan PRs/MRs |
+| `automation::build` | Issue | `006B75` | Automation may create plan and build PRs/MRs |
+| `priority::p0` | Issue | `B60205` | Highest priority issue |
+| `priority::p1` | Issue | `D93F0B` | High priority issue |
+| `priority::p2` | Issue | `FBCA04` | Normal priority issue |
+| `priority::p3` | Issue | `C5DEF5` | Low priority issue |
+| `mr-by::plan` | PR/MR | `0052CC` | PR or MR was created by the plan action |
+| `mr-by::build` | PR/MR | `1D76DB` | PR or MR was created by the build action |
+
 ### 安装后和维护
 
-`bootstrap.cjs` / `install.sh` 只安装文件和 workflow，不自动访问 provider API。安装后建议由具备 label
-管理权限的用户或 CI token 手动执行一次：
+`bootstrap.cjs` / `install.sh` 安装默认 CI workflow。目标项目 commit 并 push 安装文件后：
+
+- GitHub 的 `.github/workflows/issue-flow-labels.yml` 会在 issue-flow 相关文件变更时自动运行 `sync-labels.cjs`。
+- GitLab 的 `.gitlab/issue-flow.gitlab-ci.yml` 包含 `issue-flow-labels` job，会在 push 改动 issue-flow 相关文件时自动运行 `sync-labels.cjs`。
+- 自动同步会创建缺失 label，并更新颜色/说明漂移的 label。
+- 如果 CI token 没有 provider label 管理权限，label sync job 会失败；修复 token 权限后重新运行 job 或再次 push 即可。
+
+也可以由具备 label 管理权限的用户或 CI token 手动执行：
 
 ```bash
 node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider github --repo owner/repo
@@ -244,6 +276,7 @@ node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
 - Runtime 资源来自 `skills/issue-flow/assets/agentrix/runtime/`，workflow/config 资源来自 `skills/issue-flow/assets/agentrix/bootstrap/`
 - 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定
 - 已存在文件默认跳过，`--force` 才覆盖
+- 安装后的 push 会通过默认 workflow job 自动同步 provider labels；安装命令本身仍只写文件
 
 ### Source Issue 解析优先级
 

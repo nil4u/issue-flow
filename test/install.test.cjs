@@ -34,6 +34,7 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.match(result.stdout, /written \.issue-flow\/issues\/README\.md/);
     assert.match(result.stdout, /written \.issue-flow\/prompts/);
     assert.match(result.stdout, /written \.issue-flow\/templates/);
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);

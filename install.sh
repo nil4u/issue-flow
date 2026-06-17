@@ -9,8 +9,7 @@ usage() {
 Usage: install.sh [github|gitlab|auto] [--force] [--dry-run]
 
 Installs issue-flow into the current project.
-Provider labels are not synced during install. After install, run:
-  node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider github --repo owner/repo
+After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github
