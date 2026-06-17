@@ -4,7 +4,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveProvider } = require('./providers.cjs');
+const {
+  existingPullRequestApiHead,
+  headBranchFilterCandidates,
+  isExistingPullRequestError,
+  normalizeOptionalUrl,
+  resolveProvider,
+} = require('./providers.cjs');
 const { labelDefinitionFor } = require('./labels.cjs');
 
 const SUBMIT_KINDS = {
@@ -300,94 +306,21 @@ async function ensureMergeRequestLabel(provider, repo, label, options) {
     throw new Error(`No managed label definition found for ${label}`);
   }
 
-  if (options.dryRun) {
-    console.log(JSON.stringify({ dryRun: true, provider: provider.name, ensureLabel: label, repo: repo.fullName }, null, 2));
+  if (provider.ensurePullRequestLabel) {
+    await provider.ensurePullRequestLabel(repo, label, config.labelDefinition, options);
+    return;
   }
+
+  if (!provider.ensureLabelDefinition) {
+    if (options.dryRun) {
+      console.log(JSON.stringify({ dryRun: true, provider: provider.name, ensureLabel: label, repo: repo.fullName }, null, 2));
+    }
+    return;
+  }
+
   await provider.ensureLabelDefinition(repo, config.labelDefinition, options);
 }
 
-function uniqueNonEmpty(values) {
-  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
-}
-
-function headBranchFilterCandidates(repo, headBranch) {
-  const branch = String(headBranch || '').trim();
-  if (!branch) {
-    return [];
-  }
-  if (branch.includes(':')) {
-    return [branch];
-  }
-  return uniqueNonEmpty([branch, `${repo.owner}:${branch}`]);
-}
-
-function existingPullRequestApiHead(repo, headBranch) {
-  const branch = String(headBranch || '').trim();
-  if (!branch || branch.includes(':')) {
-    return branch;
-  }
-  return `${repo.owner}:${branch}`;
-}
-
-function normalizeOptionalUrl(value) {
-  const trimmed = String(value || '').trim();
-  return trimmed === 'null' ? '' : trimmed;
-}
-
-function findExistingPullRequest(repo, headBranch, options) {
-  if (options.dryRun) {
-    return '';
-  }
-
-  for (const candidate of headBranchFilterCandidates(repo, headBranch)) {
-    const url = normalizeOptionalUrl(
-      runOutput(
-        'gh',
-        [
-          'pr',
-          'list',
-          '--repo',
-          repo.fullName,
-          '--head',
-          candidate,
-          '--state',
-          'open',
-          '--json',
-          'url',
-          '--jq',
-          '.[0].url',
-        ],
-        { optional: true }
-      )
-    );
-    if (url) {
-      return url;
-    }
-  }
-
-  const apiHead = existingPullRequestApiHead(repo, headBranch);
-  if (!apiHead) {
-    return '';
-  }
-  return normalizeOptionalUrl(
-    runOutput(
-      'gh',
-      [
-        'api',
-        '--method',
-        'GET',
-        `repos/${repo.fullName}/pulls`,
-        '-f',
-        `head=${apiHead}`,
-        '-f',
-        'state=open',
-        '--jq',
-        '.[0].html_url',
-      ],
-      { optional: true }
-    )
-  );
-}
 
 function pushCurrentBranch(headBranch, options) {
   if (options.noPush) {
@@ -399,66 +332,12 @@ function pushCurrentBranch(headBranch, options) {
   });
 }
 
-function editPullRequest(prUrl, title, bodyFile, label, options) {
-  runChecked('gh', ['pr', 'edit', prUrl, '--title', title, '--body-file', bodyFile, '--add-label', label], {
-    dryRun: options.dryRun,
-  });
-}
-
-function isExistingPullRequestError(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /pull request .*already exists/i.test(message) || /already exists for [^\s]+:[^\s]+/i.test(message);
-}
-
 async function createOrUpdatePullRequest({ provider, repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
-  if (provider.name === 'gitlab') {
-    return provider.createOrUpdateMergeRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
+  const createOrUpdate = provider.createOrUpdatePullRequest || provider.createOrUpdateMergeRequest;
+  if (!createOrUpdate) {
+    throw new Error(`Provider ${provider.name} does not support PR/MR submission`);
   }
-
-  const existingUrl = findExistingPullRequest(repo, headBranch, options);
-  if (existingUrl) {
-    editPullRequest(existingUrl, title, bodyFile, label, options);
-    return existingUrl;
-  }
-
-  const args = [
-    'pr',
-    'create',
-    '--repo',
-    repo.fullName,
-    '--title',
-    title,
-    '--body-file',
-    bodyFile,
-    '--label',
-    label,
-    '--base',
-    baseBranch,
-    '--head',
-    headBranch,
-  ];
-  if (draft) {
-    args.push('--draft');
-  }
-
-  if (options.dryRun) {
-    console.log(JSON.stringify({ dryRun: true, command: 'gh', args }, null, 2));
-    return `https://github.com/${repo.fullName}/pulls/dry-run`;
-  }
-
-  try {
-    return runChecked('gh', args);
-  } catch (error) {
-    if (!isExistingPullRequestError(error)) {
-      throw error;
-    }
-    const duplicateUrl = findExistingPullRequest(repo, headBranch, options);
-    if (!duplicateUrl) {
-      throw error;
-    }
-    editPullRequest(duplicateUrl, title, bodyFile, label, options);
-    return duplicateUrl;
-  }
+  return createOrUpdate({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
 }
 
 function applyIssueFlow(provider, repo, issueNumber, flow, options) {

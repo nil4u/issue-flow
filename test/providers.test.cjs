@@ -1,4 +1,7 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -15,8 +18,98 @@ const {
   parseRepoFullName,
   planLabelSync,
   providerLabelDefinition,
+  requestGitlab,
   resolveProvider,
 } = require('../skills/issue-flow/scripts/providers.cjs');
+
+function withTemporaryEnv(values, fn) {
+  const previous = new Map();
+  for (const key of Object.keys(values)) {
+    previous.set(key, process.env[key]);
+    if (values[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = values[key];
+    }
+  }
+
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [key, value] of previous) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+}
+
+function createBodyFile(content = 'Body') {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-test-body-'));
+  const bodyFile = path.join(dir, 'body.md');
+  fs.writeFileSync(bodyFile, content, 'utf8');
+  return {
+    path: bodyFile,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function createFakeGh() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-fake-gh-'));
+  const logPath = path.join(dir, 'gh.log');
+  const ghPath = path.join(dir, 'gh');
+  fs.writeFileSync(
+    ghPath,
+    [
+      `#!${process.execPath}`,
+      "const fs = require('node:fs');",
+      'const args = process.argv.slice(2);',
+      "fs.appendFileSync(process.env.ISSUE_FLOW_GH_LOG, `${JSON.stringify(args)}\\n`, 'utf8');",
+      "if (args[0] === 'pr' && args[1] === 'create') {",
+      "  console.log('https://github.com/acme-org/webapp/pull/7');",
+      '}',
+    ].join('\n'),
+    { mode: 0o755 }
+  );
+  return {
+    path: ghPath,
+    dir,
+    logPath,
+    readCalls: () =>
+      fs.existsSync(logPath)
+        ? fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
+        : [],
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function createFakeGlab() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-fake-glab-'));
+  const logPath = path.join(dir, 'glab.log');
+  const glabPath = path.join(dir, 'glab');
+  fs.writeFileSync(
+    glabPath,
+    [
+      `#!${process.execPath}`,
+      "const fs = require('node:fs');",
+      'const args = process.argv.slice(2);',
+      "fs.appendFileSync(process.env.ISSUE_FLOW_GLAB_LOG, `${JSON.stringify(args)}\\n`, 'utf8');",
+      "console.log('{}');",
+    ].join('\n'),
+    { mode: 0o755 }
+  );
+  return {
+    dir,
+    logPath,
+    readCalls: () =>
+      fs.existsSync(logPath)
+        ? fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
+        : [],
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
 
 test('provider detection accepts gitlab remotes and project paths', () => {
   assert.equal(resolveProvider({ repo: 'https://gitlab.com/group/sub/project.git' }, {}).name, 'gitlab');
@@ -28,6 +121,276 @@ test('provider detection accepts gitlab remotes and project paths', () => {
     repo: 'project',
     fullName: 'group/sub/project',
   });
+});
+
+test('github submit operations use token API without gh CLI', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const bodyFile = createBodyFile('Token body');
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await withTemporaryEnv(
+    {
+      GITHUB_TOKEN: 'token-123',
+      GH_TOKEN: undefined,
+      PATH: fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-empty-path-')),
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsedBody = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body: parsedBody });
+
+        if (String(url).endsWith('/labels/mr-by%3A%3Abuild') && init.method === 'GET') {
+          return { ok: false, status: 404, text: async () => JSON.stringify({ message: 'Not Found' }) };
+        }
+        if (String(url).endsWith('/labels') && init.method === 'POST') {
+          return { ok: true, status: 201, text: async () => JSON.stringify({ name: parsedBody.name }) };
+        }
+        if (String(url).includes('/pulls?') && init.method === 'GET') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([]) };
+        }
+        if (String(url).endsWith('/pulls') && init.method === 'POST') {
+          return { ok: true, status: 201, text: async () => JSON.stringify({ number: 482, html_url: 'https://github.com/acme-org/webapp/pull/482' }) };
+        }
+        if (String(url).endsWith('/issues/482/labels') && init.method === 'POST') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([{ name: parsedBody.labels[0] }]) };
+        }
+
+        throw new Error(`Unexpected GitHub API call: ${init.method} ${url}`);
+      };
+
+      await provider.ensurePullRequestLabel(repo, 'mr-by::build', {
+        labelColor: '1D76DB',
+        labelDescription: 'PR or MR was created by the build action',
+      });
+      const url = await provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #7: Token first',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'main',
+        headBranch: '7-token-first/build',
+        draft: true,
+        options: {},
+      });
+
+      assert.equal(url, 'https://github.com/acme-org/webapp/pull/482');
+    }
+  );
+
+  global.fetch = previousFetch;
+  bodyFile.cleanup();
+
+  assert.deepEqual(
+    calls.map((call) => [call.method, new URL(call.url).pathname]),
+    [
+      ['GET', '/repos/acme-org/webapp/labels/mr-by%3A%3Abuild'],
+      ['POST', '/repos/acme-org/webapp/labels'],
+      ['GET', '/repos/acme-org/webapp/pulls'],
+      ['POST', '/repos/acme-org/webapp/pulls'],
+      ['POST', '/repos/acme-org/webapp/issues/482/labels'],
+    ]
+  );
+  assert.equal(calls[3].body.draft, true);
+  assert.equal(calls[3].body.body, 'Token body');
+});
+
+test('github submit operations fallback to gh CLI only when token is missing', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const bodyFile = createBodyFile('Fallback body');
+  const fakeGh = createFakeGh();
+  const previousFetch = global.fetch;
+
+  await withTemporaryEnv(
+    {
+      GITHUB_TOKEN: undefined,
+      GH_TOKEN: undefined,
+      PATH: fakeGh.dir,
+      ISSUE_FLOW_GH_LOG: fakeGh.logPath,
+    },
+    async () => {
+      global.fetch = async () => {
+        throw new Error('GitHub API should not be called without a token');
+      };
+
+      await provider.ensurePullRequestLabel(repo, 'mr-by::plan', {
+        labelColor: '0052CC',
+        labelDescription: 'PR or MR was created by the plan action',
+      });
+      const url = await provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Plan #7: CLI fallback',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::plan',
+        baseBranch: 'main',
+        headBranch: '7-token-first/plan',
+        draft: false,
+        options: {},
+      });
+
+      assert.equal(url, 'https://github.com/acme-org/webapp/pull/7');
+    }
+  );
+
+  global.fetch = previousFetch;
+  bodyFile.cleanup();
+
+  assert.deepEqual(
+    fakeGh.readCalls().map((args) => args.slice(0, 2)),
+    [
+      ['label', 'list'],
+      ['label', 'create'],
+      ['pr', 'list'],
+      ['pr', 'list'],
+      ['api', '--method'],
+      ['pr', 'create'],
+    ]
+  );
+  fakeGh.cleanup();
+});
+
+test('github token authorization failure does not fallback to gh CLI', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const fakeGh = createFakeGh();
+  const previousFetch = global.fetch;
+
+  await assert.rejects(
+    withTemporaryEnv(
+      {
+        GITHUB_TOKEN: 'bad-token',
+        GH_TOKEN: undefined,
+        PATH: fakeGh.dir,
+        ISSUE_FLOW_GH_LOG: fakeGh.logPath,
+      },
+      async () => {
+        global.fetch = async () => ({
+          ok: false,
+          status: 401,
+          text: async () => JSON.stringify({ message: 'Bad credentials' }),
+        });
+
+        await provider.ensurePullRequestLabel(repo, 'mr-by::build', {
+          labelColor: '1D76DB',
+          labelDescription: 'PR or MR was created by the build action',
+        });
+      }
+    ),
+    /Bad credentials/
+  );
+
+  global.fetch = previousFetch;
+  assert.deepEqual(fakeGh.readCalls(), []);
+  fakeGh.cleanup();
+});
+
+test('gitlab token request failures do not fallback to glab CLI', async () => {
+  const fakeGlab = createFakeGlab();
+  const previousFetch = global.fetch;
+
+  await assert.rejects(
+    withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+        PATH: fakeGlab.dir,
+        ISSUE_FLOW_GLAB_LOG: fakeGlab.logPath,
+      },
+      async () => {
+        global.fetch = async () => {
+          throw new Error('network unavailable');
+        };
+
+        await requestGitlab('GET', '/projects/acme%2Fwebapp/issues/7');
+      }
+    ),
+    /network unavailable/
+  );
+
+  global.fetch = previousFetch;
+  assert.deepEqual(fakeGlab.readCalls(), []);
+  fakeGlab.cleanup();
+});
+
+test('github API duplicate PR response updates the existing pull request', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const bodyFile = createBodyFile('Duplicate body');
+  const previousFetch = global.fetch;
+  const calls = [];
+  let pullListCount = 0;
+
+  await withTemporaryEnv(
+    {
+      GITHUB_TOKEN: 'token-123',
+      GH_TOKEN: undefined,
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsedBody = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body: parsedBody });
+
+        if (String(url).includes('/pulls?') && init.method === 'GET') {
+          pullListCount += 1;
+          const items =
+            pullListCount === 1
+              ? []
+              : [{ number: 99, html_url: 'https://github.com/acme-org/webapp/pull/99' }];
+          return { ok: true, status: 200, text: async () => JSON.stringify(items) };
+        }
+        if (String(url).endsWith('/pulls') && init.method === 'POST') {
+          return {
+            ok: false,
+            status: 422,
+            text: async () =>
+              JSON.stringify({
+                message: 'Validation Failed',
+                errors: [{ message: 'A pull request already exists for acme-org:7-token-first/build.' }],
+              }),
+          };
+        }
+        if (String(url).endsWith('/pulls/99') && init.method === 'PATCH') {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ html_url: 'https://github.com/acme-org/webapp/pull/99' }) };
+        }
+        if (String(url).endsWith('/issues/99/labels') && init.method === 'POST') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([{ name: parsedBody.labels[0] }]) };
+        }
+
+        throw new Error(`Unexpected GitHub API call: ${init.method} ${url}`);
+      };
+
+      const url = await provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #7: Duplicate update',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'main',
+        headBranch: '7-token-first/build',
+        draft: false,
+        options: {},
+      });
+
+      assert.equal(url, 'https://github.com/acme-org/webapp/pull/99');
+    }
+  );
+
+  global.fetch = previousFetch;
+  bodyFile.cleanup();
+
+  assert.deepEqual(
+    calls.map((call) => [call.method, new URL(call.url).pathname]),
+    [
+      ['GET', '/repos/acme-org/webapp/pulls'],
+      ['POST', '/repos/acme-org/webapp/pulls'],
+      ['GET', '/repos/acme-org/webapp/pulls'],
+      ['PATCH', '/repos/acme-org/webapp/pulls/99'],
+      ['POST', '/repos/acme-org/webapp/issues/99/labels'],
+    ]
+  );
 });
 
 test('agentrix GitLab bridge labels parse from JSON first', () => {

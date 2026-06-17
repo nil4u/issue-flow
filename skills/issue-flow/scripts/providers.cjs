@@ -302,6 +302,14 @@ function githubPullRequestApiPath(pr) {
   return `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/pulls/${pr.number}`;
 }
 
+function githubPullRequestsApiPath(repo) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/pulls`;
+}
+
+function githubLabelApiPath(repo, label) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels/${encodeURIComponent(label)}`;
+}
+
 function githubIssueCommentApiPath(issue, comment) {
   return `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}/issues/comments/${comment.id}`;
 }
@@ -611,19 +619,11 @@ async function requestGitlab(method, apiPath, body, options = {}) {
     headers['PRIVATE-TOKEN'] = token;
   }
 
-  let response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch (error) {
-    if (options.noGlabFallback) {
-      throw error;
-    }
-    return requestGitlabWithGlab(method, apiPath, body, options);
-  }
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 
   const text = await response.text();
   const parsed = parseJsonText(text);
@@ -988,6 +988,332 @@ function readBodyFile(bodyFile) {
   return fs.readFileSync(bodyFile, 'utf8');
 }
 
+function runProviderOutput(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    cwd: options.cwd,
+  });
+  if (result.error) {
+    if (options.optional) {
+      return '';
+    }
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    if (options.optional) {
+      return '';
+    }
+    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+  }
+  return result.stdout.trim();
+}
+
+function runProviderChecked(command, args, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, command, args }, null, 2));
+    return '';
+  }
+
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+  }
+  return result.stdout ? result.stdout.trim() : '';
+}
+
+function uniqueNonEmpty(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function headBranchFilterCandidates(repo, headBranch) {
+  const branch = String(headBranch || '').trim();
+  if (!branch) {
+    return [];
+  }
+  if (branch.includes(':')) {
+    return [branch];
+  }
+  return uniqueNonEmpty([branch, `${repo.owner}:${branch}`]);
+}
+
+function existingPullRequestApiHead(repo, headBranch) {
+  const branch = String(headBranch || '').trim();
+  if (!branch || branch.includes(':')) {
+    return branch;
+  }
+  return `${repo.owner}:${branch}`;
+}
+
+function normalizeOptionalUrl(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed === 'null' ? '' : trimmed;
+}
+
+function isExistingPullRequestError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/pull request .*already exists/i.test(message) || /already exists for [^\s]+:[^\s]+/i.test(message)) {
+    return true;
+  }
+
+  const response = error && typeof error === 'object' ? error.response : undefined;
+  if (!response) {
+    return false;
+  }
+  return /pull request .*already exists/i.test(JSON.stringify(response));
+}
+
+async function ensureGithubPullRequestLabel(repo, label, config = {}, options = {}) {
+  const labelColor = config.color || config.labelColor || '1D76DB';
+  const labelDescription = config.description || config.labelDescription || '';
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, ensureLabel: label, repo: repo.fullName }, null, 2));
+    return;
+  }
+
+  if (!getGithubToken()) {
+    const existing = runProviderOutput(
+      'gh',
+      ['label', 'list', '--repo', repo.fullName, '--search', label, '--json', 'name', '--jq', '.[].name']
+    )
+      .split('\n')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (existing.includes(label)) {
+      return;
+    }
+
+    try {
+      runProviderChecked('gh', [
+        'label',
+        'create',
+        label,
+        '--repo',
+        repo.fullName,
+        '--color',
+        labelColor,
+        '--description',
+        labelDescription,
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/already exists/i.test(message)) {
+        throw error;
+      }
+    }
+    return;
+  }
+
+  try {
+    await requestGithub('GET', githubLabelApiPath(repo, label));
+    return;
+  } catch (error) {
+    if (!error || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  try {
+    await requestGithub('POST', `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels`, {
+      name: label,
+      color: labelColor,
+      description: labelDescription,
+    });
+  } catch (error) {
+    if (!error || error.status !== 422 || !/already exists/i.test(error.message || '')) {
+      throw error;
+    }
+  }
+}
+
+async function findExistingGithubPullRequest(repo, headBranch, options = {}) {
+  if (options.dryRun) {
+    return undefined;
+  }
+
+  if (!getGithubToken()) {
+    for (const candidate of headBranchFilterCandidates(repo, headBranch)) {
+      const url = normalizeOptionalUrl(
+        runProviderOutput(
+          'gh',
+          [
+            'pr',
+            'list',
+            '--repo',
+            repo.fullName,
+            '--head',
+            candidate,
+            '--state',
+            'open',
+            '--json',
+            'url',
+            '--jq',
+            '.[0].url',
+          ],
+          { optional: true }
+        )
+      );
+      if (url) {
+        return { html_url: url };
+      }
+    }
+
+    const apiHead = existingPullRequestApiHead(repo, headBranch);
+    if (!apiHead) {
+      return undefined;
+    }
+    const url = normalizeOptionalUrl(
+      runProviderOutput(
+        'gh',
+        [
+          'api',
+          '--method',
+          'GET',
+          `repos/${repo.fullName}/pulls`,
+          '-f',
+          `head=${apiHead}`,
+          '-f',
+          'state=open',
+          '--jq',
+          '.[0].html_url',
+        ],
+        { optional: true }
+      )
+    );
+    return url ? { html_url: url } : undefined;
+  }
+
+  const apiHead = existingPullRequestApiHead(repo, headBranch);
+  if (!apiHead) {
+    return undefined;
+  }
+  const query = new URLSearchParams({ head: apiHead, state: 'open' });
+  const items = await requestGithub('GET', `${githubPullRequestsApiPath(repo)}?${query.toString()}`);
+  return Array.isArray(items) ? items[0] : undefined;
+}
+
+async function addGithubPullRequestLabel(repo, prNumber, label) {
+  await requestGithub(
+    'POST',
+    `${githubIssueApiPath({ ...repo, number: prNumber })}/labels`,
+    { labels: [label] }
+  );
+}
+
+async function updateGithubPullRequest(repo, pr, title, body, label) {
+  const updated = await requestGithub('PATCH', `${githubPullRequestsApiPath(repo)}/${encodeURIComponent(pr.number)}`, {
+    title,
+    body,
+  });
+  await addGithubPullRequestLabel(repo, pr.number, label);
+  return updated.html_url || pr.html_url || '';
+}
+
+function editGithubPullRequestWithCli(prUrl, title, bodyFile, label, options) {
+  runProviderChecked('gh', ['pr', 'edit', prUrl, '--title', title, '--body-file', bodyFile, '--add-label', label], {
+    dryRun: options.dryRun,
+  });
+}
+
+async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
+  if (options.dryRun) {
+    const args = [
+      'pr',
+      'create',
+      '--repo',
+      repo.fullName,
+      '--title',
+      title,
+      '--body-file',
+      bodyFile,
+      '--label',
+      label,
+      '--base',
+      baseBranch,
+      '--head',
+      headBranch,
+    ];
+    if (draft) {
+      args.push('--draft');
+    }
+    console.log(JSON.stringify({ dryRun: true, command: 'gh', args }, null, 2));
+    return `https://github.com/${repo.fullName}/pulls/dry-run`;
+  }
+
+  const existing = await findExistingGithubPullRequest(repo, headBranch, options);
+  const body = readBodyFile(bodyFile);
+  if (existing && existing.html_url) {
+    if (!getGithubToken()) {
+      editGithubPullRequestWithCli(existing.html_url, title, bodyFile, label, options);
+      return existing.html_url;
+    }
+    return updateGithubPullRequest(repo, existing, title, body, label);
+  }
+
+  if (!getGithubToken()) {
+    const args = [
+      'pr',
+      'create',
+      '--repo',
+      repo.fullName,
+      '--title',
+      title,
+      '--body-file',
+      bodyFile,
+      '--label',
+      label,
+      '--base',
+      baseBranch,
+      '--head',
+      headBranch,
+    ];
+    if (draft) {
+      args.push('--draft');
+    }
+
+    try {
+      return runProviderChecked('gh', args);
+    } catch (error) {
+      if (!isExistingPullRequestError(error)) {
+        throw error;
+      }
+      const duplicate = await findExistingGithubPullRequest(repo, headBranch, options);
+      if (!duplicate || !duplicate.html_url) {
+        throw error;
+      }
+      editGithubPullRequestWithCli(duplicate.html_url, title, bodyFile, label, options);
+      return duplicate.html_url;
+    }
+  }
+
+  try {
+    const created = await requestGithub('POST', githubPullRequestsApiPath(repo), {
+      title,
+      body,
+      base: baseBranch,
+      head: headBranch,
+      draft: Boolean(draft),
+    });
+    await addGithubPullRequestLabel(repo, created.number, label);
+    return created.html_url || '';
+  } catch (error) {
+    if (!isExistingPullRequestError(error)) {
+      throw error;
+    }
+    const duplicate = await findExistingGithubPullRequest(repo, headBranch, options);
+    if (!duplicate || !duplicate.html_url) {
+      throw error;
+    }
+    return updateGithubPullRequest(repo, duplicate, title, body, label);
+  }
+}
+
 async function findExistingGitlabMergeRequest(repo, headBranch, options = {}) {
   if (options.dryRun) {
     return undefined;
@@ -1283,6 +1609,9 @@ const githubProvider = {
   updateIssueBody: updateGithubIssueBody,
   getLabel: getGithubLabel,
   ensureLabelDefinition: ensureGithubLabelDefinition,
+  ensurePullRequestLabel: ensureGithubPullRequestLabel,
+  findExistingPullRequest: findExistingGithubPullRequest,
+  createOrUpdatePullRequest: createOrUpdateGithubPullRequest,
 };
 
 const gitlabProvider = {
@@ -1317,6 +1646,7 @@ const gitlabProvider = {
   createOrUpdateMergeRequest: createOrUpdateGitlabMergeRequest,
   getLabel: getGitlabLabel,
   ensureLabelDefinition: ensureGitlabLabelDefinition,
+  createOrUpdatePullRequest: createOrUpdateGitlabMergeRequest,
 };
 
 const providers = {
@@ -1326,15 +1656,19 @@ const providers = {
 
 module.exports = {
   detectProvider,
+  existingPullRequestApiHead,
   extractTokenFromRemoteUrl,
   gitlabApiBodyArgs,
   getGitlabToken,
   gitlabApiBaseUrl,
   gitlabHostname,
+  headBranchFilterCandidates,
+  isExistingPullRequestError,
   labelMatchesDefinition,
   normalizeGitlabState,
   normalizeLabelName,
   normalizeLabels,
+  normalizeOptionalUrl,
   normalizeProviderName,
   parseGitRemoteUrl,
   parseRepoFullName,
