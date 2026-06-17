@@ -26,7 +26,7 @@
 - 相关接口 / 数据 / 状态：
   - Issue managed labels：`type::*`、`status::*`、`flow::*`、`automation::*`、`priority::*`，同 prefix 互斥。
   - GitHub 创建 issue API 支持 `title`、`body`、`labels`。
-  - GitLab 创建 issue API 支持 `title`、`description`、`labels`，labels 以逗号分隔或等价 API 字段提交。
+  - GitLab 创建 issue API 支持 `title`、`description`、`labels`，labels 以逗号分隔或等价 API 字段提交；但 GitLab 会在提交未知 label 时创建新的 project label，因此 create 路径不能依赖 GitLab API 对缺失 label 报错。
   - 自动流转依赖 `status::active`、`flow::*` 和 `automation::*`：新 issue 若创建为 `flow::plan` 且自动化级别允许，自动任务可直接进入 plan；若创建为 `flow::build` 且允许，则可直接实现。
 - 既有约束：
   - Provider 写操作必须通过确定性脚本完成，而不是让 agent 自行调用 `gh issue create` 或 provider API。
@@ -78,6 +78,7 @@
      - 无 token 时 fallback 到 `gh api` 或 `gh issue create`；优先使用 `gh api` 以保持 body/labels 参数语义接近 REST API。
      - 返回规范化对象：`number`、`title`、`body`、`htmlUrl`、`labels`。
    - GitLab：
+     - 创建前必须对将要提交的 managed labels 做 existence preflight：逐个调用现有 `getLabel` / `ensureLabelDefinition` 相关读取能力确认 label 已存在且匹配 catalog；缺失或 metadata drift 时失败，并提示先运行 `sync-labels.cjs`。
      - 有 `GITLAB_TOKEN` / `GL_TOKEN` / `GITLAB_PRIVATE_TOKEN` / `CI_JOB_TOKEN` 时调用 `POST /projects/{project}/issues`。
      - 无 token 时走现有 `glab api` fallback。
      - 返回规范化对象：`number` 使用 issue `iid`，`htmlUrl` 使用 `web_url`。
@@ -87,7 +88,9 @@
    - 首选在 create issue API 请求中带 `labels`，这是避免 intake race 的主要路径。
    - 如果某 provider fallback 只能先创建再加 label，脚本应在创建成功后立即复用 provider 的 issue label 更新能力补齐 labels，并在输出里标明 `labelsAppliedAfterCreate: true`。
    - 对正常 GitHub/GitLab REST API 路径，不需要创建后再调用 `apply.cjs`，避免二次读取和重复写入。
-   - 如果 provider 因 label 不存在或权限不足拒绝创建，应直接失败，不创建一个无标签 issue 后继续静默成功；否则会违背“避免默认 intake/triage”的目标。
+   - 对 GitHub，可以依赖 create API 对无权限或未知 label 的失败结果，但仍应把 provider 错误原样暴露。
+   - 对 GitLab，不能依赖 create API 发现未知 label；必须先完成 managed label preflight，再提交带 labels 的 create 请求，避免静默创建未由 `sync-labels.cjs` 管理的 `type::*`、`status::*`、`flow::*` 等项目 label。
+   - 如果 label 不存在、metadata drift 或权限不足，应直接失败，不创建一个无标签 issue 后继续静默成功；否则会违背“避免默认 intake/triage”的目标。
 
 5. 更新 skill 和 Agentrix runtime 说明。
    - 在 `skills/issue-flow/SKILL.md` 增加 “create-issue.cjs - 创建标准化 issue” 小节，列出用法、label 规则、body file 规则和适用场景。
@@ -124,7 +127,8 @@
    - 扩展 `test/providers.test.cjs`：
      - GitHub token 路径调用 `POST /issues`，body 使用 `body`，labels 使用数组。
      - GitHub 无 token fallback 调用 `gh api`。
-     - GitLab token 路径调用 `POST /projects/:id/issues`，body 使用 `description`，labels 格式正确。
+     - GitLab token 路径先查询每个 managed label，再调用 `POST /projects/:id/issues`，body 使用 `description`，labels 格式正确。
+     - GitLab managed label 缺失或 drift 时不会调用 create issue API，并返回提示运行 `sync-labels.cjs` 的错误。
      - GitLab fallback 调用 `glab api`。
    - 扩展 `test/install.test.cjs` / `test/bootstrap.test.cjs`：
      - `create-issue.cjs`、更新后的 prompt 和 skill 文件会被安装。
@@ -146,6 +150,7 @@
     ```bash
     node skills/issue-flow/scripts/create-issue.cjs --provider gitlab --repo group/project --title "Example" --body-file /tmp/body.md --type type::feature --status status::active --flow flow::build --priority priority::p2 --dry-run
     ```
+  - GitLab preflight：在测试项目临时删除或改动一个 managed label 后运行非 dry-run，确认脚本在创建 issue 前失败，并提示先运行 `sync-labels.cjs`。
   - 在测试仓库真实创建一个 `flow::plan` issue，确认 provider issue 页面已有 `status::active`、`flow::plan`、`type::feature`、`priority::p2`，且 intake 不把它改回 `flow::triage`。
   - 真实创建一个 `flow::build` + `automation::build` issue，确认自动化路由可以直接选择 build。
 - 回归范围：
