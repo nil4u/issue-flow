@@ -407,22 +407,7 @@ function buildRunTitle(action, issue) {
   return `${actionTitle} #${issue.number}: ${truncate(issue.title || 'untitled issue', 80)}`;
 }
 
-function run(action, issue, options = {}, data = {}) {
-  const prompt = buildPrompt(action, issue, data, options);
-  if (options.dryRun) {
-    const result = {
-      runId: 'dry-run',
-      status: 'dry-run',
-      detailUrl: '',
-      result: '',
-    };
-    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, prompt }, null, 2));
-    return result;
-  }
-
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-'));
-  const resultFile = path.join(tempDir, 'result.json');
-  const provider = resolveProvider(options, data.payload || {});
+function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resultFile = '') {
   const metadataSubject = action === 'review'
     ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
     : ['--issue-number', String(issue.number), '--metadata', `issue_flow_issue=${issue.repoFullName}#${issue.number}`];
@@ -444,6 +429,9 @@ function run(action, issue, options = {}, data = {}) {
     '--metadata',
     `issue_flow_action=${action}`,
   ];
+  if (action === 'review' && sourceIssueNumber) {
+    args.push('--issue-number', String(sourceIssueNumber));
+  }
   if (sourceIssueNumber) {
     args.push('--metadata', `issue_flow_source_issue=${issue.repoFullName}#${sourceIssueNumber}`);
   }
@@ -451,6 +439,26 @@ function run(action, issue, options = {}, data = {}) {
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
+  return args;
+}
+
+function run(action, issue, options = {}, data = {}) {
+  const prompt = buildPrompt(action, issue, data, options);
+  if (options.dryRun) {
+    const result = {
+      runId: 'dry-run',
+      status: 'dry-run',
+      detailUrl: '',
+      result: '',
+    };
+    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, prompt }, null, 2));
+    return result;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-'));
+  const resultFile = path.join(tempDir, 'result.json');
+  const provider = resolveProvider(options, data.payload || {});
+  const args = buildRunArgs(action, issue, options, data, prompt, resultFile);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
@@ -521,6 +529,7 @@ module.exports = {
   buildIssuePlanPattern,
   buildPrompt,
   buildPullRequestPrompt,
+  buildRunArgs,
   buildTaskComment,
   buildTaskCommentMarker,
   extractMention,
