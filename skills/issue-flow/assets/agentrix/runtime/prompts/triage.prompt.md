@@ -28,7 +28,7 @@
 - `automation::plan`：自动推进到 plan 为止；build 需人工触发。
 - `automation::build`：自动推进到 build；若走 plan，人工合并 plan PR 后自动续推。
 
-它只能在 repo 默认级别之上**抬高**上限，不能压低；不确定就不标，沿用 repo 默认。按需求的风险、影响面和你对实现路径的把握来定，例如：
+issue 上的 `automation::` label 会覆盖 repo 默认级别；不确定就不标，沿用 repo 默认。按需求的风险、影响面和你对实现路径的把握来定，例如：
 
 - 路径清楚、低风险、希望自动实现：标 `flow::build` + `automation::build`。
 - 需要先规划，但 plan 通过后可自动实现：标 `flow::plan` + `automation::build`。

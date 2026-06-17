@@ -80,7 +80,7 @@ node apply.cjs --issue-number 123 --status status::done --clear-flow
 8. 有效自动化级别 < 所需级别 → skip (reason: automation_level_too_low)
 9. 通过 → shouldRun: true, action: triage/plan/build
 
-`automation::off` 也会让 intake 跳过默认 `status::active` / `flow::triage` 补标。labeled 事件只有新增 `flow::*`、`automation::plan`、`automation::build` 或 `status::active` 时才进入自动路由；`type::*`、`priority::*`、unmanaged label 和 `automation::off` 不单独触发 agent。
+有效自动化级别优先使用 issue 上的 `automation::` label；issue 未设置时才使用 `ISSUE_FLOW_AUTO_DEFAULT`。`automation::off` 也会让 intake 跳过默认 `status::active` / `flow::triage` 补标。labeled 事件只有新增 `flow::*`、`automation::plan`、`automation::build` 或 `status::active` 时才进入自动路由；`type::*`、`priority::*`、unmanaged label 和 `automation::off` 不单独触发 agent。
 
 ### resume 决策
 

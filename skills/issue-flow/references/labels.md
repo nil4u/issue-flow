@@ -54,9 +54,9 @@ Issue 级别的自动化策略：**允许自动化推进到的上限**。与 `fl
 
 自动化级别排序：`off` < `triage` < `plan` < `build`
 
-有效级别 = max(repo 默认级别, issue automation:: label)，但 `automation::off` 显式优先，会覆盖 repo 默认自动化级别。
+有效级别 = issue 上的 `automation::` label；如果 issue 没有 `automation::` label，则使用 repo 默认级别。
 
-重要：`automation::plan` / `automation::build` 仍只提升自动化级别。不确定时不标，沿用 repo 默认。只想沉淀讨论结果且暂不自动化时，标 `automation::off`。
+重要：issue 上的 `automation::` label 会覆盖 repo 默认级别。不确定时不标，沿用 repo 默认。只想沉淀讨论结果且暂不自动化时，标 `automation::off`。
 
 apply.cjs 和 create-issue.cjs 接受 `automation::off`、`automation::plan` 和 `automation::build`。
 `automation::triage` 不是合法 label 值。

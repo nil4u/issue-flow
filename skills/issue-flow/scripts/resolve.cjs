@@ -171,6 +171,7 @@ function resolveAutomationDecision(issue, options = {}) {
   const automationLabel = resolveIssueAutomationLabel(labels);
   const repoDefaultLevel = resolveRepoDefaultAutomationLevel(options);
   const issueAutomationLevel = resolveIssueAutomationLevel(labels);
+  const effectiveLevel = automationLabel ? issueAutomationLevel : repoDefaultLevel;
   if (automationLabel === AUTOMATION_OFF_LABEL) {
     return {
       shouldRun: false,
@@ -183,7 +184,6 @@ function resolveAutomationDecision(issue, options = {}) {
       effectiveLevel: 'off',
     };
   }
-  const effectiveLevel = maxAutomationLevel(repoDefaultLevel, issueAutomationLevel);
   if (!automationCanRunAction(effectiveLevel, action)) {
     return {
       shouldRun: false,

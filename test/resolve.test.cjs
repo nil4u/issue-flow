@@ -34,7 +34,7 @@ test('automation levels normalize labels and choose the highest enabled level', 
   assert.equal(maxAutomationLevel('triage', 'automation::build'), 'build');
 });
 
-test('automation decision raises repo default with issue automation label', () => {
+test('automation decision uses issue automation label when present', () => {
   assert.deepEqual(
     resolveAutomationDecision(
       {
@@ -48,6 +48,47 @@ test('automation decision raises repo default with issue automation label', () =
       flowLabel: 'flow::plan',
       automationLabel: 'automation::plan',
       repoDefaultLevel: 'triage',
+      issueAutomationLevel: 'plan',
+      effectiveLevel: 'plan',
+    }
+  );
+});
+
+test('automation decision uses repo default when issue automation label is absent', () => {
+  assert.deepEqual(
+    resolveAutomationDecision(
+      {
+        labels: ['status::active', 'flow::plan'],
+      },
+      { autoDefault: 'plan' }
+    ),
+    {
+      shouldRun: true,
+      action: 'plan',
+      flowLabel: 'flow::plan',
+      automationLabel: undefined,
+      repoDefaultLevel: 'plan',
+      issueAutomationLevel: 'off',
+      effectiveLevel: 'plan',
+    }
+  );
+});
+
+test('automation decision lets issue automation label lower repo default', () => {
+  assert.deepEqual(
+    resolveAutomationDecision(
+      {
+        labels: ['status::active', 'flow::build', 'automation::plan'],
+      },
+      { autoDefault: 'build' }
+    ),
+    {
+      shouldRun: false,
+      reason: 'automation_level_too_low',
+      action: 'build',
+      flowLabel: 'flow::build',
+      automationLabel: 'automation::plan',
+      repoDefaultLevel: 'build',
       issueAutomationLevel: 'plan',
       effectiveLevel: 'plan',
     }
