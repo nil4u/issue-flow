@@ -3,6 +3,7 @@
 ## Managed Label Groups
 
 所有 managed label 按 prefix 分组，同一 prefix 内互斥（apply.cjs 自动处理替换）。
+Provider 侧 label 可通过 `sync-labels.cjs` 同步创建或更新。Catalog 中颜色统一保存为 6 位 `RRGGBB`；GitHub API 使用 `RRGGBB`，GitLab API 使用 `#RRGGBB`。
 
 ### type::
 
@@ -85,3 +86,30 @@ PR/MR 来源标记。**只用于 PR/MR，不用于 issue。**
 - 不指定某个 prefix 时，不触碰该 prefix 的现有 label
 - `--clear-flow` 清除所有 `flow::` label 但不添加新的
 - `--clear-automation` 清除所有 `automation::` label 但不添加新的
+
+## Provider Label Catalog
+
+| Label | Scope | Color | Description |
+|-------|-------|-------|-------------|
+| `type::feature` | Issue | `0E8A16` | Issue is a feature or enhancement |
+| `type::bug` | Issue | `D73A4A` | Issue reports a defect or regression |
+| `type::debt` | Issue | `5319E7` | Issue tracks technical debt or cleanup |
+| `type::ops` | Issue | `1D76DB` | Issue tracks operations or maintenance work |
+| `status::active` | Issue | `0052CC` | Issue is active and eligible for workflow actions |
+| `status::done` | Issue | `0E8A16` | Issue is complete |
+| `status::drop` | Issue | `6A737D` | Issue has been dropped and should not continue |
+| `status::suspend` | Issue | `FBCA04` | Issue is suspended until conditions change |
+| `flow::triage` | Issue | `BFDADC` | Waiting for triage |
+| `flow::plan` | Issue | `0052CC` | Waiting for a plan action |
+| `flow::build` | Issue | `1D76DB` | Waiting for implementation |
+| `flow::review` | Issue | `5319E7` | Waiting for human review |
+| `flow::clarify` | Issue | `D4C5F9` | Waiting for clarification |
+| `flow::approve` | Issue | `0E8A16` | Waiting for approval of a plan or build PR/MR |
+| `automation::plan` | Issue | `7057FF` | Automation may create plan PRs/MRs |
+| `automation::build` | Issue | `006B75` | Automation may create plan and build PRs/MRs |
+| `priority::p0` | Issue | `B60205` | Highest priority issue |
+| `priority::p1` | Issue | `D93F0B` | High priority issue |
+| `priority::p2` | Issue | `FBCA04` | Normal priority issue |
+| `priority::p3` | Issue | `C5DEF5` | Low priority issue |
+| `mr-by::plan` | PR/MR | `0052CC` | PR or MR was created by the plan action |
+| `mr-by::build` | PR/MR | `1D76DB` | PR or MR was created by the build action |

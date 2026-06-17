@@ -5,21 +5,20 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
+const { labelDefinitionFor } = require('./labels.cjs');
 
 const SUBMIT_KINDS = {
   plan: {
     label: 'mr-by::plan',
     flow: 'flow::approve',
     titlePrefix: 'Plan',
-    labelColor: '0052CC',
-    labelDescription: 'PR or MR was created by the plan action',
+    labelDefinition: labelDefinitionFor('mr-by::plan'),
   },
   build: {
     label: 'mr-by::build',
     flow: 'flow::approve',
     titlePrefix: 'Build',
-    labelColor: '1D76DB',
-    labelDescription: 'PR or MR was created by the build action',
+    labelDefinition: labelDefinitionFor('mr-by::build'),
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
@@ -292,56 +291,19 @@ function labelConfigFor(label) {
   return Object.values(SUBMIT_KINDS).find((config) => config.label === label);
 }
 
-function ensureGithubLabel(repo, label, options) {
+async function ensureMergeRequestLabel(provider, repo, label, options) {
   const config = labelConfigFor(label);
   if (!config) {
     validateLabel(label);
   }
-
-  if (options.dryRun) {
-    console.log(JSON.stringify({ dryRun: true, ensureLabel: label, repo: repo.fullName }, null, 2));
-    return;
+  if (!config.labelDefinition) {
+    throw new Error(`No managed label definition found for ${label}`);
   }
 
-  const existing = runOutput(
-    'gh',
-    ['label', 'list', '--repo', repo.fullName, '--search', label, '--json', 'name', '--jq', '.[].name']
-  )
-    .split('\n')
-    .map((name) => name.trim())
-    .filter(Boolean);
-  if (existing.includes(label)) {
-    return;
-  }
-
-  try {
-    runChecked('gh', [
-      'label',
-      'create',
-      label,
-      '--repo',
-      repo.fullName,
-      '--color',
-      config.labelColor,
-      '--description',
-      config.labelDescription,
-    ]);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/already exists/i.test(message)) {
-      throw error;
-    }
-  }
-}
-
-function ensureMergeRequestLabel(provider, repo, label, options) {
-  if (provider.name === 'github') {
-    ensureGithubLabel(repo, label, options);
-    return;
-  }
   if (options.dryRun) {
     console.log(JSON.stringify({ dryRun: true, provider: provider.name, ensureLabel: label, repo: repo.fullName }, null, 2));
   }
+  await provider.ensureLabelDefinition(repo, config.labelDefinition, options);
 }
 
 function uniqueNonEmpty(values) {
@@ -548,7 +510,7 @@ async function main(argv = process.argv.slice(2)) {
 
   assertCleanWorktree(options);
   assertPublishBranch(headBranch, baseBranch, options);
-  ensureMergeRequestLabel(provider, repo, label, options);
+  await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
   const markedBody = writePrBodyWithSourceMarker(options.bodyFile, issueNumber);

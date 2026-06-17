@@ -10,8 +10,11 @@ const {
   gitlabApiBodyArgs,
   gitlabApiBaseUrl,
   gitlabHostname,
+  labelMatchesDefinition,
   parseGitRemoteUrl,
   parseRepoFullName,
+  planLabelSync,
+  providerLabelDefinition,
   resolveProvider,
 } = require('../skills/issue-flow/scripts/providers.cjs');
 
@@ -73,6 +76,47 @@ test('gitlab glab fallback serializes API params as fields instead of raw input'
     'milestone_id=null',
   ]);
   assert.equal(args.includes('--input'), false);
+});
+
+test('provider label definitions use GitHub and GitLab color formats', () => {
+  const definition = {
+    name: 'priority::p0',
+    color: 'B60205',
+    description: 'Highest priority issue',
+  };
+
+  assert.deepEqual(providerLabelDefinition('github', definition), {
+    name: 'priority::p0',
+    color: 'B60205',
+    description: 'Highest priority issue',
+  });
+  assert.deepEqual(providerLabelDefinition('gitlab', definition), {
+    name: 'priority::p0',
+    color: '#B60205',
+    description: 'Highest priority issue',
+  });
+});
+
+test('provider label sync planning detects missing drift and current labels', () => {
+  const definition = {
+    name: 'flow::build',
+    color: '1D76DB',
+    description: 'Waiting for implementation',
+  };
+
+  assert.equal(planLabelSync('github', undefined, definition), 'create');
+  assert.equal(
+    planLabelSync('github', { name: 'flow::build', color: '000000', description: 'Waiting for implementation' }, definition),
+    'update'
+  );
+  assert.equal(
+    planLabelSync('gitlab', { name: 'flow::build', color: '#1d76db', description: 'Waiting for implementation' }, definition),
+    'skip'
+  );
+  assert.equal(
+    labelMatchesDefinition('gitlab', { name: 'flow::build', color: '#1d76db', description: 'Waiting for implementation' }, definition),
+    true
+  );
 });
 
 test('agentrix GitLab bridge issue event normalizes to issue-flow context', () => {

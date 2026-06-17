@@ -29,12 +29,14 @@
 读取顺序：`GITHUB_TOKEN` → `GH_TOKEN`
 
 无 token 时尝试 `gh` CLI fallback。
+同步 provider labels 需要 token/CLI 账号具备仓库 label 管理权限。
 
 ### GitLab
 
 读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN`
 
 无 token 时尝试 `glab` CLI fallback。
+同步 provider labels 需要 token/CLI 账号具备项目 label 管理权限。
 
 ## Event payload
 
@@ -107,9 +109,49 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 2. 检查 head ≠ base
 3. push 分支
 4. 创建或更新 PR/MR（存在则 update）
-5. 确保 PR label 存在（GitHub: `gh label create`）
+5. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog
 6. 在 PR body 中插入 `<!-- issue-flow:source-issue=<num> -->`
 7. 调用 apply.cjs 把 source issue 转到 `flow::approve`
+
+## sync-labels.cjs
+
+将 issue-flow 内置 managed labels 同步到 GitHub/GitLab provider。同步范围包含 issue labels
+`type::`、`status::`、`flow::`、`automation::`、`priority::`，以及 PR/MR labels `mr-by::plan` 和
+`mr-by::build`。
+
+```bash
+node sync-labels.cjs [--provider github|gitlab] [--repo owner/repo|group/project] [--dry-run] [--check]
+```
+
+### 行为
+
+- 默认执行 upsert：缺失则创建，颜色或说明漂移则更新，已一致则跳过。
+- `--dry-run` 不读取或写入 provider，只输出所有将被确保的 label 定义。
+- `--check` 读取 provider 当前 label，发现缺失或漂移时非零退出，适合 CI 定期检查。
+- `--dry-run` 和 `--check` 互斥，避免“只检查但不读取远端”的语义歧义。
+- 任一 label 创建、更新或检查失败会记录失败 label，命令最终非零退出。
+
+### 颜色和字段兼容
+
+Catalog 中颜色保存为 GitHub 兼容的 6 位 hex（例如 `1D76DB`）。GitHub 同步时提交 `RRGGBB`，
+GitLab 同步时提交 `#RRGGBB`。名称和说明在两个 provider 上保持一致。如果某个 GitLab 实例版本或权限
+不接受 description/update 字段，命令会失败并暴露 provider 错误，不会静默降级成部分成功。
+
+### 安装后和维护
+
+`bootstrap.cjs` / `install.sh` 只安装文件和 workflow，不自动访问 provider API。安装后建议由具备 label
+管理权限的用户或 CI token 手动执行一次：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider github --repo owner/repo
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider gitlab --repo group/project
+```
+
+维护时可使用：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --check
+```
 
 ### PR Title 规范化
 

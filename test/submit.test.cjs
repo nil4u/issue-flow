@@ -13,6 +13,7 @@ const {
   normalizePrTitle,
   SUBMIT_KINDS,
 } = require('../skills/issue-flow/scripts/submit.cjs');
+const { labelDefinitionFor } = require('../skills/issue-flow/scripts/labels.cjs');
 
 test('submit body wrapper inserts stable source issue marker', () => {
   assert.equal(buildSourceIssueMarker(482), '<!-- issue-flow:source-issue=482 -->');
@@ -80,4 +81,9 @@ test('PR title normalization keeps existing issue number', () => {
     normalizePrTitle(SUBMIT_KINDS.build, 482, 'HTML artifacts'),
     'Build #482: HTML artifacts'
   );
+});
+
+test('submit kinds use catalog definitions for PR and MR labels', () => {
+  assert.equal(SUBMIT_KINDS.plan.labelDefinition, labelDefinitionFor('mr-by::plan'));
+  assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
 });

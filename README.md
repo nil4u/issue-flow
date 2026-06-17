@@ -30,6 +30,20 @@ curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | 
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.
 
+The installer does not call the Git provider API. After install, run label sync once with an account or token that can manage repository/project labels:
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider github --repo owner/repo
+```
+
+For GitLab:
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider gitlab --repo group/project
+```
+
+Use `--dry-run` to preview the built-in label catalog without remote reads or writes, or `--check` in CI to fail on missing/drifted labels.
+
 ## Reinstall and Upgrade
 
 The installer writes `.issue-flow/install-manifest.json` with the source path, mode, and sha256 for installed files. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, and removes stale files that were installed before and have not been edited.
