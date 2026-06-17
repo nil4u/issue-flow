@@ -20,6 +20,7 @@
   - `skills/issue-flow/scripts/intake.cjs` 会在新 issue 缺少 `status::` / `flow::` 时添加默认 label；如果创建时已经带上这两个 prefix，intake 不会覆盖。
   - `skills/issue-flow/scripts/providers.cjs` 已封装 GitHub/GitLab repo 解析、token/CLI fallback、issue comment、issue label 更新、PR/MR 创建更新，但目前没有 `createIssue` provider 方法。
   - `skills/issue-flow/scripts/labels.cjs` 已集中维护 issue 和 PR/MR managed label catalog，可复用来校验 create issue 的 label 参数。
+  - `submit.cjs` 当前会在 PR body 中写入 `<!-- issue-flow:source-issue=<num> -->` 隐藏 marker，用于 merge 后反查 source issue；Agentrix runtime 的 task lock comment 也使用 `<!-- issue-flow:task:agentrix:<action> -->` 这类不可见 marker。
   - `skills/issue-flow/assets/agentrix/runtime/templates/type-feature.md`、`type-debt.md`、`type-ops.md` 等模板已存在，可作为 agent 生成标准化 issue body 的格式来源。
   - `.issue-flow/prompts/general.prompt.md` 和默认 runtime prompt 目前只说明开放指令处理，没有指导 agent 在需求已成形时创建 issue。
   - GitHub `issue-flow-auto.yml` 目前在 `issues.opened` 和 `issues.labeled` 上都会先执行 `intake.cjs` 再执行 `dispatch.cjs auto`；GitLab CI 在 issue opened 时显式 intake，并在 opened/labeled 事件上执行 auto route。
@@ -63,6 +64,7 @@
      - `--body-file <path>` 必填，要求是 repo 外临时文件或至少不要求纳入 git；issue 正文由 agent 按模板写入该文件。
      - `--type`、`--status`、`--flow`、`--priority`、`--automation` 使用与 `apply.cjs` 一致的合法 label 值。
      - `--label <name>` 可选，允许传入非 managed label；managed label 仍必须走上面的 prefix 参数，以便校验互斥。
+     - `--agentrix-task-id <id>` 可选；默认读取 `AGENTRIX_TASK_ID`，用于把创建出的 issue 反向关联到发起创建的 Agentrix task。
      - `--provider`、`--repo`、`--dry-run` 与现有脚本保持一致。
    - 输出稳定 JSON，至少包含 `provider`、`repo`、`issueNumber`、`issueUrl`、`labels`、`dryRun`。
 
@@ -105,7 +107,22 @@
    - 对 GitLab，不能依赖 create API 发现未知 label；必须先完成 managed label preflight，再提交带 labels 的 create 请求，避免静默创建未由 `sync-labels.cjs` 管理的 `type::*`、`status::*`、`flow::*` 等项目 label。
    - 如果 label 不存在、metadata drift 或权限不足，应直接失败，不创建一个无标签 issue 后继续静默成功；否则会违背“避免默认 intake/triage”的目标。
 
-5. 迭代 intake/auto route 的准入条件。
+5. 在 issue body 中写入 task 关联 marker。
+   - `create-issue.cjs` 读取 `--agentrix-task-id` 或 `process.env.AGENTRIX_TASK_ID`；有值时，在提交给 provider 的 issue body 顶部写入隐藏 marker：
+     ```md
+     <!-- issue-flow:agentrix-task=<task-id> -->
+     ```
+   - marker 语义：
+     - 只记录“这个 issue 由哪个 Agentrix task 创建”，不参与 issue-flow 状态机决策。
+     - 不展示给用户，不要求 agent 在正文模板里手写。
+     - 没有 `AGENTRIX_TASK_ID` 时不写 marker，保持 CLI 在本地和 CI 中可独立使用。
+   - 实现方式参考 `submit.cjs`：
+     - 新增 `buildAgentrixTaskMarker(taskId)`。
+     - 新增 `buildIssueBodyWithTaskMarker(body, taskId)`，若 body 已包含同类 marker 则替换为当前 task id，否则 prepend。
+     - create provider 前统一调用该 helper，确保 GitHub `body` 和 GitLab `description` 都包含同一 marker。
+   - 后续可在 Agentrix 侧或 issue-flow 查询侧通过该 marker 建立 task -> issue 的反查；本次只负责把确定性关联信息写入 issue body。
+
+6. 迭代 intake/auto route 的准入条件。
    - 引入 `automation::off` 语义：
      - `automation::off` 是 issue 级显式 opt-out，优先级高于 `ISSUE_FLOW_AUTO_DEFAULT`。
      - 任何带 `automation::off` 的 open issue，`intake.cjs` 不补默认 `status::active` / `flow::triage`，`dispatch.cjs auto` 不启动 triage/plan/build，并返回 `automation_off`。
@@ -131,15 +148,16 @@
      - 若 agent 判断只应沉淀讨论结果，`create-issue.cjs` 创建带 `automation::off` 的 issue，opened job 的 intake 和 auto route 都跳过。
      - 后续 labeled 事件若只是 `type::*` / `priority::*` 不再重复启动 agent。
 
-6. 更新 skill 和 Agentrix runtime 说明。
+7. 更新 skill 和 Agentrix runtime 说明。
    - 在 `skills/issue-flow/SKILL.md` 增加 “create-issue.cjs - 创建标准化 issue” 小节，列出用法、label 规则、body file 规则和适用场景。
    - 更新 `skills/issue-flow/assets/agentrix/runtime/prompts/general.prompt.md`：
      - 当用户在开放讨论后要求“创建 issue”或需求已经足够明确时，agent 应先按 `.issue-flow/templates/type-*.md` 整理正文，再调用 `create-issue.cjs`。
      - 缺少仓库无法推断的关键事实时，直接提问；不先创建模糊 issue。
      - 能判断的 managed labels 应直接设置；若实现路径已清楚可用 `flow::build`，需要方案则用 `flow::plan`，仍需分类且允许自动化则用 `flow::triage`，只想创建记录则用 `automation::off`。
+     - 不要求 agent 手动写 task marker；脚本会从 `AGENTRIX_TASK_ID` 自动写入隐藏 marker。
    - 同步更新安装资产下对应 skill、prompt、template 文档，确保 `install.sh` 后目标仓库获得新能力。
 
-7. 明确用户交互路径。
+8. 明确用户交互路径。
    - 讨论阶段：
      - 用户描述未成形需求，agent 继续追问或给选项。
      - 当目标、用户故事、边界和下一步 flow 足够清楚时，agent 生成标准化 issue body。
@@ -153,16 +171,18 @@
      - 对只需要沉淀讨论结论、不希望自动化立即介入的 feature，创建为 `type::feature` + 合适 priority + `automation::off`。
      - 对仍需人工补充的需求，不创建或创建为 `flow::clarify` 需要谨慎；推荐在创建前先澄清，避免产生不可执行 issue。
 
-8. 文档更新。
+9. 文档更新。
    - `README.md` 增加创建标准化 issue 的能力说明和最小示例。
-   - `docs/provider-api.md` 增加 GitHub/GitLab create issue API 路径、token/CLI fallback、权限要求和失败策略。
+   - `docs/provider-api.md` 增加 GitHub/GitLab create issue API 路径、token/CLI fallback、权限要求、失败策略和 `AGENTRIX_TASK_ID` body marker 规则。
    - `docs/state-machine.md` 增加从 AI discussion 创建 issue 的入口说明，强调 agent 可选择带 `status::active` + `flow::*` 直接进入流程，也可选择 `automation::off` 显式跳过 intake/triage/plan/build 自动化，并记录 intake/auto route 的准入条件。
    - `skills/issue-flow/references/labels.md` 增加 `automation::off` 和 create issue 场景下各 managed label 的推荐使用边界。
 
-9. 测试覆盖。
+10. 测试覆盖。
    - 新增 `test/create-issue.test.cjs`：
      - 参数解析和必填项校验。
      - managed label 合法值校验、同 prefix 冲突校验、接受 `automation::off`、拒绝 `mr-by::*`。
+     - `buildAgentrixTaskMarker()` 和 `buildIssueBodyWithTaskMarker()` 会 prepend/replace `<!-- issue-flow:agentrix-task=<id> -->`。
+     - 设置 `AGENTRIX_TASK_ID` 时，GitHub/GitLab create 请求中的 body/description 包含隐藏 task marker；未设置时不写 marker。
      - dry-run 输出包含 title、labels、provider、repo，不调用 fetch/CLI。
    - 扩展 `test/providers.test.cjs`：
      - GitHub token 路径调用 `POST /issues`，body 使用 `body`，labels 使用数组。
@@ -200,6 +220,7 @@
     node skills/issue-flow/scripts/create-issue.cjs --provider gitlab --repo group/project --title "Example" --body-file /tmp/body.md --type type::feature --status status::active --flow flow::build --priority priority::p2 --dry-run
     ```
   - GitLab preflight：在测试项目临时删除或改动一个 managed label 后运行非 dry-run，确认脚本在创建 issue 前失败，并提示先运行 `sync-labels.cjs`。
+  - 设置 `AGENTRIX_TASK_ID=task_123` 创建测试 issue，确认 provider issue body 顶部包含 `<!-- issue-flow:agentrix-task=task_123 -->`，页面渲染不显示该 marker。
   - 在测试仓库真实创建一个 `flow::plan` issue，确认 provider issue 页面已有 `status::active`、`flow::plan`、`type::feature`、`priority::p2`，且 intake 不把它改回 `flow::triage`。
   - 观察该 issue 的 opened/labeled workflow：opened job 的 intake 应 no-op，`type::` / `priority::` labeled event 不应单独启动 agent，最终只按当前 `flow::` 和 automation policy 路由一次。
   - 真实创建一个 `automation::off` issue，确认 intake 不补默认 label，auto route 不启动 triage/plan/build；在 repo 默认 `ISSUE_FLOW_AUTO_DEFAULT=build` 时也应跳过。
