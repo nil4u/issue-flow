@@ -26,16 +26,30 @@
 
 ### GitHub
 
-读取顺序：`GITHUB_TOKEN` → `GH_TOKEN`
+读取顺序：`GITHUB_TOKEN` → `GH_TOKEN` → git remote URL 中的 token（如存在）。
 
-无 token 时尝试 `gh` CLI fallback。
+有 token 时，GitHub provider 操作直接调用 GitHub REST API。API 认证或授权失败会直接报错，不会静默 fallback 到 CLI。
+
+只有没有可用 token 时，才尝试 `gh` CLI fallback。
+
+GitHub API token 至少需要：
+- issue/label 写权限：更新 source issue label/body，创建 PR label，并给 PR 添加 `mr-by::*` label
+- pull request 写权限：创建或更新 PR
+
 同步 provider labels 需要 token/CLI 账号具备仓库 label 管理权限。
+
+`submit.cjs` 的 `git push` 仍使用本地 git remote/credentials，不由 GitHub API token 替代。
 
 ### GitLab
 
-读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN`
+读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN` → git remote URL 中的 token（如存在）。
 
-无 token 时尝试 `glab` CLI fallback。
+有 token 时，GitLab provider 操作直接调用 GitLab API。API 认证或授权失败会直接报错，不会静默 fallback 到 CLI。
+
+只有没有可用 token 时，才尝试 `glab` CLI fallback。
+
+GitLab API token 至少需要 issue/label 与 merge request 写权限。`submit.cjs` 的 `git push` 仍使用本地 git remote/credentials。
+
 同步 provider labels 需要 token/CLI 账号具备项目 label 管理权限。
 
 ## Event payload
@@ -107,9 +121,9 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 
 1. 检查 worktree 是否 clean
 2. 检查 head ≠ base
-3. push 分支
-4. 创建或更新 PR/MR（存在则 update）
-5. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog
+3. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
+4. push 分支
+5. 创建或更新 PR/MR（存在则 update；GitHub/GitLab 均优先使用 token API，无 token 时 fallback CLI）
 6. 在 PR body 中插入 `<!-- issue-flow:source-issue=<num> -->`
 7. 调用 apply.cjs 把 source issue 转到 `flow::approve`
 
