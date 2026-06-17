@@ -1,0 +1,268 @@
+#!/usr/bin/env node
+
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const { resolveProvider, normalizeLabelName } = require('./providers.cjs');
+const { labelDefinitionFor, labelGroupsForScope } = require('./labels.cjs');
+
+const MANAGED_LABELS = labelGroupsForScope('issue');
+const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=[^>]*-->\s*/i;
+
+function usage() {
+  return [
+    'Usage: create-issue.cjs --title <title> --body-file <path> [options]',
+    '',
+    'Managed label options:',
+    '  --type <type::...>',
+    '  --status <status::...>',
+    '  --flow <flow::...>',
+    '  --automation <automation::...>',
+    '  --priority <priority::...>',
+    '',
+    'Other options:',
+    '  --label <name>            Add a non-managed provider label. May be repeated.',
+    '  --agentrix-task-id <id>   Hidden Agentrix task marker id. Defaults from AGENTRIX_TASK_ID.',
+    '  --provider <provider>     Git hosting provider: github or gitlab. Defaults from environment/repo.',
+    '  --repo <owner/repo>       Repository/project override. Defaults to provider environment or git remote origin.',
+    '  --dry-run',
+    '  --help',
+  ].join('\n');
+}
+
+function parseArgs(argv) {
+  const options = {
+    _: [],
+    labels: [],
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--help') {
+      options.help = true;
+      continue;
+    }
+    if (arg === '--dry-run') {
+      options.dryRun = true;
+      continue;
+    }
+    if (!arg.startsWith('--')) {
+      options._.push(arg);
+      continue;
+    }
+
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) {
+      throw new Error(`Missing value for ${arg}`);
+    }
+    if (arg === '--label') {
+      options.labels.push(value);
+      index += 1;
+      continue;
+    }
+
+    const key = arg.slice(2).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+    options[key] = value;
+    index += 1;
+  }
+
+  return options;
+}
+
+function getGitOriginUrl() {
+  const result = spawnSync('git', ['config', '--get', 'remote.origin.url'], {
+    encoding: 'utf8',
+  });
+  if (result.error || result.status !== 0) {
+    return '';
+  }
+  return result.stdout.trim();
+}
+
+function resolveRepoHint(options, env = process.env, getOriginUrl = getGitOriginUrl) {
+  return options.repo || env.GITHUB_REPOSITORY || env.GITLAB_PROJECT_PATH || env.CI_PROJECT_PATH || getOriginUrl();
+}
+
+function readBodyFile(bodyFile) {
+  if (!bodyFile) {
+    throw new Error('--body-file is required');
+  }
+  return fs.readFileSync(bodyFile, 'utf8').trim();
+}
+
+function validateTitle(title) {
+  const normalized = String(title || '').trim();
+  if (!normalized) {
+    throw new Error('--title is required');
+  }
+  return normalized;
+}
+
+function managedGroupForLabel(labelName) {
+  return Object.entries(MANAGED_LABELS).find(([, group]) => labelName.startsWith(group.prefix));
+}
+
+function collectManagedLabels(options) {
+  const desired = {};
+  for (const [key, config] of Object.entries(MANAGED_LABELS)) {
+    const label = options[key];
+    if (!label) {
+      continue;
+    }
+    if (!config.values.includes(label)) {
+      throw new Error(`${key} must be one of: ${config.values.join(', ')}`);
+    }
+    desired[key] = label;
+  }
+  return desired;
+}
+
+function collectCreateLabels(options) {
+  const managedByKey = collectManagedLabels(options);
+  const labels = Object.values(managedByKey);
+
+  for (const raw of options.labels || []) {
+    const label = normalizeLabelName(raw).trim();
+    if (!label) {
+      continue;
+    }
+    if (label.startsWith('mr-by::')) {
+      throw new Error('mr-by::* labels are only valid for PR/MR objects');
+    }
+    const managed = managedGroupForLabel(label);
+    if (managed) {
+      const [key, config] = managed;
+      if (!config.values.includes(label)) {
+        throw new Error(`${key} must be one of: ${config.values.join(', ')}`);
+      }
+      throw new Error(`${label} is a managed label. Use --${key} ${label} instead of --label.`);
+    }
+    labels.push(label);
+  }
+
+  const seenPrefixes = new Map();
+  for (const label of labels) {
+    const managed = managedGroupForLabel(label);
+    if (!managed) {
+      continue;
+    }
+    const [key, config] = managed;
+    const existing = seenPrefixes.get(config.prefix);
+    if (existing && existing !== label) {
+      throw new Error(`Only one ${config.prefix} label is allowed: ${existing}, ${label}`);
+    }
+    seenPrefixes.set(config.prefix, label);
+    if (!MANAGED_LABELS[key].values.includes(label)) {
+      throw new Error(`${key} must be one of: ${MANAGED_LABELS[key].values.join(', ')}`);
+    }
+  }
+
+  return [...new Set(labels)];
+}
+
+function buildAgentrixTaskMarker(taskId) {
+  const normalized = String(taskId || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  return `<!-- issue-flow:agentrix:task=${normalized} -->`;
+}
+
+function buildIssueBodyWithTaskMarker(body, taskId) {
+  const marker = buildAgentrixTaskMarker(taskId);
+  const currentBody = String(body || '').trim();
+  if (!marker) {
+    return currentBody;
+  }
+  if (AGENTRIX_TASK_MARKER_PATTERN.test(currentBody)) {
+    return currentBody.replace(AGENTRIX_TASK_MARKER_PATTERN, `${marker}\n\n`);
+  }
+  return `${marker}\n\n${currentBody}`.trim();
+}
+
+function managedDefinitionsForLabels(labels) {
+  return labels
+    .map((label) => labelDefinitionFor(label))
+    .filter((definition) => definition && definition.scope === 'issue');
+}
+
+function bodySummary(body) {
+  const normalized = String(body || '').replace(/\s+/g, ' ').trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+}
+
+async function main(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv);
+  if (options.help) {
+    console.log(usage());
+    return 0;
+  }
+
+  const title = validateTitle(options.title);
+  const labels = collectCreateLabels(options);
+  const rawBody = readBodyFile(options.bodyFile);
+  const body = buildIssueBodyWithTaskMarker(rawBody, options.agentrixTaskId || process.env.AGENTRIX_TASK_ID);
+  const repoHint = resolveRepoHint(options);
+  const provider = resolveProvider({ ...options, repo: repoHint }, {});
+  const repo = provider.resolveRepo({}, { ...options, repo: repoHint });
+  options.provider = provider.name;
+
+  if (options.dryRun) {
+    console.log(
+      JSON.stringify(
+        {
+          dryRun: true,
+          provider: provider.name,
+          repo: repo.fullName,
+          title,
+          bodySummary: bodySummary(body),
+          labels,
+        },
+        null,
+        2
+      )
+    );
+    return 0;
+  }
+
+  const issue = await provider.createIssue({
+    repo,
+    title,
+    body,
+    labels,
+    managedLabelDefinitions: managedDefinitionsForLabels(labels),
+    options,
+  });
+
+  console.log(
+    JSON.stringify(
+      {
+        dryRun: false,
+        provider: provider.name,
+        repo: repo.fullName,
+        issueNumber: issue.number,
+        issueUrl: issue.htmlUrl,
+        labels: issue.labels && issue.labels.length > 0 ? issue.labels : labels,
+      },
+      null,
+      2
+    )
+  );
+  return 0;
+}
+
+module.exports = {
+  buildAgentrixTaskMarker,
+  buildIssueBodyWithTaskMarker,
+  collectCreateLabels,
+  collectManagedLabels,
+  main,
+  parseArgs,
+  resolveRepoHint,
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
