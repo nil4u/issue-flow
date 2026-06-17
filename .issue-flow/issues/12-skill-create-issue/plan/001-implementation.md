@@ -110,7 +110,7 @@
 5. 在 issue body 中写入 task 关联 marker。
    - `create-issue.cjs` 读取 `--agentrix-task-id` 或 `process.env.AGENTRIX_TASK_ID`；有值时，在提交给 provider 的 issue body 顶部写入隐藏 marker：
      ```md
-     <!-- issue-flow:agentrix-task=<task-id> -->
+     <!-- issue-flow:agentrix:task=<task-id> -->
      ```
    - marker 语义：
      - 只记录“这个 issue 由哪个 Agentrix task 创建”，不参与 issue-flow 状态机决策。
@@ -181,7 +181,7 @@
    - 新增 `test/create-issue.test.cjs`：
      - 参数解析和必填项校验。
      - managed label 合法值校验、同 prefix 冲突校验、接受 `automation::off`、拒绝 `mr-by::*`。
-     - `buildAgentrixTaskMarker()` 和 `buildIssueBodyWithTaskMarker()` 会 prepend/replace `<!-- issue-flow:agentrix-task=<id> -->`。
+     - `buildAgentrixTaskMarker()` 和 `buildIssueBodyWithTaskMarker()` 会 prepend/replace `<!-- issue-flow:agentrix:task=<id> -->`。
      - 设置 `AGENTRIX_TASK_ID` 时，GitHub/GitLab create 请求中的 body/description 包含隐藏 task marker；未设置时不写 marker。
      - dry-run 输出包含 title、labels、provider、repo，不调用 fetch/CLI。
    - 扩展 `test/providers.test.cjs`：
@@ -220,7 +220,7 @@
     node skills/issue-flow/scripts/create-issue.cjs --provider gitlab --repo group/project --title "Example" --body-file /tmp/body.md --type type::feature --status status::active --flow flow::build --priority priority::p2 --dry-run
     ```
   - GitLab preflight：在测试项目临时删除或改动一个 managed label 后运行非 dry-run，确认脚本在创建 issue 前失败，并提示先运行 `sync-labels.cjs`。
-  - 设置 `AGENTRIX_TASK_ID=task_123` 创建测试 issue，确认 provider issue body 顶部包含 `<!-- issue-flow:agentrix-task=task_123 -->`，页面渲染不显示该 marker。
+  - 设置 `AGENTRIX_TASK_ID=task_123` 创建测试 issue，确认 provider issue body 顶部包含 `<!-- issue-flow:agentrix:task=task_123 -->`，页面渲染不显示该 marker。
   - 在测试仓库真实创建一个 `flow::plan` issue，确认 provider issue 页面已有 `status::active`、`flow::plan`、`type::feature`、`priority::p2`，且 intake 不把它改回 `flow::triage`。
   - 观察该 issue 的 opened/labeled workflow：opened job 的 intake 应 no-op，`type::` / `priority::` labeled event 不应单独启动 agent，最终只按当前 `flow::` 和 automation policy 路由一次。
   - 真实创建一个 `automation::off` issue，确认 intake 不补默认 label，auto route 不启动 triage/plan/build；在 repo 默认 `ISSUE_FLOW_AUTO_DEFAULT=build` 时也应跳过。
