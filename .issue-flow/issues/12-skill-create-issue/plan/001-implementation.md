@@ -23,6 +23,7 @@
   - `skills/issue-flow/scripts/labels.cjs` 已集中维护 issue 和 PR/MR managed label catalog，可复用来校验 create issue 的 label 参数。
   - `skills/issue-flow/assets/agentrix/runtime/templates/type-feature.md`、`type-debt.md`、`type-ops.md` 等模板已存在，可作为 agent 生成标准化 issue body 的格式来源。
   - `.issue-flow/prompts/general.prompt.md` 和默认 runtime prompt 目前只说明开放指令处理，没有指导 agent 在需求已成形时创建 issue。
+  - GitHub `issue-flow-auto.yml` 目前在 `issues.opened` 和 `issues.labeled` 上都会先执行 `intake.cjs` 再执行 `dispatch.cjs auto`；GitLab CI 在 issue opened 时显式 intake，并在 opened/labeled 事件上执行 auto route。
 - 相关接口 / 数据 / 状态：
   - Issue managed labels：`type::*`、`status::*`、`flow::*`、`automation::*`、`priority::*`，同 prefix 互斥。
   - GitHub 创建 issue API 支持 `title`、`body`、`labels`。
@@ -32,7 +33,7 @@
   - Provider 写操作必须通过确定性脚本完成，而不是让 agent 自行调用 `gh issue create` 或 provider API。
   - Managed label 同一 prefix 只能有一个值；创建脚本应在提交前拒绝同 prefix 冲突。
   - `automation::` label 只能提升自动化上限，不确定时不标，沿用仓库默认。
-  - GitHub/GitLab 的新 issue 事件可能触发 intake；为了避免 race，脚本应尽量在创建请求中同时传入 `status::` 和 `flow::`，创建后补标只作为 provider 不支持或兼容路径。
+  - GitHub/GitLab 的新 issue 事件可能触发 intake/auto route；为了避免 opened 事件先进入默认 triage，脚本必须在创建请求中同时传入 `status::` 和 `flow::` 等 routing managed labels。
 
 ## 方案
 
@@ -86,13 +87,33 @@
 
 4. 处理创建时打标与创建后补标。
    - 首选在 create issue API 请求中带 `labels`，这是避免 intake race 的主要路径。
-   - 如果某 provider fallback 只能先创建再加 label，脚本应在创建成功后立即复用 provider 的 issue label 更新能力补齐 labels，并在输出里标明 `labelsAppliedAfterCreate: true`。
+   - 对 `status::`、`flow::`、`automation::` 这类会影响自动路由的 managed labels，不允许走“先创建无 routing label 的 issue，再创建后补标”的 fallback；如果 provider fallback 无法在 create request 中提交这些 labels，脚本应失败并提示使用 token/API 路径。
+   - 只有非 routing 的普通 unmanaged labels 才可以在 provider 能力受限时考虑创建后补标，并在输出里标明 `labelsAppliedAfterCreate: true`。
    - 对正常 GitHub/GitLab REST API 路径，不需要创建后再调用 `apply.cjs`，避免二次读取和重复写入。
    - 对 GitHub，可以依赖 create API 对无权限或未知 label 的失败结果，但仍应把 provider 错误原样暴露。
    - 对 GitLab，不能依赖 create API 发现未知 label；必须先完成 managed label preflight，再提交带 labels 的 create 请求，避免静默创建未由 `sync-labels.cjs` 管理的 `type::*`、`status::*`、`flow::*` 等项目 label。
    - 如果 label 不存在、metadata drift 或权限不足，应直接失败，不创建一个无标签 issue 后继续静默成功；否则会违背“避免默认 intake/triage”的目标。
 
-5. 更新 skill 和 Agentrix runtime 说明。
+5. 迭代 intake/auto route 的准入条件。
+   - 保留 `intake.cjs` 的幂等补标语义，但把准入规则显式化：
+     - 只处理 open issue，继续忽略 PR/MR 伪 issue。
+     - 当前 issue 已同时具备单一 `status::` 和单一 `flow::` 时，intake 输出 `skipped: already_labeled`，不写 provider。
+     - 缺少 `status::` 或 `flow::` 时才补默认 `status::active` / `flow::triage`。
+   - 在 `dispatch.cjs auto` 或 `resolve.cjs` 增加 routing admission：
+     - 自动执行前必须读取当前 issue 状态，而不是只依赖 opened/labeled payload。
+     - 只有 `status::active` 才允许执行 triage/plan/build；`status::done`、`status::drop`、`status::suspend` 继续跳过；缺失 status 在 intake 后仍缺失则跳过并返回 `missing_status_label`。
+     - 缺失 `flow::`、多 `flow::` 或 unsupported flow 继续跳过，不启动 agent。
+   - 收紧 labeled 事件的入场：
+     - GitHub/GitLab 的 labeled 事件只有在新增 label 属于 routing 相关 prefix 时才进入 auto route：`flow::*`、`automation::*`、`status::active`。
+     - `type::*`、`priority::*` 或 unmanaged label 的 labeled 事件不单独触发 agent，避免 create issue 时多个 label 事件造成重复调度；已有 task lock 仍作为并发兜底。
+   - GitHub workflow 保持 `opened` / `labeled` trigger，但步骤改为依赖脚本内部 admission；GitLab CI 同步相同规则，保证 provider 行为一致。
+   - 对 create issue 场景的期望路径：
+     - `create-issue.cjs` 原子创建带 `status::active` + `flow::plan|build|triage` 的 issue。
+     - opened job 的 intake no-op。
+     - auto route 基于当前 labels 直接决定 plan/build/triage 或因 automation level 不足跳过。
+     - 后续 labeled 事件若只是 `type::*` / `priority::*` 不再重复启动 agent。
+
+6. 更新 skill 和 Agentrix runtime 说明。
    - 在 `skills/issue-flow/SKILL.md` 增加 “create-issue.cjs - 创建标准化 issue” 小节，列出用法、label 规则、body file 规则和适用场景。
    - 更新 `skills/issue-flow/assets/agentrix/runtime/prompts/general.prompt.md`：
      - 当用户在开放讨论后要求“创建 issue”或需求已经足够明确时，agent 应先按 `.issue-flow/templates/type-*.md` 整理正文，再调用 `create-issue.cjs`。
@@ -100,7 +121,7 @@
      - 能判断的 managed labels 应直接设置；若实现路径已清楚可用 `flow::build`，需要方案则用 `flow::plan`，仍需分类则用 `flow::triage`。
    - 同步更新安装资产下对应 skill、prompt、template 文档，确保 `install.sh` 后目标仓库获得新能力。
 
-6. 明确用户交互路径。
+7. 明确用户交互路径。
    - 讨论阶段：
      - 用户描述未成形需求，agent 继续追问或给选项。
      - 当目标、用户故事、边界和下一步 flow 足够清楚时，agent 生成标准化 issue body。
@@ -113,13 +134,13 @@
      - 对简单明确 feature，创建为 `type::feature` + `status::active` + `flow::build`。
      - 对仍需人工补充的需求，不创建或创建为 `flow::clarify` 需要谨慎；推荐在创建前先澄清，避免产生不可执行 issue。
 
-7. 文档更新。
+8. 文档更新。
    - `README.md` 增加创建标准化 issue 的能力说明和最小示例。
    - `docs/provider-api.md` 增加 GitHub/GitLab create issue API 路径、token/CLI fallback、权限要求和失败策略。
-   - `docs/state-machine.md` 增加从 AI discussion 创建 issue 的入口说明，强调创建时带 `status::active` + `flow::*` 可跳过默认 triage。
+   - `docs/state-machine.md` 增加从 AI discussion 创建 issue 的入口说明，强调创建时带 `status::active` + `flow::*` 可跳过默认 triage，并记录 intake/auto route 的准入条件。
    - `skills/issue-flow/references/labels.md` 增加 create issue 场景下各 managed label 的推荐使用边界。
 
-8. 测试覆盖。
+9. 测试覆盖。
    - 新增 `test/create-issue.test.cjs`：
      - 参数解析和必填项校验。
      - managed label 合法值校验、同 prefix 冲突校验、拒绝 `mr-by::*`。
@@ -130,6 +151,13 @@
      - GitLab token 路径先查询每个 managed label，再调用 `POST /projects/:id/issues`，body 使用 `description`，labels 格式正确。
      - GitLab managed label 缺失或 drift 时不会调用 create issue API，并返回提示运行 `sync-labels.cjs` 的错误。
      - GitLab fallback 调用 `glab api`。
+   - 扩展 `test/intake.test.cjs`：
+     - 已有单一 `status::` + `flow::` 的 issue 不写默认 label。
+     - 缺 `status::` 或缺 `flow::` 时仍补默认值。
+   - 扩展 `test/resolve.test.cjs` / `test/dispatch.test.cjs`：
+     - auto route 对缺失 status 返回 `missing_status_label`。
+     - 只有 `status::active` + supported `flow::` + 足够 automation level 才启动 action。
+     - labeled event 中 `type::*`、`priority::*`、unmanaged label 不触发 auto route；`flow::*`、`automation::*`、`status::active` 可触发。
    - 扩展 `test/install.test.cjs` / `test/bootstrap.test.cjs`：
      - `create-issue.cjs`、更新后的 prompt 和 skill 文件会被安装。
    - 扩展 runtime/prompt 相关测试：
@@ -152,6 +180,7 @@
     ```
   - GitLab preflight：在测试项目临时删除或改动一个 managed label 后运行非 dry-run，确认脚本在创建 issue 前失败，并提示先运行 `sync-labels.cjs`。
   - 在测试仓库真实创建一个 `flow::plan` issue，确认 provider issue 页面已有 `status::active`、`flow::plan`、`type::feature`、`priority::p2`，且 intake 不把它改回 `flow::triage`。
+  - 观察该 issue 的 opened/labeled workflow：opened job 的 intake 应 no-op，`type::` / `priority::` labeled event 不应单独启动 agent，最终只按当前 `flow::` 和 automation policy 路由一次。
   - 真实创建一个 `flow::build` + `automation::build` issue，确认自动化路由可以直接选择 build。
 - 回归范围：
   - 新 issue intake 默认补标行为。
