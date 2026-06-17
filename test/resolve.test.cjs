@@ -6,6 +6,7 @@ const {
   maxAutomationLevel,
   normalizeAutomationLevel,
   resolveAutomationDecision,
+  shouldRunAutoForEvent,
 } = require('../skills/issue-flow/scripts/resolve.cjs');
 
 test('mention extraction keeps manual instruction text', () => {
@@ -53,7 +54,7 @@ test('automation decision raises repo default with issue automation label', () =
   );
 });
 
-test('automation decision does not let issue labels lower repo default', () => {
+test('automation decision lets automation off override repo default', () => {
   assert.deepEqual(
     resolveAutomationDecision(
       {
@@ -62,13 +63,30 @@ test('automation decision does not let issue labels lower repo default', () => {
       { autoDefault: 'build' }
     ),
     {
-      shouldRun: true,
+      shouldRun: false,
+      reason: 'automation_off',
       action: 'build',
       flowLabel: 'flow::build',
       automationLabel: 'automation::off',
       repoDefaultLevel: 'build',
       issueAutomationLevel: 'off',
-      effectiveLevel: 'build',
+      effectiveLevel: 'off',
+    }
+  );
+});
+
+test('automation decision requires active status label', () => {
+  assert.deepEqual(
+    resolveAutomationDecision(
+      {
+        labels: ['flow::build', 'automation::build'],
+      },
+      { autoDefault: 'build' }
+    ),
+    {
+      shouldRun: false,
+      reason: 'missing_status_label',
+      automationLabel: 'automation::build',
     }
   );
 });
@@ -169,4 +187,13 @@ test('automation decision uses the highest manual automation label when labels c
       effectiveLevel: 'build',
     }
   );
+});
+
+test('auto labeled event gate only admits routing labels', () => {
+  assert.equal(shouldRunAutoForEvent({ action: 'opened' }), true);
+  assert.equal(shouldRunAutoForEvent({ action: 'labeled', label: { name: 'flow::build' } }), true);
+  assert.equal(shouldRunAutoForEvent({ action: 'labeled', label: { name: 'automation::build' } }), true);
+  assert.equal(shouldRunAutoForEvent({ action: 'labeled', label: { name: 'automation::off' } }), false);
+  assert.equal(shouldRunAutoForEvent({ action: 'labeled', label: { name: 'type::feature' } }), false);
+  assert.equal(shouldRunAutoForEvent({ action: 'labeled', label: { name: 'priority::p2' } }), false);
 });

@@ -167,10 +167,28 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
   }
 });
 
+test('agentrix general prompt includes create issue guidance', () => {
+  const prompt = agentrix.buildPrompt(
+    'general',
+    {
+      number: 42,
+      state: 'open',
+      labels: ['status::active'],
+      title: 'Discussed requirement',
+      body: 'Context',
+    },
+    { instruction: 'create an issue for this' }
+  );
+
+  assert.match(prompt, /创建标准化 issue/);
+  assert.match(prompt, /automation::off/);
+});
+
 test('agentrix task marker uses issue-flow namespace', () => {
-  assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:task:agentrix:build -->');
+  assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:agentrix:task:build -->');
   assert.equal(
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
-    '<!-- issue-flow:task:agentrix:review:abc123 -->'
+    '<!-- issue-flow:agentrix:task:review:abc123 -->'
   );
+  assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
 });

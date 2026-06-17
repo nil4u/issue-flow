@@ -43,6 +43,7 @@ flow::approve ──(人工审批)──┬── merge build PR → status::don
 | merge `mr-by::plan` PR | `pr-merged.cjs` | source issue → `flow::build` |
 | merge `mr-by::build` PR | `pr-merged.cjs` | source issue → `status::done` + clear flow |
 | 新 issue 缺默认 label | `intake.cjs` | 添加 `status::active` + `flow::triage` |
+| AI 讨论已形成需求 | `create-issue.cjs` | 创建标准化 issue，可直接带 `status::active` + `flow::*` 或 `automation::off` |
 
 ### Agent 主动流转（通过 apply.cjs）
 
@@ -70,11 +71,16 @@ node apply.cjs --issue-number 123 --status status::done --clear-flow
 
 决策规则：
 1. 非 open 状态 → skip (reason: issue_not_open)
-2. 终态 status → skip (reason: status::done/drop/suspend)
-3. 无 flow:: label → skip (reason: missing_flow_label)
-4. flow:: 不是可执行的 → skip (reason: unsupported_flow)
-5. 有效自动化级别 < 所需级别 → skip (reason: automation_level_too_low)
-6. 通过 → shouldRun: true, action: triage/plan/build
+2. 无 status:: label → skip (reason: missing_status_label)
+3. `status::done/drop/suspend` → skip
+4. status 不是 `status::active` → skip (reason: status_not_active)
+5. 无 flow:: label → skip (reason: missing_flow_label)
+6. flow:: 不是可执行的 → skip (reason: unsupported_flow)
+7. `automation::off` → skip (reason: automation_off)
+8. 有效自动化级别 < 所需级别 → skip (reason: automation_level_too_low)
+9. 通过 → shouldRun: true, action: triage/plan/build
+
+`automation::off` 也会让 intake 跳过默认 `status::active` / `flow::triage` 补标。labeled 事件只有新增 `flow::*`、`automation::plan`、`automation::build` 或 `status::active` 时才进入自动路由；`type::*`、`priority::*`、unmanaged label 和 `automation::off` 不单独触发 agent。
 
 ### resume 决策
 

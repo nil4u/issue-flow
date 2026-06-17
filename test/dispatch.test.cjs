@@ -11,6 +11,7 @@ const {
   resolveReviewEnabled,
   resolveRuntimeResumeDecision,
   runPrMerged,
+  runAuto,
   runReview,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
@@ -181,6 +182,31 @@ test('dispatch review task lock is scoped to the PR head SHA', () => {
     findActionTaskComment(comments, 'review', agentrix, { pullRequest: { headSha: 'old-sha' } }),
     comments[0]
   );
+});
+
+test('dispatch auto skips non-routing labeled events', async () => {
+  const result = await runAuto(
+    {
+      dryRun: true,
+    },
+    {
+      payload: {
+        action: 'labeled',
+        label: { name: 'priority::p2' },
+        issue: {
+          number: 42,
+          state: 'open',
+          labels: [{ name: 'status::active' }, { name: 'flow::build' }, { name: 'automation::build' }],
+        },
+        repository: { full_name: 'example/platform' },
+      },
+    }
+  );
+
+  assert.deepEqual(result, {
+    action: 'skipped',
+    reason: 'label_not_routing',
+  });
 });
 
 test('dispatch review manual path fetches PR/MR and skips draft state', async () => {

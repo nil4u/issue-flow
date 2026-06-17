@@ -29,6 +29,7 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'flow::build',
       'flow::clarify',
       'flow::approve',
+      'automation::off',
       'automation::plan',
       'automation::build',
       'priority::p0',
@@ -51,15 +52,12 @@ test('catalog exposes lookup by label name', () => {
   assert.equal(labelDefinitionFor('missing'), undefined);
 });
 
-test('apply script exposes only plan and build automation issue labels', () => {
+test('apply script accepts explicit automation opt-out plus plan and build issue labels', () => {
   assert.throws(
     () => collectDesiredLabels({ automation: 'automation::triage' }),
-    /automation must be one of: automation::plan, automation::build/
+    /automation must be one of: automation::off, automation::plan, automation::build/
   );
-  assert.throws(
-    () => collectDesiredLabels({ automation: 'automation::off' }),
-    /automation must be one of: automation::plan, automation::build/
-  );
+  assert.deepEqual(collectDesiredLabels({ automation: 'automation::off' }), { automation: 'automation::off' });
 });
 
 test('apply script rejects review as an issue flow label', () => {

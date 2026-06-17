@@ -5,6 +5,7 @@ const { loadEventPayload } = require('./events.cjs');
 const {
   resolveAutomationDecision: resolveCoreAutomationDecision,
   resolveResumeDecision,
+  shouldRunAutoForEvent,
 } = require('./resolve.cjs');
 const prMerged = require('./pr-merged.cjs');
 
@@ -556,6 +557,13 @@ async function runAuto(options = {}, provided = {}) {
     return {
       action: 'ignored',
       reason: 'pull_request',
+    };
+  }
+  if (!shouldRunAutoForEvent(payload)) {
+    logIssueFlow('Automatic issue-flow skipped for non-routing labeled event');
+    return {
+      action: 'skipped',
+      reason: 'label_not_routing',
     };
   }
 
