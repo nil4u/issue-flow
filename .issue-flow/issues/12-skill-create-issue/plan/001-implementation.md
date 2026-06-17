@@ -107,7 +107,7 @@
    - 对 GitLab，不能依赖 create API 发现未知 label；必须先完成 managed label preflight，再提交带 labels 的 create 请求，避免静默创建未由 `sync-labels.cjs` 管理的 `type::*`、`status::*`、`flow::*` 等项目 label。
    - 如果 label 不存在、metadata drift 或权限不足，应直接失败，不创建一个无标签 issue 后继续静默成功；否则会违背“避免默认 intake/triage”的目标。
 
-5. 在 issue body 中写入 task 关联 marker。
+5. 统一 Agentrix task marker。
    - `create-issue.cjs` 读取 `--agentrix-task-id` 或 `process.env.AGENTRIX_TASK_ID`；有值时，在提交给 provider 的 issue body 顶部写入隐藏 marker：
      ```md
      <!-- issue-flow:agentrix:task=<task-id> -->
@@ -116,10 +116,15 @@
      - 只记录“这个 issue 由哪个 Agentrix task 创建”，不参与 issue-flow 状态机决策。
      - 不展示给用户，不要求 agent 在正文模板里手写。
      - 没有 `AGENTRIX_TASK_ID` 时不写 marker，保持 CLI 在本地和 CI 中可独立使用。
+   - 同步调整现有 Agentrix task lock comment marker：
+     - 普通 action 从 `<!-- issue-flow:task:agentrix:<action> -->` 改为 `<!-- issue-flow:agentrix:task:<action> -->`。
+     - review action 带 commit sha 时从 `<!-- issue-flow:task:agentrix:review:<sha> -->` 改为 `<!-- issue-flow:agentrix:task:review:<sha> -->`。
+     - 不做旧 marker 兼容；duplicate task lock 查找只识别新格式。
    - 实现方式参考 `submit.cjs`：
      - 新增 `buildAgentrixTaskMarker(taskId)`。
      - 新增 `buildIssueBodyWithTaskMarker(body, taskId)`，若 body 已包含同类 marker 则替换为当前 task id，否则 prepend。
      - create provider 前统一调用该 helper，确保 GitHub `body` 和 GitLab `description` 都包含同一 marker。
+     - 更新 `runtimes/agentrix.cjs` 的 `buildTaskCommentMarker()`，统一输出 `issue-flow:agentrix:task` 前缀。
    - 后续可在 Agentrix 侧或 issue-flow 查询侧通过该 marker 建立 task -> issue 的反查；本次只负责把确定性关联信息写入 issue body。
 
 6. 迭代 intake/auto route 的准入条件。
@@ -173,7 +178,7 @@
 
 9. 文档更新。
    - `README.md` 增加创建标准化 issue 的能力说明和最小示例。
-   - `docs/provider-api.md` 增加 GitHub/GitLab create issue API 路径、token/CLI fallback、权限要求、失败策略和 `AGENTRIX_TASK_ID` body marker 规则。
+   - `docs/provider-api.md` 增加 GitHub/GitLab create issue API 路径、token/CLI fallback、权限要求、失败策略和 `AGENTRIX_TASK_ID` body marker 规则，并把现有 task lock marker 文档改为 `issue-flow:agentrix:task` 前缀。
    - `docs/state-machine.md` 增加从 AI discussion 创建 issue 的入口说明，强调 agent 可选择带 `status::active` + `flow::*` 直接进入流程，也可选择 `automation::off` 显式跳过 intake/triage/plan/build 自动化，并记录 intake/auto route 的准入条件。
    - `skills/issue-flow/references/labels.md` 增加 `automation::off` 和 create issue 场景下各 managed label 的推荐使用边界。
 
@@ -184,6 +189,10 @@
      - `buildAgentrixTaskMarker()` 和 `buildIssueBodyWithTaskMarker()` 会 prepend/replace `<!-- issue-flow:agentrix:task=<id> -->`。
      - 设置 `AGENTRIX_TASK_ID` 时，GitHub/GitLab create 请求中的 body/description 包含隐藏 task marker；未设置时不写 marker。
      - dry-run 输出包含 title、labels、provider、repo，不调用 fetch/CLI。
+   - 扩展 `test/agentrix-runtime.test.cjs`：
+     - `buildTaskCommentMarker('build')` 输出 `<!-- issue-flow:agentrix:task:build -->`。
+     - review + head sha 输出 `<!-- issue-flow:agentrix:task:review:<sha> -->`。
+     - 旧格式 `issue-flow:task:agentrix` 不再作为 duplicate task lock marker 匹配。
    - 扩展 `test/providers.test.cjs`：
      - GitHub token 路径调用 `POST /issues`，body 使用 `body`，labels 使用数组。
      - GitHub 无 token fallback 调用 `gh api`。
