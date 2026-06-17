@@ -6,6 +6,50 @@ const {
   computeLabelChanges,
   shouldSkipIssueBodyUpdate,
 } = require('../skills/issue-flow/scripts/apply.cjs');
+const {
+  MANAGED_LABELS,
+  labelDefinitionFor,
+  labelsForScope,
+} = require('../skills/issue-flow/scripts/labels.cjs');
+
+test('catalog covers issue and PR/MR managed labels with stable metadata', () => {
+  assert.deepEqual(
+    labelsForScope('issue').map((label) => label.name),
+    [
+      'type::feature',
+      'type::bug',
+      'type::debt',
+      'type::ops',
+      'status::active',
+      'status::done',
+      'status::drop',
+      'status::suspend',
+      'flow::triage',
+      'flow::plan',
+      'flow::build',
+      'flow::clarify',
+      'flow::approve',
+      'automation::plan',
+      'automation::build',
+      'priority::p0',
+      'priority::p1',
+      'priority::p2',
+      'priority::p3',
+    ]
+  );
+  assert.deepEqual(labelsForScope('merge_request').map((label) => label.name), ['mr-by::plan', 'mr-by::build']);
+
+  for (const label of MANAGED_LABELS) {
+    assert.match(label.color, /^[A-F0-9]{6}$/);
+    assert.equal(typeof label.description, 'string');
+    assert.notEqual(label.description.trim(), '');
+  }
+});
+
+test('catalog exposes lookup by label name', () => {
+  assert.equal(labelDefinitionFor('mr-by::plan').color, '0052CC');
+  assert.equal(labelDefinitionFor('missing'), undefined);
+});
 
 test('apply script exposes only plan and build automation issue labels', () => {
   assert.throws(

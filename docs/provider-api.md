@@ -29,12 +29,14 @@
 读取顺序：`GITHUB_TOKEN` → `GH_TOKEN`
 
 无 token 时尝试 `gh` CLI fallback。
+同步 provider labels 需要 token/CLI 账号具备仓库 label 管理权限。
 
 ### GitLab
 
 读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN`
 
 无 token 时尝试 `glab` CLI fallback。
+同步 provider labels 需要 token/CLI 账号具备项目 label 管理权限。
 
 ## Event payload
 
@@ -107,9 +109,81 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 2. 检查 head ≠ base
 3. push 分支
 4. 创建或更新 PR/MR（存在则 update）
-5. 确保 PR label 存在（GitHub: `gh label create`）
+5. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog
 6. 在 PR body 中插入 `<!-- issue-flow:source-issue=<num> -->`
 7. 调用 apply.cjs 把 source issue 转到 `flow::approve`
+
+## sync-labels.cjs
+
+将 issue-flow 内置 managed labels 同步到 GitHub/GitLab provider。同步范围包含 issue labels
+`type::`、`status::`、`flow::`、`automation::`、`priority::`，以及 PR/MR labels `mr-by::plan` 和
+`mr-by::build`。
+
+```bash
+node sync-labels.cjs [--provider github|gitlab] [--repo owner/repo|group/project] [--dry-run] [--check]
+```
+
+### 行为
+
+- 默认执行 upsert：缺失则创建，颜色或说明漂移则更新，已一致则跳过。
+- `--dry-run` 不读取或写入 provider，只输出所有将被确保的 label 定义。
+- `--check` 读取 provider 当前 label，发现缺失或漂移时非零退出，适合 CI 定期检查。
+- `--dry-run` 和 `--check` 互斥，避免“只检查但不读取远端”的语义歧义。
+- 任一 label 创建、更新或检查失败会记录失败 label，命令最终非零退出。
+
+### 颜色和字段兼容
+
+Catalog 中颜色保存为 GitHub 兼容的 6 位 hex（例如 `1D76DB`）。GitHub 同步时提交 `RRGGBB`，
+GitLab 同步时提交 `#RRGGBB`。名称和说明在两个 provider 上保持一致。如果某个 GitLab 实例版本或权限
+不接受 description/update 字段，命令会失败并暴露 provider 错误，不会静默降级成部分成功。
+
+### 内置 Label Catalog
+
+| Label | Scope | Color | Description |
+|-------|-------|-------|-------------|
+| `type::feature` | Issue | `0E8A16` | Issue is a feature or enhancement |
+| `type::bug` | Issue | `D73A4A` | Issue reports a defect or regression |
+| `type::debt` | Issue | `5319E7` | Issue tracks technical debt or cleanup |
+| `type::ops` | Issue | `1D76DB` | Issue tracks operations or maintenance work |
+| `status::active` | Issue | `0052CC` | Issue is active and eligible for workflow actions |
+| `status::done` | Issue | `0E8A16` | Issue is complete |
+| `status::drop` | Issue | `6A737D` | Issue has been dropped and should not continue |
+| `status::suspend` | Issue | `FBCA04` | Issue is suspended until conditions change |
+| `flow::triage` | Issue | `BFDADC` | Waiting for triage |
+| `flow::plan` | Issue | `0052CC` | Waiting for a plan action |
+| `flow::build` | Issue | `1D76DB` | Waiting for implementation |
+| `flow::clarify` | Issue | `D4C5F9` | Waiting for clarification |
+| `flow::approve` | Issue | `0E8A16` | Waiting for approval of a plan or build PR/MR |
+| `automation::plan` | Issue | `7057FF` | Automation may create plan PRs/MRs |
+| `automation::build` | Issue | `006B75` | Automation may create plan and build PRs/MRs |
+| `priority::p0` | Issue | `B60205` | Highest priority issue |
+| `priority::p1` | Issue | `D93F0B` | High priority issue |
+| `priority::p2` | Issue | `FBCA04` | Normal priority issue |
+| `priority::p3` | Issue | `C5DEF5` | Low priority issue |
+| `mr-by::plan` | PR/MR | `0052CC` | PR or MR was created by the plan action |
+| `mr-by::build` | PR/MR | `1D76DB` | PR or MR was created by the build action |
+
+### 安装后和维护
+
+`bootstrap.cjs` / `install.sh` 安装默认 CI workflow。目标项目 commit 并 push 安装文件后：
+
+- GitHub 的 `.github/workflows/issue-flow-labels.yml` 会在 issue-flow 相关文件变更时自动运行 `sync-labels.cjs`。
+- GitLab 的 `.gitlab/issue-flow.gitlab-ci.yml` 包含 `issue-flow-labels` job，会在 push 改动 issue-flow 相关文件时自动运行 `sync-labels.cjs`。
+- 自动同步会创建缺失 label，并更新颜色/说明漂移的 label。
+- 如果 CI token 没有 provider label 管理权限，label sync job 会失败；修复 token 权限后重新运行 job 或再次 push 即可。
+
+也可以由具备 label 管理权限的用户或 CI token 手动执行：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider github --repo owner/repo
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider gitlab --repo group/project
+```
+
+维护时可使用：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --check
+```
 
 ### PR Title 规范化
 
@@ -202,6 +276,7 @@ node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
 - Runtime 资源来自 `skills/issue-flow/assets/agentrix/runtime/`，workflow/config 资源来自 `skills/issue-flow/assets/agentrix/bootstrap/`
 - 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定
 - 已存在文件默认跳过，`--force` 才覆盖
+- 安装后的 push 会通过默认 workflow job 自动同步 provider labels；安装命令本身仍只写文件
 
 ### Source Issue 解析优先级
 

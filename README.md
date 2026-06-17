@@ -29,6 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | 
 ```
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.
+After you commit and push the installed files, the installed CI workflow automatically synchronizes the built-in provider labels.
+That job creates missing labels and updates label colors/descriptions when they drift. If the workflow token cannot manage repository/project labels, the label sync job fails and the rest of the installed files remain unchanged.
 
 ## Reinstall and Upgrade
 
@@ -45,6 +47,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 ## What It Installs
 
 - `.agentrix/plugins/issue-flow/` - plugin manifest, minimal runtime skill, scripts, and default prompts/templates
+- `.github/workflows/issue-flow-labels.yml` - automatic provider label synchronization after install or upgrade pushes
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
 - `.github/workflows/issue-flow-pr-review.yml` - optional PR/MR automatic review checks
@@ -68,6 +71,8 @@ Set these repository variables/secrets as needed:
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
 - `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review check switch, defaults to off; set to `true` or `1` to run on PR opened, synchronize, ready_for_review, or manual dispatch
 
+GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`.
+
 ## GitLab Configuration
 
 GitLab automation is designed for the Agentrix daemon webhook bridge. Configure the GitLab
@@ -79,13 +84,15 @@ includes both the existing pipeline and issue-flow.
 
 Set these CI variables as needed:
 
-- `GITLAB_TOKEN` - GitLab token with issue and merge request write access
+- `GITLAB_TOKEN` - GitLab token with issue, merge request, and label management access
 - `AGENTRIX_BASE_URL` - Agentrix API URL
 - `AGENTRIX_API_KEY` - Agentrix API key, as a masked variable
 - `AGENTRIX_RUNNER_ID` - optional runner id
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
 - `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review check switch, defaults to off; set to `true` or `1` to run on PR/MR opened, synchronize, ready_for_review, or manual job
+
+GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `GITLAB_TOKEN`, `GL_TOKEN`, `GITLAB_PRIVATE_TOKEN`, or `CI_JOB_TOKEN`.
 
 ## Development Install
 

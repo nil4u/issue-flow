@@ -161,6 +161,44 @@ function normalizeLabels(labels) {
   return labels.map(normalizeLabelName).filter(Boolean);
 }
 
+function normalizeHexColor(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^#/, '')
+    .toUpperCase();
+}
+
+function providerLabelDefinition(providerName, definition) {
+  const color = normalizeHexColor(definition.color);
+  return {
+    name: definition.name,
+    color: providerName === 'gitlab' ? `#${color}` : color,
+    description: definition.description || '',
+  };
+}
+
+function labelMatchesDefinition(providerName, existing, definition) {
+  if (!existing) {
+    return false;
+  }
+  const expected = providerLabelDefinition(providerName, definition);
+  return (
+    normalizeLabelName(existing) === definition.name &&
+    normalizeHexColor(existing.color) === normalizeHexColor(expected.color) &&
+    String(existing.description || '') === expected.description
+  );
+}
+
+function planLabelSync(providerName, existing, definition) {
+  if (!existing) {
+    return 'create';
+  }
+  if (!labelMatchesDefinition(providerName, existing, definition)) {
+    return 'update';
+  }
+  return 'skip';
+}
+
 function normalizeGitlabState(state) {
   if (state === 'opened') {
     return 'open';
@@ -1096,6 +1134,114 @@ async function updateGithubIssueBody(target, body) {
   await requestGithubForApply('PATCH', githubIssueApiPath({ ...target, number: target.issueNumber }), { body });
 }
 
+function githubLabelApiPath(repo, labelName) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels/${encodeURIComponent(labelName)}`;
+}
+
+async function getGithubLabel(repo, labelName) {
+  try {
+    return await requestGithubForApply('GET', githubLabelApiPath(repo, labelName));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error.status === 404 || /\b404\b|not found/i.test(message)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function createGithubLabel(repo, definition) {
+  const payload = providerLabelDefinition('github', definition);
+  return requestGithubForApply('POST', `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels`, payload);
+}
+
+async function updateGithubLabel(repo, definition) {
+  const payload = providerLabelDefinition('github', definition);
+  return requestGithubForApply('PATCH', githubLabelApiPath(repo, definition.name), {
+    new_name: payload.name,
+    color: payload.color,
+    description: payload.description,
+  });
+}
+
+async function ensureGithubLabelDefinition(repo, definition, options = {}) {
+  if (options.dryRun) {
+    return {
+      name: definition.name,
+      action: 'ensure',
+      definition: providerLabelDefinition('github', definition),
+    };
+  }
+
+  const existing = await getGithubLabel(repo, definition.name);
+  const action = planLabelSync('github', existing, definition);
+  if (action === 'create') {
+    await createGithubLabel(repo, definition);
+    return { name: definition.name, action: 'created' };
+  }
+  if (action === 'update') {
+    await updateGithubLabel(repo, definition);
+    return { name: definition.name, action: 'updated' };
+  }
+  return { name: definition.name, action: 'skipped' };
+}
+
+function gitlabLabelApiPath(repo, labelName) {
+  return `/projects/${gitlabProjectRef(repo)}/labels/${encodeURIComponent(labelName)}`;
+}
+
+async function getGitlabLabel(repo, labelName, options = {}) {
+  try {
+    return await requestGitlab('GET', gitlabLabelApiPath(repo, labelName), undefined, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error.status === 404 || /\b404\b|not found/i.test(message)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function createGitlabLabel(repo, definition, options = {}) {
+  return requestGitlab('POST', `/projects/${gitlabProjectRef(repo)}/labels`, providerLabelDefinition('gitlab', definition), options);
+}
+
+async function updateGitlabLabel(repo, definition, options = {}) {
+  const payload = providerLabelDefinition('gitlab', definition);
+  return requestGitlab(
+    'PUT',
+    gitlabLabelApiPath(repo, definition.name),
+    {
+      new_name: payload.name,
+      color: payload.color,
+      description: payload.description,
+    },
+    options
+  );
+}
+
+async function ensureGitlabLabelDefinition(repo, definition, options = {}) {
+  if (options.dryRun) {
+    return {
+      name: definition.name,
+      action: 'ensure',
+      definition: providerLabelDefinition('gitlab', definition),
+    };
+  }
+
+  const existing = await getGitlabLabel(repo, definition.name, options);
+  const action = planLabelSync('gitlab', existing, definition);
+  if (action === 'create') {
+    await createGitlabLabel(repo, definition, options);
+    return { name: definition.name, action: 'created' };
+  }
+  if (action === 'update') {
+    await updateGitlabLabel(repo, definition, options);
+    return { name: definition.name, action: 'updated' };
+  }
+  return { name: definition.name, action: 'skipped' };
+}
+
 function parsePositiveInteger(value, name) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1135,6 +1281,8 @@ const githubProvider = {
   getIssueForApply: getGithubIssueForApply,
   applyLabels: applyGithubLabels,
   updateIssueBody: updateGithubIssueBody,
+  getLabel: getGithubLabel,
+  ensureLabelDefinition: ensureGithubLabelDefinition,
 };
 
 const gitlabProvider = {
@@ -1167,6 +1315,8 @@ const gitlabProvider = {
   applyLabels: applyGitlabLabels,
   updateIssueBody: updateGitlabIssueBody,
   createOrUpdateMergeRequest: createOrUpdateGitlabMergeRequest,
+  getLabel: getGitlabLabel,
+  ensureLabelDefinition: ensureGitlabLabelDefinition,
 };
 
 const providers = {
@@ -1181,12 +1331,15 @@ module.exports = {
   getGitlabToken,
   gitlabApiBaseUrl,
   gitlabHostname,
+  labelMatchesDefinition,
   normalizeGitlabState,
   normalizeLabelName,
   normalizeLabels,
   normalizeProviderName,
   parseGitRemoteUrl,
   parseRepoFullName,
+  planLabelSync,
+  providerLabelDefinition,
   providers,
   requestGitlab,
   resolveProvider,

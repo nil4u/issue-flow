@@ -67,6 +67,19 @@ node ${CLAUDE_SKILL_DIR}/scripts/submit.cjs plan|build \
 
 `--body-file` 用 repo 外临时文件（如 `mktemp`）；不要提交 PR body 文件。
 
+### sync-labels.cjs — 同步 Provider Labels
+
+```bash
+node ${CLAUDE_SKILL_DIR}/scripts/sync-labels.cjs \
+  [--provider github|gitlab] [--repo owner/repo|group/project] \
+  [--dry-run] [--check]
+```
+
+- 同步全部内置 managed labels 的名称、颜色和说明
+- `--dry-run` 不读取或写入 provider，只打印将确保的 labels
+- `--check` 只检查缺失或漂移，发现不一致时非零退出
+- 安装不会自动执行同步；同步失败通常表示 token/CLI 缺少 label 管理权限
+
 ## 典型 Agent 工作流
 
 ### Triage

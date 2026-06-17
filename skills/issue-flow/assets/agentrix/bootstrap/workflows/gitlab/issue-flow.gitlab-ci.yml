@@ -4,6 +4,25 @@ variables:
   ISSUE_FLOW_PROVIDER: gitlab
   ISSUE_FLOW_RUNTIME: agentrix
 
+issue-flow-labels:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - .agentrix/plugins/issue-flow/**/*
+        - .gitlab-ci.yml
+        - .gitlab/issue-flow.gitlab-ci.yml
+        - .issue-flow/**/*
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
+
 issue-flow-auto:
   rules:
     - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && $AGENTRIX_EVENT_ACTION == "opened"'
