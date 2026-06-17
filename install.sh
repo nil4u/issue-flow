@@ -9,6 +9,7 @@ usage() {
 Usage: install.sh [github|gitlab|auto] [--force] [--dry-run]
 
 Installs issue-flow into the current project.
+After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github

@@ -4,6 +4,25 @@ variables:
   ISSUE_FLOW_PROVIDER: gitlab
   ISSUE_FLOW_RUNTIME: agentrix
 
+issue-flow-labels:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - .agentrix/plugins/issue-flow/**/*
+        - .gitlab-ci.yml
+        - .gitlab/issue-flow.gitlab-ci.yml
+        - .issue-flow/**/*
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
+
 issue-flow-auto:
   rules:
     - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && $AGENTRIX_EVENT_ACTION == "opened"'
@@ -57,6 +76,8 @@ issue-flow-merged:
   script:
     - |
       set -eu
+      git fetch origin "${CI_DEFAULT_BRANCH:-main}" --depth 1
+      git checkout FETCH_HEAD -- .agentrix/plugins/issue-flow .issue-flow
       set -- --provider gitlab
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"
@@ -65,3 +86,34 @@ issue-flow-merged:
         set -- "$@" --event "$GITLAB_EVENT_PATH"
       fi
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs pr-merged "$@"
+
+issue-flow-review:
+  rules:
+    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "opened"'
+      when: on_success
+    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "synchronize"'
+      when: on_success
+    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "ready_for_review"'
+      when: on_success
+    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_PR_NUMBER'
+      when: manual
+    - when: never
+  script:
+    - |
+      set -eu
+      git fetch origin "${CI_DEFAULT_BRANCH:-main}" --depth 1
+      git checkout FETCH_HEAD -- .agentrix/plugins/issue-flow .issue-flow
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      if [ -n "${GITLAB_EVENT_PATH:-}" ]; then
+        set -- "$@" --event "$GITLAB_EVENT_PATH"
+      elif [ "${AGENTRIX_TRIGGER_SOURCE:-}" != "agentrix_daemon_webhook" ]; then
+        if [ -z "${AGENTRIX_PR_NUMBER:-}" ]; then
+          echo "AGENTRIX_PR_NUMBER is required for manual issue-flow-review" >&2
+          exit 1
+        fi
+        set -- "$@" --pr-number "$AGENTRIX_PR_NUMBER"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"

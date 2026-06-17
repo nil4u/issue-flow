@@ -26,15 +26,31 @@
 
 ### GitHub
 
-读取顺序：`GITHUB_TOKEN` → `GH_TOKEN`
+读取顺序：`GITHUB_TOKEN` → `GH_TOKEN` → git remote URL 中的 token（如存在）。
 
-无 token 时尝试 `gh` CLI fallback。
+有 token 时，GitHub provider 操作直接调用 GitHub REST API。API 认证或授权失败会直接报错，不会静默 fallback 到 CLI。
+
+只有没有可用 token 时，才尝试 `gh` CLI fallback。
+
+GitHub API token 至少需要：
+- issue/label 写权限：更新 source issue label/body，创建 PR label，并给 PR 添加 `mr-by::*` label
+- pull request 写权限：创建或更新 PR
+
+同步 provider labels 需要 token/CLI 账号具备仓库 label 管理权限。
+
+`submit.cjs` 的 `git push` 仍使用本地 git remote/credentials，不由 GitHub API token 替代。
 
 ### GitLab
 
-读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN`
+读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN` → git remote URL 中的 token（如存在）。
 
-无 token 时尝试 `glab` CLI fallback。
+有 token 时，GitLab provider 操作直接调用 GitLab API。API 认证或授权失败会直接报错，不会静默 fallback 到 CLI。
+
+只有没有可用 token 时，才尝试 `glab` CLI fallback。
+
+GitLab API token 至少需要 issue/label 与 merge request 写权限。`submit.cjs` 的 `git push` 仍使用本地 git remote/credentials。
+
+同步 provider labels 需要 token/CLI 账号具备项目 label 管理权限。
 
 ## Event payload
 
@@ -61,7 +77,7 @@ node apply.cjs --issue-number <num> [label-options] [body-options] [common-optio
 |------|-----|
 | `--type` | `type::feature\|bug\|debt\|ops` |
 | `--status` | `status::active\|done\|drop\|suspend` |
-| `--flow` | `flow::triage\|plan\|build\|review\|clarify\|approve` |
+| `--flow` | `flow::triage\|plan\|build\|clarify\|approve` |
 | `--automation` | `automation::plan\|build` |
 | `--priority` | `priority::p0\|p1\|p2\|p3` |
 | `--clear-flow` | 移除所有 `flow::` label（不添加新的） |
@@ -105,11 +121,83 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 
 1. 检查 worktree 是否 clean
 2. 检查 head ≠ base
-3. push 分支
-4. 创建或更新 PR/MR（存在则 update）
-5. 确保 PR label 存在（GitHub: `gh label create`）
+3. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
+4. push 分支
+5. 创建或更新 PR/MR（存在则 update；GitHub/GitLab 均优先使用 token API，无 token 时 fallback CLI）
 6. 在 PR body 中插入 `<!-- issue-flow:source-issue=<num> -->`
 7. 调用 apply.cjs 把 source issue 转到 `flow::approve`
+
+## sync-labels.cjs
+
+将 issue-flow 内置 managed labels 同步到 GitHub/GitLab provider。同步范围包含 issue labels
+`type::`、`status::`、`flow::`、`automation::`、`priority::`，以及 PR/MR labels `mr-by::plan` 和
+`mr-by::build`。
+
+```bash
+node sync-labels.cjs [--provider github|gitlab] [--repo owner/repo|group/project] [--dry-run] [--check]
+```
+
+### 行为
+
+- 默认执行 upsert：缺失则创建，颜色或说明漂移则更新，已一致则跳过。
+- `--dry-run` 不读取或写入 provider，只输出所有将被确保的 label 定义。
+- `--check` 读取 provider 当前 label，发现缺失或漂移时非零退出，适合 CI 定期检查。
+- `--dry-run` 和 `--check` 互斥，避免“只检查但不读取远端”的语义歧义。
+- 任一 label 创建、更新或检查失败会记录失败 label，命令最终非零退出。
+
+### 颜色和字段兼容
+
+Catalog 中颜色保存为 GitHub 兼容的 6 位 hex（例如 `1D76DB`）。GitHub 同步时提交 `RRGGBB`，
+GitLab 同步时提交 `#RRGGBB`。名称和说明在两个 provider 上保持一致。如果某个 GitLab 实例版本或权限
+不接受 description/update 字段，命令会失败并暴露 provider 错误，不会静默降级成部分成功。
+
+### 内置 Label Catalog
+
+| Label | Scope | Color | Description |
+|-------|-------|-------|-------------|
+| `type::feature` | Issue | `0E8A16` | Issue is a feature or enhancement |
+| `type::bug` | Issue | `D73A4A` | Issue reports a defect or regression |
+| `type::debt` | Issue | `5319E7` | Issue tracks technical debt or cleanup |
+| `type::ops` | Issue | `1D76DB` | Issue tracks operations or maintenance work |
+| `status::active` | Issue | `0052CC` | Issue is active and eligible for workflow actions |
+| `status::done` | Issue | `0E8A16` | Issue is complete |
+| `status::drop` | Issue | `6A737D` | Issue has been dropped and should not continue |
+| `status::suspend` | Issue | `FBCA04` | Issue is suspended until conditions change |
+| `flow::triage` | Issue | `BFDADC` | Waiting for triage |
+| `flow::plan` | Issue | `0052CC` | Waiting for a plan action |
+| `flow::build` | Issue | `1D76DB` | Waiting for implementation |
+| `flow::clarify` | Issue | `D4C5F9` | Waiting for clarification |
+| `flow::approve` | Issue | `0E8A16` | Waiting for approval of a plan or build PR/MR |
+| `automation::plan` | Issue | `7057FF` | Automation may create plan PRs/MRs |
+| `automation::build` | Issue | `006B75` | Automation may create plan and build PRs/MRs |
+| `priority::p0` | Issue | `B60205` | Highest priority issue |
+| `priority::p1` | Issue | `D93F0B` | High priority issue |
+| `priority::p2` | Issue | `FBCA04` | Normal priority issue |
+| `priority::p3` | Issue | `C5DEF5` | Low priority issue |
+| `mr-by::plan` | PR/MR | `0052CC` | PR or MR was created by the plan action |
+| `mr-by::build` | PR/MR | `1D76DB` | PR or MR was created by the build action |
+
+### 安装后和维护
+
+`bootstrap.cjs` / `install.sh` 安装默认 CI workflow。目标项目 commit 并 push 安装文件后：
+
+- GitHub 的 `.github/workflows/issue-flow-labels.yml` 会在 issue-flow 相关文件变更时自动运行 `sync-labels.cjs`。
+- GitLab 的 `.gitlab/issue-flow.gitlab-ci.yml` 包含 `issue-flow-labels` job，会在 push 改动 issue-flow 相关文件时自动运行 `sync-labels.cjs`。
+- 自动同步会创建缺失 label，并更新颜色/说明漂移的 label。
+- 如果 CI token 没有 provider label 管理权限，label sync job 会失败；修复 token 权限后重新运行 job 或再次 push 即可。
+
+也可以由具备 label 管理权限的用户或 CI token 手动执行：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider github --repo owner/repo
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --provider gitlab --repo group/project
+```
+
+维护时可使用：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs --check
+```
 
 ### PR Title 规范化
 
@@ -140,9 +228,21 @@ node pr-merged.cjs --event <path> [common-options]
 ```bash
 node dispatch.cjs auto --event <path> [--runtime agentrix] [common-options]
 node dispatch.cjs comment --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs review --event <path> [--runtime agentrix] [common-options]
+node dispatch.cjs review --pr-number <num> [--runtime agentrix] [common-options]
 node dispatch.cjs pr-merged --event <path> [common-options]
 node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 ```
+
+## review.cjs
+
+Submit a PR/MR review result.
+
+```bash
+node review.cjs --pr-number <num> --body-file <path> [common-options]
+```
+
+GitHub submits one Pull Request Review. GitLab posts one MR note.
 
 ### Agentrix 路径配置
 
@@ -161,13 +261,14 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 ### Agentrix 行为
 
 1. comment mention 固定为 `@agentrix`
-2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`
+2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`、`review.prompt.md`
 3. template 文件名固定：`plan-bug.md`、`plan-impl.md`
 4. plan 查找固定为 `<planRootDir>/<issue-number>-<slug>/plan/*.md`
 5. branch 固定为 `<issue-number>-<slug>/plan` 和 `<issue-number>-<slug>/build`
 6. prompt 首位固定注入项目级 `issue-flow` skill 文件路径，例如 `.agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md`
 7. task lock marker 使用 `<!-- issue-flow:task:agentrix:<action> -->`
 8. `pr-merged` 在应用 source issue 状态流转后会立即执行一次自动路由；`mr-by::plan` merge 后可直接启动 build，`mr-by::build` merge 后因 `status::done` 跳过
+9. `review`: PR/MR check; controlled by `ISSUE_FLOW_REVIEW_ENABLED=true` or `1`
 
 ## bootstrap.cjs
 
@@ -189,6 +290,7 @@ node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
 - Runtime 资源来自 `skills/issue-flow/assets/agentrix/runtime/`，workflow/config 资源来自 `skills/issue-flow/assets/agentrix/bootstrap/`
 - 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定
 - 已存在文件默认跳过，`--force` 才覆盖
+- 安装后的 push 会通过默认 workflow job 自动同步 provider labels；安装命令本身仍只写文件
 
 ### Source Issue 解析优先级
 

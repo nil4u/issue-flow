@@ -3,29 +3,9 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
+const { labelGroupsForScope } = require('./labels.cjs');
 
-const MANAGED_LABELS = {
-  type: {
-    prefix: 'type::',
-    values: ['type::feature', 'type::bug', 'type::debt', 'type::ops'],
-  },
-  status: {
-    prefix: 'status::',
-    values: ['status::active', 'status::done', 'status::drop', 'status::suspend'],
-  },
-  flow: {
-    prefix: 'flow::',
-    values: ['flow::triage', 'flow::plan', 'flow::build', 'flow::review', 'flow::clarify', 'flow::approve'],
-  },
-  automation: {
-    prefix: 'automation::',
-    values: ['automation::plan', 'automation::build'],
-  },
-  priority: {
-    prefix: 'priority::',
-    values: ['priority::p0', 'priority::p1', 'priority::p2', 'priority::p3'],
-  },
-};
+const MANAGED_LABELS = labelGroupsForScope('issue');
 
 function usage() {
   return [

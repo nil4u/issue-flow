@@ -63,6 +63,8 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.match(prompt, /## Plan Output/);
   assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
   assert.match(prompt, /Plan branch: `42-broken-login\/plan`/);
+  assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /do not put it in git/);
   assert.match(prompt, /## Required Skill/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
   assert.match(prompt, /^Labels: type::bug, priority::p2$/m);
@@ -93,9 +95,64 @@ test('agentrix build prompt injects build context without plan output section', 
   assert.match(prompt, /## Branch/);
   assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
   assert.match(prompt, /## Plan Files/);
+  assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /do not put it in git/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
   assert.doesNotMatch(prompt, /## Plan Output/);
   assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
+});
+
+test('agentrix review prompt uses target URL and review submission script', () => {
+  const prompt = agentrix.buildPullRequestPrompt({
+    provider: 'github',
+    repoFullName: 'example/platform',
+    number: 9,
+    state: 'open',
+    draft: false,
+    merged: false,
+    baseRef: 'main',
+    headRef: '42-add-export-button/build',
+    labels: ['mr-by::build'],
+    author: 'alice',
+    htmlUrl: 'https://github.com/example/platform/pull/9',
+    title: 'Build #42: Add export button',
+    body: '<!-- issue-flow:source-issue=42 -->\nAdds export support.',
+  });
+
+  assert.match(prompt, /## Review Target/);
+  assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
+  assert.match(prompt, /## Review Submission/);
+  assert.match(prompt, /scripts\/review\.cjs --pr-number 9 --body-file <tmp-review-body-file>/);
+  assert.match(prompt, /使用下方 review 提交命令发布结果/);
+  assert.doesNotMatch(prompt, /## Issue/);
+  assert.doesNotMatch(prompt, /Possible source issue/);
+  assert.doesNotMatch(prompt, /flow::triage/);
+  assert.doesNotMatch(prompt, /automation::build/);
+});
+
+test('agentrix review run args include source issue number', () => {
+  const args = agentrix.buildRunArgs(
+    'review',
+    {
+      provider: 'github',
+      repoFullName: 'example/platform',
+      number: 9,
+      title: 'Build #42: Add export button',
+      body: '<!-- issue-flow:source-issue=42 -->',
+    },
+    {
+      baseUrl: 'https://agentrix.example.test',
+      apiKey: 'test-key',
+      runnerId: 'runner-1',
+    },
+    {},
+    'prompt',
+    '/tmp/result.json'
+  );
+
+  assert.equal(args[args.indexOf('--issue-number') + 1], '42');
+  assert.ok(args.includes('issue_flow_pr=example/platform#9'));
+  assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
 });
 
 test('agentrix default prompts delegate script details to the issue-flow skill', () => {
@@ -112,4 +169,8 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
 
 test('agentrix task marker uses issue-flow namespace', () => {
   assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:task:agentrix:build -->');
+  assert.equal(
+    agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
+    '<!-- issue-flow:task:agentrix:review:abc123 -->'
+  );
 });

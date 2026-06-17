@@ -20,6 +20,7 @@ jobs:
       - name: Checkout issue-flow plugin
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 1
           sparse-checkout: |
             .agentrix/plugins/issue-flow

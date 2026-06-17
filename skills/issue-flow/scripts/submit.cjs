@@ -4,22 +4,27 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveProvider } = require('./providers.cjs');
+const {
+  existingPullRequestApiHead,
+  headBranchFilterCandidates,
+  isExistingPullRequestError,
+  normalizeOptionalUrl,
+  resolveProvider,
+} = require('./providers.cjs');
+const { labelDefinitionFor } = require('./labels.cjs');
 
 const SUBMIT_KINDS = {
   plan: {
     label: 'mr-by::plan',
     flow: 'flow::approve',
     titlePrefix: 'Plan',
-    labelColor: '0052CC',
-    labelDescription: 'PR or MR was created by the plan action',
+    labelDefinition: labelDefinitionFor('mr-by::plan'),
   },
   build: {
     label: 'mr-by::build',
     flow: 'flow::approve',
     titlePrefix: 'Build',
-    labelColor: '1D76DB',
-    labelDescription: 'PR or MR was created by the build action',
+    labelDefinition: labelDefinitionFor('mr-by::build'),
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
@@ -231,6 +236,32 @@ function validateBodyFile(bodyFile) {
   }
 }
 
+function isGitTrackedFile(filePath) {
+  const relativePath = path.relative(process.cwd(), path.resolve(filePath));
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return false;
+  }
+
+  return Boolean(
+    runOutput('git', ['ls-files', '--error-unmatch', '--', relativePath], {
+      optional: true,
+    })
+  );
+}
+
+function assertBodyFileNotTracked(bodyFile) {
+  if (!isGitTrackedFile(bodyFile)) {
+    return;
+  }
+
+  throw new Error(
+    [
+      `PR body file must not be committed to the repository: ${bodyFile}`,
+      'Write the PR body to a temporary path outside the repo, then pass that path with --body-file.',
+    ].join('\n')
+  );
+}
+
 function buildSourceIssueMarker(issueNumber) {
   return `<!-- issue-flow:source-issue=${issueNumber} -->`;
 }
@@ -266,140 +297,30 @@ function labelConfigFor(label) {
   return Object.values(SUBMIT_KINDS).find((config) => config.label === label);
 }
 
-function ensureGithubLabel(repo, label, options) {
+async function ensureMergeRequestLabel(provider, repo, label, options) {
   const config = labelConfigFor(label);
   if (!config) {
     validateLabel(label);
   }
+  if (!config.labelDefinition) {
+    throw new Error(`No managed label definition found for ${label}`);
+  }
 
-  if (options.dryRun) {
-    console.log(JSON.stringify({ dryRun: true, ensureLabel: label, repo: repo.fullName }, null, 2));
+  if (provider.ensurePullRequestLabel) {
+    await provider.ensurePullRequestLabel(repo, label, config.labelDefinition, options);
     return;
   }
 
-  const existing = runOutput(
-    'gh',
-    ['label', 'list', '--repo', repo.fullName, '--search', label, '--json', 'name', '--jq', '.[].name']
-  )
-    .split('\n')
-    .map((name) => name.trim())
-    .filter(Boolean);
-  if (existing.includes(label)) {
-    return;
-  }
-
-  try {
-    runChecked('gh', [
-      'label',
-      'create',
-      label,
-      '--repo',
-      repo.fullName,
-      '--color',
-      config.labelColor,
-      '--description',
-      config.labelDescription,
-    ]);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/already exists/i.test(message)) {
-      throw error;
+  if (!provider.ensureLabelDefinition) {
+    if (options.dryRun) {
+      console.log(JSON.stringify({ dryRun: true, provider: provider.name, ensureLabel: label, repo: repo.fullName }, null, 2));
     }
-  }
-}
-
-function ensureMergeRequestLabel(provider, repo, label, options) {
-  if (provider.name === 'github') {
-    ensureGithubLabel(repo, label, options);
     return;
   }
-  if (options.dryRun) {
-    console.log(JSON.stringify({ dryRun: true, provider: provider.name, ensureLabel: label, repo: repo.fullName }, null, 2));
-  }
+
+  await provider.ensureLabelDefinition(repo, config.labelDefinition, options);
 }
 
-function uniqueNonEmpty(values) {
-  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
-}
-
-function headBranchFilterCandidates(repo, headBranch) {
-  const branch = String(headBranch || '').trim();
-  if (!branch) {
-    return [];
-  }
-  if (branch.includes(':')) {
-    return [branch];
-  }
-  return uniqueNonEmpty([branch, `${repo.owner}:${branch}`]);
-}
-
-function existingPullRequestApiHead(repo, headBranch) {
-  const branch = String(headBranch || '').trim();
-  if (!branch || branch.includes(':')) {
-    return branch;
-  }
-  return `${repo.owner}:${branch}`;
-}
-
-function normalizeOptionalUrl(value) {
-  const trimmed = String(value || '').trim();
-  return trimmed === 'null' ? '' : trimmed;
-}
-
-function findExistingPullRequest(repo, headBranch, options) {
-  if (options.dryRun) {
-    return '';
-  }
-
-  for (const candidate of headBranchFilterCandidates(repo, headBranch)) {
-    const url = normalizeOptionalUrl(
-      runOutput(
-        'gh',
-        [
-          'pr',
-          'list',
-          '--repo',
-          repo.fullName,
-          '--head',
-          candidate,
-          '--state',
-          'open',
-          '--json',
-          'url',
-          '--jq',
-          '.[0].url',
-        ],
-        { optional: true }
-      )
-    );
-    if (url) {
-      return url;
-    }
-  }
-
-  const apiHead = existingPullRequestApiHead(repo, headBranch);
-  if (!apiHead) {
-    return '';
-  }
-  return normalizeOptionalUrl(
-    runOutput(
-      'gh',
-      [
-        'api',
-        '--method',
-        'GET',
-        `repos/${repo.fullName}/pulls`,
-        '-f',
-        `head=${apiHead}`,
-        '-f',
-        'state=open',
-        '--jq',
-        '.[0].html_url',
-      ],
-      { optional: true }
-    )
-  );
-}
 
 function pushCurrentBranch(headBranch, options) {
   if (options.noPush) {
@@ -411,66 +332,12 @@ function pushCurrentBranch(headBranch, options) {
   });
 }
 
-function editPullRequest(prUrl, title, bodyFile, label, options) {
-  runChecked('gh', ['pr', 'edit', prUrl, '--title', title, '--body-file', bodyFile, '--add-label', label], {
-    dryRun: options.dryRun,
-  });
-}
-
-function isExistingPullRequestError(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /pull request .*already exists/i.test(message) || /already exists for [^\s]+:[^\s]+/i.test(message);
-}
-
 async function createOrUpdatePullRequest({ provider, repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
-  if (provider.name === 'gitlab') {
-    return provider.createOrUpdateMergeRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
+  const createOrUpdate = provider.createOrUpdatePullRequest || provider.createOrUpdateMergeRequest;
+  if (!createOrUpdate) {
+    throw new Error(`Provider ${provider.name} does not support PR/MR submission`);
   }
-
-  const existingUrl = findExistingPullRequest(repo, headBranch, options);
-  if (existingUrl) {
-    editPullRequest(existingUrl, title, bodyFile, label, options);
-    return existingUrl;
-  }
-
-  const args = [
-    'pr',
-    'create',
-    '--repo',
-    repo.fullName,
-    '--title',
-    title,
-    '--body-file',
-    bodyFile,
-    '--label',
-    label,
-    '--base',
-    baseBranch,
-    '--head',
-    headBranch,
-  ];
-  if (draft) {
-    args.push('--draft');
-  }
-
-  if (options.dryRun) {
-    console.log(JSON.stringify({ dryRun: true, command: 'gh', args }, null, 2));
-    return `https://github.com/${repo.fullName}/pulls/dry-run`;
-  }
-
-  try {
-    return runChecked('gh', args);
-  } catch (error) {
-    if (!isExistingPullRequestError(error)) {
-      throw error;
-    }
-    const duplicateUrl = findExistingPullRequest(repo, headBranch, options);
-    if (!duplicateUrl) {
-      throw error;
-    }
-    editPullRequest(duplicateUrl, title, bodyFile, label, options);
-    return duplicateUrl;
-  }
+  return createOrUpdate({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
 }
 
 function applyIssueFlow(provider, repo, issueNumber, flow, options) {
@@ -514,6 +381,7 @@ async function main(argv = process.argv.slice(2)) {
   const label = options.label || kindConfig.label;
   validateLabel(label);
   validateBodyFile(options.bodyFile);
+  assertBodyFileNotTracked(options.bodyFile);
 
   const headBranch = resolveHeadBranch(options);
   const baseBranch = resolveBaseBranch(options);
@@ -521,7 +389,7 @@ async function main(argv = process.argv.slice(2)) {
 
   assertCleanWorktree(options);
   assertPublishBranch(headBranch, baseBranch, options);
-  ensureMergeRequestLabel(provider, repo, label, options);
+  await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
   const markedBody = writePrBodyWithSourceMarker(options.bodyFile, issueNumber);
@@ -546,11 +414,13 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
+  assertBodyFileNotTracked,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
   existingPullRequestApiHead,
   headBranchFilterCandidates,
   isExistingPullRequestError,
+  isGitTrackedFile,
   main,
   normalizeOptionalUrl,
   normalizePrTitle,

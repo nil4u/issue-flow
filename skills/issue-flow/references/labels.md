@@ -41,7 +41,6 @@ Issue 生命周期状态。
 | `flow::build` | 等待实现 | 是 |
 | `flow::clarify` | 等待人工补充信息 | 否（gate） |
 | `flow::approve` | 等待人工审批 | 否（gate） |
-| `flow::review` | 等待 review | 是 |
 
 ### automation::
 

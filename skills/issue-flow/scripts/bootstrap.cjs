@@ -12,8 +12,10 @@ const MODE_MANAGED = 'managed';
 const MODE_CUSTOMIZABLE = 'customizable';
 
 const AGENTRIX_GITHUB_WORKFLOWS = [
+  ['workflows/github/issue-flow-labels.yml', '.github/workflows/issue-flow-labels.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-auto.yml', '.github/workflows/issue-flow-auto.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-comment.yml', '.github/workflows/issue-flow-comment.yml', { mode: MODE_MANAGED }],
+  ['workflows/github/issue-flow-pr-review.yml', '.github/workflows/issue-flow-pr-review.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-merged.yml', '.github/workflows/issue-flow-pr-merged.yml', { mode: MODE_MANAGED }],
 ];
 const AGENTRIX_GITLAB_FILES = [
@@ -879,7 +881,7 @@ function installGitlab(options = {}) {
 
 function printResults(results) {
   for (const result of results) {
-    const relativeTarget = path.relative(process.cwd(), result.target) || result.target;
+    const relativeTarget = path.relative(process.cwd(), result.target) || '.';
     const suffix = result.message ? ` - ${result.message}` : '';
     if (result.action === 'skipped') {
       console.log(`skip ${relativeTarget} (${result.reason})${suffix}`);

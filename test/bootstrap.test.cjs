@@ -19,7 +19,7 @@ function makeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-bootstrap-test-'));
 }
 
-test('bootstrap parser accepts runtime, force, and dry-run only as behavior options', () => {
+test('bootstrap parser accepts runtime, force, and dry-run behavior options', () => {
   assert.deepEqual(parseArgs(['github', '--runtime', 'agentrix', '--force', '--dry-run']), {
     target: 'github',
     options: {
@@ -61,17 +61,34 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
       ...AGENTRIX_PROJECT_FILES.map(([, target]) => target),
       ...AGENTRIX_PROJECT_DIRS.map(([, target]) => target),
+      '.github/workflows/issue-flow-labels.yml',
       '.github/workflows/issue-flow-auto.yml',
       '.github/workflows/issue-flow-comment.yml',
       '.github/workflows/issue-flow-pr-merged.yml',
+      '.github/workflows/issue-flow-pr-review.yml',
       '.issue-flow/install-manifest.json',
     ].sort());
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml')), true);
+    const labelsWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-labels.yml'), 'utf8');
     const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
+    const reviewWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml'), 'utf8');
+    assert.match(labelsWorkflow, /Issue Flow Labels/);
+    assert.match(labelsWorkflow, /issues: write/);
+    assert.match(labelsWorkflow, /sync-labels\.cjs --provider github/);
+    assert.match(labelsWorkflow, /github\.repository/);
     assert.match(autoWorkflow, /- opened/);
     assert.match(autoWorkflow, /- labeled/);
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
+    assert.match(reviewWorkflow, /Issue Flow PR Review/);
+    assert.match(reviewWorkflow, /ready_for_review/);
+    assert.match(reviewWorkflow, /pull-requests: write/);
+    assert.match(reviewWorkflow, /ref: \$\{\{ github\.event\.pull_request\.base\.ref \|\| github\.event\.repository\.default_branch \}\}/);
+    assert.match(reviewWorkflow, /ISSUE_FLOW_REVIEW_ENABLED == 'true'/);
+    assert.match(reviewWorkflow, /ISSUE_FLOW_REVIEW_ENABLED == '1'/);
+    assert.match(reviewWorkflow, /dispatch\.cjs review --pr-number/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/config.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
@@ -85,15 +102,19 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(manifest.files['.issue-flow/templates/plan-impl.md'].sha256, /^[a-f0-9]{64}$/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/review.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/CLAUDE.md')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-auto.yml')), false);
     assert.doesNotMatch(autoWorkflow, /\.github\/agentrix/);
+    const mergedWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-merged.yml'), 'utf8');
+    assert.match(mergedWorkflow, /ref: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -216,11 +237,21 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ].sort());
     assert.match(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
+    assert.match(gitlabWorkflow, /issue-flow-labels:/);
+    assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
+    assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
     assert.match(gitlabWorkflow, /AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook"/);
     assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "pull_request"/);
     assert.match(gitlabWorkflow, /\$\{AGENTRIX_EVENT_ACTION:-\}" = "opened"/);
     assert.match(gitlabWorkflow, /intake\.cjs --issue-number "\$AGENTRIX_ISSUE_NUMBER"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs auto/);
+    assert.match(gitlabWorkflow, /issue-flow-review:/);
+    assert.match(gitlabWorkflow, /ISSUE_FLOW_REVIEW_ENABLED =~ \/\^\(true\|1\)\$\//);
+    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_ACTION == "ready_for_review"/);
+    assert.match(gitlabWorkflow, /git fetch origin "\$\{CI_DEFAULT_BRANCH:-main\}" --depth 1/);
+    assert.match(gitlabWorkflow, /git checkout FETCH_HEAD -- \.agentrix\/plugins\/issue-flow \.issue-flow/);
+    assert.match(gitlabWorkflow, /--pr-number "\$AGENTRIX_PR_NUMBER"/);
+    assert.match(gitlabWorkflow, /dispatch\.cjs review/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

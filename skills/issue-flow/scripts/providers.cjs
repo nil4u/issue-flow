@@ -161,6 +161,44 @@ function normalizeLabels(labels) {
   return labels.map(normalizeLabelName).filter(Boolean);
 }
 
+function normalizeHexColor(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^#/, '')
+    .toUpperCase();
+}
+
+function providerLabelDefinition(providerName, definition) {
+  const color = normalizeHexColor(definition.color);
+  return {
+    name: definition.name,
+    color: providerName === 'gitlab' ? `#${color}` : color,
+    description: definition.description || '',
+  };
+}
+
+function labelMatchesDefinition(providerName, existing, definition) {
+  if (!existing) {
+    return false;
+  }
+  const expected = providerLabelDefinition(providerName, definition);
+  return (
+    normalizeLabelName(existing) === definition.name &&
+    normalizeHexColor(existing.color) === normalizeHexColor(expected.color) &&
+    String(existing.description || '') === expected.description
+  );
+}
+
+function planLabelSync(providerName, existing, definition) {
+  if (!existing) {
+    return 'create';
+  }
+  if (!labelMatchesDefinition(providerName, existing, definition)) {
+    return 'update';
+  }
+  return 'skip';
+}
+
 function normalizeGitlabState(state) {
   if (state === 'opened') {
     return 'open';
@@ -172,14 +210,30 @@ function extractTokenFromRemoteUrl(remoteUrl) {
   if (!remoteUrl) {
     return '';
   }
-  const match = String(remoteUrl).match(/^https?:\/\/(?:[^:]+:)?([^@]+)@/);
-  if (!match) {
+  let parsed;
+  try {
+    parsed = new URL(String(remoteUrl));
+  } catch {
     return '';
   }
-  const candidate = match[1];
+  if (!/^https?:$/.test(parsed.protocol) || !parsed.username) {
+    return '';
+  }
+
+  const password = decodeURIComponent(parsed.password || '');
+  if (password) {
+    return password.length >= 8 ? password : '';
+  }
+
+  const candidate = decodeURIComponent(parsed.username);
   if (candidate === 'git' || candidate.length < 8) {
     return '';
   }
+
+  if (!/^(github_pat_|gh[pousr]_|glpat-|gldt-|glcbt-|glrt-)/.test(candidate)) {
+    return '';
+  }
+
   return candidate;
 }
 
@@ -260,6 +314,18 @@ function githubIssueApiPath(issue) {
   return `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}/issues/${issue.number}`;
 }
 
+function githubPullRequestApiPath(pr) {
+  return `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/pulls/${pr.number}`;
+}
+
+function githubPullRequestsApiPath(repo) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/pulls`;
+}
+
+function githubLabelApiPath(repo, label) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels/${encodeURIComponent(label)}`;
+}
+
 function githubIssueCommentApiPath(issue, comment) {
   return `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}/issues/comments/${comment.id}`;
 }
@@ -288,6 +354,45 @@ function buildGithubIssueContext(payload = {}, options = {}) {
     author: issue.user && typeof issue.user.login === 'string' ? issue.user.login : '',
     labels: normalizeLabels(issue.labels),
   };
+}
+
+function normalizeGithubPullRequest(pr, repo, fallback = {}) {
+  return {
+    provider: 'github',
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    number: parsePositiveInteger(pr.number || fallback.number, 'pull request number'),
+    title: typeof pr.title === 'string' ? pr.title : fallback.title || '',
+    body: typeof pr.body === 'string' ? pr.body : fallback.body || '',
+    htmlUrl: typeof pr.html_url === 'string' ? pr.html_url : fallback.htmlUrl || '',
+    state: typeof pr.state === 'string' ? pr.state : fallback.state || '',
+    draft: Boolean(pr.draft),
+    merged: Boolean(pr.merged),
+    baseRef: pr.base && typeof pr.base.ref === 'string' ? pr.base.ref : fallback.baseRef || '',
+    headRef: pr.head && typeof pr.head.ref === 'string' ? pr.head.ref : fallback.headRef || '',
+    headSha: pr.head && typeof pr.head.sha === 'string' ? pr.head.sha : fallback.headSha || '',
+    labels: normalizeLabels(pr.labels || fallback.labels),
+    author: pr.user && typeof pr.user.login === 'string' ? pr.user.login : fallback.author || '',
+  };
+}
+
+function buildGithubPullRequestContext(payload = {}, options = {}) {
+  const repo = resolveGithubRepo(payload, options);
+  const pr = payload.pull_request || {};
+  const number = options.prNumber
+    ? parsePositiveInteger(options.prNumber, '--pr-number')
+    : parsePositiveInteger(pr.number, 'payload.pull_request.number');
+  return normalizeGithubPullRequest({ ...pr, number }, repo);
+}
+
+async function fetchCurrentGithubPullRequest(pr, options = {}) {
+  if (options.dryRun) {
+    return pr;
+  }
+
+  const current = await requestGithub('GET', githubPullRequestApiPath(pr));
+  return normalizeGithubPullRequest(current, pr, pr);
 }
 
 function getGithubCommentContext(payload = {}) {
@@ -343,6 +448,23 @@ async function createGithubIssueComment(issue, body, options = {}) {
   }
 
   return requestGithub('POST', `${githubIssueApiPath(issue)}/comments`, { body });
+}
+
+async function submitGithubPullRequestReview(pr, body, options = {}) {
+  const requestBody = {
+    body,
+    event: 'COMMENT',
+  };
+  if (options.commitId || pr.headSha) {
+    requestBody.commit_id = options.commitId || pr.headSha;
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, reviewPullRequest: pr.number, body: requestBody }, null, 2));
+    return { id: 'dry-run-review', html_url: '' };
+  }
+
+  return requestGithub('POST', `${githubPullRequestApiPath(pr)}/reviews`, requestBody);
 }
 
 async function updateGithubIssueComment(issue, commentId, body, options = {}) {
@@ -513,19 +635,11 @@ async function requestGitlab(method, apiPath, body, options = {}) {
     headers['PRIVATE-TOKEN'] = token;
   }
 
-  let response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch (error) {
-    if (options.noGlabFallback) {
-      throw error;
-    }
-    return requestGitlabWithGlab(method, apiPath, body, options);
-  }
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 
   const text = await response.text();
   const parsed = parseJsonText(text);
@@ -763,8 +877,457 @@ function gitlabMergeRequestsApiPath(repo) {
   return `/projects/${gitlabProjectRef(repo)}/merge_requests`;
 }
 
+function gitlabMergeRequestApiPath(pr) {
+  return `${gitlabMergeRequestsApiPath(pr)}/${encodeURIComponent(pr.number)}`;
+}
+
+function gitlabMergeRequestNotesApiPath(pr) {
+  return `${gitlabMergeRequestApiPath(pr)}/notes`;
+}
+
+function pickGitlabMergeRequestPayload(payload = {}) {
+  if (payload.merge_request) {
+    return payload.merge_request;
+  }
+  if (payload.object_kind === 'merge_request') {
+    return payload.object_attributes || {};
+  }
+  return {};
+}
+
+function normalizeGitlabPullRequest(pr, repo, fallback = {}) {
+  const labels = pr.labels || fallback.labels;
+  const state = normalizeGitlabState(pr.state || fallback.state);
+  const diffRefs = pr.diff_refs || {};
+  const lastCommit = pr.last_commit || {};
+  const draft =
+    pr.work_in_progress === true ||
+    pr.draft === true ||
+    /^draft:/i.test(pr.title || fallback.title || '');
+  return {
+    provider: 'gitlab',
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    projectId: repo.projectId,
+    number: parsePositiveInteger(pr.iid || pr.number || fallback.number, 'merge request iid'),
+    title: typeof pr.title === 'string' ? pr.title : fallback.title || '',
+    body: typeof pr.description === 'string' ? pr.description : typeof pr.body === 'string' ? pr.body : fallback.body || '',
+    htmlUrl: typeof pr.web_url === 'string' ? pr.web_url : typeof pr.url === 'string' ? pr.url : fallback.htmlUrl || '',
+    state,
+    draft,
+    merged: state === 'merged' || pr.merged === true || fallback.merged === true,
+    baseRef: typeof pr.target_branch === 'string' ? pr.target_branch : fallback.baseRef || '',
+    headRef: typeof pr.source_branch === 'string' ? pr.source_branch : fallback.headRef || '',
+    headSha: pr.sha || diffRefs.head_sha || lastCommit.id || fallback.headSha || '',
+    labels: normalizeLabels(labels),
+    author:
+      (pr.author && (pr.author.username || pr.author.name)) ||
+      (fallback.author || ''),
+  };
+}
+
+function buildGitlabPullRequestContext(payload = {}, options = {}) {
+  const repo = resolveGitlabRepo(payload, options);
+  const pr = pickGitlabMergeRequestPayload(payload);
+  const number = options.prNumber
+    ? parsePositiveInteger(options.prNumber, '--pr-number')
+    : parsePositiveInteger(pr.iid || pr.number, 'GitLab merge request iid');
+  return normalizeGitlabPullRequest({ ...pr, iid: number }, repo);
+}
+
+async function fetchCurrentGitlabPullRequest(pr, options = {}) {
+  if (options.dryRun) {
+    return pr;
+  }
+
+  const current = await requestGitlab('GET', gitlabMergeRequestApiPath(pr), undefined, options);
+  return normalizeGitlabPullRequest(current, pr, pr);
+}
+
+async function listGitlabPullRequestComments(pr, options = {}) {
+  if (options.dryRun) {
+    return [];
+  }
+
+  const comments = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGitlab(
+      'GET',
+      `${gitlabMergeRequestNotesApiPath(pr)}?per_page=100&page=${page}`,
+      undefined,
+      options
+    );
+    if (!Array.isArray(pageItems) || pageItems.length === 0) {
+      break;
+    }
+    comments.push(...pageItems);
+    if (pageItems.length < 100) {
+      break;
+    }
+  }
+  return comments;
+}
+
+async function createGitlabPullRequestComment(pr, body, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, commentPullRequest: pr.number, body }, null, 2));
+    return { id: 'dry-run-comment', web_url: '' };
+  }
+
+  return requestGitlab('POST', gitlabMergeRequestNotesApiPath(pr), { body }, options);
+}
+
+async function submitGitlabPullRequestReview(pr, body, options = {}) {
+  return createGitlabPullRequestComment(pr, body, options);
+}
+
+async function updateGitlabPullRequestComment(pr, commentId, body, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, updateComment: commentId, body }, null, 2));
+    return;
+  }
+
+  await requestGitlab('PUT', `${gitlabMergeRequestNotesApiPath(pr)}/${encodeURIComponent(commentId)}`, { body }, options);
+}
+
+async function deleteGitlabPullRequestComment(pr, commentId, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, deleteComment: commentId }, null, 2));
+    return;
+  }
+
+  await requestGitlab('DELETE', `${gitlabMergeRequestNotesApiPath(pr)}/${encodeURIComponent(commentId)}`, undefined, options);
+}
+
 function readBodyFile(bodyFile) {
   return fs.readFileSync(bodyFile, 'utf8');
+}
+
+function runProviderOutput(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    cwd: options.cwd,
+  });
+  if (result.error) {
+    if (options.optional) {
+      return '';
+    }
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    if (options.optional) {
+      return '';
+    }
+    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+  }
+  return result.stdout.trim();
+}
+
+function runProviderChecked(command, args, options = {}) {
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, command, args }, null, 2));
+    return '';
+  }
+
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+  }
+  return result.stdout ? result.stdout.trim() : '';
+}
+
+function uniqueNonEmpty(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function headBranchFilterCandidates(repo, headBranch) {
+  const branch = String(headBranch || '').trim();
+  if (!branch) {
+    return [];
+  }
+  if (branch.includes(':')) {
+    return [branch];
+  }
+  return uniqueNonEmpty([branch, `${repo.owner}:${branch}`]);
+}
+
+function existingPullRequestApiHead(repo, headBranch) {
+  const branch = String(headBranch || '').trim();
+  if (!branch || branch.includes(':')) {
+    return branch;
+  }
+  return `${repo.owner}:${branch}`;
+}
+
+function normalizeOptionalUrl(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed === 'null' ? '' : trimmed;
+}
+
+function isExistingPullRequestError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/pull request .*already exists/i.test(message) || /already exists for [^\s]+:[^\s]+/i.test(message)) {
+    return true;
+  }
+
+  const response = error && typeof error === 'object' ? error.response : undefined;
+  if (!response) {
+    return false;
+  }
+  return /pull request .*already exists/i.test(JSON.stringify(response));
+}
+
+async function ensureGithubPullRequestLabel(repo, label, config = {}, options = {}) {
+  const labelColor = config.color || config.labelColor || '1D76DB';
+  const labelDescription = config.description || config.labelDescription || '';
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, ensureLabel: label, repo: repo.fullName }, null, 2));
+    return;
+  }
+
+  if (!getGithubToken()) {
+    const existing = runProviderOutput(
+      'gh',
+      ['label', 'list', '--repo', repo.fullName, '--search', label, '--json', 'name', '--jq', '.[].name']
+    )
+      .split('\n')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (existing.includes(label)) {
+      return;
+    }
+
+    try {
+      runProviderChecked('gh', [
+        'label',
+        'create',
+        label,
+        '--repo',
+        repo.fullName,
+        '--color',
+        labelColor,
+        '--description',
+        labelDescription,
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/already exists/i.test(message)) {
+        throw error;
+      }
+    }
+    return;
+  }
+
+  try {
+    await requestGithub('GET', githubLabelApiPath(repo, label));
+    return;
+  } catch (error) {
+    if (!error || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  try {
+    await requestGithub('POST', `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels`, {
+      name: label,
+      color: labelColor,
+      description: labelDescription,
+    });
+  } catch (error) {
+    if (!error || error.status !== 422 || !/already exists/i.test(error.message || '')) {
+      throw error;
+    }
+  }
+}
+
+async function findExistingGithubPullRequest(repo, headBranch, options = {}) {
+  if (options.dryRun) {
+    return undefined;
+  }
+
+  if (!getGithubToken()) {
+    for (const candidate of headBranchFilterCandidates(repo, headBranch)) {
+      const url = normalizeOptionalUrl(
+        runProviderOutput(
+          'gh',
+          [
+            'pr',
+            'list',
+            '--repo',
+            repo.fullName,
+            '--head',
+            candidate,
+            '--state',
+            'open',
+            '--json',
+            'url',
+            '--jq',
+            '.[0].url',
+          ],
+          { optional: true }
+        )
+      );
+      if (url) {
+        return { html_url: url };
+      }
+    }
+
+    const apiHead = existingPullRequestApiHead(repo, headBranch);
+    if (!apiHead) {
+      return undefined;
+    }
+    const url = normalizeOptionalUrl(
+      runProviderOutput(
+        'gh',
+        [
+          'api',
+          '--method',
+          'GET',
+          `repos/${repo.fullName}/pulls`,
+          '-f',
+          `head=${apiHead}`,
+          '-f',
+          'state=open',
+          '--jq',
+          '.[0].html_url',
+        ],
+        { optional: true }
+      )
+    );
+    return url ? { html_url: url } : undefined;
+  }
+
+  const apiHead = existingPullRequestApiHead(repo, headBranch);
+  if (!apiHead) {
+    return undefined;
+  }
+  const query = new URLSearchParams({ head: apiHead, state: 'open' });
+  const items = await requestGithub('GET', `${githubPullRequestsApiPath(repo)}?${query.toString()}`);
+  return Array.isArray(items) ? items[0] : undefined;
+}
+
+async function addGithubPullRequestLabel(repo, prNumber, label) {
+  await requestGithub(
+    'POST',
+    `${githubIssueApiPath({ ...repo, number: prNumber })}/labels`,
+    { labels: [label] }
+  );
+}
+
+async function updateGithubPullRequest(repo, pr, title, body, label) {
+  const updated = await requestGithub('PATCH', `${githubPullRequestsApiPath(repo)}/${encodeURIComponent(pr.number)}`, {
+    title,
+    body,
+  });
+  await addGithubPullRequestLabel(repo, pr.number, label);
+  return updated.html_url || pr.html_url || '';
+}
+
+function editGithubPullRequestWithCli(prUrl, title, bodyFile, label, options) {
+  runProviderChecked('gh', ['pr', 'edit', prUrl, '--title', title, '--body-file', bodyFile, '--add-label', label], {
+    dryRun: options.dryRun,
+  });
+}
+
+async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
+  if (options.dryRun) {
+    const args = [
+      'pr',
+      'create',
+      '--repo',
+      repo.fullName,
+      '--title',
+      title,
+      '--body-file',
+      bodyFile,
+      '--label',
+      label,
+      '--base',
+      baseBranch,
+      '--head',
+      headBranch,
+    ];
+    if (draft) {
+      args.push('--draft');
+    }
+    console.log(JSON.stringify({ dryRun: true, command: 'gh', args }, null, 2));
+    return `https://github.com/${repo.fullName}/pulls/dry-run`;
+  }
+
+  const existing = await findExistingGithubPullRequest(repo, headBranch, options);
+  const body = readBodyFile(bodyFile);
+  if (existing && existing.html_url) {
+    if (!getGithubToken()) {
+      editGithubPullRequestWithCli(existing.html_url, title, bodyFile, label, options);
+      return existing.html_url;
+    }
+    return updateGithubPullRequest(repo, existing, title, body, label);
+  }
+
+  if (!getGithubToken()) {
+    const args = [
+      'pr',
+      'create',
+      '--repo',
+      repo.fullName,
+      '--title',
+      title,
+      '--body-file',
+      bodyFile,
+      '--label',
+      label,
+      '--base',
+      baseBranch,
+      '--head',
+      headBranch,
+    ];
+    if (draft) {
+      args.push('--draft');
+    }
+
+    try {
+      return runProviderChecked('gh', args);
+    } catch (error) {
+      if (!isExistingPullRequestError(error)) {
+        throw error;
+      }
+      const duplicate = await findExistingGithubPullRequest(repo, headBranch, options);
+      if (!duplicate || !duplicate.html_url) {
+        throw error;
+      }
+      editGithubPullRequestWithCli(duplicate.html_url, title, bodyFile, label, options);
+      return duplicate.html_url;
+    }
+  }
+
+  try {
+    const created = await requestGithub('POST', githubPullRequestsApiPath(repo), {
+      title,
+      body,
+      base: baseBranch,
+      head: headBranch,
+      draft: Boolean(draft),
+    });
+    await addGithubPullRequestLabel(repo, created.number, label);
+    return created.html_url || '';
+  } catch (error) {
+    if (!isExistingPullRequestError(error)) {
+      throw error;
+    }
+    const duplicate = await findExistingGithubPullRequest(repo, headBranch, options);
+    if (!duplicate || !duplicate.html_url) {
+      throw error;
+    }
+    return updateGithubPullRequest(repo, duplicate, title, body, label);
+  }
 }
 
 async function findExistingGitlabMergeRequest(repo, headBranch, options = {}) {
@@ -913,6 +1476,114 @@ async function updateGithubIssueBody(target, body) {
   await requestGithubForApply('PATCH', githubIssueApiPath({ ...target, number: target.issueNumber }), { body });
 }
 
+function githubLabelApiPath(repo, labelName) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels/${encodeURIComponent(labelName)}`;
+}
+
+async function getGithubLabel(repo, labelName) {
+  try {
+    return await requestGithubForApply('GET', githubLabelApiPath(repo, labelName));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error.status === 404 || /\b404\b|not found/i.test(message)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function createGithubLabel(repo, definition) {
+  const payload = providerLabelDefinition('github', definition);
+  return requestGithubForApply('POST', `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels`, payload);
+}
+
+async function updateGithubLabel(repo, definition) {
+  const payload = providerLabelDefinition('github', definition);
+  return requestGithubForApply('PATCH', githubLabelApiPath(repo, definition.name), {
+    new_name: payload.name,
+    color: payload.color,
+    description: payload.description,
+  });
+}
+
+async function ensureGithubLabelDefinition(repo, definition, options = {}) {
+  if (options.dryRun) {
+    return {
+      name: definition.name,
+      action: 'ensure',
+      definition: providerLabelDefinition('github', definition),
+    };
+  }
+
+  const existing = await getGithubLabel(repo, definition.name);
+  const action = planLabelSync('github', existing, definition);
+  if (action === 'create') {
+    await createGithubLabel(repo, definition);
+    return { name: definition.name, action: 'created' };
+  }
+  if (action === 'update') {
+    await updateGithubLabel(repo, definition);
+    return { name: definition.name, action: 'updated' };
+  }
+  return { name: definition.name, action: 'skipped' };
+}
+
+function gitlabLabelApiPath(repo, labelName) {
+  return `/projects/${gitlabProjectRef(repo)}/labels/${encodeURIComponent(labelName)}`;
+}
+
+async function getGitlabLabel(repo, labelName, options = {}) {
+  try {
+    return await requestGitlab('GET', gitlabLabelApiPath(repo, labelName), undefined, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error.status === 404 || /\b404\b|not found/i.test(message)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function createGitlabLabel(repo, definition, options = {}) {
+  return requestGitlab('POST', `/projects/${gitlabProjectRef(repo)}/labels`, providerLabelDefinition('gitlab', definition), options);
+}
+
+async function updateGitlabLabel(repo, definition, options = {}) {
+  const payload = providerLabelDefinition('gitlab', definition);
+  return requestGitlab(
+    'PUT',
+    gitlabLabelApiPath(repo, definition.name),
+    {
+      new_name: payload.name,
+      color: payload.color,
+      description: payload.description,
+    },
+    options
+  );
+}
+
+async function ensureGitlabLabelDefinition(repo, definition, options = {}) {
+  if (options.dryRun) {
+    return {
+      name: definition.name,
+      action: 'ensure',
+      definition: providerLabelDefinition('gitlab', definition),
+    };
+  }
+
+  const existing = await getGitlabLabel(repo, definition.name, options);
+  const action = planLabelSync('gitlab', existing, definition);
+  if (action === 'create') {
+    await createGitlabLabel(repo, definition, options);
+    return { name: definition.name, action: 'created' };
+  }
+  if (action === 'update') {
+    await updateGitlabLabel(repo, definition, options);
+    return { name: definition.name, action: 'updated' };
+  }
+  return { name: definition.name, action: 'skipped' };
+}
+
 function parsePositiveInteger(value, name) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -928,22 +1599,35 @@ const githubProvider = {
   hasToken: () => Boolean(getGithubToken()),
   resolveRepo: resolveGithubRepo,
   buildIssueContext: buildGithubIssueContext,
+  buildPullRequestContext: buildGithubPullRequestContext,
   isPullRequestIssue: (payload) => Boolean(payload.issue && payload.issue.pull_request),
   isBotComment: (payload) => Boolean(payload.comment && payload.comment.user && payload.comment.user.type === 'Bot'),
   getCommentContext: getGithubCommentContext,
   fetchCurrentIssue: fetchCurrentGithubIssue,
+  fetchCurrentPullRequest: fetchCurrentGithubPullRequest,
   listIssueComments: listGithubIssueComments,
   createIssueComment: createGithubIssueComment,
   updateIssueComment: updateGithubIssueComment,
   deleteIssueComment: deleteGithubIssueComment,
+  listPullRequestComments: listGithubIssueComments,
+  createPullRequestComment: createGithubIssueComment,
+  submitPullRequestReview: submitGithubPullRequestReview,
+  updatePullRequestComment: updateGithubIssueComment,
+  deletePullRequestComment: deleteGithubIssueComment,
   addTriggerCommentReaction: addGithubTriggerCommentReaction,
   addIssueReaction: addGithubIssueReaction,
   issueApiPath: githubIssueApiPath,
+  pullRequestApiPath: githubPullRequestApiPath,
   issueCommentApiPath: githubIssueCommentApiPath,
   issueReactionApiPath: githubIssueReactionApiPath,
   getIssueForApply: getGithubIssueForApply,
   applyLabels: applyGithubLabels,
   updateIssueBody: updateGithubIssueBody,
+  getLabel: getGithubLabel,
+  ensureLabelDefinition: ensureGithubLabelDefinition,
+  ensurePullRequestLabel: ensureGithubPullRequestLabel,
+  findExistingPullRequest: findExistingGithubPullRequest,
+  createOrUpdatePullRequest: createOrUpdateGithubPullRequest,
 };
 
 const gitlabProvider = {
@@ -953,21 +1637,32 @@ const gitlabProvider = {
   hasToken: (options) => Boolean(getGitlabToken(options)) || hasGlab(),
   resolveRepo: resolveGitlabRepo,
   buildIssueContext: buildGitlabIssueContext,
+  buildPullRequestContext: buildGitlabPullRequestContext,
   isPullRequestIssue: isGitlabMergeRequestOrNonIssue,
   isBotComment: isGitlabBotComment,
   getCommentContext: getGitlabCommentContext,
   fetchCurrentIssue: fetchCurrentGitlabIssue,
+  fetchCurrentPullRequest: fetchCurrentGitlabPullRequest,
   listIssueComments: listGitlabIssueComments,
   createIssueComment: createGitlabIssueComment,
   updateIssueComment: updateGitlabIssueComment,
   deleteIssueComment: deleteGitlabIssueComment,
+  listPullRequestComments: listGitlabPullRequestComments,
+  createPullRequestComment: createGitlabPullRequestComment,
+  submitPullRequestReview: submitGitlabPullRequestReview,
+  updatePullRequestComment: updateGitlabPullRequestComment,
+  deletePullRequestComment: deleteGitlabPullRequestComment,
   addTriggerCommentReaction: addGitlabTriggerCommentReaction,
   addIssueReaction: addGitlabIssueReaction,
   issueApiPath: gitlabIssueApiPath,
+  pullRequestApiPath: gitlabMergeRequestApiPath,
   getIssueForApply: getGitlabIssueForApply,
   applyLabels: applyGitlabLabels,
   updateIssueBody: updateGitlabIssueBody,
   createOrUpdateMergeRequest: createOrUpdateGitlabMergeRequest,
+  getLabel: getGitlabLabel,
+  ensureLabelDefinition: ensureGitlabLabelDefinition,
+  createOrUpdatePullRequest: createOrUpdateGitlabMergeRequest,
 };
 
 const providers = {
@@ -977,17 +1672,24 @@ const providers = {
 
 module.exports = {
   detectProvider,
+  existingPullRequestApiHead,
   extractTokenFromRemoteUrl,
   gitlabApiBodyArgs,
   getGitlabToken,
   gitlabApiBaseUrl,
   gitlabHostname,
+  headBranchFilterCandidates,
+  isExistingPullRequestError,
+  labelMatchesDefinition,
   normalizeGitlabState,
   normalizeLabelName,
   normalizeLabels,
+  normalizeOptionalUrl,
   normalizeProviderName,
   parseGitRemoteUrl,
   parseRepoFullName,
+  planLabelSync,
+  providerLabelDefinition,
   providers,
   requestGitlab,
   resolveProvider,
