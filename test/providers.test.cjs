@@ -22,6 +22,7 @@ const {
   requestGitlab,
   resolveProvider,
 } = require('../skills/issue-flow/scripts/providers.cjs');
+const { labelDefinitionFor } = require('../skills/issue-flow/scripts/labels.cjs');
 
 function withTemporaryEnv(values, fn) {
   const previous = new Map();
@@ -68,6 +69,10 @@ function createFakeGh() {
       "const fs = require('node:fs');",
       'const args = process.argv.slice(2);',
       "fs.appendFileSync(process.env.ISSUE_FLOW_GH_LOG, `${JSON.stringify(args)}\\n`, 'utf8');",
+      "if (args[0] === 'api' && /\\/issues$/.test(args[1])) {",
+      "  console.log(JSON.stringify({ number: 12, html_url: 'https://github.com/acme-org/webapp/issues/12', title: 'Created issue', labels: [{ name: 'type::feature' }] }));",
+      '  process.exit(0);',
+      '}',
       "if (args[0] === 'pr' && args[1] === 'create') {",
       "  console.log('https://github.com/acme-org/webapp/pull/7');",
       '}',
@@ -260,6 +265,92 @@ test('github submit operations fallback to gh CLI only when token is missing', a
   fakeGh.cleanup();
 });
 
+test('github create issue uses token API with labels in the create request', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await withTemporaryEnv(
+    {
+      GITHUB_TOKEN: 'token-123',
+      GH_TOKEN: undefined,
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsedBody = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body: parsedBody });
+        assert.equal(init.method, 'POST');
+        assert.deepEqual(parsedBody.labels, ['type::feature', 'status::active', 'flow::plan']);
+        return {
+          ok: true,
+          status: 201,
+          text: async () =>
+            JSON.stringify({
+              number: 31,
+              title: parsedBody.title,
+              body: parsedBody.body,
+              html_url: 'https://github.com/acme-org/webapp/issues/31',
+              state: 'open',
+              labels: parsedBody.labels.map((name) => ({ name })),
+            }),
+        };
+      };
+
+      const issue = await provider.createIssue({
+        repo,
+        title: 'Create issue support',
+        body: 'Body',
+        labels: ['type::feature', 'status::active', 'flow::plan'],
+        options: {},
+      });
+
+      assert.equal(issue.number, 31);
+      assert.equal(issue.htmlUrl, 'https://github.com/acme-org/webapp/issues/31');
+      assert.deepEqual(issue.labels, ['type::feature', 'status::active', 'flow::plan']);
+    }
+  );
+
+  global.fetch = previousFetch;
+  assert.deepEqual(calls.map((call) => [call.method, new URL(call.url).pathname]), [
+    ['POST', '/repos/acme-org/webapp/issues'],
+  ]);
+});
+
+test('github create issue falls back to gh api when token is missing', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const fakeGh = createFakeGh();
+  const previousFetch = global.fetch;
+
+  await withTemporaryEnv(
+    {
+      GITHUB_TOKEN: undefined,
+      GH_TOKEN: undefined,
+      PATH: fakeGh.dir,
+      ISSUE_FLOW_GH_LOG: fakeGh.logPath,
+    },
+    async () => {
+      global.fetch = async () => {
+        throw new Error('GitHub API should not be called without a token');
+      };
+      const issue = await provider.createIssue({
+        repo,
+        title: 'Created issue',
+        body: 'Body',
+        labels: ['type::feature'],
+        options: {},
+      });
+      assert.equal(issue.number, 12);
+      assert.equal(issue.htmlUrl, 'https://github.com/acme-org/webapp/issues/12');
+    }
+  );
+
+  global.fetch = previousFetch;
+  assert.deepEqual(fakeGh.readCalls()[0].slice(0, 3), ['api', 'repos/acme-org/webapp/issues', '-X']);
+  fakeGh.cleanup();
+});
+
 test('github token authorization failure does not fallback to gh CLI', async () => {
   const provider = resolveProvider({ provider: 'github' }, {});
   const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
@@ -448,6 +539,141 @@ test('gitlab glab fallback serializes API params as fields instead of raw input'
     'milestone_id=null',
   ]);
   assert.equal(args.includes('--input'), false);
+});
+
+test('gitlab create issue preflights managed labels before creating', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'acme', repo: 'platform', fullName: 'acme/platform' };
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await withTemporaryEnv(
+    {
+      GITLAB_TOKEN: 'token-123',
+      GL_TOKEN: undefined,
+      GITLAB_PRIVATE_TOKEN: undefined,
+      CI_JOB_TOKEN: undefined,
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsedBody = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body: parsedBody });
+        const pathname = new URL(String(url)).pathname;
+
+        if (pathname.includes('/labels/') && init.method === 'GET') {
+          const labelName = decodeURIComponent(pathname.split('/labels/')[1]);
+          const definition = labelDefinitionFor(labelName);
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                name: definition.name,
+                color: `#${definition.color}`,
+                description: definition.description,
+              }),
+          };
+        }
+
+        if (pathname.endsWith('/issues') && init.method === 'POST') {
+          assert.deepEqual(parsedBody, {
+            title: 'Create GitLab issue',
+            description: 'Body',
+            labels: 'type::feature,status::active,flow::build',
+          });
+          return {
+            ok: true,
+            status: 201,
+            text: async () =>
+              JSON.stringify({
+                iid: 41,
+                title: parsedBody.title,
+                description: parsedBody.description,
+                web_url: 'https://gitlab.com/acme/platform/-/issues/41',
+                state: 'opened',
+                labels: parsedBody.labels.split(','),
+              }),
+          };
+        }
+
+        throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+      };
+
+      const issue = await provider.createIssue({
+        repo,
+        title: 'Create GitLab issue',
+        body: 'Body',
+        labels: ['type::feature', 'status::active', 'flow::build'],
+        managedLabelDefinitions: [
+          labelDefinitionFor('type::feature'),
+          labelDefinitionFor('status::active'),
+          labelDefinitionFor('flow::build'),
+        ],
+        options: {},
+      });
+
+      assert.equal(issue.number, 41);
+      assert.deepEqual(issue.labels, ['type::feature', 'status::active', 'flow::build']);
+    }
+  );
+
+  global.fetch = previousFetch;
+  assert.deepEqual(
+    calls.map((call) => [call.method, new URL(call.url).pathname.replace(/.*\/labels\/.*/, '/labels/:name')]),
+    [
+      ['GET', '/labels/:name'],
+      ['GET', '/labels/:name'],
+      ['GET', '/labels/:name'],
+      ['POST', '/api/v4/projects/acme%2Fplatform/issues'],
+    ]
+  );
+});
+
+test('gitlab create issue fails before create when managed label drifts', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'acme', repo: 'platform', fullName: 'acme/platform' };
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await assert.rejects(
+    withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+      },
+      async () => {
+        global.fetch = async (url, init = {}) => {
+          calls.push({ url: String(url), method: init.method });
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                name: 'flow::build',
+                color: '#000000',
+                description: 'Wrong',
+              }),
+          };
+        };
+
+        await provider.createIssue({
+          repo,
+          title: 'Drifted label',
+          body: 'Body',
+          labels: ['flow::build'],
+          managedLabelDefinitions: [labelDefinitionFor('flow::build')],
+          options: {},
+        });
+      }
+    ),
+    /Run sync-labels\.cjs before create-issue\.cjs/
+  );
+
+  global.fetch = previousFetch;
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'GET');
 });
 
 test('provider label definitions use GitHub and GitLab color formats', () => {

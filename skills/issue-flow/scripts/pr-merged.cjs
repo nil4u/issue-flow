@@ -234,6 +234,7 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
 }
 
 function buildSourceIssueContext(provider, repo, issueNumber, transition) {
+  const status = transition.status || (transition.flow ? 'status::active' : undefined);
   return {
     provider: provider.name,
     owner: repo.owner,
@@ -242,7 +243,7 @@ function buildSourceIssueContext(provider, repo, issueNumber, transition) {
     projectId: repo.projectId,
     number: issueNumber,
     state: 'open',
-    labels: [transition.status, transition.flow].filter(Boolean),
+    labels: [status, transition.flow].filter(Boolean),
   };
 }
 

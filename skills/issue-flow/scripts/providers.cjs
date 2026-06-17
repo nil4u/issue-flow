@@ -1422,6 +1422,26 @@ async function updateGitlabIssueBody(target, body, options = {}) {
   await requestGitlab('PUT', gitlabIssueApiPath(target), { description: body }, options);
 }
 
+function normalizeGitlabIssue(issue, repo, fallback = {}) {
+  return {
+    provider: 'gitlab',
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    projectId: repo.projectId,
+    number: parsePositiveInteger(issue.iid || issue.number || fallback.number, 'issue iid'),
+    title: typeof issue.title === 'string' ? issue.title : fallback.title || '',
+    body: typeof issue.description === 'string' ? issue.description : fallback.body || '',
+    htmlUrl: typeof issue.web_url === 'string' ? issue.web_url : typeof issue.url === 'string' ? issue.url : fallback.htmlUrl || '',
+    state: normalizeGitlabState(issue.state || fallback.state),
+    author:
+      (issue.author && (issue.author.username || issue.author.name)) ||
+      fallback.author ||
+      '',
+    labels: normalizeLabels(issue.labels || fallback.labels),
+  };
+}
+
 function requestGithubWithGh(method, apiPath, body) {
   const args = ['api', apiPath.replace(/^\//, ''), '-X', method];
   let inputPath = '';
@@ -1474,6 +1494,35 @@ async function applyGithubLabels(target, labelsToAdd, labelsToRemove) {
 
 async function updateGithubIssueBody(target, body) {
   await requestGithubForApply('PATCH', githubIssueApiPath({ ...target, number: target.issueNumber }), { body });
+}
+
+function normalizeGithubIssue(issue, repo, fallback = {}) {
+  return {
+    provider: 'github',
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    number: parsePositiveInteger(issue.number || fallback.number, 'issue number'),
+    title: typeof issue.title === 'string' ? issue.title : fallback.title || '',
+    body: typeof issue.body === 'string' ? issue.body : fallback.body || '',
+    htmlUrl: typeof issue.html_url === 'string' ? issue.html_url : fallback.htmlUrl || '',
+    state: typeof issue.state === 'string' ? issue.state : fallback.state || '',
+    author: issue.user && typeof issue.user.login === 'string' ? issue.user.login : fallback.author || '',
+    labels: normalizeLabels(issue.labels || fallback.labels),
+  };
+}
+
+async function createGithubIssue({ repo, title, body, labels }) {
+  const payload = {
+    title,
+    body,
+    labels,
+  };
+  const apiPath = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues`;
+  const created = getGithubToken()
+    ? await requestGithub('POST', apiPath, payload)
+    : await requestGithubWithGh('POST', apiPath, payload);
+  return normalizeGithubIssue(created, repo, { title, body, labels });
 }
 
 function githubLabelApiPath(repo, labelName) {
@@ -1584,6 +1633,30 @@ async function ensureGitlabLabelDefinition(repo, definition, options = {}) {
   return { name: definition.name, action: 'skipped' };
 }
 
+async function preflightGitlabManagedLabels(repo, definitions = [], options = {}) {
+  for (const definition of definitions) {
+    const existing = await getGitlabLabel(repo, definition.name, options);
+    if (!labelMatchesDefinition('gitlab', existing, definition)) {
+      throw new Error(
+        `GitLab managed label ${definition.name} is missing or drifted. Run sync-labels.cjs before create-issue.cjs.`
+      );
+    }
+  }
+}
+
+async function createGitlabIssue({ repo, title, body, labels, managedLabelDefinitions = [], options = {} }) {
+  await preflightGitlabManagedLabels(repo, managedLabelDefinitions, options);
+  const payload = {
+    title,
+    description: body,
+  };
+  if (labels.length > 0) {
+    payload.labels = labels.join(',');
+  }
+  const created = await requestGitlab('POST', `/projects/${gitlabProjectRef(repo)}/issues`, payload, options);
+  return normalizeGitlabIssue(created, repo, { title, body, labels });
+}
+
 function parsePositiveInteger(value, name) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1623,6 +1696,7 @@ const githubProvider = {
   getIssueForApply: getGithubIssueForApply,
   applyLabels: applyGithubLabels,
   updateIssueBody: updateGithubIssueBody,
+  createIssue: createGithubIssue,
   getLabel: getGithubLabel,
   ensureLabelDefinition: ensureGithubLabelDefinition,
   ensurePullRequestLabel: ensureGithubPullRequestLabel,
@@ -1659,6 +1733,7 @@ const gitlabProvider = {
   getIssueForApply: getGitlabIssueForApply,
   applyLabels: applyGitlabLabels,
   updateIssueBody: updateGitlabIssueBody,
+  createIssue: createGitlabIssue,
   createOrUpdateMergeRequest: createOrUpdateGitlabMergeRequest,
   getLabel: getGitlabLabel,
   ensureLabelDefinition: ensureGitlabLabelDefinition,

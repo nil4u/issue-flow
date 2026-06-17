@@ -487,9 +487,9 @@ function run(action, issue, options = {}, data = {}) {
 function buildTaskCommentMarker(action, data = {}) {
   const pr = data.pullRequest || data;
   if (action === 'review' && pr && pr.headSha) {
-    return `<!-- issue-flow:task:agentrix:${action}:${pr.headSha} -->`;
+    return `<!-- issue-flow:agentrix:task:${action}:${pr.headSha} -->`;
   }
-  return `<!-- issue-flow:task:agentrix:${action} -->`;
+  return `<!-- issue-flow:agentrix:task:${action} -->`;
 }
 
 function buildTaskComment(action, result, data = {}) {
