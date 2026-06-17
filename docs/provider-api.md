@@ -121,8 +121,8 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 
 1. 检查 worktree 是否 clean
 2. 检查 head ≠ base
-3. push 分支
-4. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
+3. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
+4. push 分支
 5. 创建或更新 PR/MR（存在则 update；GitHub/GitLab 均优先使用 token API，无 token 时 fallback CLI）
 6. 在 PR body 中插入 `<!-- issue-flow:source-issue=<num> -->`
 7. 调用 apply.cjs 把 source issue 转到 `flow::approve`
