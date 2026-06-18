@@ -105,6 +105,21 @@ test('agentrix build prompt injects build context without plan output section', 
   assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
 });
 
+test('agentrix prompt context keeps size labels visible without extra prompt guidance', () => {
+  const triagePrompt = agentrix.buildPrompt(
+    'triage',
+    {
+      number: 42,
+      state: 'open',
+      labels: ['status::active', 'flow::triage', 'size::M', 'type::feature'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }
+  );
+  assert.match(triagePrompt, /^Labels: size::M, type::feature$/m);
+  assert.doesNotMatch(triagePrompt, /issue-flow issue apply --issue <n> --size/);
+});
+
 test('agentrix review prompt uses target URL and review submission script', () => {
   const prompt = agentrix.buildPullRequestPrompt({
     provider: 'github',

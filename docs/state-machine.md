@@ -51,7 +51,7 @@ Agent 根据自己的判断决定流转方向，通过 `issue-flow issue apply` 
 
 ```bash
 # triage 完成，进入 plan
-issue-flow issue apply --issue 123 --flow flow::plan --type type::feature
+issue-flow issue apply --issue 123 --flow flow::plan --type type::feature --size size::M
 
 # 信息不足，需要人工补充
 issue-flow issue apply --issue 123 --flow flow::clarify
@@ -59,6 +59,8 @@ issue-flow issue apply --issue 123 --flow flow::clarify
 # issue 已经解决了
 issue-flow issue apply --issue 123 --status status::done --clear-flow
 ```
+
+进入 `flow::plan` 或 `flow::build` 前，最终 issue labels 必须有且仅有一个 `size::`。`issue create` 如果直接设置 `flow::plan` / `flow::build`，同一次请求必须传 `--size size::<value>`；`issue apply` 设置 `flow::plan` / `flow::build` 时会按最终 labels 校验唯一 size；`pr submit plan/build` 在 push 和创建 PR/MR 前会再次读取 source issue 校验 size。缺失时由 agent 根据标题、正文、评论和仓库上下文补打；无法判断时用 `size::M` 并留下低置信度说明。多个 size 会阻断流转，必须先修正为一个。
 
 ## 路由决策
 
@@ -76,11 +78,12 @@ issue-flow issue apply --issue 123 --status status::done --clear-flow
 4. status 不是 `status::active` → skip (reason: status_not_active)
 5. 无 flow:: label → skip (reason: missing_flow_label)
 6. flow:: 不是可执行的 → skip (reason: unsupported_flow)
-7. `automation::off` → skip (reason: automation_off)
-8. 有效自动化级别 < 所需级别 → skip (reason: automation_level_too_low)
-9. 通过 → shouldRun: true, action: triage/plan/build
+7. plan/build 且存在多个 `size::` → skip (code: multiple_size_labels)
+8. `automation::off` → skip (reason: automation_off)
+9. 有效自动化级别 < 所需级别 → skip (reason: automation_level_too_low)
+10. 通过 → shouldRun: true, action: triage/plan/build
 
-有效自动化级别优先使用 issue 上的 `automation::` label；issue 未设置时才使用 `ISSUE_FLOW_AUTO_DEFAULT`。`automation::off` 也会让 intake 跳过默认 `status::active` / `flow::triage` 补标。labeled 事件只有新增 `flow::*`、`automation::plan`、`automation::build` 或 `status::active` 时才进入自动路由；`type::*`、`priority::*`、unmanaged label 和 `automation::off` 不单独触发 agent。
+有效自动化级别优先使用 issue 上的 `automation::` label；issue 未设置时才使用 `ISSUE_FLOW_AUTO_DEFAULT`。`automation::off` 也会让 intake 跳过默认 `status::active` / `flow::triage` 补标。labeled 事件只有新增 `flow::*`、`automation::plan`、`automation::build` 或 `status::active` 时才进入自动路由；`type::*`、`priority::*`、`size::*`、unmanaged label 和 `automation::off` 不单独触发 agent。
 
 ### resume 决策
 
@@ -112,6 +115,10 @@ Source issue 通过以下优先级确定：
 
 - `flow::clarify` — agent 缺少信息，需人工回答
 - `flow::approve` — plan/build PR 等待人工审批
+
+## Weighted Throughput
+
+Weighted Throughput 按完成 issue 的唯一 `size::` label 求和：`size::XS=0.5`、`size::S=1`、`size::M=2`、`size::L=3`、`size::XL=5`。完成口径建议使用 `status::done`，或 build PR/MR merge 后由 `pr merged` 转为 done 的 source issue。没有 size 或有多个 size 的 issue 不进入统计；plan/build 前置 gate 的目的就是避免新执行流继续产生这类数据。
 
 ## PR/MR Review Check
 
