@@ -133,6 +133,7 @@ function runChecked(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+    env: options.env || process.env,
   });
   if (result.error) {
     throw result.error;
@@ -321,15 +322,79 @@ async function ensureMergeRequestLabel(provider, repo, label, options) {
   await provider.ensureLabelDefinition(repo, config.labelDefinition, options);
 }
 
+function gitPushTokenForProvider(providerName, env = process.env) {
+  if (providerName === 'github') {
+    return env.GITHUB_TOKEN || env.GH_TOKEN || '';
+  }
+  if (providerName === 'gitlab') {
+    return env.GITLAB_TOKEN || env.GL_TOKEN || env.GITLAB_PRIVATE_TOKEN || env.CI_JOB_TOKEN || '';
+  }
+  return '';
+}
+
+function gitPushUsernameForProvider(providerName, token, env = process.env) {
+  if (providerName === 'github') {
+    return 'x-access-token';
+  }
+  if (providerName === 'gitlab') {
+    return env.CI_JOB_TOKEN && token === env.CI_JOB_TOKEN ? 'gitlab-ci-token' : 'oauth2';
+  }
+  return 'git';
+}
+
+function createGitAskpassEnv(providerName, baseEnv = process.env) {
+  if (baseEnv.GIT_ASKPASS) {
+    return { env: baseEnv, cleanup: () => {} };
+  }
+
+  const token = gitPushTokenForProvider(providerName, baseEnv);
+  if (!token) {
+    return { env: baseEnv, cleanup: () => {} };
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-git-askpass-'));
+  const askpassPath = path.join(tempDir, 'askpass.sh');
+  fs.writeFileSync(
+    askpassPath,
+    [
+      '#!/bin/sh',
+      'case "$1" in',
+      '*Username*) printf "%s\\n" "$ISSUE_FLOW_GIT_USERNAME" ;;',
+      '*) printf "%s\\n" "$ISSUE_FLOW_GIT_TOKEN" ;;',
+      'esac',
+      '',
+    ].join('\n'),
+    { mode: 0o700 }
+  );
+
+  return {
+    env: {
+      ...baseEnv,
+      GIT_ASKPASS: askpassPath,
+      GIT_TERMINAL_PROMPT: '0',
+      ISSUE_FLOW_GIT_USERNAME: gitPushUsernameForProvider(providerName, token, baseEnv),
+      ISSUE_FLOW_GIT_TOKEN: token,
+    },
+    cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
+  };
+}
+
 
 function pushCurrentBranch(headBranch, options) {
   if (options.noPush) {
     return;
   }
-  runChecked('git', ['push', '-u', 'origin', `HEAD:${headBranch}`], {
-    dryRun: options.dryRun,
-    inherit: true,
-  });
+
+  const askpass = createGitAskpassEnv(options.provider);
+  try {
+    runChecked('git', ['push', '-u', 'origin', `HEAD:${headBranch}`], {
+      dryRun: options.dryRun,
+      inherit: true,
+      env: askpass.env,
+    });
+  } finally {
+    askpass.cleanup();
+  }
 }
 
 async function createOrUpdatePullRequest({ provider, repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
@@ -417,7 +482,10 @@ module.exports = {
   assertBodyFileNotTracked,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
+  createGitAskpassEnv,
   existingPullRequestApiHead,
+  gitPushTokenForProvider,
+  gitPushUsernameForProvider,
   headBranchFilterCandidates,
   isExistingPullRequestError,
   isGitTrackedFile,

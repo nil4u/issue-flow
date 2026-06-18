@@ -104,7 +104,7 @@ GitHub API token 至少需要：
 
 同步 provider labels 需要 token/CLI 账号具备仓库 label 管理权限。
 
-`submit.cjs` 的 `git push` 仍使用本地 git remote/credentials，不由 GitHub API token 替代。
+`submit.cjs` 的 `git push` 优先使用本地 git remote/credential helper；当没有自定义 `GIT_ASKPASS` 且存在 `GITHUB_TOKEN`/`GH_TOKEN` 时，会为本次 push 创建临时 askpass 凭据。
 
 ### GitLab
 
@@ -114,7 +114,7 @@ GitHub API token 至少需要：
 
 只有没有可用 token 时，才尝试 `glab` CLI fallback。
 
-GitLab API token 至少需要 issue/label 与 merge request 写权限。`submit.cjs` 的 `git push` 仍使用本地 git remote/credentials。
+GitLab API token 至少需要 issue/label 与 merge request 写权限。`submit.cjs` 的 `git push` 优先使用本地 git remote/credential helper；当没有自定义 `GIT_ASKPASS` 且存在 `GITLAB_TOKEN`/`GL_TOKEN`/`GITLAB_PRIVATE_TOKEN`/`CI_JOB_TOKEN` 时，会为本次 push 创建临时 askpass 凭据。
 
 同步 provider labels 需要 token/CLI 账号具备项目 label 管理权限。
 
