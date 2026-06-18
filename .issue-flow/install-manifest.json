@@ -169,7 +169,7 @@
     ".github/workflows/issue-flow-failure-intake.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-failure-intake.yml",
       "mode": "managed",
-      "sha256": "e70be2438e08cdb25520b5f75f57d06ea11cead8dc84d135919c5fdf6e10afe4"
+      "sha256": "e3ce18b59f0524857e51856e5b036a2c06d78887ad9b4764d88d779a6ca7f3d2"
     },
     ".github/workflows/issue-flow-labels.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-labels.yml",

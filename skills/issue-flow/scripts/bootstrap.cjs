@@ -19,6 +19,10 @@ const AGENTRIX_GITHUB_WORKFLOWS = [
   ['workflows/github/issue-flow-pr-merged.yml', '.github/workflows/issue-flow-pr-merged.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-failure-intake.yml', '.github/workflows/issue-flow-failure-intake.yml', { mode: MODE_MANAGED }],
 ];
+const GITHUB_FAILURE_INTAKE_WORKFLOW_NAME = 'Issue Flow Failure Intake';
+const GITHUB_FAILURE_INTAKE_SOURCE = 'workflows/github/issue-flow-failure-intake.yml';
+const GITHUB_FAILURE_INTAKE_TARGET = '.github/workflows/issue-flow-failure-intake.yml';
+const GITHUB_WORKFLOWS_DIR = '.github/workflows';
 const AGENTRIX_GITLAB_FILES = [
   ['workflows/gitlab/issue-flow.gitlab-ci.yml', '.gitlab/issue-flow.gitlab-ci.yml', { mode: MODE_MANAGED }],
 ];
@@ -171,6 +175,10 @@ function fileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function textSha256(content) {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
 function readInstallManifest(options = {}) {
   const target = manifestPath(options);
   if (!fs.existsSync(target)) {
@@ -254,6 +262,109 @@ function packageInstallSpecs(specs) {
   return specs.map(([source, target, specOptions = {}]) => packageInstallSpec(source, target, specOptions));
 }
 
+function isGithubWorkflowPath(filePath) {
+  return /\.(ya?ml)$/i.test(filePath);
+}
+
+function unquoteYamlString(value) {
+  const trimmed = String(value || '').trim();
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replace(/''/g, "'");
+  }
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed.replace(/\s+#.*$/, '').trim();
+}
+
+function parseGithubWorkflowName(content) {
+  const match = String(content || '').match(/^name:\s*(.+?)\s*$/m);
+  if (!match) {
+    return undefined;
+  }
+  const name = unquoteYamlString(match[1]);
+  return name || undefined;
+}
+
+function githubWorkflowNameFallback(filePath, fallbackName) {
+  return fallbackName || path.basename(filePath);
+}
+
+function readGithubWorkflowName(filePath, fallbackName) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  return parseGithubWorkflowName(content) || githubWorkflowNameFallback(filePath, fallbackName);
+}
+
+function discoverExistingGithubWorkflowNames(options = {}) {
+  const workflowsDir = path.resolve(installCwd(options), GITHUB_WORKFLOWS_DIR);
+  if (!fs.existsSync(workflowsDir) || !fs.statSync(workflowsDir).isDirectory()) {
+    return [];
+  }
+
+  return fs.readdirSync(workflowsDir)
+    .filter(isGithubWorkflowPath)
+    .sort()
+    .map((entry) => readGithubWorkflowName(path.join(workflowsDir, entry), joinRepoPath(GITHUB_WORKFLOWS_DIR, entry)));
+}
+
+function discoverInstalledGithubWorkflowNames() {
+  return AGENTRIX_GITHUB_WORKFLOWS
+    .filter(([, target]) => target !== GITHUB_FAILURE_INTAKE_TARGET)
+    .map(([source, target]) => readGithubWorkflowName(path.join(agentrixBootstrapAssetsDir(), source), target));
+}
+
+function uniqueWorkflowNames(names) {
+  const seen = new Set();
+  const result = [];
+  for (const name of names) {
+    if (!name || name === GITHUB_FAILURE_INTAKE_WORKFLOW_NAME || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    result.push(name);
+  }
+  return result;
+}
+
+function yamlSingleQuoted(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function renderGithubFailureIntakeWorkflow(workflowNames) {
+  const source = path.join(agentrixBootstrapAssetsDir(), GITHUB_FAILURE_INTAKE_SOURCE);
+  const content = fs.readFileSync(source, 'utf8');
+  const workflows = uniqueWorkflowNames(workflowNames);
+  const workflowLines = workflows.map((name) => `      - ${yamlSingleQuoted(name)}`).join('\n');
+  const rendered = content.replace(
+    /^  workflow_run:\n/m,
+    `  workflow_run:\n    workflows:\n${workflowLines}\n`
+  );
+  if (rendered === content) {
+    throw new Error(`${GITHUB_FAILURE_INTAKE_SOURCE} is missing an on.workflow_run trigger.`);
+  }
+  return rendered;
+}
+
+function githubWorkflowInstallSpecs(options = {}) {
+  const workflowNames = uniqueWorkflowNames([
+    ...discoverExistingGithubWorkflowNames(options),
+    ...discoverInstalledGithubWorkflowNames(),
+  ]);
+  return AGENTRIX_GITHUB_WORKFLOWS.map(([source, target, specOptions = {}]) => {
+    if (target !== GITHUB_FAILURE_INTAKE_TARGET) {
+      return bootstrapInstallSpec(source, target, specOptions);
+    }
+    return {
+      ...bootstrapInstallSpec(source, target, specOptions),
+      content: renderGithubFailureIntakeWorkflow(workflowNames),
+    };
+  });
+}
+
 function copySpec(sourceRelative, targetRelative, options = {}, specOptions = {}) {
   return runFileInstall([bootstrapInstallSpec(sourceRelative, targetRelative, specOptions)], options)[0];
 }
@@ -305,8 +416,22 @@ function expandInstallSpec(spec, options = {}) {
   }
 
   const cwd = installCwd(options);
-  const sourceStats = fs.statSync(spec.source);
   const targetRoot = path.resolve(cwd, spec.targetRelative);
+  if (Object.prototype.hasOwnProperty.call(spec, 'content')) {
+    return [{
+      source: spec.source,
+      sourceRelative: spec.sourceKey,
+      target: targetRoot,
+      targetRelative: spec.targetRelative,
+      groupSource: spec.source,
+      groupTarget: targetRoot,
+      groupTargetRelative: spec.targetRelative,
+      mode: spec.mode,
+      content: spec.content,
+    }];
+  }
+
+  const sourceStats = fs.statSync(spec.source);
   const sourceFiles = listSourceFiles(spec.source, spec.exclude);
 
   return sourceFiles.map((sourceFile) => {
@@ -348,7 +473,9 @@ function desiredManifestEntry(file) {
 }
 
 function createFileOperation(file, manifest, options = {}) {
-  const newHash = fileSha256(file.source);
+  const newHash = Object.prototype.hasOwnProperty.call(file, 'content')
+    ? textSha256(file.content)
+    : fileSha256(file.source);
   const previous = manifest.files[file.targetRelative];
   const targetExists = fs.existsSync(file.target);
   const currentHash = currentTargetHash(file.target);
@@ -367,6 +494,9 @@ function createFileOperation(file, manifest, options = {}) {
     currentHash,
     targetExists,
   };
+  if (Object.prototype.hasOwnProperty.call(file, 'content')) {
+    base.content = file.content;
+  }
 
   if (path.resolve(file.source) === path.resolve(file.target)) {
     return {
@@ -616,7 +746,11 @@ function applyFileOperation(operation) {
       fs.rmSync(operation.target, { recursive: true, force: true });
     }
     fs.mkdirSync(path.dirname(operation.target), { recursive: true });
-    fs.copyFileSync(operation.source, operation.target);
+    if (Object.prototype.hasOwnProperty.call(operation, 'content')) {
+      fs.writeFileSync(operation.target, operation.content, 'utf8');
+    } else {
+      fs.copyFileSync(operation.source, operation.target);
+    }
     return;
   }
 
@@ -791,7 +925,7 @@ function installGithub(options = {}) {
     ...removeLegacyAgentrixProjectRoot(options),
     ...runFileInstall([
       ...packageInstallSpecs(AGENTRIX_PLUGIN_SPECS),
-      ...bootstrapInstallSpecs(AGENTRIX_GITHUB_WORKFLOWS),
+      ...githubWorkflowInstallSpecs(options),
       ...bootstrapInstallSpecs(AGENTRIX_PROJECT_FILES),
       ...packageInstallSpecs(AGENTRIX_PROJECT_DIRS),
     ], { ...options, pruneStale: true }),
