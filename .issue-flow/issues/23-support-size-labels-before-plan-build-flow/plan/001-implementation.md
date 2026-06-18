@@ -19,7 +19,7 @@
   - `skills/issue-flow/scripts/labels.cjs` 集中维护 managed label catalog，`sync-labels.cjs` 通过 `labelsForScope('all')` 同步 provider labels。
   - `skills/issue-flow/scripts/apply.cjs` 和 `create-issue.cjs` 都从 `labelGroupsForScope('issue')` 派生可接受的 issue managed label 参数；新增 issue group 后可自然支持 `--size size::M`，但 help、测试和文档需要显式补齐。
   - `skills/issue-flow/scripts/resolve.cjs` 目前用 `findSingleLabel()` 校验 `status::` 和 `flow::` 单值，并将 `flow::plan` / `flow::build` 解析为可执行 action；size 校验应优先落在写入/提交脚本入口，避免把错误推迟到 runtime。
-  - `skills/issue-flow/scripts/dispatch.cjs` 在 auto/resume/manual action 前会 fetch 当前 issue，再根据 resolve 结果决定是否启动 Agentrix runtime；dispatch 可作为额外防线，但不应成为唯一 size gate。
+  - `skills/issue-flow/scripts/dispatch.cjs` 在 auto/resume/comment 路径会先经 resolver 决策；但 documented direct commands（`issue-flow dispatch plan --issue ...` / `build --issue ...`）会走 `runDirectAction()` → `startAction()`，不会经过 `resolveAutomationDecision()` 或 `resolveResumeDecision()`，因此 direct dispatch 也必须在 `startAction()` 内做 size gate。
   - `skills/issue-flow/scripts/runtimes/agentrix.cjs` 会把 issue labels 注入 prompt，当前只过滤 `status::`、`flow::`、`automation::`，因此 `size::` label 会出现在 agent 可见上下文中。
   - `skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md` 已要求 triage 在 `flow::plan` 与 `flow::build` 之间做判断；triage/general prompt 需要指导 agent 在设置 plan/build flow 时同步设置 size，plan/build prompt 需要指导 agent 在 submit 报错后补 size 再重试。
   - `skills/issue-flow/references/labels.md`、`docs/state-machine.md`、`docs/provider-api.md` 和 `README.md` 是 label 语义、状态机和 CLI 行为的主要文档位置。
@@ -106,9 +106,15 @@
    - `--dry-run` 也输出该校验意图；如果 dry-run 下没有 provider 读取能力，可返回 planned check，而不是假装通过。
 
 6. 调整 dispatch 和 prompt，让错误提示驱动 agent 补 size。
-   - `resolveAutomationDecision()` / `resolveResumeDecision()` 可复用 size helper 作为额外防线：plan/build + 多个 size 返回 `code: 'multiple_size_labels'` 和自然语言 `reason`，避免启动明显错误的 runtime。
+   - `resolveAutomationDecision()` / `resolveResumeDecision()` 可复用 size helper 作为 auto/comment resume 的防线：plan/build + 多个 size 返回 `code: 'multiple_size_labels'` 和自然语言 `reason`，避免启动明显错误的 runtime。
+   - 在 `dispatch.cjs startAction()` 内增加统一 preflight：
+     - `startAction()` 已经会先 `fetchCurrentIssue()`；在 `claimActionTask()` 和 `runtime.run()` 前，如果 action 是 `plan` 或 `build`，对当前 issue labels 执行 `requireSingleIssueSize()`。
+     - 缺失或多个 size 时，`dispatch plan/build`、`dispatch auto`、comment resume 和其它最终进入 `startAction()` 的路径都不创建 task lock、不启动 runtime。
+     - 返回/抛出的 `reason` 使用自然语言，例如 `This issue needs exactly one size:: label before dispatch can start the plan action.`，并附带稳定 `code` 字段供测试断言。
+     - 错误提示应包含下一步命令模板：`issue-flow issue apply --issue <n> --size size::M`，并说明 agent 可以根据上下文替换成 `size::XS/S/M/L/XL`。
    - plan/build + 缺失 size 不在 dispatch 中自动补标；预期路径是：
      - triage/general 在调用 `issue apply --flow flow::plan/build` 时收到错误，补 `--size` 后重试。
+     - direct `dispatch plan/build` 在启动 runtime 前收到错误，先调用 `issue apply --size ...` 后重试 dispatch。
      - plan/build 在调用 `pr submit plan/build` 时收到错误，先调用 `issue apply --size ...`，必要时创建低置信度说明评论，再重试 submit。
    - `shouldRunAutoForEvent()` 不把 `size::` labeled 事件加入路由白名单，避免单独补 size 触发新的重复任务。
    - 更新 `triage.prompt.md`、`general.prompt.md`、`plan-impl.prompt.md`、`plan-bug.prompt.md` 和 `build.prompt.md`：
@@ -159,8 +165,10 @@
      - triage 不要求 size。
      - `size::` labeled event 不触发 auto route。
    - 扩展 `test/dispatch.test.cjs`：
-     - 多个 size 时不调用 runtime.run，并返回阻断原因。
-     - 缺失 size 不由 dispatch 自动补标；入口脚本错误提示负责驱动 agent 修正。
+     - direct `dispatch plan/build` 缺失 size 时不创建 task lock、不调用 runtime.run，并返回自然语言 reason 和修正命令提示。
+     - direct `dispatch plan/build` 多个 size 时不创建 task lock、不调用 runtime.run，并返回自然语言 reason 和冲突 labels。
+     - auto/comment resume 最终进入 `startAction()` 时也复用同一 gate，避免 direct path 与 resolver path 行为分叉。
+     - 缺失 size 不由 dispatch 自动补标；错误提示负责驱动 agent 修正。
    - 扩展 `test/agentrix-runtime.test.cjs`：
      - triage/general prompt 要求设置 `flow::plan/build` 时同步设置或确认唯一 size。
      - plan/build prompt 要求 submit 因 size 失败时先补 size，再重试 submit。
