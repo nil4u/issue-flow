@@ -127,7 +127,7 @@ function dispatchHelp() {
     'Usage: issue-flow dispatch <action> [options]',
     '',
     'Actions:',
-    '  auto | comment | review | pr-merged | resume | triage | plan | build | general',
+    '  auto | comment | review | pr-merged | pipeline-failed | resume | triage | plan | build | general',
   ].join('\n');
 }
 

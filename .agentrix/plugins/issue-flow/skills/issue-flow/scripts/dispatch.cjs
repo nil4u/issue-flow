@@ -5,8 +5,10 @@ const { loadEventPayload } = require('./events.cjs');
 const {
   resolveAutomationDecision: resolveCoreAutomationDecision,
   resolveResumeDecision,
+  shouldRunAutoForEvent,
 } = require('./resolve.cjs');
 const prMerged = require('./pr-merged.cjs');
+const pipelineFailed = require('./pipeline-failed.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
 const TRIGGER_COMMENT_REACTION = 'eyes';
@@ -28,6 +30,7 @@ const VALUE_OPTIONS = new Set([
   '--gitlab-api-url',
   '--gitlab-project',
   '--gitlab-token',
+  '--log-file',
 ]);
 
 function logIssueFlow(message, details = {}) {
@@ -46,6 +49,7 @@ function usage() {
     '  comment    Route an issue comment for the selected runtime mention',
     '  review     Run an independent PR/MR automatic review check',
     '  pr-merged  Apply merged plan/build PR transition',
+    '  pipeline-failed  Analyze a failed CI pipeline/job and create or update a build issue when actionable',
     '  resume     Run the action selected by the current flow:: label',
     '  general    Start a broad runtime action from a manual instruction',
     '  triage     Start triage action',
@@ -59,6 +63,7 @@ function usage() {
     '  --runtime <name>        Runtime preset. Defaults to agentrix.',
     '  --issue-number <num>    Issue number override.',
     '  --pr-number <num>       PR/MR number for manual review dispatch.',
+    '  --log-file <path>       Failed job log file for pipeline-failed.',
     '  --instruction <text>    Manual instruction for the general command.',
     '  --auto-default <level>  Repository default automation level: off, triage, plan, or build.',
     '  --review-enabled <bool> Enable review when true or 1. Defaults to ISSUE_FLOW_REVIEW_ENABLED.',
@@ -558,6 +563,13 @@ async function runAuto(options = {}, provided = {}) {
       reason: 'pull_request',
     };
   }
+  if (!shouldRunAutoForEvent(payload)) {
+    logIssueFlow('Automatic issue-flow skipped for non-routing labeled event');
+    return {
+      action: 'skipped',
+      reason: 'label_not_routing',
+    };
+  }
 
   let issue = provided.issue || buildIssueContext(payload, options);
   issue = await fetchCurrentIssue(issue, options);
@@ -688,6 +700,17 @@ async function runPrMerged(options = {}) {
   };
 }
 
+async function runPipelineFailed(options = {}) {
+  logIssueFlow('Handling pipeline failure intake');
+  const result = await pipelineFailed.runFailureIntake(options);
+  logIssueFlow('Pipeline failure intake finished', {
+    action: result.action,
+    reason: result.reason,
+    issue: result.issueNumber ? `#${result.issueNumber}` : '',
+  });
+  return result;
+}
+
 async function runReview(options = {}, provided = {}) {
   if (!resolveReviewEnabled(options)) {
     logIssueFlow('PR/MR review skipped', { reason: 'review_disabled' });
@@ -776,6 +799,9 @@ async function main(argv = process.argv.slice(2)) {
     case 'pr-merged':
       await runPrMerged(options);
       break;
+    case 'pipeline-failed':
+      await runPipelineFailed(options);
+      break;
     case 'resume':
       await runResume(options);
       break;
@@ -806,6 +832,7 @@ module.exports = {
   runAuto,
   runComment,
   runDirectAction,
+  runPipelineFailed,
   runPrMerged,
   runReview,
   runResume,

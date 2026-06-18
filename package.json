@@ -7,7 +7,7 @@
     "issue-flow": "skills/issue-flow/cli.cjs"
   },
   "scripts": {
-    "test": "node --test test/agentrix-runtime.test.cjs test/bootstrap.test.cjs test/cli.test.cjs test/create-issue.test.cjs test/dispatch.test.cjs test/install.test.cjs test/intake.test.cjs test/labels.test.cjs test/merged.test.cjs test/providers.test.cjs test/resolve.test.cjs test/review.test.cjs test/submit.test.cjs test/sync-labels.test.cjs",
+    "test": "node --test test/agentrix-runtime.test.cjs test/bootstrap.test.cjs test/cli.test.cjs test/create-issue.test.cjs test/dispatch.test.cjs test/install.test.cjs test/intake.test.cjs test/labels.test.cjs test/merged.test.cjs test/pipeline-failed.test.cjs test/providers.test.cjs test/resolve.test.cjs test/review.test.cjs test/submit.test.cjs test/sync-labels.test.cjs",
     "test:integration": "node --test test/integration.test.cjs test/integration-lifecycle.test.cjs"
   }
 }

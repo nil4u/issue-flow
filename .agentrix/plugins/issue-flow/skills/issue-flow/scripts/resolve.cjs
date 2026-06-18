@@ -16,6 +16,8 @@ const { loadEventPayload } = require('./events.cjs');
 const FLOW_PREFIX = 'flow::';
 const STATUS_PREFIX = 'status::';
 const AUTOMATION_PREFIX = 'automation::';
+const ACTIVE_STATUS_LABEL = 'status::active';
+const AUTOMATION_OFF_LABEL = 'automation::off';
 const NON_RESUMABLE_STATUS_LABELS = new Set(['status::done', 'status::drop', 'status::suspend']);
 const SUPPORTED_FLOW_COMMANDS = new Map([
   ['flow::triage', 'triage'],
@@ -96,6 +98,9 @@ function resolveIssueAutomationLabel(labels) {
   if (matches.length === 0) {
     return undefined;
   }
+  if (matches.includes(AUTOMATION_OFF_LABEL)) {
+    return AUTOMATION_OFF_LABEL;
+  }
   return matches.reduce((current, next) => {
     const currentLevel = normalizeAutomationLevel(current, 'automation label');
     const nextLevel = normalizeAutomationLevel(next, 'automation label');
@@ -121,11 +126,26 @@ function resolveAutomationDecision(issue, options = {}) {
   }
 
   const statusLabel = findSingleLabel(labels, STATUS_PREFIX);
+  if (!statusLabel) {
+    return {
+      shouldRun: false,
+      reason: 'missing_status_label',
+      automationLabel: resolveIssueAutomationLabel(labels),
+    };
+  }
   if (statusLabel && NON_RESUMABLE_STATUS_LABELS.has(statusLabel)) {
     return {
       shouldRun: false,
       reason: statusLabel,
       statusLabel,
+    };
+  }
+  if (statusLabel !== ACTIVE_STATUS_LABEL) {
+    return {
+      shouldRun: false,
+      reason: 'status_not_active',
+      statusLabel,
+      automationLabel: resolveIssueAutomationLabel(labels),
     };
   }
 
@@ -148,10 +168,22 @@ function resolveAutomationDecision(issue, options = {}) {
     };
   }
 
+  const automationLabel = resolveIssueAutomationLabel(labels);
   const repoDefaultLevel = resolveRepoDefaultAutomationLevel(options);
   const issueAutomationLevel = resolveIssueAutomationLevel(labels);
-  const effectiveLevel = maxAutomationLevel(repoDefaultLevel, issueAutomationLevel);
-  const automationLabel = resolveIssueAutomationLabel(labels);
+  const effectiveLevel = automationLabel ? issueAutomationLevel : repoDefaultLevel;
+  if (automationLabel === AUTOMATION_OFF_LABEL) {
+    return {
+      shouldRun: false,
+      reason: 'automation_off',
+      action,
+      flowLabel,
+      automationLabel,
+      repoDefaultLevel,
+      issueAutomationLevel,
+      effectiveLevel: 'off',
+    };
+  }
   if (!automationCanRunAction(effectiveLevel, action)) {
     return {
       shouldRun: false,
@@ -280,6 +312,34 @@ function resolveCommentDecision(payload, options = {}) {
   };
 }
 
+function eventLabelName(payload = {}) {
+  const label = payload.label || payload.object_attributes && payload.object_attributes.label;
+  return normalizeLabelName(label);
+}
+
+function eventAction(payload = {}) {
+  return payload.action || payload.object_attributes && payload.object_attributes.action || '';
+}
+
+function shouldRunAutoForEvent(payload = {}) {
+  const action = eventAction(payload);
+  if (action !== 'labeled' && action !== 'update') {
+    return true;
+  }
+
+  const label = eventLabelName(payload);
+  if (!label) {
+    return true;
+  }
+
+  return (
+    label.startsWith(FLOW_PREFIX) ||
+    label === 'automation::plan' ||
+    label === 'automation::build' ||
+    label === ACTIVE_STATUS_LABEL
+  );
+}
+
 // --- CLI ---
 
 function usage() {
@@ -353,6 +413,10 @@ function main(argv = process.argv.slice(2)) {
         decision = { shouldRun: false, reason: 'pull_request' };
         break;
       }
+      if (!shouldRunAutoForEvent(payload)) {
+        decision = { shouldRun: false, reason: 'label_not_routing' };
+        break;
+      }
       const issue = provider.buildIssueContext(payload, options);
       decision = resolveAutomationDecision(issue, options);
       break;
@@ -394,6 +458,7 @@ module.exports = {
   resolveIssueAutomationLevel,
   resolveRepoDefaultAutomationLevel,
   resolveResumeDecision,
+  shouldRunAutoForEvent,
 };
 
 if (require.main === module) {

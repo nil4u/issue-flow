@@ -87,6 +87,11 @@ const MANAGED_LABEL_GROUPS = {
     scope: 'issue',
     labels: [
       {
+        name: 'automation::off',
+        color: '6A737D',
+        description: 'Automation is explicitly disabled for this issue',
+      },
+      {
         name: 'automation::plan',
         color: '7057FF',
         description: 'Automation may create plan PRs/MRs',
