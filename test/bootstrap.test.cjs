@@ -86,6 +86,9 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.match(failureWorkflow, /workflow_run:/);
+    assert.match(failureWorkflow, /workflows:\n      - 'Issue Flow Labels'\n      - 'Issue Flow Auto'/);
+    assert.match(failureWorkflow, /- 'Issue Flow PR Merged'/);
+    assert.doesNotMatch(failureWorkflow, /- 'Issue Flow Failure Intake'/);
     assert.match(failureWorkflow, /github\.event\.workflow_run\.conclusion == 'failure'/);
     assert.match(failureWorkflow, /github\.event\.workflow_run\.name != 'Issue Flow Failure Intake'/);
     assert.match(failureWorkflow, /actions: read/);
@@ -125,6 +128,44 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.doesNotMatch(autoWorkflow, /\.github\/agentrix/);
     const mergedWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-merged.yml'), 'utf8');
     assert.match(mergedWorkflow, /ref: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('github bootstrap includes existing workflows in failure intake trigger', () => {
+  const root = makeTempRoot();
+  try {
+    const workflowDir = path.join(root, '.github/workflows');
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'ci.yml'), [
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo ok',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(workflowDir, 'unnamed.yaml'), [
+      'on: pull_request',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo ok',
+      '',
+    ].join('\n'));
+
+    installGithub({ cwd: root });
+
+    const failureWorkflow = fs.readFileSync(path.join(workflowDir, 'issue-flow-failure-intake.yml'), 'utf8');
+    assert.match(failureWorkflow, /workflows:/);
+    assert.match(failureWorkflow, /- 'CI'/);
+    assert.match(failureWorkflow, /- '\.github\/workflows\/unnamed\.yaml'/);
+    assert.match(failureWorkflow, /- 'Issue Flow Auto'/);
+    assert.doesNotMatch(failureWorkflow, /- 'Issue Flow Failure Intake'/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

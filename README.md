@@ -92,7 +92,7 @@ Set these repository variables/secrets as needed:
 
 GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`.
 
-GitHub failure intake listens to `workflow_run` completed failures. It uses `GITHUB_TOKEN` with `actions: read` and `issues: write` to inspect failed jobs, classify actionable root causes, and create or update a deduped issue with `failure::ci`, `flow::build`, and `automation::build`.
+GitHub failure intake listens to `workflow_run` completed failures. During install, issue-flow scans `.github/workflows/*.yml` and `.github/workflows/*.yaml` and generates the explicit upstream workflow list required by GitHub Actions. Re-run the installer after adding new GitHub workflow files so the failure intake trigger is refreshed. It uses `GITHUB_TOKEN` with `actions: read` and `issues: write` to inspect failed jobs, classify actionable root causes, and create or update a deduped issue with `failure::ci`, `flow::build`, and `automation::build`.
 
 ## GitLab Configuration
 

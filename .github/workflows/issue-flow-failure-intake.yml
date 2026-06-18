@@ -2,6 +2,12 @@ name: Issue Flow Failure Intake
 
 on:
   workflow_run:
+    workflows:
+      - 'Issue Flow Auto'
+      - 'Issue Flow Comment'
+      - 'Issue Flow Labels'
+      - 'Issue Flow PR Merged'
+      - 'Issue Flow PR Review'
     types:
       - completed
 
