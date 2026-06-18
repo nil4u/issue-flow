@@ -1,6 +1,6 @@
 给当前 issue 进行分类打标签，判断是否可执行，选择下一步 flow，并在需要时规范化 issue 正文。
 
-先读取 `issue-flow` skill，按其中的 label 体系与 `apply.cjs` 用法操作。
+先读取 `issue-flow` skill，按其中的 label 体系与统一 CLI 用法操作。issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。
 
 ## 关键行为
 
