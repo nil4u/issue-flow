@@ -10,13 +10,22 @@ permissions:
   contents: read
   issues: write
 
-concurrency:
-  group: issue-flow-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   route:
-    if: github.event.issue.pull_request == null && github.event.issue.state == 'open'
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.state == 'open' &&
+      (
+        github.event.action != 'labeled' ||
+        startsWith(github.event.label.name, 'flow::') ||
+        github.event.label.name == 'automation::plan' ||
+        github.event.label.name == 'automation::build' ||
+        github.event.label.name == 'status::active'
+      )
+    concurrency:
+      group: issue-flow-${{ github.event.issue.number }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
