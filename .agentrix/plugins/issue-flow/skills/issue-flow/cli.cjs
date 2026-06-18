@@ -80,7 +80,8 @@ function prHelp() {
     '  comments create --pr <num> --body-file <path>',
     '  comments update --pr <num> --comment-id <id> --body-file <path>',
     '  comments delete --pr <num> --comment-id <id>',
-    '  review --pr <num> --body-file <path>',
+    '  review-comments list --pr <num>',
+    '  review --pr <num> --body-file <path> [--comments-file <path>]',
     '  merged --event <path>',
     '',
     'Note: pr means GitHub PR or GitLab MR.',
@@ -109,6 +110,15 @@ function prCommentsHelp() {
     '  create --pr <num> --body-file <path>',
     '  update --pr <num> --comment-id <id> --body-file <path>',
     '  delete --pr <num> --comment-id <id>',
+  ].join('\n');
+}
+
+function prReviewCommentsHelp() {
+  return [
+    'Usage: issue-flow pr review-comments <action> [options]',
+    '',
+    'Actions:',
+    '  list --pr <num>',
   ].join('\n');
 }
 
@@ -367,6 +377,9 @@ async function handlePr(argv) {
   if (action === 'comments') {
     return handlePrComments(argv.slice(1));
   }
+  if (action === 'review-comments') {
+    return handlePrReviewComments(argv.slice(1));
+  }
   if (action === 'review') {
     return runScript('review.cjs', mapAliasArgs(argv.slice(1)), { action: 'reviewed', resource: 'pr', command: 'review' });
   }
@@ -403,6 +416,21 @@ async function handlePrComments(argv) {
     return baseEnvelope('deleted', resolveProviderPort(providerOptions(options), {}).provider, 'pr_comment', options, result);
   }
   throw new Error(`Unknown pr comments action: ${action}\n\n${prCommentsHelp()}`);
+}
+
+async function handlePrReviewComments(argv) {
+  if (argv.length === 0 || argv[0] === '--help') {
+    return prReviewCommentsHelp();
+  }
+  const action = argv[0];
+  const options = parseOptions(argv.slice(1));
+  if (action === 'list') {
+    const { result } = await withPort(options, (port) => port.pullRequests.listReviewComments());
+    return baseEnvelope('listed', resolveProviderPort(providerOptions(options), {}).provider, 'pr_review_comment', options, {
+      items: result,
+    });
+  }
+  throw new Error(`Unknown pr review-comments action: ${action}\n\n${prReviewCommentsHelp()}`);
 }
 
 function handleLabels(argv) {
