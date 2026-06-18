@@ -13,6 +13,7 @@
 - 不在本次实现中处理 GitHub `pull_request_review_comment.edited/deleted`，也不把已有历史评论批量同步给 Agentrix task；这些事件首版返回结构化 skip reason。
 - 不限制 PR/MR kind；plan PR/MR、build PR/MR 或后续其它 issue-flow PR/MR 只要带有 task marker 都可 resume 对应 task。
 - 不从 source issue body 解析 Agentrix task id，也不把 source issue 上的历史 task marker 作为 fallback；resume 目标必须来自当前 PR/MR body。
+- 不把 source issue 当前 `flow::` / `status::` 作为 review comment resume 的 gate；例如 build PR/MR 等待 review 时 source issue 通常已是 `flow::approve`，这不能阻断 task resume。
 - 不重新设计 merge 后状态流转。
 - 不直接调用 `gh`、`glab`、provider REST/GraphQL passthrough；新增 provider 行为仍走 issue-flow CLI / provider abstraction。
 
@@ -34,6 +35,7 @@
   - 现有 issue action task lock marker 是 `<!-- issue-flow:agentrix:task:<action> -->`；review action 的 PR/MR lock marker 会按 head SHA scoped。
   - `startAction('build', sourceIssue, ..., data)` 当前会启动新的 build action 并创建 issue/action task lock；review comment resume 需要改为对 PR/MR body 中的 Agentrix task id 执行 resume，而不是启动一个无 task id 的新 run。
   - `claimPullRequestActionTask()` 已能在 PR/MR 评论区做 action lock；review comment 路由应使用 PR/MR scoped、comment-scoped lock 防重复，不依赖 source issue 评论区。
+  - source issue 上历史普通 action lock marker（例如 `<!-- issue-flow:agentrix:task:build -->`）不会在任务 queued 后被移除；review comment resume 不能把这类历史 marker 当作 active duplicate。
   - GitHub `pull_request_review_comment` payload 自带 `pull_request` 和 `comment`；GitLab bridge/native note payload 自带 `merge_request` 和 `object_attributes` comment。
   - `issue-flow pr review-comments list` 可读取 review comments，但事件路由不需要先 list 全量评论；它应优先使用 payload 中的新评论上下文。
 - 既有约束：
@@ -106,6 +108,7 @@
    - Agentrix task id 使用新增 `runtime.extractAgentrixTaskIdFromPullRequest(currentPr)`，只读取 PR/MR body 中的 `<!-- issue-flow:agentrix:task=<id> -->`。
    - Agentrix task id 不从 source issue body 解析，也不从 task lock comment、issue comments 或 branch name 推断；解析失败返回 `missing_agentrix_task`。
    - 该路径不读取 source issue state，也不根据 `flow::` 或 `status::` label 决定是否 resume；task marker 是 resume 目标的 source of truth。
+   - 即使 source issue 可解析且当前为 `flow::approve`、`status::done`、size 冲突或其它非 build/resume 状态，也不阻断 PR/MR task resume；这些状态只影响常规 issue-flow automation，不影响对已存在 task 的 review feedback 投递。
    - 该路径不修改 source issue label/body。
 
 5. 设计防重复触发策略。
@@ -117,6 +120,7 @@
      - 再调用 runtime 的 task resume 能力，目标是 `data.agentrixTaskId`，instruction 指向该 review comment。
      - 如果同一 comment-scoped lock 已存在，返回 `duplicate_review_comment_resume`，同时带 existing lock comment URL。
    - 如果实现成本更低，也可以扩展 `claimPullRequestActionTask()` 支持 `data.lockScope`，让 review check、review-comment resume 使用同一 PR/MR claim/update 逻辑但不同 marker。
+   - 不读取 source issue comments 来判断 duplicate，也不保留普通 `duplicate_task` issue/action 检查；旧的 source issue build lock marker 只能作为历史记录，不能阻断第一条或后续 review comment resume。
    - 锁评论最终 body 保留：
      - action: `task_resume`
      - trigger: review comment URL
@@ -199,6 +203,8 @@
      - 缺少 source issue marker 不阻断 resume；结果中 source issue metadata 为空。
      - 缺少 PR body task marker 返回 `missing_agentrix_task`。
      - source issue `flow::plan`、`status::done/drop/suspend` 或 size 冲突不阻断 task resume，因为不读取 source issue state。
+     - source issue `flow::approve` 不阻断 task resume，覆盖 build PR/MR 等待 human review 的常规生命周期。
+     - source issue 上存在历史 `<!-- issue-flow:agentrix:task:build -->` 普通 action lock marker 时，不返回 `duplicate_task`，仍按 PR/MR comment-scoped lock 判断。
      - 同一 review comment 已有 PR/MR lock marker 时返回 duplicate reason，不发送第二次 resume。
    - `test/providers.test.cjs`：
      - GitHub review comment context normalization 覆盖 id、url、path、line、author。
@@ -234,6 +240,7 @@
   - 人工 reviewer 或 Agentrix reviewer 在 open PR/MR 上新增 inline review comment，确认 GitHub Actions / GitLab CI 启动 `dispatch review-comment`，PR/MR 出现 comment-scoped lock，PR/MR body 中的 Agentrix task 收到包含 review comment 链接的 resume instruction。
   - 重放同一个 event payload，确认不会对同一 task 发送第二次 resume，并能看到 duplicate reason。
   - 用 bot/自动化账号评论，确认不会因为作者类型被跳过；只要事件、PR/MR 和 task marker 满足条件就 resume。
+  - 在 source issue 已处于 `flow::approve` 且保留历史 build action lock comment 的 build PR/MR 上新增 review comment，确认仍 resume PR/MR body 中的 task id。
   - 在 closed PR、缺少 task marker 的普通 PR 上评论，确认跳过 reason 可读。
 - 回归范围：
   - PR/MR review check：`dispatch review` 和 `issue-flow-pr-review.yml` 的行为不变。
