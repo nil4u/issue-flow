@@ -6,9 +6,10 @@
    - feature：目标体验、数据/接口/状态变化、交互路径、验收。
    - debt：边界、重构步骤、兼容性、迁移风险、回归面。
    - ops：环境、权限、CI/CD、发布或生产操作路径、失败回滚。
-- 若仍缺少仓库无法推断的关键事实，使用 `issue-flow` skill 将 issue 转到 `flow::clarify`，然后直接提问。
+- 若仍缺少仓库无法推断的关键事实，使用 `issue-flow issue apply` 将 issue 转到 `flow::clarify`，然后直接提问。
 - 提交前按下方注入的 Plan branch 创建或切换到非 base 分支。
-- 提交方案文件，写 PR body，然后使用 `issue-flow` skill 提交 plan PR/MR。
+- 提交方案文件，写 PR body，然后使用 `issue-flow` 统一 CLI 提交 plan PR/MR。
+- issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。
 
 澄清提问：
 - 直接提问，不解释标签变化。

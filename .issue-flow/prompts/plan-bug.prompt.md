@@ -4,10 +4,11 @@
 - 先列出所有已知症状，包括 issue 中的描述和仓库中能定位到的相关行为。
 - 提出根因前，必须能写出一句话：`我认为根因是 <具体文件/函数/条件>，因为 <证据>`。
 - 根因必须解释所有已知症状；如果只能解释一部分，不要写方案 PR/MR，改为澄清。
-- 若仍缺少仓库无法推断的关键事实，使用 `issue-flow` skill 将 issue 转到 `flow::clarify`，然后直接提问。
+- 若仍缺少仓库无法推断的关键事实，使用 `issue-flow issue apply` 将 issue 转到 `flow::clarify`，然后直接提问。
 - 若根因和修复方法足够明确，按下方注入的 Plan output file 写入方案。
 - 提交前按下方注入的 Plan branch 创建或切换到非 base 分支。
-- 提交方案文件，写 PR body，然后使用 `issue-flow` skill 提交 plan PR/MR。
+- 提交方案文件，写 PR body，然后使用 `issue-flow` 统一 CLI 提交 plan PR/MR。
+- issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。
 
 澄清提问：
 - 直接提问，不解释标签变化。

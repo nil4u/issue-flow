@@ -1,14 +1,80 @@
-# 脚本 CLI 参考
+# issue-flow CLI 参考
+
+Agent-facing provider 操作统一通过 `issue-flow <resource> <action> [options]` 完成。安装前或目标仓库内可直接使用：
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs <resource> <action> [options]
+```
+
+本仓库 checkout 中可使用：
+
+```bash
+node skills/issue-flow/cli.cjs <resource> <action> [options]
+```
+
+不要为 issue-flow 已覆盖的动作直接调用 `gh`、`glab`、`gh api`、`glab api`，也不要手写 GitHub/GitLab API 请求。provider 内部的 token API 或 CLI fallback 是实现细节。
 
 ## 通用选项
 
-所有脚本支持：
+统一 CLI 和兼容脚本支持：
 
 | 选项 | 说明 |
 |------|------|
 | `--provider github\|gitlab` | 指定 git provider（默认自动检测） |
 | `--repo owner/repo` | 仓库路径覆盖 |
 | `--dry-run` | 打印意图但不执行 API 调用 |
+
+## 命令树
+
+### Issue
+
+```bash
+issue-flow issue get --issue 123
+issue-flow issue create --title ... --body-file ...
+issue-flow issue apply --issue 123 --flow flow::build
+issue-flow issue intake --issue 123
+issue-flow issue comments list --issue 123
+issue-flow issue comments create --issue 123 --body-file /tmp/body.md
+issue-flow issue comments update --issue 123 --comment-id ... --body-file /tmp/body.md
+issue-flow issue comments delete --issue 123 --comment-id ...
+issue-flow issue acknowledge --issue 123
+issue-flow issue reaction create --issue 123 --content eyes
+```
+
+### PR/MR
+
+```bash
+issue-flow pr get --pr 45
+issue-flow pr submit plan --issue 123 --title ... --body-file /tmp/pr.md
+issue-flow pr submit build --issue 123 --title ... --body-file /tmp/pr.md
+issue-flow pr comments list --pr 45
+issue-flow pr comments create --pr 45 --body-file /tmp/body.md
+issue-flow pr comments update --pr 45 --comment-id ... --body-file /tmp/body.md
+issue-flow pr comments delete --pr 45 --comment-id ...
+issue-flow pr review --pr 45 --body-file /tmp/review.md
+issue-flow pr merged --event /tmp/event.json
+```
+
+### Labels 和 Dispatch
+
+```bash
+issue-flow labels sync
+issue-flow labels check
+issue-flow dispatch auto --event /tmp/event.json
+issue-flow dispatch comment --event /tmp/event.json
+issue-flow dispatch review --event /tmp/event.json
+issue-flow dispatch review --pr 45
+issue-flow dispatch pr-merged --event /tmp/event.json
+issue-flow dispatch resume --event /tmp/event.json
+issue-flow dispatch triage --issue 123
+issue-flow dispatch plan --issue 123
+issue-flow dispatch build --issue 123
+issue-flow dispatch general --issue 123 --instruction "..."
+```
+
+所有统一 CLI 成功命令 stdout 输出单个 JSON 文档。旧脚本继续兼容，但不作为新的 agent-facing 首选 API。
+
+## 旧脚本兼容参考
 
 ## Provider 自动检测顺序
 

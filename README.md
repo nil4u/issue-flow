@@ -34,10 +34,10 @@ That job creates missing labels and updates label colors/descriptions when they 
 
 ## Create Normalized Issues
 
-After an AI discussion clarifies a self-initiated requirement, the installed skill can create a standardized provider issue through the deterministic script:
+After an AI discussion clarifies a self-initiated requirement, the installed skill can create a standardized provider issue through the unified CLI:
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs \
+node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs issue create \
   --title "Add export support" \
   --body-file /tmp/issue-body.md \
   --type type::feature \
@@ -47,6 +47,8 @@ node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs \
 ```
 
 Use a repo-external temp body file, usually generated from `.issue-flow/templates/type-*.md`. Pass labels only when the discussion makes them clear. Use `automation::off` when the issue should be recorded but not picked up by intake or automatic routing.
+
+Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
 
 ## Reinstall and Upgrade
 

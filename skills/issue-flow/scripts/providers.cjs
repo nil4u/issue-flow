@@ -1665,6 +1665,174 @@ function parsePositiveInteger(value, name) {
   return parsed;
 }
 
+function pickNumber(options, keys, label) {
+  for (const key of keys) {
+    if (options[key] !== undefined && options[key] !== '') {
+      return parsePositiveInteger(options[key], label);
+    }
+  }
+  throw new Error(`${label} is required`);
+}
+
+function buildPortRef(provider, payload, options, kind) {
+  const repo = provider.resolveRepo(payload, options);
+  const number = kind === 'issue'
+    ? pickNumber(options, ['issueNumber', 'issue'], '--issue')
+    : pickNumber(options, ['prNumber', 'pr'], '--pr');
+  return {
+    provider: provider.name,
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    projectId: repo.projectId,
+    issueNumber: number,
+    number,
+  };
+}
+
+function normalizePortSubject(subject) {
+  return {
+    provider: subject.provider,
+    repo: subject.repoFullName,
+    number: subject.number,
+    title: subject.title || '',
+    body: subject.body || '',
+    url: subject.htmlUrl || subject.url || '',
+    state: subject.state || '',
+    labels: Array.isArray(subject.labels) ? subject.labels : [],
+    author: subject.author || '',
+    draft: Boolean(subject.draft),
+    merged: Boolean(subject.merged),
+    baseRef: subject.baseRef || '',
+    headRef: subject.headRef || '',
+    headSha: subject.headSha || '',
+  };
+}
+
+function normalizePortComment(comment) {
+  const author = comment && typeof comment.author === 'string'
+    ? comment.author
+    : comment && comment.user && comment.user.login
+      ? comment.user.login
+      : comment && comment.author && (comment.author.username || comment.author.name)
+        ? comment.author.username || comment.author.name
+        : '';
+  return {
+    commentId: String(comment && comment.id !== undefined ? comment.id : ''),
+    body: String((comment && (comment.body || comment.note)) || ''),
+    url: String((comment && (comment.html_url || comment.htmlUrl || comment.web_url || comment.url)) || ''),
+    author,
+    createdAt: String((comment && (comment.created_at || comment.createdAt)) || ''),
+    updatedAt: String((comment && (comment.updated_at || comment.updatedAt)) || ''),
+  };
+}
+
+function normalizePortCommentResult(comment, fallback = {}) {
+  const normalized = normalizePortComment(comment || fallback);
+  return {
+    commentId: normalized.commentId || String(fallback.commentId || ''),
+    url: normalized.url || String(fallback.url || ''),
+    data: comment || fallback,
+  };
+}
+
+function assertReactionContent(content) {
+  const normalized = String(content || 'eyes').trim();
+  const allowed = new Set(['eyes']);
+  if (!allowed.has(normalized)) {
+    throw new Error(`--content must be one of: ${[...allowed].join(', ')}`);
+  }
+  return normalized;
+}
+
+function resolveProviderPort(options = {}, payload = {}) {
+  const provider = resolveProvider(options, payload);
+  const baseOptions = { ...options, provider: provider.name };
+
+  const issueRef = () => buildPortRef(provider, payload, baseOptions, 'issue');
+  const pullRequestRef = () => buildPortRef(provider, payload, baseOptions, 'pr');
+
+  return {
+    provider: provider.name,
+    issues: {
+      async get() {
+        const issue = issueRef();
+        if (baseOptions.dryRun) {
+          return normalizePortSubject(issue);
+        }
+        const current = provider.getIssueForApply
+          ? await provider.getIssueForApply(issue, baseOptions)
+          : await provider.fetchCurrentIssue(issue, baseOptions);
+        return normalizePortSubject(provider.name === 'gitlab'
+          ? normalizeGitlabIssue(current, issue, issue)
+          : normalizeGithubIssue(current, issue, issue));
+      },
+      async listComments() {
+        const issue = issueRef();
+        const comments = await provider.listIssueComments(issue, baseOptions);
+        return comments.map(normalizePortComment);
+      },
+      async createComment(input = {}) {
+        const issue = issueRef();
+        const comment = await provider.createIssueComment(issue, input.body || '', baseOptions);
+        return normalizePortCommentResult(comment, { commentId: 'dry-run-comment' });
+      },
+      async updateComment(commentRef = {}, input = {}) {
+        const issue = issueRef();
+        await provider.updateIssueComment(issue, commentRef.commentId, input.body || '', baseOptions);
+        return { commentId: String(commentRef.commentId), updated: true };
+      },
+      async deleteComment(commentRef = {}) {
+        const issue = issueRef();
+        await provider.deleteIssueComment(issue, commentRef.commentId, baseOptions);
+        return { commentId: String(commentRef.commentId), deleted: true };
+      },
+      async acknowledge(input = {}) {
+        const issue = issueRef();
+        const content = assertReactionContent(input.content);
+        await provider.addIssueReaction(issue, content, baseOptions);
+        return { content, acknowledged: true };
+      },
+      async createReaction(input = {}) {
+        const issue = issueRef();
+        const content = assertReactionContent(input.content);
+        await provider.addIssueReaction(issue, content, baseOptions);
+        return { content, created: true };
+      },
+    },
+    pullRequests: {
+      async get() {
+        const pr = pullRequestRef();
+        if (baseOptions.dryRun) {
+          return normalizePortSubject(pr);
+        }
+        const current = await provider.fetchCurrentPullRequest(pr, baseOptions);
+        return normalizePortSubject(current);
+      },
+      async listComments() {
+        const pr = pullRequestRef();
+        const comments = await provider.listPullRequestComments(pr, baseOptions);
+        return comments.map(normalizePortComment);
+      },
+      async createComment(input = {}) {
+        const pr = pullRequestRef();
+        const comment = await provider.createPullRequestComment(pr, input.body || '', baseOptions);
+        return normalizePortCommentResult(comment, { commentId: 'dry-run-comment' });
+      },
+      async updateComment(commentRef = {}, input = {}) {
+        const pr = pullRequestRef();
+        await provider.updatePullRequestComment(pr, commentRef.commentId, input.body || '', baseOptions);
+        return { commentId: String(commentRef.commentId), updated: true };
+      },
+      async deleteComment(commentRef = {}) {
+        const pr = pullRequestRef();
+        await provider.deletePullRequestComment(pr, commentRef.commentId, baseOptions);
+        return { commentId: String(commentRef.commentId), deleted: true };
+      },
+    },
+  };
+}
+
 const githubProvider = {
   name: 'github',
   envEventPath: 'GITHUB_EVENT_PATH',
@@ -1768,4 +1936,5 @@ module.exports = {
   providers,
   requestGitlab,
   resolveProvider,
+  resolveProviderPort,
 };

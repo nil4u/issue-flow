@@ -34,30 +34,30 @@ flow::approve ──(人工审批)──┬── merge build PR → status::don
 
 ## 流转触发方式
 
-### 自动流转（由脚本确定性执行）
+### 自动流转（由统一 CLI 确定性执行）
 
-| 触发条件 | 脚本 | 结果 |
+| 触发条件 | 命令 | 结果 |
 |----------|------|------|
-| submit plan PR | `submit.cjs plan` | source issue → `flow::approve` |
-| submit build PR | `submit.cjs build` | source issue → `flow::approve` |
-| merge `mr-by::plan` PR | `pr-merged.cjs` | source issue → `flow::build` |
-| merge `mr-by::build` PR | `pr-merged.cjs` | source issue → `status::done` + clear flow |
-| 新 issue 缺默认 label | `intake.cjs` | 添加 `status::active` + `flow::triage` |
-| AI 讨论已形成需求 | `create-issue.cjs` | 创建标准化 issue，可直接带 `status::active` + `flow::*` 或 `automation::off` |
+| submit plan PR | `issue-flow pr submit plan` | source issue → `flow::approve` |
+| submit build PR | `issue-flow pr submit build` | source issue → `flow::approve` |
+| merge `mr-by::plan` PR | `issue-flow pr merged` | source issue → `flow::build` |
+| merge `mr-by::build` PR | `issue-flow pr merged` | source issue → `status::done` + clear flow |
+| 新 issue 缺默认 label | `issue-flow issue intake` | 添加 `status::active` + `flow::triage` |
+| AI 讨论已形成需求 | `issue-flow issue create` | 创建标准化 issue，可直接带 `status::active` + `flow::*` 或 `automation::off` |
 
-### Agent 主动流转（通过 apply.cjs）
+### Agent 主动流转（通过统一 CLI）
 
-Agent 根据自己的判断决定流转方向，通过 `apply.cjs` 执行：
+Agent 根据自己的判断决定流转方向，通过 `issue-flow issue apply` 执行：
 
 ```bash
 # triage 完成，进入 plan
-node apply.cjs --issue-number 123 --flow flow::plan --type type::feature
+issue-flow issue apply --issue 123 --flow flow::plan --type type::feature
 
 # 信息不足，需要人工补充
-node apply.cjs --issue-number 123 --flow flow::clarify
+issue-flow issue apply --issue 123 --flow flow::clarify
 
 # issue 已经解决了
-node apply.cjs --issue-number 123 --status status::done --clear-flow
+issue-flow issue apply --issue 123 --status status::done --clear-flow
 ```
 
 ## 路由决策
@@ -119,7 +119,9 @@ Source issue 通过以下优先级确定：
 |----|----|
 | Scope | PR/MR |
 | Trigger | opened, synchronize, ready_for_review, manual |
-| Command | `dispatch.cjs review` |
-| Submit result | `review.cjs` |
+| Command | `issue-flow dispatch review` |
+| Submit result | `issue-flow pr review` |
 | Config | `ISSUE_FLOW_REVIEW_ENABLED=true` or `1` |
 | Issue state | 不读取或修改 source issue `flow::` |
+
+旧脚本仍作为兼容入口和内部实现保留；新的 agent-facing 文档和 prompt 使用 `issue-flow` 总入口。
