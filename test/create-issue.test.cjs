@@ -10,6 +10,7 @@ const {
   collectCreateLabels,
   main,
   parseArgs,
+  validateCreateSizeGate,
 } = require('../skills/issue-flow/scripts/create-issue.cjs');
 
 function createBodyFile(content = 'Issue body') {
@@ -50,6 +51,8 @@ test('create issue parser accepts managed labels and repeated unmanaged labels',
     'automation::build',
     '--priority',
     'priority::p2',
+    '--size',
+    'size::M',
     '--label',
     'area::export',
     '--label',
@@ -64,6 +67,7 @@ test('create issue parser accepts managed labels and repeated unmanaged labels',
     flow: 'flow::plan',
     automation: 'automation::build',
     priority: 'priority::p2',
+    size: 'size::M',
   });
 });
 
@@ -75,9 +79,10 @@ test('create issue label collection validates managed labels', () => {
       flow: 'flow::build',
       automation: 'automation::off',
       priority: 'priority::p2',
+      size: 'size::S',
       labels: ['area::api'],
     }),
-    ['type::feature', 'status::active', 'flow::build', 'automation::off', 'priority::p2', 'area::api']
+    ['type::feature', 'status::active', 'flow::build', 'automation::off', 'priority::p2', 'size::S', 'area::api']
   );
 
   assert.throws(() => collectCreateLabels({ flow: 'flow::review' }), /flow must be one of:/);
@@ -85,7 +90,31 @@ test('create issue label collection validates managed labels', () => {
     () => collectCreateLabels({ labels: ['flow::plan'] }),
     /flow::plan is a managed label\. Use --flow flow::plan instead of --label\./
   );
+  assert.throws(
+    () => collectCreateLabels({ labels: ['size::S'] }),
+    /size::S is a managed label\. Use --size size::S instead of --label\./
+  );
   assert.throws(() => collectCreateLabels({ labels: ['mr-by::build'] }), /mr-by::\* labels are only valid/);
+});
+
+test('create issue requires size when creating directly into plan or build', () => {
+  assert.throws(
+    () => validateCreateSizeGate(['status::active', 'flow::plan'], { flow: 'flow::plan' }),
+    /requires --size size::<value>/
+  );
+  assert.throws(
+    () => validateCreateSizeGate(['flow::build', 'size::S', 'size::M'], { flow: 'flow::build' }),
+    /requires exactly one size:: label/
+  );
+  assert.throws(
+    () => validateCreateSizeGate(['flow::build', 'size::XXL'], { flow: 'flow::build' }),
+    /requires a managed size label/
+  );
+  assert.deepEqual(
+    validateCreateSizeGate(['flow::build', 'size::S'], { flow: 'flow::build' }),
+    { ok: true, label: 'size::S', weight: 1 }
+  );
+  assert.equal(validateCreateSizeGate(['flow::triage'], { flow: 'flow::triage' }), undefined);
 });
 
 test('create issue Agentrix task marker prepends and replaces hidden marker', () => {
@@ -121,6 +150,8 @@ test('create issue dry-run outputs stable JSON without calling provider APIs', a
         'type::feature',
         '--automation',
         'automation::off',
+        '--size',
+        'size::M',
         '--dry-run',
       ])
     );
@@ -129,7 +160,7 @@ test('create issue dry-run outputs stable JSON without calling provider APIs', a
     assert.equal(parsed.provider, 'github');
     assert.equal(parsed.repo, 'acme/webapp');
     assert.equal(parsed.title, 'Create a thing');
-    assert.deepEqual(parsed.labels, ['type::feature', 'automation::off']);
+    assert.deepEqual(parsed.labels, ['type::feature', 'automation::off', 'size::M']);
   } finally {
     global.fetch = previousFetch;
     bodyFile.cleanup();

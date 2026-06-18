@@ -583,8 +583,9 @@ async function runAuto(options = {}, provided = {}) {
       effective: decision.effectiveLevel,
     });
     return {
-      action: 'skipped',
       ...decision,
+      action: 'skipped',
+      selectedAction: decision.action,
     };
   }
 
@@ -616,8 +617,9 @@ async function runResume(options = {}, provided = {}) {
   const decision = resolveRuntimeResumeDecision(issue, runtime);
   if (!decision.shouldRun) {
     return {
-      action: 'skipped',
       ...decision,
+      action: 'skipped',
+      selectedAction: decision.action,
     };
   }
 

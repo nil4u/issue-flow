@@ -38,6 +38,7 @@ issue-flow <resource> <action> [options]
 | `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `clarify`, `approve` |
 | `automation::` | Issue | 允许自动化推进到的级别，或显式关闭 | `off`, `plan`, `build` |
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
+| `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
 | `mr-by::` | PR/MR | 标记 PR/MR 来源动作 | `plan`, `build` |
 
 详情请参考：`references/labels.md`。
@@ -49,8 +50,8 @@ issue-flow <resource> <action> [options]
 ```bash
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue get --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue create --title "<normalized title>" --body-file <tmp-issue-body-file> \
-  --type type::feature --status status::active --flow flow::plan --priority priority::p2
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build
+  --type type::feature --status status::active --flow flow::plan --priority priority::p2 --size size::M
+node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build --size size::M
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue intake --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments list --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments create --issue 123 --body-file <tmp-comment-body-file>
@@ -60,7 +61,8 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
 - `issue apply` 只移除指定 prefix 的旧 label，不动其他 prefix。
 - 设置 `flow::clarify` 时不会更新 issue body（会忽略 `--normalized-body-file`）。
 - 创建 issue 时，body 先按 `.issue-flow/templates/type-*.md` 整理，写到 repo 外临时文件（如 `mktemp`）；不要把 body 文件提交到 git。
-- `type::`、`status::`、`flow::`、`priority::`、`automation::` 必须通过对应参数传入，不能放在 `--label`。
+- `type::`、`status::`、`flow::`、`priority::`、`automation::`、`size::` 必须通过对应参数传入，不能放在 `--label`。
+- 进入 `flow::plan` 或 `flow::build` 前，issue 必须有且仅有一个 `size::`。缺失时根据标题、正文、评论和仓库上下文选择一个；无法判断时用 `size::M` 并留下低置信度说明。
 - `--label` 只用于 unmanaged label；`mr-by::*` 只用于 PR/MR，不能用于 issue。
 - 有 `AGENTRIX_TASK_ID` 时创建命令会自动在 body 顶部写入隐藏 task marker，agent 不需要手写。
 

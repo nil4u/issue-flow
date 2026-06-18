@@ -200,7 +200,8 @@ function runChecked(command, args, options = {}) {
     throw result.error;
   }
   if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
+    const stderr = result.stderr ? result.stderr.trim() : '';
+    throw new Error(stderr || `${command} ${args.join(' ')} exited with status ${result.status ?? 1}`);
   }
   return result.stdout ? result.stdout.trim() : '';
 }
@@ -217,6 +218,9 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   ];
   if (transition.flow) {
     args.push('--flow', transition.flow);
+  }
+  if (options.dryRun && (transition.flow === 'flow::plan' || transition.flow === 'flow::build')) {
+    args.push('--size', 'size::M');
   }
   if (transition.status) {
     args.push('--status', transition.status);

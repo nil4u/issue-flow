@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider, normalizeLabelName } = require('./providers.cjs');
-const { labelDefinitionFor, labelGroupsForScope } = require('./labels.cjs');
+const { labelDefinitionFor, labelGroupsForScope, resolveIssueSizeLabel } = require('./labels.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=[^>]*-->\s*/i;
@@ -18,6 +18,7 @@ function usage() {
     '  --flow <flow::...>',
     '  --automation <automation::...>',
     '  --priority <priority::...>',
+    '  --size <size::...>',
     '',
     'Other options:',
     '  --label <name>            Add a non-managed provider label. May be repeated.',
@@ -159,6 +160,29 @@ function collectCreateLabels(options) {
   return [...new Set(labels)];
 }
 
+function requiresSizeForCreate(options) {
+  return options.flow === 'flow::plan' || options.flow === 'flow::build';
+}
+
+function validateCreateSizeGate(labels, options = {}) {
+  if (!requiresSizeForCreate(options)) {
+    return undefined;
+  }
+  const size = resolveIssueSizeLabel(labels);
+  if (size.ok) {
+    return size;
+  }
+  if (size.code === 'multiple_size_labels') {
+    throw new Error(`Creating an issue with flow::plan/build requires exactly one size:: label; found: ${size.labels.join(', ')}.`);
+  }
+  if (size.code === 'invalid_size_label') {
+    throw new Error(`Creating an issue with flow::plan/build requires a managed size label; found: ${size.labels.join(', ')}.`);
+  }
+  throw new Error(
+    'Creating an issue with flow::plan/build requires --size size::<value>. Choose size::XS/S/M/L/XL; if unsure, use size::M and mention low confidence in the body or a follow-up comment.'
+  );
+}
+
 function buildAgentrixTaskMarker(taskId) {
   const normalized = String(taskId || '').trim();
   if (!normalized) {
@@ -199,6 +223,7 @@ async function main(argv = process.argv.slice(2)) {
 
   const title = validateTitle(options.title);
   const labels = collectCreateLabels(options);
+  validateCreateSizeGate(labels, options);
   const rawBody = readBodyFile(options.bodyFile);
   const body = buildIssueBodyWithTaskMarker(rawBody, options.agentrixTaskId || process.env.AGENTRIX_TASK_ID);
   const repoHint = resolveRepoHint(options);
@@ -257,7 +282,9 @@ module.exports = {
   collectManagedLabels,
   main,
   parseArgs,
+  requiresSizeForCreate,
   resolveRepoHint,
+  validateCreateSizeGate,
 };
 
 if (require.main === module) {

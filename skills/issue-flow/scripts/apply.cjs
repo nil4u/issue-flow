@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
-const { labelGroupsForScope } = require('./labels.cjs');
+const { labelGroupsForScope, requireSingleIssueSize } = require('./labels.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
 
@@ -19,6 +19,7 @@ function usage() {
     '  --automation <automation::...>',
     '  --clear-automation   Remove any existing automation:: label without adding a new one.',
     '  --priority <priority::...>',
+    '  --size <size::...>',
     '',
     'Issue body options:',
     '  --normalized-body <markdown>',
@@ -146,6 +147,24 @@ function computeLabelChanges(currentLabels, desiredByKey, clearKeys = []) {
   };
 }
 
+function computeNextLabels(currentLabels, labelsToAdd, labelsToRemove) {
+  const remove = new Set(labelsToRemove);
+  return [...new Set([...currentLabels.filter((label) => !remove.has(label)), ...labelsToAdd])];
+}
+
+function requiresSizeForDesiredFlow(desiredByKey) {
+  return desiredByKey.flow === 'flow::plan' || desiredByKey.flow === 'flow::build';
+}
+
+function validateFlowSizeGate(currentLabels, desiredByKey, clearKeys = [], context = {}) {
+  if (!requiresSizeForDesiredFlow(desiredByKey)) {
+    return undefined;
+  }
+  const { labelsToAdd, labelsToRemove } = computeLabelChanges(currentLabels, desiredByKey, clearKeys);
+  const nextLabels = computeNextLabels(currentLabels, labelsToAdd, labelsToRemove);
+  return requireSingleIssueSize(nextLabels, context);
+}
+
 function hasBodySection(options) {
   return Boolean(options.normalizedBody || options.normalizedBodyFile);
 }
@@ -241,6 +260,7 @@ async function main(argv = process.argv.slice(2)) {
     : await provider.getIssueForApply(target, options);
   const currentLabels = Array.isArray(issue.labels) ? issue.labels.map(normalizeLabelName).filter(Boolean) : [];
 
+  validateFlowSizeGate(currentLabels, desiredByKey, clearKeys, { issueNumber });
   await applyLabels(target, currentLabels, desiredByKey, clearKeys, options);
   await applyIssueBody(target, issue, desiredByKey, options);
 }
@@ -249,10 +269,13 @@ module.exports = {
   collectClearKeys,
   collectDesiredLabels,
   computeLabelChanges,
+  computeNextLabels,
   readNormalizedBody,
+  requiresSizeForDesiredFlow,
   shouldSkipIssueBodyUpdate,
   main,
   parseArgs,
+  validateFlowSizeGate,
 };
 
 if (require.main === module) {

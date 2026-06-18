@@ -168,13 +168,15 @@ test('issue apply maps --issue alias and keeps cli stdout as one JSON document',
     '15',
     '--flow',
     'flow::build',
+    '--size',
+    'size::M',
     '--dry-run',
   ]);
   assert.equal(result.status, 0, result.stderr);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.action, 'applied');
   assert.equal(parsed.resource, 'issue');
-  assert.deepEqual(parsed.data.labelsToAdd, ['flow::build']);
+  assert.deepEqual(parsed.data.labelsToAdd, ['flow::build', 'size::M']);
 });
 
 test('pr review maps --pr alias through the unified cli', () => {

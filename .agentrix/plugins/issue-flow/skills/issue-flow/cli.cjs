@@ -28,7 +28,7 @@ function topHelp() {
     '',
     'Examples:',
     '  issue-flow issue get --issue 123',
-    '  issue-flow issue apply --issue 123 --flow flow::build',
+    '  issue-flow issue apply --issue 123 --flow flow::build --size size::M',
     '  issue-flow pr submit build --issue 123 --title "Build #123: Change" --body-file /tmp/body.md',
     '',
     'Common options:',
