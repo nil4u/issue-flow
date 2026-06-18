@@ -24,7 +24,8 @@ Provider operations use `gh`/`glab` CLI or direct HTTP via Node's built-in fetch
 
 ## Key Conventions
 
-- Scripts are the source of truth for deterministic behavior
+- The unified `issue-flow` CLI is the agent-facing provider operation entrypoint; direct `gh`/`glab` or handwritten provider API calls are internal fallback details only
+- Scripts are the source of truth for deterministic behavior and remain compatible implementation entrypoints
 - SKILL.md is the agent-facing usage guide (keep concise, avoid noise)
 - docs/ are human-facing (CI setup, env vars, provider details)
 - All scripts support `--dry-run` for safe testing

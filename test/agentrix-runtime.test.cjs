@@ -64,7 +64,9 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
   assert.match(prompt, /Plan branch: `42-broken-login\/plan`/);
   assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /issue-flow pr submit/);
   assert.match(prompt, /do not put it in git/);
+  assert.match(prompt, /do not call `gh`, `glab`, `gh api`, `glab api`/);
   assert.match(prompt, /## Required Skill/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
   assert.match(prompt, /^Labels: type::bug, priority::p2$/m);
@@ -96,6 +98,7 @@ test('agentrix build prompt injects build context without plan output section', 
   assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
   assert.match(prompt, /## Plan Files/);
   assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /issue-flow pr submit/);
   assert.match(prompt, /do not put it in git/);
   assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
   assert.doesNotMatch(prompt, /## Plan Output/);
@@ -122,7 +125,8 @@ test('agentrix review prompt uses target URL and review submission script', () =
   assert.match(prompt, /## Review Target/);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.match(prompt, /## Review Submission/);
-  assert.match(prompt, /scripts\/review\.cjs --pr-number 9 --body-file <tmp-review-body-file>/);
+  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file>/);
+  assert.match(prompt, /do not call `gh`, `glab`, `gh api`, `glab api`/);
   assert.match(prompt, /使用下方 review 提交命令发布结果/);
   assert.doesNotMatch(prompt, /## Issue/);
   assert.doesNotMatch(prompt, /Possible source issue/);
@@ -167,10 +171,28 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
   }
 });
 
+test('agentrix general prompt includes create issue guidance', () => {
+  const prompt = agentrix.buildPrompt(
+    'general',
+    {
+      number: 42,
+      state: 'open',
+      labels: ['status::active'],
+      title: 'Discussed requirement',
+      body: 'Context',
+    },
+    { instruction: 'create an issue for this' }
+  );
+
+  assert.match(prompt, /issue-flow issue create/);
+  assert.match(prompt, /automation::off/);
+});
+
 test('agentrix task marker uses issue-flow namespace', () => {
-  assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:task:agentrix:build -->');
+  assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:agentrix:task:build -->');
   assert.equal(
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
-    '<!-- issue-flow:task:agentrix:review:abc123 -->'
+    '<!-- issue-flow:agentrix:task:review:abc123 -->'
   );
+  assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
 });

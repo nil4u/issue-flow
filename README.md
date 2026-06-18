@@ -32,6 +32,24 @@ The installer clones `issue-flow` into a temporary directory, then writes the ru
 After you commit and push the installed files, the installed CI workflow automatically synchronizes the built-in provider labels.
 That job creates missing labels and updates label colors/descriptions when they drift. If the workflow token cannot manage repository/project labels, the label sync job fails and the rest of the installed files remain unchanged.
 
+## Create Normalized Issues
+
+After an AI discussion clarifies a self-initiated requirement, the installed skill can create a standardized provider issue through the unified CLI:
+
+```bash
+node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs issue create \
+  --title "Add export support" \
+  --body-file /tmp/issue-body.md \
+  --type type::feature \
+  --status status::active \
+  --flow flow::plan \
+  --priority priority::p2
+```
+
+Use a repo-external temp body file, usually generated from `.issue-flow/templates/type-*.md`. Pass labels only when the discussion makes them clear. Use `automation::off` when the issue should be recorded but not picked up by intake or automatic routing.
+
+Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
+
 ## Reinstall and Upgrade
 
 The installer writes `.issue-flow/install-manifest.json` with the source path, mode, and sha256 for installed files. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, and removes stale files that were installed before and have not been edited.

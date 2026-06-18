@@ -12,6 +12,7 @@ test('intake adds missing default status and flow labels', () => {
   assert.deepEqual(computeIssueIntakeLabels(['status::active']), ['flow::triage']);
   assert.deepEqual(computeIssueIntakeLabels(['flow::plan']), ['status::active']);
   assert.deepEqual(computeIssueIntakeLabels(['status::active', 'flow::triage']), []);
+  assert.deepEqual(computeIssueIntakeLabels(['automation::off']), []);
 });
 
 test('intake CLI parser accepts issue number and dry-run', () => {

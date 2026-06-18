@@ -16,7 +16,7 @@ Triage 识别 issue 类型后使用这些模版。模版同时承担两件事：
 
 如果无法从 issue 和仓库上下文中补齐必要字段，triage 必须设置 `flow::clarify`。面向人的回复应直接提问，优先给选择项、推荐默认方案和判断依据。
 
-如果必要字段已经足够，triage 应把 issue 正文改写成对应模版格式，并通过项目级 Claude skill `issue-flow` 的 `${CLAUDE_SKILL_DIR}/scripts/apply.cjs --normalized-body-file <path>` 应用标签和正文。
+如果必要字段已经足够，triage 应把 issue 正文改写成对应模版格式，并通过项目级 Claude skill `issue-flow` 的 `${CLAUDE_SKILL_DIR}/cli.cjs issue apply --normalized-body-file <path>` 应用标签和正文。
 
 Plan 使用单独的方案模版：
 

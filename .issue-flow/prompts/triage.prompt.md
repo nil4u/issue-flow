@@ -1,6 +1,6 @@
 给当前 issue 进行分类打标签，判断是否可执行，选择下一步 flow，并在需要时规范化 issue 正文。
 
-先读取 `issue-flow` skill，按其中的 label 体系与 `apply.cjs` 用法操作。
+先读取 `issue-flow` skill，按其中的 label 体系与统一 CLI 用法操作。issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。
 
 ## 关键行为
 
@@ -28,7 +28,7 @@
 - `automation::plan`：自动推进到 plan 为止；build 需人工触发。
 - `automation::build`：自动推进到 build；若走 plan，人工合并 plan PR 后自动续推。
 
-它只能在 repo 默认级别之上**抬高**上限，不能压低；不确定就不标，沿用 repo 默认。按需求的风险、影响面和你对实现路径的把握来定，例如：
+issue 上的 `automation::` label 会覆盖 repo 默认级别；不确定就不标，沿用 repo 默认。按需求的风险、影响面和你对实现路径的把握来定，例如：
 
 - 路径清楚、低风险、希望自动实现：标 `flow::build` + `automation::build`。
 - 需要先规划，但 plan 通过后可自动实现：标 `flow::plan` + `automation::build`。

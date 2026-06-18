@@ -49,7 +49,7 @@ test('merged PR source issue context simulates post-transition labels', () => {
       projectId: undefined,
       number: 42,
       state: 'open',
-      labels: ['flow::build'],
+      labels: ['status::active', 'flow::build'],
     }
   );
 });

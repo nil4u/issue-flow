@@ -240,12 +240,14 @@ function formatRequiredSkill() {
     '## Required Skill',
     '',
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
+    '',
+    'Provider operations covered by issue-flow must use the unified `issue-flow` CLI / `cli.cjs`; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-written provider API requests for those actions.',
   ].join('\n');
 }
 
 function formatPrBodyFileRule() {
   return [
-    'PR body: write it to a repo-external temp file (for example `mktemp`) for `submit.cjs --body-file`; do not put it in git.',
+    'PR body: write it to a repo-external temp file (for example `mktemp`) for `issue-flow pr submit ... --body-file`; do not put it in git.',
   ].join('\n');
 }
 
@@ -256,7 +258,7 @@ function formatReviewSubmission(pr) {
     'Write the review body to a repo-external temp file, then submit it once:',
     '',
     '```bash',
-    `node ${normalizeRepoPath(path.join(skillRootDir(), 'scripts', 'review.cjs'))} --pr-number ${pr.number} --body-file <tmp-review-body-file>`,
+    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number} --body-file <tmp-review-body-file>`,
     '```',
   ].join('\n');
 }
@@ -487,9 +489,9 @@ function run(action, issue, options = {}, data = {}) {
 function buildTaskCommentMarker(action, data = {}) {
   const pr = data.pullRequest || data;
   if (action === 'review' && pr && pr.headSha) {
-    return `<!-- issue-flow:task:agentrix:${action}:${pr.headSha} -->`;
+    return `<!-- issue-flow:agentrix:task:${action}:${pr.headSha} -->`;
   }
-  return `<!-- issue-flow:task:agentrix:${action} -->`;
+  return `<!-- issue-flow:agentrix:task:${action} -->`;
 }
 
 function buildTaskComment(action, result, data = {}) {
