@@ -117,3 +117,25 @@ issue-flow-review:
         set -- "$@" --pr-number "$AGENTRIX_PR_NUMBER"
       fi
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"
+
+issue-flow-failure-intake:
+  rules:
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "workflow_run" && $AGENTRIX_EVENT_ACTION == "completed" && $AGENTRIX_WORKFLOW_RUN_CONCLUSION == "failure"'
+      when: on_success
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "workflow_run" && $AGENTRIX_EVENT_ACTION == "completed" && $AGENTRIX_PIPELINE_STATUS == "failed"'
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      if [ -n "${GITLAB_EVENT_PATH:-}" ]; then
+        set -- "$@" --event "$GITLAB_EVENT_PATH"
+      fi
+      if [ -n "${ISSUE_FLOW_FAILURE_LOG_FILE:-}" ]; then
+        set -- "$@" --log-file "$ISSUE_FLOW_FAILURE_LOG_FILE"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs dispatch pipeline-failed "$@"

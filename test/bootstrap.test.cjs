@@ -64,15 +64,18 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       '.github/workflows/issue-flow-labels.yml',
       '.github/workflows/issue-flow-auto.yml',
       '.github/workflows/issue-flow-comment.yml',
+      '.github/workflows/issue-flow-failure-intake.yml',
       '.github/workflows/issue-flow-pr-merged.yml',
       '.github/workflows/issue-flow-pr-review.yml',
       '.issue-flow/install-manifest.json',
     ].sort());
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-failure-intake.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml')), true);
     const labelsWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-labels.yml'), 'utf8');
     const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
+    const failureWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-failure-intake.yml'), 'utf8');
     const reviewWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml'), 'utf8');
     assert.match(labelsWorkflow, /Issue Flow Labels/);
     assert.match(labelsWorkflow, /issues: write/);
@@ -82,6 +85,11 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(autoWorkflow, /- labeled/);
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
+    assert.match(failureWorkflow, /workflow_run:/);
+    assert.match(failureWorkflow, /github\.event\.workflow_run\.conclusion == 'failure'/);
+    assert.match(failureWorkflow, /github\.event\.workflow_run\.name != 'Issue Flow Failure Intake'/);
+    assert.match(failureWorkflow, /actions: read/);
+    assert.match(failureWorkflow, /cli\.cjs dispatch pipeline-failed/);
     assert.match(reviewWorkflow, /Issue Flow PR Review/);
     assert.match(reviewWorkflow, /ready_for_review/);
     assert.match(reviewWorkflow, /pull-requests: write/);
@@ -254,6 +262,15 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /git checkout FETCH_HEAD -- \.agentrix\/plugins\/issue-flow \.issue-flow/);
     assert.match(gitlabWorkflow, /--pr-number "\$AGENTRIX_PR_NUMBER"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs review/);
+    assert.match(gitlabWorkflow, /issue-flow-failure-intake:/);
+    assert.doesNotMatch(gitlabWorkflow, /stage: \.post/);
+    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "workflow_run"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_ACTION == "completed"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_WORKFLOW_RUN_CONCLUSION == "failure"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_PIPELINE_STATUS == "failed"/);
+    assert.doesNotMatch(gitlabWorkflow, /when: on_failure/);
+    assert.doesNotMatch(gitlabWorkflow, /ISSUE_FLOW_PIPELINE_FAILED/);
+    assert.match(gitlabWorkflow, /cli\.cjs dispatch pipeline-failed/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

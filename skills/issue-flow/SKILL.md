@@ -87,6 +87,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch auto --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch comment --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch review --pr 45
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch resume --event <event-json-file>
+node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-file>
 ```
 
 所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
