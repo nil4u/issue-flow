@@ -19,9 +19,10 @@ function createBodyFile(content = 'Body') {
   };
 }
 
-function runCli(args) {
+function runCli(args, options = {}) {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     encoding: 'utf8',
+    ...options,
   });
 }
 
@@ -42,6 +43,88 @@ test('issue get dry-run outputs a single stable JSON envelope', () => {
   assert.equal(parsed.issue, 15);
   assert.equal(parsed.data.repo, 'acme/webapp');
   assert.equal(parsed.data.number, 15);
+});
+
+test('issue get dry-run resolves github repo from current checkout remote', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-cli-remote-'));
+  try {
+    assert.equal(spawnSync('git', ['init'], { cwd: dir, encoding: 'utf8' }).status, 0);
+    assert.equal(
+      spawnSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/webapp.git'], {
+        cwd: dir,
+        encoding: 'utf8',
+      }).status,
+      0
+    );
+
+    const env = {
+      ...process.env,
+      AGENTRIX_PROVIDER: '',
+      AGENTRIX_REPOSITORY_NAME: '',
+      AGENTRIX_REPOSITORY_OWNER: '',
+      CI_PROJECT_ID: '',
+      CI_PROJECT_PATH: '',
+      CI_REPOSITORY_URL: '',
+      GITHUB_REPOSITORY: '',
+      GITLAB_API_URL: '',
+      GITLAB_BASE_URL: '',
+      GITLAB_CI: '',
+      GITLAB_PRIVATE_TOKEN: '',
+      GITLAB_PROJECT_PATH: '',
+      GITLAB_TOKEN: '',
+      GL_TOKEN: '',
+      ISSUE_FLOW_PROVIDER: '',
+    };
+    const result = runCli(['issue', 'get', '--issue', '15', '--dry-run'], { cwd: dir, env });
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.provider, 'github');
+    assert.equal(parsed.data.repo, 'acme/webapp');
+    assert.equal(parsed.data.number, 15);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('issue get dry-run resolves gitlab project from current checkout remote', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-cli-remote-'));
+  try {
+    assert.equal(spawnSync('git', ['init'], { cwd: dir, encoding: 'utf8' }).status, 0);
+    assert.equal(
+      spawnSync('git', ['remote', 'add', 'origin', 'git@gitlab.com:group/sub/project.git'], {
+        cwd: dir,
+        encoding: 'utf8',
+      }).status,
+      0
+    );
+
+    const env = {
+      ...process.env,
+      AGENTRIX_PROVIDER: '',
+      AGENTRIX_REPOSITORY_NAME: '',
+      AGENTRIX_REPOSITORY_OWNER: '',
+      CI_PROJECT_ID: '',
+      CI_PROJECT_PATH: '',
+      CI_REPOSITORY_URL: '',
+      GITHUB_REPOSITORY: '',
+      GITLAB_API_URL: '',
+      GITLAB_BASE_URL: '',
+      GITLAB_CI: '',
+      GITLAB_PRIVATE_TOKEN: '',
+      GITLAB_PROJECT_PATH: '',
+      GITLAB_TOKEN: '',
+      GL_TOKEN: '',
+      ISSUE_FLOW_PROVIDER: '',
+    };
+    const result = runCli(['issue', 'get', '--issue', '15', '--dry-run'], { cwd: dir, env });
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.provider, 'gitlab');
+    assert.equal(parsed.data.repo, 'group/sub/project');
+    assert.equal(parsed.data.number, 15);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('issue comments create dry-run uses provider port and suppresses helper stdout', () => {
