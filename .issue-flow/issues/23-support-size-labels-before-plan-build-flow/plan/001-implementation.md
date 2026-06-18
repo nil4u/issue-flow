@@ -118,7 +118,7 @@
    - 更新 `triage.prompt.md`、`general.prompt.md`、`plan-impl.prompt.md`、`plan-bug.prompt.md` 和 `build.prompt.md`：
      - 设置 `flow::plan/build` 时要在同一条 `issue apply` 命令中设置 `--size`，或确认 issue 已有唯一 size。
      - `issue apply/create/pr submit` 因缺失 size 失败时，agent 应根据 issue 标题、正文、评论选择 size 后重试。
-     - 无法判断时默认 `size::M`，并用 `issue-flow issue comments create --body-file <tmp>` 留下低置信度说明。
+     - 无法判断时默认 `size::M`，并用 `issue-flow issue comments create --issue <n> --body-file <tmp>` 留下低置信度说明；`--issue` 必须显式传入 source issue number。
      - 多个 size 失败时，agent 应选择一个 size 并用 `issue apply --size ...` 统一修正后重试。
    - 更新 `skills/issue-flow/SKILL.md` 和安装资产，明确 `--size` 是 issue managed label 参数，不能放进 unmanaged `--label`。
 
@@ -169,6 +169,7 @@
    - 扩展 `test/agentrix-runtime.test.cjs`：
      - triage/general prompt 要求设置 `flow::plan/build` 时同步设置或确认唯一 size。
      - plan/build prompt 要求 submit 因 size 失败时先补 size，再重试 submit。
+     - 低置信度说明的示例命令必须包含 `issue comments create --issue <n> --body-file <tmp>`。
      - issue prompt context 中 `size::` label 不被过滤。
    - 回归 `npm test`。
 
