@@ -4,9 +4,12 @@ const test = require('node:test');
 const {
   analyzeFailureContext,
   buildDuplicateComment,
+  createIssueCliArgs,
   buildIssueBody,
   findMatchingIssue,
   fingerprintFailure,
+  githubFailureContext,
+  gitlabFailureContext,
   parsePipelineFailureMarker,
   typeLabelForAnalysis,
 } = require('../skills/issue-flow/scripts/pipeline-failed.cjs');
@@ -86,4 +89,85 @@ test('repo and provider actionable failures map to expected issue types', () => 
   }));
   assert.equal(providerAnalysis.category, 'actionable_provider_fix');
   assert.equal(typeLabelForAnalysis(providerAnalysis), 'type::ops');
+});
+
+test('github workflow run analysis picks an actionable failed job after a transient first job', async () => {
+  const payload = {
+    workflow_run: {
+      id: 100,
+      conclusion: 'failure',
+      name: 'CI',
+      html_url: 'https://github.com/acme/webapp/actions/runs/100',
+      head_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      head_branch: 'main',
+      pull_requests: [{ number: 7 }],
+    },
+  };
+  const provider = {
+    collectWorkflowRunFailureDetails: async () => ({
+      jobs: [
+        {
+          name: 'download',
+          htmlUrl: 'https://github.com/acme/webapp/actions/jobs/1',
+          log: 'npm ERR! network ECONNRESET while fetching package',
+          steps: [{ name: 'Install', conclusion: 'failure' }],
+        },
+        {
+          name: 'test',
+          htmlUrl: 'https://github.com/acme/webapp/actions/jobs/2',
+          log: 'FAIL test/app.test.js\nAssertionError: expected 1 to equal 2',
+          steps: [{ name: 'Run tests', conclusion: 'failure' }],
+        },
+      ],
+    }),
+  };
+  const context = await githubFailureContext(payload, provider, { fullName: 'acme/webapp' });
+
+  assert.equal(context.jobName, 'test');
+  assert.equal(context.stepName, 'Run tests');
+  assert.equal(analyzeFailureContext(context).category, 'actionable_repo_fix');
+});
+
+test('gitlab on_failure fallback env is treated as a failed pipeline signal', () => {
+  const context = gitlabFailureContext(
+    {},
+    { fullName: 'acme/webapp' },
+    {},
+    {
+      ISSUE_FLOW_PIPELINE_FAILED: 'true',
+      CI_JOB_NAME: 'issue-flow-failure-intake',
+      CI_JOB_URL: 'https://gitlab.example/acme/webapp/-/jobs/99',
+      CI_COMMIT_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      CI_COMMIT_REF_NAME: 'main',
+      ISSUE_FLOW_FAILURE_LOG: 'FAIL test/app.test.js',
+    }
+  );
+
+  assert.equal(context.provider, 'gitlab');
+  assert.equal(context.jobName, 'issue-flow-failure-intake');
+  assert.equal(context.skipped, undefined);
+});
+
+test('create issue cli args forward provider-specific options', () => {
+  const args = createIssueCliArgs({
+    title: 'Fix CI failure',
+    bodyFile: '/tmp/body.md',
+    type: 'type::ops',
+    fingerprint: { label: 'ci-fp::1234abcd' },
+    options: {
+      provider: 'gitlab',
+      repo: 'group/project',
+      gitlabUrl: 'https://gitlab.example',
+      gitlabApiUrl: 'https://gitlab.example/api/v4',
+      gitlabProject: 'group/project',
+      gitlabToken: 'token',
+    },
+  });
+
+  assert.match(args.join(' '), /--provider gitlab/);
+  assert.match(args.join(' '), /--repo group\/project/);
+  assert.match(args.join(' '), /--gitlab-url https:\/\/gitlab\.example/);
+  assert.match(args.join(' '), /--gitlab-api-url https:\/\/gitlab\.example\/api\/v4/);
+  assert.match(args.join(' '), /--gitlab-project group\/project/);
+  assert.match(args.join(' '), /--gitlab-token token/);
 });

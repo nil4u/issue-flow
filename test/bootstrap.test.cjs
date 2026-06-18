@@ -87,6 +87,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.match(failureWorkflow, /workflow_run:/);
     assert.match(failureWorkflow, /github\.event\.workflow_run\.conclusion == 'failure'/);
+    assert.match(failureWorkflow, /github\.event\.workflow_run\.name != 'Issue Flow Failure Intake'/);
     assert.match(failureWorkflow, /actions: read/);
     assert.match(failureWorkflow, /cli\.cjs dispatch pipeline-failed/);
     assert.match(reviewWorkflow, /Issue Flow PR Review/);
@@ -265,6 +266,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /stage: \.post/);
     assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME =~ \/\^\(pipeline\|job\)\$\//);
     assert.match(gitlabWorkflow, /when: on_failure/);
+    assert.match(gitlabWorkflow, /export ISSUE_FLOW_PIPELINE_FAILED=true/);
     assert.match(gitlabWorkflow, /cli\.cjs dispatch pipeline-failed/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

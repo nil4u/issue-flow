@@ -17,6 +17,7 @@ issue-flow-labels:
   script:
     - |
       set -eu
+      export ISSUE_FLOW_PIPELINE_FAILED=true
       set -- --provider gitlab
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"

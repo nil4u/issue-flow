@@ -413,21 +413,32 @@ async function githubFailureContext(payload, provider, repo, options = {}) {
   if (provider.collectWorkflowRunFailureDetails) {
     details = await provider.collectWorkflowRunFailureDetails(repo, run.id, options);
   }
-  const failedJob = details.jobs && details.jobs[0] ? details.jobs[0] : {};
-
-  return {
+  const failedJobs = Array.isArray(details.jobs) ? details.jobs : [];
+  const baseContext = {
     provider: 'github',
     repoFullName: repo.fullName,
     workflowName: run.name || payload.workflow && payload.workflow.name || '',
-    jobName: failedJob.name || '',
-    stepName: failedStepName(failedJob.steps || []),
-    runUrl: failedJob.htmlUrl || run.html_url || '',
+    jobName: '',
+    stepName: '',
+    runUrl: run.html_url || '',
     commitSha: run.head_sha || '',
     branch: run.head_branch || '',
     pullRequest: pullRequestLabelFromGithubRun(run),
-    log: truncate(failedJob.log || '', LOG_LIMIT),
+    log: '',
     raw: payload,
   };
+  if (failedJobs.length === 0) {
+    return baseContext;
+  }
+
+  const contexts = failedJobs.map((job) => ({
+    ...baseContext,
+    jobName: job.name || '',
+    stepName: failedStepName(job.steps || []),
+    runUrl: job.htmlUrl || baseContext.runUrl,
+    log: truncate(job.log || '', LOG_LIMIT),
+  }));
+  return contexts.find((context) => analyzeFailureContext(context).category !== 'non_actionable_or_transient') || contexts[0];
 }
 
 function isFailedGitlabPayload(payload) {
@@ -444,7 +455,11 @@ function gitlabFailureContext(payload, repo, options = {}, env = process.env) {
   const attrs = payload.object_attributes || {};
   const build = gitlabFailedBuild(payload);
   const hasPayloadFailure = payload.object_kind === 'pipeline' || payload.object_kind === 'job' || isFailedGitlabPayload(payload);
-  const hasEnvFailure = env.CI_JOB_STATUS === 'failed' || env.AGENTRIX_EVENT_ACTION === 'failed' || env.AGENTRIX_PIPELINE_STATUS === 'failed';
+  const hasEnvFailure =
+    env.ISSUE_FLOW_PIPELINE_FAILED === 'true' ||
+    env.CI_JOB_STATUS === 'failed' ||
+    env.AGENTRIX_EVENT_ACTION === 'failed' ||
+    env.AGENTRIX_PIPELINE_STATUS === 'failed';
   if (!hasPayloadFailure && !hasEnvFailure) {
     return { skipped: true, reason: 'gitlab_pipeline_or_job_not_failed' };
   }
@@ -532,17 +547,31 @@ function writeTempBody(prefix, body) {
   };
 }
 
-function createIssueViaCli({ title, body, type, fingerprint, options }) {
-  const temp = writeTempBody('issue-flow-pipeline-failed-', body);
-  try {
-    const args = [
+function providerOptionArgs(options = {}) {
+  const args = [];
+  if (options.provider) {
+    args.push('--provider', options.provider);
+  }
+  if (options.repo) {
+    args.push('--repo', options.repo);
+  }
+  for (const key of ['gitlabUrl', 'gitlabApiUrl', 'gitlabProject', 'gitlabToken']) {
+    if (options[key]) {
+      args.push(`--${key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`, options[key]);
+    }
+  }
+  return args;
+}
+
+function createIssueCliArgs({ title, bodyFile, type, fingerprint, options }) {
+  return [
       path.resolve(__dirname, '..', 'cli.cjs'),
       'issue',
       'create',
       '--title',
       title,
       '--body-file',
-      temp.file,
+      bodyFile,
       '--type',
       type,
       '--status',
@@ -557,13 +586,14 @@ function createIssueViaCli({ title, body, type, fingerprint, options }) {
       FAILURE_LABEL,
       '--label',
       fingerprint.label,
-    ];
-    if (options.provider) {
-      args.push('--provider', options.provider);
-    }
-    if (options.repo) {
-      args.push('--repo', options.repo);
-    }
+      ...providerOptionArgs(options),
+  ];
+}
+
+function createIssueViaCli({ title, body, type, fingerprint, options }) {
+  const temp = writeTempBody('issue-flow-pipeline-failed-', body);
+  try {
+    const args = createIssueCliArgs({ title, bodyFile: temp.file, type, fingerprint, options });
     const child = spawnSync(process.execPath, args, { encoding: 'utf8' });
     if (child.status !== 0) {
       throw new Error((child.stderr || child.stdout || '').trim() || `issue-flow issue create exited with status ${child.status ?? 1}`);
@@ -678,8 +708,11 @@ module.exports = {
   buildIssueBody,
   buildMarker,
   collectFailureContext,
+  createIssueCliArgs,
   findMatchingIssue,
   fingerprintFailure,
+  githubFailureContext,
+  gitlabFailureContext,
   parseArgs,
   parsePipelineFailureMarker,
   runFailureIntake,
