@@ -51,7 +51,8 @@ issue-flow pr comments list --pr 45
 issue-flow pr comments create --pr 45 --body-file /tmp/body.md
 issue-flow pr comments update --pr 45 --comment-id ... --body-file /tmp/body.md
 issue-flow pr comments delete --pr 45 --comment-id ...
-issue-flow pr review --pr 45 --body-file /tmp/review.md
+issue-flow pr review-comments list --pr 45
+issue-flow pr review --pr 45 --body-file /tmp/review.md [--comments-file /tmp/inline-comments.json]
 issue-flow pr merged --event /tmp/event.json
 ```
 
@@ -357,13 +358,25 @@ node dispatch.cjs resume --event <path> [--runtime agentrix] [common-options]
 
 ## review.cjs
 
-Submit a PR/MR review result.
+Submit a PR/MR review result. `--body-file` is the overall review body. `--comments-file` may include inline review comments as a JSON array.
 
 ```bash
-node review.cjs --pr-number <num> --body-file <path> [common-options]
+node review.cjs --pr-number <num> --body-file <path> [--comments-file <path>] [common-options]
 ```
 
-GitHub submits one Pull Request Review. GitLab posts one MR note.
+GitHub submits one Pull Request Review payload with the overall body and inline comments, so GitHub shows the review as an associated reviewed-commit event. GitLab posts one MR note for the overall body and creates diff discussions for inline comments.
+
+Inline comment JSON entries use:
+
+```json
+[
+  {
+    "path": "src/app.js",
+    "line": 42,
+    "body": "Please handle this edge case."
+  }
+]
+```
 
 ### Agentrix 路径配置
 

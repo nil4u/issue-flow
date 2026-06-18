@@ -31,6 +31,7 @@ test('cli help is discoverable by resource and nested action', async () => {
   assert.match(await cli.run(['issue', '--help']), /comments create --issue <num>/);
   assert.match(await cli.run(['issue', 'comments', '--help']), /Usage: issue-flow issue comments <action>/);
   assert.match(await cli.run(['pr', 'submit', '--help']), /Usage: issue-flow pr submit <plan\|build>/);
+  assert.match(await cli.run(['pr', 'review-comments', '--help']), /Usage: issue-flow pr review-comments <action>/);
 });
 
 test('issue get dry-run outputs a single stable JSON envelope', () => {
@@ -200,6 +201,28 @@ test('pr review maps --pr alias through the unified cli', () => {
   } finally {
     body.cleanup();
   }
+});
+
+test('pr review-comments list dry-run uses provider port', () => {
+  const result = runCli([
+    'pr',
+    'review-comments',
+    'list',
+    '--provider',
+    'github',
+    '--repo',
+    'acme/webapp',
+    '--pr',
+    '7',
+    '--dry-run',
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.action, 'listed');
+  assert.equal(parsed.provider, 'github');
+  assert.equal(parsed.resource, 'pr_review_comment');
+  assert.equal(parsed.pr, 7);
+  assert.deepEqual(parsed.items, []);
 });
 
 test('reaction content is controlled by issue-flow semantics', async () => {

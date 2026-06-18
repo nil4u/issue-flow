@@ -10,6 +10,7 @@ const VALUE_OPTIONS = new Set([
   '--repo',
   '--pr-number',
   '--body-file',
+  '--comments-file',
   '--commit-id',
   '--gitlab-url',
   '--gitlab-api-url',
@@ -29,6 +30,7 @@ function usage() {
     '  --repo <owner/repo>     Repository/project override.',
     '  --pr-number <num>       PR/MR number.',
     '  --body-file <path>      Markdown review body.',
+    '  --comments-file <path>  JSON array of inline review comments.',
     '  --commit-id <sha>       Commit SHA for GitHub review submission. Defaults to PR head SHA.',
     '  --dry-run',
     '  --help',
@@ -81,6 +83,28 @@ function readBodyFile(bodyFile) {
   return fs.readFileSync(bodyFile, 'utf8').trim();
 }
 
+function readReviewCommentsFile(commentsFile) {
+  if (!commentsFile) {
+    return [];
+  }
+  const parsed = JSON.parse(fs.readFileSync(commentsFile, 'utf8'));
+  if (!Array.isArray(parsed)) {
+    throw new Error('--comments-file must contain a JSON array');
+  }
+  for (const [index, comment] of parsed.entries()) {
+    if (!comment || typeof comment !== 'object' || Array.isArray(comment)) {
+      throw new Error(`review comment at index ${index} must be an object`);
+    }
+    if (typeof comment.body !== 'string' || comment.body.trim() === '') {
+      throw new Error(`review comment at index ${index} must include body`);
+    }
+    if (typeof comment.path !== 'string' || comment.path.trim() === '') {
+      throw new Error(`review comment at index ${index} must include path`);
+    }
+  }
+  return parsed;
+}
+
 async function buildReviewPullRequest(options = {}) {
   const payload = loadPayload(options);
   const provider = resolveProvider(options, payload);
@@ -96,13 +120,15 @@ async function buildReviewPullRequest(options = {}) {
 
 async function submitReview(options = {}) {
   const body = readBodyFile(options.bodyFile);
+  const comments = readReviewCommentsFile(options.commentsFile);
   const { provider, pr } = await buildReviewPullRequest(options);
-  const review = await provider.submitPullRequestReview(pr, body, options);
+  const review = await provider.submitPullRequestReview(pr, body, options, comments);
   return {
     action: 'submitted',
     provider: provider.name,
     pullRequest: pr.number,
     reviewUrl: review && (review.html_url || review.htmlUrl || review.web_url || ''),
+    inlineComments: comments.length,
   };
 }
 
@@ -121,6 +147,7 @@ module.exports = {
   buildReviewPullRequest,
   main,
   parseArgs,
+  readReviewCommentsFile,
   submitReview,
 };
 
