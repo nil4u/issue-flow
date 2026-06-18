@@ -129,7 +129,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/providers.cjs": {
       "source": "skills/issue-flow/scripts/providers.cjs",
       "mode": "managed",
-      "sha256": "9151a62da545328aa9a0b2b4f3371f94c83783830e4dcae6a136dc283ca33e2b"
+      "sha256": "f09f4f6e43d9d9279be15aad3af9dfac870c4b09e8cbebc2a81996c5f487959b"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/resolve.cjs": {
       "source": "skills/issue-flow/scripts/resolve.cjs",

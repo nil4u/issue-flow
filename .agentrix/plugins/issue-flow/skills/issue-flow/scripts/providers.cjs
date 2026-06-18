@@ -333,6 +333,14 @@ function resolveGithubRepo(payload = {}, options = {}) {
     };
   }
 
+  const remote = parseGitRemoteUrl(process.env.CI_REPOSITORY_URL || getGitOriginUrl());
+  if (remote.fullName) {
+    const parsedRemote = parseRepoFullName(remote.fullName);
+    if (parsedRemote.owner && parsedRemote.repo) {
+      return parsedRemote;
+    }
+  }
+
   throw new Error('Unable to resolve GitHub repository. Pass --repo or set GITHUB_REPOSITORY.');
 }
 
@@ -756,6 +764,14 @@ function resolveGitlabRepo(payload = {}, options = {}) {
       fullName: process.env.CI_PROJECT_PATH || process.env.CI_PROJECT_ID,
       projectId: process.env.CI_PROJECT_ID,
     };
+  }
+
+  const remote = parseGitRemoteUrl(process.env.CI_REPOSITORY_URL || getGitOriginUrl());
+  if (remote.fullName) {
+    const parsedRemote = parseRepoFullName(remote.fullName);
+    if (parsedRemote.fullName) {
+      return parsedRemote;
+    }
   }
 
   throw new Error('Unable to resolve GitLab project. Pass --repo, set GITLAB_PROJECT_PATH, or set CI_PROJECT_PATH.');
