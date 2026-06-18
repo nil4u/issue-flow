@@ -61,11 +61,12 @@
      - `requireSingleIssueSize(labels, context)`
    - `resolveIssueSizeLabel()` 返回三态结果：
      - `{ ok: true, label: 'size::M', weight: 2 }`
-     - `{ ok: false, reason: 'missing_size_label' }`
-     - `{ ok: false, reason: 'multiple_size_labels', labels: [...] }`
+     - `{ ok: false, code: 'missing_size_label', reason: 'This issue needs exactly one size:: label before it can enter flow::plan or flow::build.' }`
+     - `{ ok: false, code: 'multiple_size_labels', reason: 'This issue has more than one size:: label; choose one size label before continuing.', labels: [...] }`
+   - `reason` 必须是自然语言句子，面向 agent 直接阅读；`code` 才能使用 `missing_size_label` / `multiple_size_labels` 这类稳定短标识。
    - `requireSingleIssueSize()` 用于脚本错误提示：
-     - 缺失时抛错：`flow::plan/build requires one size:: label. Choose size::XS/S/M/L/XL and pass --size size::<value>. If unsure, use size::M and leave a low-confidence note.`
-     - 多个时抛错：`flow::plan/build requires exactly one size:: label, found: size::S, size::M. Re-run with --size size::<value> to replace conflicting size labels.`
+     - 缺失时抛错：`This issue needs exactly one size:: label before it can enter flow::plan or flow::build. Choose size::XS, size::S, size::M, size::L, or size::XL and pass --size size::<value>. If you are unsure, use size::M and leave a low-confidence note.`
+     - 多个时抛错：`This issue has more than one size:: label: size::S, size::M. Choose one size and re-run with --size size::<value>; issue-flow will replace the conflicting size labels.`
    - 保留 `findSingleLabel()` 的兼容导出或用新 helper 包装它，降低测试和外部 require 的破坏面。
 
 3. 在 `issue apply` 中校验设置 `flow::plan/build` 时的最终 size。
@@ -105,7 +106,7 @@
    - `--dry-run` 也输出该校验意图；如果 dry-run 下没有 provider 读取能力，可返回 planned check，而不是假装通过。
 
 6. 调整 dispatch 和 prompt，让错误提示驱动 agent 补 size。
-   - `resolveAutomationDecision()` / `resolveResumeDecision()` 可复用 size helper 作为额外防线：plan/build + 多个 size 返回 `multiple_size_labels`，避免启动明显错误的 runtime。
+   - `resolveAutomationDecision()` / `resolveResumeDecision()` 可复用 size helper 作为额外防线：plan/build + 多个 size 返回 `code: 'multiple_size_labels'` 和自然语言 `reason`，避免启动明显错误的 runtime。
    - plan/build + 缺失 size 不在 dispatch 中自动补标；预期路径是：
      - triage/general 在调用 `issue apply --flow flow::plan/build` 时收到错误，补 `--size` 后重试。
      - plan/build 在调用 `pr submit plan/build` 时收到错误，先调用 `issue apply --size ...`，必要时创建低置信度说明评论，再重试 submit。
@@ -153,7 +154,8 @@
      - dry-run/check definitions 覆盖 size labels。
    - 扩展 `test/resolve.test.cjs`：
      - plan/build + 单一 size 正常返回 `shouldRun: true`。
-     - plan/build + 多个 size 返回 `shouldRun: false` 和 `multiple_size_labels`，作为 submit/apply/create 之外的防线。
+     - plan/build + 多个 size 返回 `shouldRun: false`、`code: 'multiple_size_labels'` 和自然语言 `reason`，作为 submit/apply/create 之外的防线。
+     - size 相关 `reason` 不使用 `missing_size_label` / `multiple_size_labels` 这类简写。
      - triage 不要求 size。
      - `size::` labeled event 不触发 auto route。
    - 扩展 `test/dispatch.test.cjs`：
