@@ -77,7 +77,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 - `.issue-flow/templates/` - default plan templates you can edit
 - `.issue-flow/issues/` - generated issue plan workspace
 
-For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files. The GitLab include contains a `.post` `issue-flow-failure-intake` fallback job with `when: on_failure`.
+For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files. The GitLab include contains an Agentrix daemon webhook bridge `issue-flow-failure-intake` job for failed pipeline events.
 
 ## GitHub Configuration
 
@@ -115,7 +115,7 @@ Set these CI variables as needed:
 
 GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `GITLAB_TOKEN`, `GL_TOKEN`, `GITLAB_PRIVATE_TOKEN`, or `CI_JOB_TOKEN`.
 
-GitLab failure intake can be triggered by the Agentrix daemon webhook for failed pipeline/job events, or by the installed `.post` on-failure job. If the failed job can persist a concise log excerpt, set `ISSUE_FLOW_FAILURE_LOG_FILE` to that path before the fallback job runs; otherwise the intake may skip with an insufficient-signal reason.
+GitLab failure intake is triggered by the Agentrix daemon webhook bridge for failed pipeline events. Agentrix maps GitLab pipeline failures to `workflow_run` / `completed` events with `AGENTRIX_WORKFLOW_RUN_CONCLUSION=failure` or `AGENTRIX_PIPELINE_STATUS=failed`.
 
 ## Development Install
 

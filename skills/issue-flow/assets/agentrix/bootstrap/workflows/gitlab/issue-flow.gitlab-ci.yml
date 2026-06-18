@@ -17,7 +17,6 @@ issue-flow-labels:
   script:
     - |
       set -eu
-      export ISSUE_FLOW_PIPELINE_FAILED=true
       set -- --provider gitlab
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"
@@ -120,12 +119,11 @@ issue-flow-review:
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"
 
 issue-flow-failure-intake:
-  stage: .post
   rules:
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME =~ /^(pipeline|job)$/ && $AGENTRIX_EVENT_ACTION == "failed"'
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "workflow_run" && $AGENTRIX_EVENT_ACTION == "completed" && $AGENTRIX_WORKFLOW_RUN_CONCLUSION == "failure"'
       when: on_success
-    - if: '$CI_PIPELINE_SOURCE'
-      when: on_failure
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "workflow_run" && $AGENTRIX_EVENT_ACTION == "completed" && $AGENTRIX_PIPELINE_STATUS == "failed"'
+      when: on_success
     - when: never
   script:
     - |

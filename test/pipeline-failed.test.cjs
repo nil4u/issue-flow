@@ -128,23 +128,27 @@ test('github workflow run analysis picks an actionable failed job after a transi
   assert.equal(analyzeFailureContext(context).category, 'actionable_repo_fix');
 });
 
-test('gitlab on_failure fallback env is treated as a failed pipeline signal', () => {
+test('gitlab Agentrix bridge env is treated as a failed pipeline signal', () => {
   const context = gitlabFailureContext(
     {},
     { fullName: 'acme/webapp' },
     {},
     {
-      ISSUE_FLOW_PIPELINE_FAILED: 'true',
-      CI_JOB_NAME: 'issue-flow-failure-intake',
-      CI_JOB_URL: 'https://gitlab.example/acme/webapp/-/jobs/99',
-      CI_COMMIT_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      CI_COMMIT_REF_NAME: 'main',
+      AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
+      AGENTRIX_PROVIDER: 'gitlab',
+      AGENTRIX_EVENT_NAME: 'workflow_run',
+      AGENTRIX_EVENT_ACTION: 'completed',
+      AGENTRIX_WORKFLOW_RUN_CONCLUSION: 'failure',
+      AGENTRIX_PIPELINE_URL: 'https://gitlab.example/acme/webapp/-/pipelines/99',
+      AGENTRIX_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      AGENTRIX_REF: 'main',
       ISSUE_FLOW_FAILURE_LOG: 'FAIL test/app.test.js',
     }
   );
 
   assert.equal(context.provider, 'gitlab');
-  assert.equal(context.jobName, 'issue-flow-failure-intake');
+  assert.equal(context.runUrl, 'https://gitlab.example/acme/webapp/-/pipelines/99');
+  assert.equal(context.commitSha, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   assert.equal(context.skipped, undefined);
 });
 

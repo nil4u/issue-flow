@@ -152,7 +152,7 @@ issue-flow dispatch pipeline-failed --provider gitlab --repo group/project --log
 
 GitHub 默认安装产物为 `.github/workflows/issue-flow-failure-intake.yml`，监听 `workflow_run` completed failure 并要求 `actions: read` 与 `issues: write`。
 
-GitLab 默认安装产物为 `.gitlab/issue-flow.gitlab-ci.yml` 内的 `.post` `issue-flow-failure-intake` on-failure job。Agentrix daemon webhook 的 failed pipeline/job event 也可以调用同一入口。若使用 on-failure fallback，推荐由失败 job 保存精简日志并通过 `ISSUE_FLOW_FAILURE_LOG_FILE` 传入，否则无法归因时会明确 skip。
+GitLab 默认安装产物为 `.gitlab/issue-flow.gitlab-ci.yml` 内的 `issue-flow-failure-intake` job，仅由 Agentrix daemon webhook bridge 触发。Agentrix 会把 GitLab pipeline failure 映射成 `workflow_run` / `completed`，并设置 `AGENTRIX_WORKFLOW_RUN_CONCLUSION=failure` 或 `AGENTRIX_PIPELINE_STATUS=failed`。
 
 ## apply.cjs
 

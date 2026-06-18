@@ -263,10 +263,13 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /--pr-number "\$AGENTRIX_PR_NUMBER"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs review/);
     assert.match(gitlabWorkflow, /issue-flow-failure-intake:/);
-    assert.match(gitlabWorkflow, /stage: \.post/);
-    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME =~ \/\^\(pipeline\|job\)\$\//);
-    assert.match(gitlabWorkflow, /when: on_failure/);
-    assert.match(gitlabWorkflow, /export ISSUE_FLOW_PIPELINE_FAILED=true/);
+    assert.doesNotMatch(gitlabWorkflow, /stage: \.post/);
+    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "workflow_run"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_ACTION == "completed"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_WORKFLOW_RUN_CONCLUSION == "failure"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_PIPELINE_STATUS == "failed"/);
+    assert.doesNotMatch(gitlabWorkflow, /when: on_failure/);
+    assert.doesNotMatch(gitlabWorkflow, /ISSUE_FLOW_PIPELINE_FAILED/);
     assert.match(gitlabWorkflow, /cli\.cjs dispatch pipeline-failed/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

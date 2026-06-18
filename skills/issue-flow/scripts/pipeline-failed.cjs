@@ -36,7 +36,7 @@ function usage() {
     '  --event <path>          Provider event JSON path.',
     '  --provider <provider>   github or gitlab. Defaults from event/environment.',
     '  --repo <owner/repo>     Repository/project override.',
-    '  --log-file <path>       Optional failed job log file for GitLab/on_failure jobs.',
+    '  --log-file <path>       Optional failure log file for GitLab bridge or manual runs.',
     '  --dry-run               Analyze and print intended behavior without provider writes.',
     '  --help',
   ].join('\n');
@@ -456,9 +456,9 @@ function gitlabFailureContext(payload, repo, options = {}, env = process.env) {
   const build = gitlabFailedBuild(payload);
   const hasPayloadFailure = payload.object_kind === 'pipeline' || payload.object_kind === 'job' || isFailedGitlabPayload(payload);
   const hasEnvFailure =
-    env.ISSUE_FLOW_PIPELINE_FAILED === 'true' ||
     env.CI_JOB_STATUS === 'failed' ||
     env.AGENTRIX_EVENT_ACTION === 'failed' ||
+    env.AGENTRIX_WORKFLOW_RUN_CONCLUSION === 'failure' ||
     env.AGENTRIX_PIPELINE_STATUS === 'failed';
   if (!hasPayloadFailure && !hasEnvFailure) {
     return { skipped: true, reason: 'gitlab_pipeline_or_job_not_failed' };
@@ -471,7 +471,7 @@ function gitlabFailureContext(payload, repo, options = {}, env = process.env) {
     jobName: build.name || attrs.name || env.AGENTRIX_JOB_NAME || env.CI_JOB_NAME || '',
     stepName: env.ISSUE_FLOW_FAILURE_STEP || '',
     runUrl: build.web_url || attrs.url || env.AGENTRIX_JOB_URL || env.AGENTRIX_PIPELINE_URL || env.CI_JOB_URL || env.CI_PIPELINE_URL || '',
-    commitSha: attrs.sha || env.AGENTRIX_COMMIT_SHA || env.CI_COMMIT_SHA || '',
+    commitSha: attrs.sha || env.AGENTRIX_COMMIT_SHA || env.AGENTRIX_SHA || env.CI_COMMIT_SHA || '',
     branch: attrs.ref || env.AGENTRIX_REF || env.CI_COMMIT_REF_NAME || '',
     pullRequest: env.AGENTRIX_PR_NUMBER ? `!${env.AGENTRIX_PR_NUMBER}` : env.CI_MERGE_REQUEST_IID ? `!${env.CI_MERGE_REQUEST_IID}` : '',
     log: truncate(readOptionalLogFile(options, env) || env.ISSUE_FLOW_FAILURE_LOG || env.AGENTRIX_FAILURE_LOG || '', LOG_LIMIT),
