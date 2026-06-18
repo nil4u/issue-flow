@@ -87,7 +87,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.match(failureWorkflow, /workflow_run:/);
     assert.match(failureWorkflow, /github\.event\.workflow_run\.conclusion == 'failure'/);
-    assert.match(failureWorkflow, /github\.event\.workflow_run\.name != 'Issue Flow Failure Intake'/);
+    assert.doesNotMatch(failureWorkflow, /workflow_run\.name != 'Issue Flow Failure Intake'/);
     assert.match(failureWorkflow, /actions: read/);
     assert.match(failureWorkflow, /cli\.cjs dispatch pipeline-failed/);
     assert.match(reviewWorkflow, /Issue Flow PR Review/);

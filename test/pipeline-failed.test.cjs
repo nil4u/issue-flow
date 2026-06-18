@@ -128,6 +128,30 @@ test('github workflow run analysis picks an actionable failed job after a transi
   assert.equal(analyzeFailureContext(context).category, 'actionable_repo_fix');
 });
 
+test('github failure intake skips its own failed workflow in script logic', async () => {
+  const context = await githubFailureContext(
+    {
+      workflow_run: {
+        id: 101,
+        conclusion: 'failure',
+        name: 'Issue Flow Failure Intake',
+        html_url: 'https://github.com/acme/webapp/actions/runs/101',
+      },
+    },
+    {
+      collectWorkflowRunFailureDetails: async () => {
+        throw new Error('self runs should skip before fetching jobs');
+      },
+    },
+    { fullName: 'acme/webapp' }
+  );
+
+  assert.deepEqual(context, {
+    skipped: true,
+    reason: 'self_failure_intake_workflow',
+  });
+});
+
 test('gitlab Agentrix bridge env is treated as a failed pipeline signal', () => {
   const context = gitlabFailureContext(
     {},

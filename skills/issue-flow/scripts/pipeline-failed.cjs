@@ -12,6 +12,7 @@ const { computeLabelChanges } = require('./apply.cjs');
 const MARKER_NAME = 'issue-flow:pipeline-failure';
 const FAILURE_LABEL = 'failure::ci';
 const HASH_LABEL_PREFIX = 'ci-fp::';
+const FAILURE_INTAKE_WORKFLOW_NAME = 'Issue Flow Failure Intake';
 const ISSUE_PRIORITY = 'priority::p2';
 const LOG_LIMIT = 12000;
 
@@ -389,6 +390,11 @@ function isFailedGithubWorkflowRun(payload) {
   return run.conclusion === 'failure' || run.conclusion === 'timed_out';
 }
 
+function isSelfGithubFailureIntakeRun(payload) {
+  const run = payload.workflow_run || {};
+  return run.name === FAILURE_INTAKE_WORKFLOW_NAME;
+}
+
 function failedStepName(steps = []) {
   const step = steps.find((candidate) => ['failure', 'timed_out', 'cancelled'].includes(String(candidate.conclusion || '').toLowerCase()));
   return step && step.name ? step.name : '';
@@ -407,6 +413,9 @@ async function githubFailureContext(payload, provider, repo, options = {}) {
   const run = payload.workflow_run || {};
   if (!isFailedGithubWorkflowRun(payload)) {
     return { skipped: true, reason: 'github_workflow_run_not_failed' };
+  }
+  if (isSelfGithubFailureIntakeRun(payload)) {
+    return { skipped: true, reason: 'self_failure_intake_workflow' };
   }
 
   let details = { jobs: [] };
@@ -700,6 +709,7 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   FAILURE_LABEL,
+  FAILURE_INTAKE_WORKFLOW_NAME,
   HASH_LABEL_PREFIX,
   MARKER_NAME,
   analyzeFailureContext,
