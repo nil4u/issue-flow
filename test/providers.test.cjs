@@ -265,6 +265,45 @@ test('github submit operations fallback to gh CLI only when token is missing', a
   fakeGh.cleanup();
 });
 
+test('github issue lookup uses label-indexed query for CI fingerprints', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+    global.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method });
+      assert.equal(init.method, 'GET');
+      const parsed = new URL(String(url));
+      assert.equal(parsed.pathname, '/repos/acme-org/webapp/issues');
+      assert.equal(parsed.searchParams.get('state'), 'open');
+      assert.equal(parsed.searchParams.get('labels'), 'ci-fp::1234abcd');
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify([
+          {
+            number: 5,
+            title: 'Fix CI failure',
+            body: 'body',
+            html_url: 'https://github.com/acme-org/webapp/issues/5',
+            state: 'open',
+            labels: [{ name: 'failure::ci' }, { name: 'ci-fp::1234abcd' }],
+          },
+        ]),
+      };
+    };
+
+    const issues = await provider.listIssuesByLabel(repo, 'ci-fp::1234abcd', { state: 'open' });
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].number, 5);
+  });
+
+  global.fetch = previousFetch;
+  assert.equal(calls.length, 1);
+});
+
 test('github create issue uses token API with labels in the create request', async () => {
   const provider = resolveProvider({ provider: 'github' }, {});
   const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };

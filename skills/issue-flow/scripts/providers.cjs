@@ -283,6 +283,32 @@ async function requestGithub(method, apiPath, body) {
   return parsed;
 }
 
+async function requestGithubText(method, apiPath, body) {
+  const token = getGithubToken();
+  if (!token) {
+    throw new Error('Missing GITHUB_TOKEN or GH_TOKEN for GitHub API access');
+  }
+
+  const response = await fetch(githubApiUrl(apiPath), {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/plain',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    const error = new Error(text || `GitHub API HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return text;
+}
+
 function resolveGithubRepo(payload = {}, options = {}) {
   for (const candidate of [options.repo, process.env.GITHUB_REPOSITORY]) {
     const parsed = parseRepoFullName(candidate);
@@ -513,6 +539,42 @@ async function addGithubIssueReaction(issue, content, options = {}) {
   }
 
   await requestGithub('POST', githubIssueReactionApiPath(issue), { content });
+}
+
+async function collectGithubWorkflowRunFailureDetails(repo, runId, options = {}) {
+  if (options.dryRun || !runId || !getGithubToken()) {
+    return { jobs: [] };
+  }
+
+  const jobsPath = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/actions/runs/${encodeURIComponent(runId)}/jobs?filter=latest&per_page=100`;
+  const response = await requestGithub('GET', jobsPath);
+  const jobs = Array.isArray(response && response.jobs) ? response.jobs : [];
+  const failedJobs = jobs.filter((job) => ['failure', 'timed_out', 'cancelled'].includes(String(job.conclusion || '').toLowerCase()));
+  const enriched = [];
+
+  for (const job of failedJobs.slice(0, 3)) {
+    let log = '';
+    if (job.id) {
+      try {
+        log = await requestGithubText(
+          'GET',
+          `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/actions/jobs/${encodeURIComponent(job.id)}/logs`
+        );
+      } catch {
+        log = '';
+      }
+    }
+    enriched.push({
+      id: job.id,
+      name: job.name || '',
+      htmlUrl: job.html_url || '',
+      conclusion: job.conclusion || '',
+      steps: Array.isArray(job.steps) ? job.steps : [],
+      log,
+    });
+  }
+
+  return { jobs: enriched };
 }
 
 function getGitlabToken(options = {}) {
@@ -1422,6 +1484,24 @@ async function updateGitlabIssueBody(target, body, options = {}) {
   await requestGitlab('PUT', gitlabIssueApiPath(target), { description: body }, options);
 }
 
+async function listGitlabIssuesByLabel(repo, label, options = {}) {
+  if (options.dryRun) {
+    return [];
+  }
+  const query = new URLSearchParams({
+    state: options.state === 'closed' ? 'closed' : 'opened',
+    labels: label,
+    per_page: String(options.perPage || 30),
+  });
+  const items = await requestGitlab(
+    'GET',
+    `/projects/${gitlabProjectRef(repo)}/issues?${query.toString()}`,
+    undefined,
+    options
+  );
+  return Array.isArray(items) ? items.map((issue) => normalizeGitlabIssue(issue, repo)) : [];
+}
+
 function normalizeGitlabIssue(issue, repo, fallback = {}) {
   return {
     provider: 'gitlab',
@@ -1494,6 +1574,24 @@ async function applyGithubLabels(target, labelsToAdd, labelsToRemove) {
 
 async function updateGithubIssueBody(target, body) {
   await requestGithubForApply('PATCH', githubIssueApiPath({ ...target, number: target.issueNumber }), { body });
+}
+
+async function listGithubIssuesByLabel(repo, label, options = {}) {
+  if (options.dryRun) {
+    return [];
+  }
+  const query = new URLSearchParams({
+    state: options.state || 'open',
+    labels: label,
+    per_page: String(options.perPage || 30),
+  });
+  const items = await requestGithubForApply(
+    'GET',
+    `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues?${query.toString()}`
+  );
+  return Array.isArray(items)
+    ? items.filter((issue) => !issue.pull_request).map((issue) => normalizeGithubIssue(issue, repo))
+    : [];
 }
 
 function normalizeGithubIssue(issue, repo, fallback = {}) {
@@ -1865,6 +1963,8 @@ const githubProvider = {
   applyLabels: applyGithubLabels,
   updateIssueBody: updateGithubIssueBody,
   createIssue: createGithubIssue,
+  listIssuesByLabel: listGithubIssuesByLabel,
+  collectWorkflowRunFailureDetails: collectGithubWorkflowRunFailureDetails,
   getLabel: getGithubLabel,
   ensureLabelDefinition: ensureGithubLabelDefinition,
   ensurePullRequestLabel: ensureGithubPullRequestLabel,
@@ -1902,6 +2002,7 @@ const gitlabProvider = {
   applyLabels: applyGitlabLabels,
   updateIssueBody: updateGitlabIssueBody,
   createIssue: createGitlabIssue,
+  listIssuesByLabel: listGitlabIssuesByLabel,
   createOrUpdateMergeRequest: createOrUpdateGitlabMergeRequest,
   getLabel: getGitlabLabel,
   ensureLabelDefinition: ensureGitlabLabelDefinition,

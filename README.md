@@ -70,13 +70,14 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
 - `.github/workflows/issue-flow-pr-review.yml` - optional PR/MR automatic review checks
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions
+- `.github/workflows/issue-flow-failure-intake.yml` - failed workflow analysis and deduped build issue intake
 - `.issue-flow/config.json` - issue-flow runtime path config
 - `.issue-flow/install-manifest.json` - reinstall tracking metadata
 - `.issue-flow/prompts/` - default prompt files you can edit
 - `.issue-flow/templates/` - default plan templates you can edit
 - `.issue-flow/issues/` - generated issue plan workspace
 
-For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files.
+For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files. The GitLab include contains a `.post` `issue-flow-failure-intake` fallback job with `when: on_failure`.
 
 ## GitHub Configuration
 
@@ -90,6 +91,8 @@ Set these repository variables/secrets as needed:
 - `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review check switch, defaults to off; set to `true` or `1` to run on PR opened, synchronize, ready_for_review, or manual dispatch
 
 GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`.
+
+GitHub failure intake listens to `workflow_run` completed failures. It uses `GITHUB_TOKEN` with `actions: read` and `issues: write` to inspect failed jobs, classify actionable root causes, and create or update a deduped issue with `failure::ci`, `flow::build`, and `automation::build`.
 
 ## GitLab Configuration
 
@@ -111,6 +114,8 @@ Set these CI variables as needed:
 - `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review check switch, defaults to off; set to `true` or `1` to run on PR/MR opened, synchronize, ready_for_review, or manual job
 
 GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `GITLAB_TOKEN`, `GL_TOKEN`, `GITLAB_PRIVATE_TOKEN`, or `CI_JOB_TOKEN`.
+
+GitLab failure intake can be triggered by the Agentrix daemon webhook for failed pipeline/job events, or by the installed `.post` on-failure job. If the failed job can persist a concise log excerpt, set `ISSUE_FLOW_FAILURE_LOG_FILE` to that path before the fallback job runs; otherwise the intake may skip with an insufficient-signal reason.
 
 ## Development Install
 

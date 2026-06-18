@@ -65,6 +65,7 @@ issue-flow dispatch comment --event /tmp/event.json
 issue-flow dispatch review --event /tmp/event.json
 issue-flow dispatch review --pr 45
 issue-flow dispatch pr-merged --event /tmp/event.json
+issue-flow dispatch pipeline-failed --event /tmp/event.json
 issue-flow dispatch resume --event /tmp/event.json
 issue-flow dispatch triage --issue 123
 issue-flow dispatch plan --issue 123
@@ -128,6 +129,30 @@ GitLab 的推荐入口是 Agentrix daemon webhook bridge。bridge 触发 pipelin
 `AGENTRIX_LABELS_JSON`、`AGENTRIX_PR_BODY` 等变量合成兼容 payload。
 
 如果显式传入 `--event` 或设置 `GITLAB_EVENT_PATH`，事件文件优先。
+
+## pipeline-failed
+
+分析 GitHub Actions workflow run 或 GitLab pipeline/job 失败，只在确定为可执行根因时创建或更新 issue-flow issue。
+
+```bash
+issue-flow dispatch pipeline-failed --event /tmp/event.json
+issue-flow dispatch pipeline-failed --provider gitlab --repo group/project --log-file /tmp/failed-job.log
+```
+
+行为：
+
+1. 收集 workflow/pipeline、job、step、run URL、commit、branch、PR/MR 和关键日志摘要
+2. 将失败归类为 `actionable_repo_fix`、`actionable_provider_fix` 或 `non_actionable_or_transient`
+3. 只为可执行分类创建或更新 issue
+4. 去重只查询 open issue 上的 `ci-fp::<hash8>` label，再读取 body marker 比对完整 `sha256:<fingerprint>`
+5. 命中 open issue 时追加 comment；命中 `status::suspend` 时恢复为 `status::active`
+6. 命中 closed similar issue 时默认新建 issue，并在 body 中引用 closed issue
+
+创建的新 issue 带有 `failure::ci`、`ci-fp::<hash8>`、`status::active`、`flow::build`、`automation::build`。repo 代码/测试根因使用 `type::bug`；CI/workflow/provider 配置、权限、secret、variable、runner 根因使用 `type::ops`。
+
+GitHub 默认安装产物为 `.github/workflows/issue-flow-failure-intake.yml`，监听 `workflow_run` completed failure 并要求 `actions: read` 与 `issues: write`。
+
+GitLab 默认安装产物为 `.gitlab/issue-flow.gitlab-ci.yml` 内的 `.post` `issue-flow-failure-intake` on-failure job。Agentrix daemon webhook 的 failed pipeline/job event 也可以调用同一入口。若使用 on-failure fallback，推荐由失败 job 保存精简日志并通过 `ISSUE_FLOW_FAILURE_LOG_FILE` 传入，否则无法归因时会明确 skip。
 
 ## apply.cjs
 

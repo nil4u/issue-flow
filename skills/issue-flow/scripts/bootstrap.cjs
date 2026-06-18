@@ -17,6 +17,7 @@ const AGENTRIX_GITHUB_WORKFLOWS = [
   ['workflows/github/issue-flow-comment.yml', '.github/workflows/issue-flow-comment.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-review.yml', '.github/workflows/issue-flow-pr-review.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-merged.yml', '.github/workflows/issue-flow-pr-merged.yml', { mode: MODE_MANAGED }],
+  ['workflows/github/issue-flow-failure-intake.yml', '.github/workflows/issue-flow-failure-intake.yml', { mode: MODE_MANAGED }],
 ];
 const AGENTRIX_GITLAB_FILES = [
   ['workflows/gitlab/issue-flow.gitlab-ci.yml', '.gitlab/issue-flow.gitlab-ci.yml', { mode: MODE_MANAGED }],
