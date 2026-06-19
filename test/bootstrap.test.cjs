@@ -83,6 +83,11 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(labelsWorkflow, /github\.repository/);
     assert.match(autoWorkflow, /- opened/);
     assert.match(autoWorkflow, /- labeled/);
+    assert.match(autoWorkflow, /github\.event\.action != 'labeled'/);
+    assert.match(autoWorkflow, /startsWith\(github\.event\.label\.name, 'flow::'\)/);
+    assert.match(autoWorkflow, /github\.event\.label\.name == 'automation::build'/);
+    assert.match(autoWorkflow, /github\.event\.label\.name == 'status::active'/);
+    assert.match(autoWorkflow, /queue: max/);
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
     assert.match(failureWorkflow, /workflow_run:/);

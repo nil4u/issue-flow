@@ -7,6 +7,7 @@ const {
   parseArgs,
   syncLabels,
 } = require('../skills/issue-flow/scripts/sync-labels.cjs');
+const { labelsForScope } = require('../skills/issue-flow/scripts/labels.cjs');
 
 test('sync-labels parser rejects ambiguous check dry-run mode', () => {
   assert.deepEqual(parseArgs(['--provider', 'github', '--repo', 'owner/repo', '--dry-run']), {
@@ -87,4 +88,19 @@ test('sync-labels check maps provider state to skipped missing and drifted', asy
     drifted: 1,
     planned: 0,
   });
+});
+
+test('sync-labels catalog definitions include size labels', async () => {
+  const provider = {
+    name: 'github',
+  };
+
+  const results = await syncLabels(
+    provider,
+    { fullName: 'owner/repo' },
+    labelsForScope('issue').filter((label) => label.name.startsWith('size::')),
+    { dryRun: true }
+  );
+
+  assert.deepEqual(results.map((result) => result.name), ['size::XS', 'size::S', 'size::M', 'size::L', 'size::XL']);
 });

@@ -21,6 +21,7 @@ const {
   providerLabelDefinition,
   requestGitlab,
   resolveProvider,
+  resolveProviderPort,
 } = require('../skills/issue-flow/scripts/providers.cjs');
 const { labelDefinitionFor } = require('../skills/issue-flow/scripts/labels.cjs');
 
@@ -304,6 +305,73 @@ test('github issue lookup uses label-indexed query for CI fingerprints', async (
   assert.equal(calls.length, 1);
 });
 
+test('github pr review-comments list uses pull request review comments API', async () => {
+  const port = resolveProviderPort({ provider: 'github', repo: 'acme-org/webapp', prNumber: '24' }, {});
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        calls.push({ url: String(url), method: init.method });
+        assert.equal(init.method, 'GET');
+        const parsed = new URL(String(url));
+        assert.equal(parsed.pathname, '/repos/acme-org/webapp/pulls/24/comments');
+        assert.equal(parsed.searchParams.get('per_page'), '100');
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify([
+              {
+                id: 101,
+                pull_request_review_id: 9,
+                body: 'Please handle this edge case.',
+                html_url: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+                path: 'src/app.js',
+                line: 42,
+                side: 'RIGHT',
+                diff_hunk: '@@ -40,3 +40,4 @@',
+                user: { login: 'reviewer' },
+                created_at: '2026-06-18T01:00:00Z',
+                updated_at: '2026-06-18T01:01:00Z',
+              },
+            ]),
+        };
+      };
+
+      const comments = await port.pullRequests.listReviewComments();
+      assert.equal(comments.length, 1);
+      assert.deepEqual(comments[0], {
+        commentId: '101',
+        reviewId: '9',
+        discussionId: '',
+        body: 'Please handle this edge case.',
+        url: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+        author: 'reviewer',
+        createdAt: '2026-06-18T01:00:00Z',
+        updatedAt: '2026-06-18T01:01:00Z',
+        path: 'src/app.js',
+        line: 42,
+        startLine: null,
+        side: 'RIGHT',
+        startSide: '',
+        diffHunk: '@@ -40,3 +40,4 @@',
+        commitId: '',
+        originalCommitId: '',
+        position: null,
+        originalPosition: null,
+        resolved: null,
+        resolvable: null,
+      });
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
+
+  assert.equal(calls.length, 1);
+});
+
 test('github create issue uses token API with labels in the create request', async () => {
   const provider = resolveProvider({ provider: 'github' }, {});
   const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
@@ -578,6 +646,186 @@ test('gitlab glab fallback serializes API params as fields instead of raw input'
     'milestone_id=null',
   ]);
   assert.equal(args.includes('--input'), false);
+});
+
+test('gitlab pr review-comments list uses merge request discussions API', async () => {
+  const port = resolveProviderPort({ provider: 'gitlab', repo: 'group/sub/project', prNumber: '24' }, {});
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  try {
+    await withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+      },
+      async () => {
+        global.fetch = async (url, init = {}) => {
+          calls.push({ url: String(url), method: init.method });
+          assert.equal(init.method, 'GET');
+          const parsed = new URL(String(url));
+          assert.equal(parsed.pathname, '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/discussions');
+          assert.equal(parsed.searchParams.get('per_page'), '100');
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify([
+                {
+                  id: 'discussion-1',
+                  individual_note: false,
+                  notes: [
+                    {
+                      id: 202,
+                      body: 'Please handle this GitLab edge case.',
+                      web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/24#note_202',
+                      author: { username: 'reviewer' },
+                      created_at: '2026-06-18T01:00:00Z',
+                      updated_at: '2026-06-18T01:01:00Z',
+                      resolvable: true,
+                      resolved: false,
+                      position: {
+                        new_path: 'src/app.js',
+                        new_line: 42,
+                        position_type: 'text',
+                        head_sha: 'abc123',
+                      },
+                    },
+                  ],
+                },
+              ]),
+          };
+        };
+
+        const comments = await port.pullRequests.listReviewComments();
+        assert.equal(comments.length, 1);
+        assert.equal(comments[0].commentId, '202');
+        assert.equal(comments[0].discussionId, 'discussion-1');
+        assert.equal(comments[0].body, 'Please handle this GitLab edge case.');
+        assert.equal(comments[0].author, 'reviewer');
+        assert.equal(comments[0].path, 'src/app.js');
+        assert.equal(comments[0].line, 42);
+        assert.equal(comments[0].commitId, 'abc123');
+        assert.equal(comments[0].resolvable, true);
+        assert.equal(comments[0].resolved, false);
+      }
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+
+  assert.equal(calls.length, 1);
+});
+
+test('gitlab review provider submits overall note and inline diff discussion', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  try {
+    await withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+      },
+      async () => {
+        global.fetch = async (url, init = {}) => {
+          const body = init.body ? JSON.parse(init.body) : undefined;
+          calls.push({ url: String(url), method: init.method, body });
+          const parsed = new URL(String(url));
+
+          if (parsed.pathname === '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/notes') {
+            assert.equal(init.method, 'POST');
+            assert.deepEqual(body, { body: 'No blocking issues.' });
+            return {
+              ok: true,
+              status: 201,
+              text: async () => JSON.stringify({ id: 1, web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/24#note_1' }),
+            };
+          }
+
+          if (parsed.pathname === '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/versions') {
+            assert.equal(init.method, 'GET');
+            return {
+              ok: true,
+              status: 200,
+              text: async () =>
+                JSON.stringify([
+                  {
+                    base_commit_sha: 'base123',
+                    start_commit_sha: 'start123',
+                    head_commit_sha: 'head123',
+                  },
+                ]),
+            };
+          }
+
+          if (parsed.pathname === '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/discussions') {
+            assert.equal(init.method, 'POST');
+            assert.deepEqual(body, {
+              body: 'Please handle this GitLab edge case.',
+              position: {
+                base_sha: 'base123',
+                start_sha: 'start123',
+                head_sha: 'head123',
+                old_path: 'src/app.js',
+                new_path: 'src/app.js',
+                position_type: 'text',
+                new_line: 42,
+              },
+            });
+            return {
+              ok: true,
+              status: 201,
+              text: async () =>
+                JSON.stringify({
+                  id: 'discussion-1',
+                  notes: [{ id: 2, web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/24#note_2' }],
+                }),
+            };
+          }
+
+          throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+        };
+
+        const result = await provider.submitPullRequestReview(
+          {
+            provider: 'gitlab',
+            owner: 'group/sub',
+            repo: 'project',
+            repoFullName: 'group/sub/project',
+            number: 24,
+          },
+          'No blocking issues.',
+          {},
+          [
+            {
+              path: 'src/app.js',
+              line: 42,
+              body: 'Please handle this GitLab edge case.',
+            },
+          ]
+        );
+
+        assert.equal(result.web_url, 'https://gitlab.com/group/sub/project/-/merge_requests/24#note_1');
+      }
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+
+  assert.deepEqual(
+    calls.map((call) => [call.method, new URL(call.url).pathname]),
+    [
+      ['POST', '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/notes'],
+      ['GET', '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/versions'],
+      ['POST', '/api/v4/projects/group%2Fsub%2Fproject/merge_requests/24/discussions'],
+    ]
+  );
 });
 
 test('gitlab create issue preflights managed labels before creating', async () => {

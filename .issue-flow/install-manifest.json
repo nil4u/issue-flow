@@ -9,7 +9,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "077bce47424a8ed22b8045b83d0b77d8b4118a1524d388d0f451e5c1e7bd41e0"
+      "sha256": "3427d9cfc488493e28d2fe8bd4db6718f6e48eb5138c174eb030779dccff2cf0"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md",
@@ -79,27 +79,27 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs": {
       "source": "skills/issue-flow/cli.cjs",
       "mode": "managed",
-      "sha256": "333bde191c6cc95d7be1cca072cacd9c05c93f0093c78070458605309ad74522"
+      "sha256": "ecbe118a14ca65ad90db98af8a6debb50b20ad54f23d40d5d450062089cfb732"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/references/labels.md": {
       "source": "skills/issue-flow/references/labels.md",
       "mode": "managed",
-      "sha256": "f225ead343b91f766db56cd576ebb725d7e93a0bc041a90d7da65404f95a60b3"
+      "sha256": "f8e3ed3d06525e37fe4db3646342e049b2adab985a167c4f88009e3c9b57465a"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/apply.cjs": {
       "source": "skills/issue-flow/scripts/apply.cjs",
       "mode": "managed",
-      "sha256": "d9e025a90f99dd1966b118671e99c64166240ec865158cc83613f18941f76bd0"
+      "sha256": "74a63cbced49b60c0af060c21be3d46ad378136cda7556ea88c2300d30b01841"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs": {
       "source": "skills/issue-flow/scripts/create-issue.cjs",
       "mode": "managed",
-      "sha256": "ac751d4a7555b150b0404c94ccf061d2629ab339c0f323887f009ba4f8f97bad"
+      "sha256": "783c654cf99215425ab410dd5d3a2232ccc82626f9917ba7d452b5b95c5d7afc"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs": {
       "source": "skills/issue-flow/scripts/dispatch.cjs",
       "mode": "managed",
-      "sha256": "238aa3c7d6c2bf850378389504da6909c80cf43911de52ffb9a46dbcdb0e60e4"
+      "sha256": "481343e7acec09c1078439ee5655a57bdc59e0857d4e1ef7f97be9c2e5499278"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/events.cjs": {
       "source": "skills/issue-flow/scripts/events.cjs",
@@ -114,7 +114,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/labels.cjs": {
       "source": "skills/issue-flow/scripts/labels.cjs",
       "mode": "managed",
-      "sha256": "2d94714800ff1a0016f39d61501b11c7390dcf372240ba31c04dc08a90972820"
+      "sha256": "aecda3dce00302d92caf7f17743060ff5d0ec24cee9aa8319d6b84860b3b7638"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/pipeline-failed.cjs": {
       "source": "skills/issue-flow/scripts/pipeline-failed.cjs",
@@ -124,22 +124,22 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/pr-merged.cjs": {
       "source": "skills/issue-flow/scripts/pr-merged.cjs",
       "mode": "managed",
-      "sha256": "de2f450af41517c37ca08d1604c8d46ced30dd69af74b46e01970ea3519c65f8"
+      "sha256": "8ec5ea9f31a3b6bc5589e32f1e58a8a1c4bdf4250aff6d4dce34ad86f1256f2c"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/providers.cjs": {
       "source": "skills/issue-flow/scripts/providers.cjs",
       "mode": "managed",
-      "sha256": "9151a62da545328aa9a0b2b4f3371f94c83783830e4dcae6a136dc283ca33e2b"
+      "sha256": "130a8fafb3da2d73095ca2256adceec7c9e90db094392a17246faa7a2857bf41"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/resolve.cjs": {
       "source": "skills/issue-flow/scripts/resolve.cjs",
       "mode": "managed",
-      "sha256": "cd74aab9a1b0831a5caba4044b709ae72faef7b26d86a7f8552aab275be912aa"
+      "sha256": "c9cb2e0cb82f6979075f84dee59952d10ebf3eba3dd57ae03ac1cc63569ce852"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/review.cjs": {
       "source": "skills/issue-flow/scripts/review.cjs",
       "mode": "managed",
-      "sha256": "dd41a6948a3bfba29af3cac27c87b6e025fcbf1ba8944b92ad4b21a09d0fe88f"
+      "sha256": "64158dd59ae5e0c3d4188e78d35daddd4e0c61ca7ee7831592361fc358e1c2bf"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
@@ -149,7 +149,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
       "mode": "managed",
-      "sha256": "83e722d122687ac566631da586fb1328f99668132bf7378449a3526c1a44e01d"
+      "sha256": "475a1982f1eff294cd2bcabe330bc195fb13ef1848a9c1dde4f2a2da230150eb"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs": {
       "source": "skills/issue-flow/scripts/sync-labels.cjs",
@@ -159,7 +159,7 @@
     ".github/workflows/issue-flow-auto.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-auto.yml",
       "mode": "managed",
-      "sha256": "7fb566e2ae7a866eb2f1359c8b02cc095732991e332efb1878c62f792fcca302"
+      "sha256": "e781c5f3032ecf12eb6a464c72a637d4ddc62e51066398e90e6ddcc290f96c9a"
     },
     ".github/workflows/issue-flow-comment.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-comment.yml",

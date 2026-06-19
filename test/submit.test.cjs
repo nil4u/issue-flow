@@ -16,6 +16,7 @@ const {
   normalizeOptionalUrl,
   normalizePrTitle,
   SUBMIT_KINDS,
+  validateSourceIssueSize,
 } = require('../skills/issue-flow/scripts/submit.cjs');
 const { labelDefinitionFor } = require('../skills/issue-flow/scripts/labels.cjs');
 
@@ -114,6 +115,26 @@ test('PR title normalization keeps existing issue number', () => {
 test('submit kinds use catalog definitions for PR and MR labels', () => {
   assert.equal(SUBMIT_KINDS.plan.labelDefinition, labelDefinitionFor('mr-by::plan'));
   assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
+});
+
+test('submit source issue size validation blocks missing and conflicting size labels', () => {
+  assert.throws(
+    () => validateSourceIssueSize({ labels: ['status::active', 'flow::plan'] }, 42),
+    /issue-flow issue apply --issue 42 --size size::M/
+  );
+  assert.throws(
+    () => validateSourceIssueSize({ labels: ['size::S', 'size::M'] }, 42),
+    /more than one size:: label: size::S, size::M/
+  );
+  assert.throws(
+    () => validateSourceIssueSize({ labels: ['size::XXL'] }, 42),
+    /invalid size:: label: size::XXL/
+  );
+  assert.deepEqual(validateSourceIssueSize({ labels: ['size::XL'] }, 42), {
+    ok: true,
+    label: 'size::XL',
+    weight: 5,
+  });
 });
 
 test('submit push auth uses GitHub token as temporary askpass credentials', () => {

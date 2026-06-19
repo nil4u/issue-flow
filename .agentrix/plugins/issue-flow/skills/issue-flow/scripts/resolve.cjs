@@ -12,6 +12,7 @@
 
 const { resolveProvider } = require('./providers.cjs');
 const { loadEventPayload } = require('./events.cjs');
+const { resolveIssueSizeLabel } = require('./labels.cjs');
 
 const FLOW_PREFIX = 'flow::';
 const STATUS_PREFIX = 'status::';
@@ -115,6 +116,23 @@ function resolveIssueAutomationLevel(labels) {
   return automationLabel ? normalizeAutomationLevel(automationLabel, 'automation label') : 'off';
 }
 
+function resolvePlanBuildSizeConflict(labels, action) {
+  if (action !== 'plan' && action !== 'build') {
+    return undefined;
+  }
+  const size = resolveIssueSizeLabel(labels);
+  if (size.ok || (size.code !== 'multiple_size_labels' && size.code !== 'invalid_size_label')) {
+    return undefined;
+  }
+  return {
+    shouldRun: false,
+    code: size.code,
+    reason: size.reason,
+    labels: size.labels,
+    action,
+  };
+}
+
 function resolveAutomationDecision(issue, options = {}) {
   const labels = normalizeLabels(issue.labels);
   if (issue.state && issue.state !== 'open') {
@@ -163,6 +181,15 @@ function resolveAutomationDecision(issue, options = {}) {
     return {
       shouldRun: false,
       reason: 'unsupported_flow',
+      flowLabel,
+      automationLabel: resolveIssueAutomationLabel(labels),
+    };
+  }
+
+  const sizeConflict = resolvePlanBuildSizeConflict(labels, action);
+  if (sizeConflict) {
+    return {
+      ...sizeConflict,
       flowLabel,
       automationLabel: resolveIssueAutomationLabel(labels),
     };
@@ -233,6 +260,14 @@ function resolveResumeDecision(issue) {
     return {
       shouldRun: false,
       reason: 'unsupported_flow',
+      flowLabel,
+    };
+  }
+
+  const sizeConflict = resolvePlanBuildSizeConflict(labels, action);
+  if (sizeConflict) {
+    return {
+      ...sizeConflict,
       flowLabel,
     };
   }
@@ -456,6 +491,7 @@ module.exports = {
   resolveCommentDecision,
   resolveIssueAutomationLabel,
   resolveIssueAutomationLevel,
+  resolvePlanBuildSizeConflict,
   resolveRepoDefaultAutomationLevel,
   resolveResumeDecision,
   shouldRunAutoForEvent,

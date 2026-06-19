@@ -333,6 +333,14 @@ function resolveGithubRepo(payload = {}, options = {}) {
     };
   }
 
+  const remote = parseGitRemoteUrl(process.env.CI_REPOSITORY_URL || getGitOriginUrl());
+  if (remote.fullName) {
+    const parsedRemote = parseRepoFullName(remote.fullName);
+    if (parsedRemote.owner && parsedRemote.repo) {
+      return parsedRemote;
+    }
+  }
+
   throw new Error('Unable to resolve GitHub repository. Pass --repo or set GITHUB_REPOSITORY.');
 }
 
@@ -383,11 +391,12 @@ function buildGithubIssueContext(payload = {}, options = {}) {
 }
 
 function normalizeGithubPullRequest(pr, repo, fallback = {}) {
+  const repoFullName = repo.fullName || repo.repoFullName;
   return {
     provider: 'github',
     owner: repo.owner,
     repo: repo.repo,
-    repoFullName: repo.fullName,
+    repoFullName,
     number: parsePositiveInteger(pr.number || fallback.number, 'pull request number'),
     title: typeof pr.title === 'string' ? pr.title : fallback.title || '',
     body: typeof pr.body === 'string' ? pr.body : fallback.body || '',
@@ -467,6 +476,51 @@ async function listGithubIssueComments(issue, options = {}) {
   return comments;
 }
 
+async function listGithubPullRequestReviewComments(pr, options = {}) {
+  if (options.dryRun) {
+    return [];
+  }
+
+  const comments = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGithub('GET', `${githubPullRequestApiPath(pr)}/comments?per_page=100&page=${page}`);
+    if (!Array.isArray(pageItems) || pageItems.length === 0) {
+      break;
+    }
+    comments.push(...pageItems);
+    if (pageItems.length < 100) {
+      break;
+    }
+  }
+  return comments;
+}
+
+function normalizeGithubReviewComment(comment) {
+  const normalized = {
+    path: comment.path,
+    body: comment.body,
+  };
+  if (comment.position !== undefined) {
+    normalized.position = Number(comment.position);
+    return normalized;
+  }
+  if (comment.line !== undefined) {
+    normalized.line = Number(comment.line);
+  }
+  if (comment.side) {
+    normalized.side = String(comment.side).toUpperCase();
+  } else if (comment.line !== undefined) {
+    normalized.side = 'RIGHT';
+  }
+  if (comment.startLine !== undefined || comment.start_line !== undefined) {
+    normalized.start_line = Number(comment.startLine ?? comment.start_line);
+  }
+  if (comment.startSide || comment.start_side) {
+    normalized.start_side = String(comment.startSide || comment.start_side).toUpperCase();
+  }
+  return normalized;
+}
+
 async function createGithubIssueComment(issue, body, options = {}) {
   if (options.dryRun) {
     console.log(JSON.stringify({ dryRun: true, commentIssue: issue.number, body }, null, 2));
@@ -476,13 +530,16 @@ async function createGithubIssueComment(issue, body, options = {}) {
   return requestGithub('POST', `${githubIssueApiPath(issue)}/comments`, { body });
 }
 
-async function submitGithubPullRequestReview(pr, body, options = {}) {
+async function submitGithubPullRequestReview(pr, body, options = {}, comments = []) {
   const requestBody = {
     body,
     event: 'COMMENT',
   };
   if (options.commitId || pr.headSha) {
     requestBody.commit_id = options.commitId || pr.headSha;
+  }
+  if (comments.length > 0) {
+    requestBody.comments = comments.map(normalizeGithubReviewComment);
   }
 
   if (options.dryRun) {
@@ -758,6 +815,14 @@ function resolveGitlabRepo(payload = {}, options = {}) {
     };
   }
 
+  const remote = parseGitRemoteUrl(process.env.CI_REPOSITORY_URL || getGitOriginUrl());
+  if (remote.fullName) {
+    const parsedRemote = parseRepoFullName(remote.fullName);
+    if (parsedRemote.fullName) {
+      return parsedRemote;
+    }
+  }
+
   throw new Error('Unable to resolve GitLab project. Pass --repo, set GITLAB_PROJECT_PATH, or set CI_PROJECT_PATH.');
 }
 
@@ -947,6 +1012,10 @@ function gitlabMergeRequestNotesApiPath(pr) {
   return `${gitlabMergeRequestApiPath(pr)}/notes`;
 }
 
+function gitlabMergeRequestDiscussionsApiPath(pr) {
+  return `${gitlabMergeRequestApiPath(pr)}/discussions`;
+}
+
 function pickGitlabMergeRequestPayload(payload = {}) {
   if (payload.merge_request) {
     return payload.merge_request;
@@ -962,6 +1031,7 @@ function normalizeGitlabPullRequest(pr, repo, fallback = {}) {
   const state = normalizeGitlabState(pr.state || fallback.state);
   const diffRefs = pr.diff_refs || {};
   const lastCommit = pr.last_commit || {};
+  const repoFullName = repo.fullName || repo.repoFullName;
   const draft =
     pr.work_in_progress === true ||
     pr.draft === true ||
@@ -970,7 +1040,7 @@ function normalizeGitlabPullRequest(pr, repo, fallback = {}) {
     provider: 'gitlab',
     owner: repo.owner,
     repo: repo.repo,
-    repoFullName: repo.fullName,
+    repoFullName,
     projectId: repo.projectId,
     number: parsePositiveInteger(pr.iid || pr.number || fallback.number, 'merge request iid'),
     title: typeof pr.title === 'string' ? pr.title : fallback.title || '',
@@ -1031,6 +1101,80 @@ async function listGitlabPullRequestComments(pr, options = {}) {
   return comments;
 }
 
+async function listGitlabPullRequestReviewComments(pr, options = {}) {
+  if (options.dryRun) {
+    return [];
+  }
+
+  const comments = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const discussions = await requestGitlab(
+      'GET',
+      `${gitlabMergeRequestDiscussionsApiPath(pr)}?per_page=100&page=${page}`,
+      undefined,
+      options
+    );
+    if (!Array.isArray(discussions) || discussions.length === 0) {
+      break;
+    }
+    for (const discussion of discussions) {
+      const notes = Array.isArray(discussion.notes) ? discussion.notes : [];
+      if (!notes.some((note) => note && note.position)) {
+        continue;
+      }
+      for (const note of notes) {
+        if (note && note.system) {
+          continue;
+        }
+        comments.push({
+          ...note,
+          discussionId: discussion.id,
+          individualNote: Boolean(discussion.individual_note),
+        });
+      }
+    }
+    if (discussions.length < 100) {
+      break;
+    }
+  }
+  return comments;
+}
+
+async function fetchGitlabMergeRequestVersion(pr, options = {}) {
+  const versions = await requestGitlab('GET', `${gitlabMergeRequestApiPath(pr)}/versions?per_page=1`, undefined, options);
+  const version = Array.isArray(versions) ? versions[0] : undefined;
+  if (!version) {
+    throw new Error('Unable to resolve GitLab merge request diff version for inline review comments');
+  }
+  return version;
+}
+
+function normalizeGitlabReviewCommentPosition(comment, version) {
+  if (comment.position && typeof comment.position === 'object' && !Array.isArray(comment.position)) {
+    return comment.position;
+  }
+  const side = String(comment.side || 'RIGHT').toUpperCase();
+  const line = Number(comment.line ?? comment.newLine ?? comment.new_line ?? comment.oldLine ?? comment.old_line);
+  if (!Number.isFinite(line) || line <= 0) {
+    throw new Error(`GitLab inline review comment for ${comment.path} must include a positive line`);
+  }
+  const path = comment.path;
+  const position = {
+    base_sha: version.base_commit_sha,
+    start_sha: version.start_commit_sha,
+    head_sha: version.head_commit_sha,
+    old_path: comment.oldPath || comment.old_path || path,
+    new_path: comment.newPath || comment.new_path || path,
+    position_type: comment.positionType || comment.position_type || 'text',
+  };
+  if (side === 'LEFT') {
+    position.old_line = line;
+  } else {
+    position.new_line = line;
+  }
+  return position;
+}
+
 async function createGitlabPullRequestComment(pr, body, options = {}) {
   if (options.dryRun) {
     console.log(JSON.stringify({ dryRun: true, commentPullRequest: pr.number, body }, null, 2));
@@ -1040,8 +1184,31 @@ async function createGitlabPullRequestComment(pr, body, options = {}) {
   return requestGitlab('POST', gitlabMergeRequestNotesApiPath(pr), { body }, options);
 }
 
-async function submitGitlabPullRequestReview(pr, body, options = {}) {
-  return createGitlabPullRequestComment(pr, body, options);
+async function submitGitlabPullRequestReview(pr, body, options = {}, comments = []) {
+  const note = await createGitlabPullRequestComment(pr, body, options);
+  let discussionUrl = '';
+  if (comments.length > 0 && !options.dryRun) {
+    const version = await fetchGitlabMergeRequestVersion(pr, options);
+    for (const comment of comments) {
+      const discussion = await requestGitlab(
+        'POST',
+        gitlabMergeRequestDiscussionsApiPath(pr),
+        {
+          body: comment.body,
+          position: normalizeGitlabReviewCommentPosition(comment, version),
+        },
+        options
+      );
+      if (!discussionUrl) {
+        const firstNote = discussion && Array.isArray(discussion.notes) ? discussion.notes[0] : undefined;
+        discussionUrl = firstNote && firstNote.web_url ? firstNote.web_url : '';
+      }
+    }
+  }
+  if (comments.length > 0 && options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, reviewPullRequest: pr.number, inlineComments: comments }, null, 2));
+  }
+  return discussionUrl ? { ...note, web_url: note.web_url || discussionUrl } : note;
 }
 
 async function updateGitlabPullRequestComment(pr, commentId, body, options = {}) {
@@ -1825,6 +1992,41 @@ function normalizePortComment(comment) {
   };
 }
 
+function normalizePortReviewComment(comment) {
+  const position = (comment && comment.position) || {};
+  const author = comment && typeof comment.author === 'string'
+    ? comment.author
+    : comment && comment.user && comment.user.login
+      ? comment.user.login
+      : comment && comment.author && (comment.author.username || comment.author.name)
+        ? comment.author.username || comment.author.name
+        : '';
+  const line = comment && (comment.line ?? comment.new_line ?? position.new_line ?? position.line);
+  const startLine = comment && (comment.start_line ?? position.start_line);
+  return {
+    commentId: String(comment && comment.id !== undefined ? comment.id : ''),
+    reviewId: String((comment && (comment.pull_request_review_id || comment.reviewId)) || ''),
+    discussionId: String((comment && (comment.discussionId || comment.discussion_id)) || ''),
+    body: String((comment && (comment.body || comment.note)) || ''),
+    url: String((comment && (comment.html_url || comment.htmlUrl || comment.web_url || comment.url)) || ''),
+    author,
+    createdAt: String((comment && (comment.created_at || comment.createdAt)) || ''),
+    updatedAt: String((comment && (comment.updated_at || comment.updatedAt)) || ''),
+    path: String((comment && (comment.path || comment.new_path || position.new_path || position.old_path)) || ''),
+    line: line == null ? null : Number(line),
+    startLine: startLine == null ? null : Number(startLine),
+    side: String((comment && (comment.side || position.side)) || ''),
+    startSide: String((comment && (comment.start_side || position.start_side)) || ''),
+    diffHunk: String((comment && comment.diff_hunk) || ''),
+    commitId: String((comment && (comment.commit_id || position.head_sha)) || ''),
+    originalCommitId: String((comment && comment.original_commit_id) || ''),
+    position: comment && comment.position !== undefined ? comment.position : null,
+    originalPosition: comment && comment.original_position !== undefined ? comment.original_position : null,
+    resolved: comment && comment.resolved !== undefined ? Boolean(comment.resolved) : null,
+    resolvable: comment && comment.resolvable !== undefined ? Boolean(comment.resolvable) : null,
+  };
+}
+
 function normalizePortCommentResult(comment, fallback = {}) {
   const normalized = normalizePortComment(comment || fallback);
   return {
@@ -1912,6 +2114,11 @@ function resolveProviderPort(options = {}, payload = {}) {
         const comments = await provider.listPullRequestComments(pr, baseOptions);
         return comments.map(normalizePortComment);
       },
+      async listReviewComments() {
+        const pr = pullRequestRef();
+        const comments = await provider.listPullRequestReviewComments(pr, baseOptions);
+        return comments.map(normalizePortReviewComment);
+      },
       async createComment(input = {}) {
         const pr = pullRequestRef();
         const comment = await provider.createPullRequestComment(pr, input.body || '', baseOptions);
@@ -1949,6 +2156,7 @@ const githubProvider = {
   updateIssueComment: updateGithubIssueComment,
   deleteIssueComment: deleteGithubIssueComment,
   listPullRequestComments: listGithubIssueComments,
+  listPullRequestReviewComments: listGithubPullRequestReviewComments,
   createPullRequestComment: createGithubIssueComment,
   submitPullRequestReview: submitGithubPullRequestReview,
   updatePullRequestComment: updateGithubIssueComment,
@@ -1990,6 +2198,7 @@ const gitlabProvider = {
   updateIssueComment: updateGitlabIssueComment,
   deleteIssueComment: deleteGitlabIssueComment,
   listPullRequestComments: listGitlabPullRequestComments,
+  listPullRequestReviewComments: listGitlabPullRequestReviewComments,
   createPullRequestComment: createGitlabPullRequestComment,
   submitPullRequestReview: submitGitlabPullRequestReview,
   updatePullRequestComment: updateGitlabPullRequestComment,

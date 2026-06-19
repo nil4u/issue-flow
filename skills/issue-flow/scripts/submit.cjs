@@ -8,10 +8,11 @@ const {
   existingPullRequestApiHead,
   headBranchFilterCandidates,
   isExistingPullRequestError,
+  normalizeLabels,
   normalizeOptionalUrl,
   resolveProvider,
 } = require('./providers.cjs');
-const { labelDefinitionFor } = require('./labels.cjs');
+const { labelDefinitionFor, resolveIssueSizeLabel } = require('./labels.cjs');
 
 const SUBMIT_KINDS = {
   plan: {
@@ -427,6 +428,76 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options) {
   });
 }
 
+async function loadSourceIssueForSubmit(provider, repo, issueNumber, options = {}) {
+  const target = {
+    ...repo,
+    provider: provider.name,
+    issueNumber,
+    number: issueNumber,
+  };
+  const canRead = !options.dryRun || (provider.hasToken && provider.hasToken(options));
+  if (!canRead) {
+    console.log(
+      JSON.stringify(
+        {
+          dryRun: true,
+          plannedCheck: 'source_issue_size',
+          issueNumber,
+          reason: 'Source issue must have exactly one size:: label before submitting a plan/build PR/MR.',
+        },
+        null,
+        2
+      )
+    );
+    return undefined;
+  }
+  const issue = provider.getIssueForApply
+    ? await provider.getIssueForApply(target, options)
+    : await provider.fetchCurrentIssue(target, options);
+  return {
+    ...issue,
+    labels: normalizeLabels(issue.labels),
+  };
+}
+
+function validateSourceIssueSize(issue, issueNumber) {
+  if (!issue) {
+    return undefined;
+  }
+  const result = resolveIssueSizeLabel(issue.labels || []);
+  if (result.ok) {
+    return result;
+  }
+  const command = `issue-flow issue apply --issue ${issueNumber} --size size::M`;
+  if (result.code === 'multiple_size_labels') {
+    throw new Error(
+      [
+        `Source issue #${issueNumber} has more than one size:: label: ${result.labels.join(', ')}.`,
+        'Choose one size based on the issue title, body, comments, and repository context, then re-run:',
+        command,
+        'The apply command replaces the conflicting size labels.',
+      ].join(' ')
+    );
+  }
+  if (result.code === 'invalid_size_label') {
+    throw new Error(
+      [
+        `Source issue #${issueNumber} has an invalid size:: label: ${result.labels.join(', ')}.`,
+        'Choose size::XS, size::S, size::M, size::L, or size::XL based on the issue title, body, comments, and repository context, then re-run:',
+        command,
+      ].join(' ')
+    );
+  }
+  throw new Error(
+    [
+      `Source issue #${issueNumber} needs exactly one size:: label before submitting a plan/build PR/MR.`,
+      'Choose size::XS, size::S, size::M, size::L, or size::XL based on the issue title, body, comments, and repository context.',
+      'If you are unsure, use size::M and leave a low-confidence note, then re-run:',
+      command,
+    ].join(' ')
+  );
+}
+
 async function main(argv = process.argv.slice(2)) {
   const { kind, options } = parseArgs(argv);
   if (options.help || !kind) {
@@ -454,6 +525,8 @@ async function main(argv = process.argv.slice(2)) {
 
   assertCleanWorktree(options);
   assertPublishBranch(headBranch, baseBranch, options);
+  const sourceIssue = await loadSourceIssueForSubmit(provider, repo, issueNumber, options);
+  validateSourceIssueSize(sourceIssue, issueNumber);
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
@@ -489,12 +562,14 @@ module.exports = {
   headBranchFilterCandidates,
   isExistingPullRequestError,
   isGitTrackedFile,
+  loadSourceIssueForSubmit,
   main,
   normalizeOptionalUrl,
   normalizePrTitle,
   parseArgs,
   resolveBaseBranch,
   SUBMIT_KINDS,
+  validateSourceIssueSize,
 };
 
 if (require.main === module) {

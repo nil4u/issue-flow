@@ -70,6 +70,22 @@ apply.cjs 和 create-issue.cjs 接受 `automation::off`、`automation::plan` 和
 | `priority::p2` | 默认 |
 | `priority::p3` | 低优先级 |
 
+### size::
+
+Issue 工作量规模。用于 Weighted Throughput 统计；同一 issue 必须最多一个 `size::`。
+
+| Label | 权重 | 语义 |
+|-------|------|------|
+| `size::XS` | 0.5 | 文案、配置、单点小改 |
+| `size::S` | 1 | 局部低风险改动 |
+| `size::M` | 2 | 常规单 issue 工作；无法判断时的默认值 |
+| `size::L` | 3 | 跨模块或高回归面工作 |
+| `size::XL` | 5 | 大范围、架构性或应考虑拆分的工作 |
+
+进入 `flow::plan` 或 `flow::build` 前，issue 必须有且仅有一个 `size::`。缺失时，agent 根据 issue 标题、正文、评论和仓库上下文补打；无法判断时用 `size::M` 并留下低置信度说明。多个 `size::` 会阻断 plan/build 流转，必须先修正为一个。
+
+Weighted Throughput 的最小定义：在给定时间窗口内，对完成的 issue 按唯一 `size::` label 映射权重并求和。完成口径建议使用 `status::done`，或 build PR/MR merge 后由 `pr merged` 转为 done 的 source issue。没有 size 或有多个 size 的 issue 不应进入统计。
+
 ### mr-by::
 
 PR/MR 来源标记。**只用于 PR/MR，不用于 issue。**
@@ -86,3 +102,4 @@ PR/MR 来源标记。**只用于 PR/MR，不用于 issue。**
 - 不指定某个 prefix 时，不触碰该 prefix 的现有 label
 - `--clear-flow` 清除所有 `flow::` label 但不添加新的
 - `--clear-automation` 清除所有 `automation::` label 但不添加新的
+- `flow::plan` / `flow::build` 执行前必须有且仅有一个 `size::` label

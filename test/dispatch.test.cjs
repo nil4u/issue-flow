@@ -13,6 +13,7 @@ const {
   runPrMerged,
   runAuto,
   runReview,
+  runResume,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 const { providers } = require('../skills/issue-flow/scripts/providers.cjs');
@@ -207,6 +208,65 @@ test('dispatch auto skips non-routing labeled events', async () => {
     action: 'skipped',
     reason: 'label_not_routing',
   });
+});
+
+test('dispatch auto blocks conflicting size labels before runtime starts', async () => {
+  const result = await runAuto(
+    {
+      dryRun: true,
+      autoDefault: 'build',
+    },
+    {
+      payload: {
+        action: 'labeled',
+        label: { name: 'flow::build' },
+        issue: {
+          number: 42,
+          state: 'open',
+          labels: [
+            { name: 'status::active' },
+            { name: 'flow::build' },
+            { name: 'automation::build' },
+            { name: 'size::S' },
+            { name: 'size::M' },
+          ],
+        },
+        repository: { full_name: 'example/platform' },
+      },
+    }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.code, 'multiple_size_labels');
+  assert.equal(result.reason, 'This issue has more than one size:: label; choose one size label before continuing.');
+  assert.deepEqual(result.labels, ['size::S', 'size::M']);
+});
+
+test('dispatch resume blocks conflicting size labels before runtime starts', async () => {
+  const result = await runResume(
+    {
+      dryRun: true,
+    },
+    {
+      payload: {
+        issue: {
+          number: 42,
+          state: 'open',
+          labels: [
+            { name: 'status::active' },
+            { name: 'flow::plan' },
+            { name: 'size::S' },
+            { name: 'size::M' },
+          ],
+        },
+        repository: { full_name: 'example/platform' },
+      },
+    }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.code, 'multiple_size_labels');
+  assert.deepEqual(result.labels, ['size::S', 'size::M']);
 });
 
 test('dispatch review manual path fetches PR/MR and skips draft state', async () => {
