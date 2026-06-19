@@ -25,6 +25,7 @@
   - `skills/issue-flow/scripts/dispatch.cjs` 已提供 `auto`、`comment`、`review`、`pr-merged`、`pipeline-failed`、`resume` 和 direct action 入口；`runReview()` 已会从 PR/MR event 解析当前 PR/MR、fetch 当前 PR/MR、按 PR 状态跳过、再启动 Agentrix review action。
   - `skills/issue-flow/scripts/resolve.cjs` 的 `resolveResumeDecision()` 已能根据 source issue 的 `flow::` label 决定是否继续 `triage/plan/build`；本需求不应再依赖该 decision 作为 PR review comment resume 的门槛，因为 task id 已经来自 PR/MR body。
   - `skills/issue-flow/scripts/runtimes/agentrix.cjs` 已支持 source issue prompt、`data.instruction` 注入、PR/MR source issue 解析，以及 `buildTaskCommentMarker()` / `buildTaskComment()` 的 task lock comment；当前未看到从 PR/MR body 解析 Agentrix task id 的 helper。
+  - Agentrix run 文档确认可用 `agentrix-run --resume <task-id> --prompt <message>` 向已有 task 追加消息；resume 模式不需要 repository context 或 runner id，`async` response mode 表示确认消息已被后端接受。
   - `skills/issue-flow/scripts/providers.cjs` 已有 GitHub/GitLab `buildPullRequestContext()`、`fetchCurrentPullRequest()`、`fetchCurrentIssue()`、PR/MR comments、PR/MR review comments list 等 provider abstraction。
   - `skills/issue-flow/cli.cjs` 当前只有 `pr review-comments list`；没有受控的 inline review comment reply 或 resolve 命令。仅靠 prompt 要求 agent 回复/resolve 会让 agent 缺少合规 provider 操作入口。
   - `skills/issue-flow/scripts/events.cjs` 已把 Agentrix GitLab bridge 的 `pull_request_review_comment` 映射成 GitLab note payload，`buildGitlabPullRequestContext()` 可从 `payload.merge_request` 定位 MR。
@@ -174,7 +175,18 @@
      - 输入 task id 来自 PR/MR body marker。
      - metadata 包含 PR/MR、review comment id，以及可选 source issue。
      - 不创建新的 unrelated task。
-   - 若当前 `@agentrix/agentrix-run` 已有 resume 参数，则 runtime wrapper 使用该参数；如果只支持 API resume，则在 runtime 内封装 Agentrix API 调用。无论实现方式如何，dispatch 层只传 task id 和 instruction，不直接调 Agentrix API。
+   - 新增 `buildResumeTaskArgs(taskId, instruction, options, data, resultFile)`，用 `agentrix-run` 的 resume 模式构造参数：
+     ```bash
+     npx --yes @agentrix/agentrix-run@<version> \
+       --resume <task-id> \
+       --prompt "<resume instruction>" \
+       --response-mode async \
+       --result-file <tmp-result-json> \
+       --base-url <AGENTRIX_BASE_URL> \
+       --api-key <AGENTRIX_API_KEY>
+     ```
+   - resume 模式不传 `--agent`、`--title`、`--issue-number`、`--runner-id` 或 repository metadata；这些上下文由已有 task 保留。review comment URL、PR/MR number 和可选 source issue 放进 `--prompt` 文本即可。
+   - `resumeTask()` 继续复用当前 runtime 的 `resolveAgentrixRunPackage()`、`resolveResponseMode()`、临时 `result.json` 和 `npx` 执行模式；dry-run 输出 `{ dryRun: true, runtime: "agentrix", action: "task_resume", taskId, prompt }`。
    - `buildTaskComment()` 对 `data.comment.htmlUrl` 已会输出 `Trigger:`；本次补充 `data.reviewComment` fallback，确保 review comment URL 被记录。
    - resume metadata 以 PR/MR 和 task 为主；如果解析到 source issue，再附加 source issue metadata：
      - `issue_flow_pr=<repo>#<pr>`
@@ -253,6 +265,7 @@
      - `extractAgentrixTaskIdFromPullRequest()` 只从 PR/MR body marker 解析 task id。
      - source issue body 里有 `issue-flow:agentrix:task=<id>` 时不会被 PR/MR task resolver 使用。
      - `buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } })` 或专用 helper 生成 comment-scoped PR/MR marker。
+     - `buildResumeTaskArgs()` 包含 `--resume <task-id>`、`--prompt`、`--response-mode async` 和 `--result-file`，且不包含 `--runner-id`、`--issue-number`、`--title`。
      - task resume dry-run 输出包含 task id、review comment URL 和 source issue metadata。
      - resume instruction / prompt 包含 `pr review-comments reply` 和 `pr review-comments resolve` 命令示例。
    - `test/submit.test.cjs`：
