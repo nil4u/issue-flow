@@ -20,6 +20,7 @@ const BUILD_BRANCH_SUFFIX = 'build';
 const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
+const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
@@ -339,6 +340,54 @@ function extractSourceIssueNumberFromPullRequest(pr = {}) {
   return undefined;
 }
 
+function extractAgentrixTaskIdFromPullRequest(pr = {}) {
+  const match = String(pr.body || '').match(AGENTRIX_TASK_MARKER_PATTERN);
+  return match ? match[1].trim() : '';
+}
+
+function formatReviewCommentLocation(comment = {}) {
+  const pathValue = comment.path || '';
+  const line = comment.line || comment.startLine || '';
+  if (pathValue && line) {
+    return `${pathValue}:${line}`;
+  }
+  return pathValue || '';
+}
+
+function buildReviewCommentResumeInstruction(pr, reviewComment = {}, data = {}) {
+  const lines = [
+    '有新的 PR/MR review comment，请查看并处理。',
+    '',
+    `PR/MR: #${pr.number}${pr.htmlUrl ? ` ${pr.htmlUrl}` : ''}`,
+  ];
+  if (reviewComment.htmlUrl) {
+    lines.push(`Review comment: ${reviewComment.htmlUrl}`);
+  }
+  if (reviewComment.id) {
+    lines.push(`Review comment id: ${reviewComment.id}`);
+  }
+  const location = formatReviewCommentLocation(reviewComment);
+  if (location) {
+    lines.push(`File: ${location}`);
+  }
+  if (reviewComment.author) {
+    lines.push(`Comment author: ${reviewComment.author}`);
+  }
+  if (data.sourceIssueNumber) {
+    lines.push(`Source issue: #${data.sourceIssueNumber}`);
+  }
+  if (reviewComment.body) {
+    lines.push('', 'Comment summary:', truncate(reviewComment.body, 500));
+  }
+  lines.push(
+    '',
+    '处理完成后，请使用 issue-flow CLI 回复该 review comment，并在 provider 支持时 resolve 对应 discussion/thread。',
+    `回复命令: node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review-comments reply --pr ${pr.number} --comment-id ${reviewComment.id || '<id>'} --body-file <tmp-reply-body-file>`,
+    `Resolve 命令: node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review-comments resolve --pr ${pr.number} --comment-id ${reviewComment.id || '<id>'}`
+  );
+  return lines.join('\n');
+}
+
 function buildPullRequestPrompt(pr, data = {}, options = {}) {
   const prompt = readPrompt('review', pr, options);
   const blocks = [formatRequiredSkill(), '', prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
@@ -444,6 +493,38 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
   return args;
 }
 
+function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resultFile = '') {
+  const args = [
+    '--yes',
+    resolveAgentrixRunPackage(),
+    '--resume',
+    String(taskId),
+    '--prompt',
+    instruction,
+    '--response-mode',
+    resolveResponseMode(options),
+    '--result-file',
+    resultFile,
+    '--metadata',
+    `issue_flow_agentrix_task=${taskId}`,
+  ];
+  const pr = data.pullRequest || {};
+  if (pr.repoFullName && pr.number) {
+    args.push('--metadata', `issue_flow_pr=${pr.repoFullName}#${pr.number}`);
+  }
+  const reviewComment = data.reviewComment || {};
+  if (reviewComment.id) {
+    args.push('--metadata', `issue_flow_review_comment=${reviewComment.id}`);
+  }
+  if (data.sourceIssueNumber && pr.repoFullName) {
+    args.push('--metadata', `issue_flow_source_issue=${pr.repoFullName}#${data.sourceIssueNumber}`);
+  }
+
+  appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
+  appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
+  return args;
+}
+
 function run(action, issue, options = {}, data = {}) {
   const prompt = buildPrompt(action, issue, data, options);
   if (options.dryRun) {
@@ -486,8 +567,54 @@ function run(action, issue, options = {}, data = {}) {
   }
 }
 
+function resumeTask(taskId, instruction, options = {}, data = {}) {
+  if (options.dryRun) {
+    const result = {
+      runId: 'dry-run',
+      status: 'dry-run',
+      detailUrl: '',
+      result: '',
+      taskId: String(taskId),
+    };
+    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action: 'task_resume', taskId: String(taskId), prompt: instruction }, null, 2));
+    return result;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-'));
+  const resultFile = path.join(tempDir, 'result.json');
+  const provider = resolveProvider(options, data.payload || {});
+  const args = buildResumeTaskArgs(taskId, instruction, options, data, resultFile);
+
+  const child = spawnSync('npx', args, {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      AGENTRIX_EVENT_NAME:
+        process.env.AGENTRIX_EVENT_NAME ||
+        process.env[provider.envEventName] ||
+        process.env.GITHUB_EVENT_NAME ||
+        process.env.GITLAB_EVENT_NAME ||
+        'issue_flow',
+      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || 'task_resume',
+    },
+  });
+
+  try {
+    if (child.status !== 0) {
+      throw new Error(`agentrix-run exited with status ${child.status ?? 1}`);
+    }
+    return JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 function buildTaskCommentMarker(action, data = {}) {
   const pr = data.pullRequest || data;
+  if (action === 'task_resume' && data.reviewComment) {
+    const id = data.reviewComment.id || data.reviewComment.htmlUrl || 'unknown';
+    return `<!-- issue-flow:agentrix:task:resume-review-comment:${String(id).replace(/\s+/g, '-')} -->`;
+  }
   if (action === 'review' && pr && pr.headSha) {
     return `<!-- issue-flow:agentrix:task:${action}:${pr.headSha} -->`;
   }
@@ -497,7 +624,11 @@ function buildTaskCommentMarker(action, data = {}) {
 function buildTaskComment(action, result, data = {}) {
   const lines = [buildTaskCommentMarker(action, data)];
   if (result.status === 'starting') {
-    lines.push(`Agentrix task starting. This comment prevents duplicate issue-flow tasks for the same ${action === 'review' ? 'PR/MR' : 'issue'}/action.`);
+    if (action === 'task_resume') {
+      lines.push('Agentrix task resume starting. This comment prevents duplicate issue-flow resumes for the same PR/MR review comment.');
+    } else {
+      lines.push(`Agentrix task starting. This comment prevents duplicate issue-flow tasks for the same ${action === 'review' ? 'PR/MR' : 'issue'}/action.`);
+    }
   } else if (result.detailUrl) {
     lines.push(`Agentrix task queued: [open task](${result.detailUrl}).`);
   } else {
@@ -510,10 +641,18 @@ function buildTaskComment(action, result, data = {}) {
   }
   if (data.comment && data.comment.htmlUrl) {
     lines.push(`Trigger: ${data.comment.htmlUrl}`);
+  } else if (data.reviewComment && data.reviewComment.htmlUrl) {
+    lines.push(`Trigger: ${data.reviewComment.htmlUrl}`);
   } else if (data.pullRequest) {
     lines.push('Trigger: PR/MR review check.');
   } else if (data.auto) {
     lines.push('Trigger: automatic issue-flow.');
+  }
+  if (data.reviewComment && data.reviewComment.id) {
+    lines.push(`Review comment: \`${data.reviewComment.id}\``);
+  }
+  if (data.agentrixTaskId) {
+    lines.push(`Agentrix task: \`${data.agentrixTaskId}\``);
   }
   return lines.join('\n');
 }
@@ -531,9 +670,12 @@ module.exports = {
   buildIssuePlanPattern,
   buildPrompt,
   buildPullRequestPrompt,
+  buildResumeTaskArgs,
   buildRunArgs,
+  buildReviewCommentResumeInstruction,
   buildTaskComment,
   buildTaskCommentMarker,
+  extractAgentrixTaskIdFromPullRequest,
   extractMention,
   extractSourceIssueNumberFromPullRequest,
   findIssuePlanFiles,
@@ -542,5 +684,6 @@ module.exports = {
   resolveAgentrixConfig,
   resolvePlanTemplate,
   run,
+  resumeTask,
   shouldAcknowledgeAutoIssue,
 };

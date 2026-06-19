@@ -81,6 +81,8 @@ function prHelp() {
     '  comments update --pr <num> --comment-id <id> --body-file <path>',
     '  comments delete --pr <num> --comment-id <id>',
     '  review-comments list --pr <num>',
+    '  review-comments reply --pr <num> --comment-id <id> --body-file <path>',
+    '  review-comments resolve --pr <num> --comment-id <id>',
     '  review --pr <num> --body-file <path> [--comments-file <path>]',
     '  merged --event <path>',
     '',
@@ -93,6 +95,7 @@ function prSubmitHelp() {
     'Usage: issue-flow pr submit <plan|build> --issue <num> --title <title> --body-file <path> [options]',
     '',
     'Options:',
+    '  --agentrix-task-id <id>',
     '  --base <branch>',
     '  --head <branch>',
     '  --draft',
@@ -119,6 +122,8 @@ function prReviewCommentsHelp() {
     '',
     'Actions:',
     '  list --pr <num>',
+    '  reply --pr <num> --comment-id <id> --body-file <path>',
+    '  resolve --pr <num> --comment-id <id>',
   ].join('\n');
 }
 
@@ -137,7 +142,7 @@ function dispatchHelp() {
     'Usage: issue-flow dispatch <action> [options]',
     '',
     'Actions:',
-    '  auto | comment | review | pr-merged | pipeline-failed | resume | triage | plan | build | general',
+    '  auto | comment | review | review-comment | pr-merged | pipeline-failed | resume | triage | plan | build | general',
   ].join('\n');
 }
 
@@ -430,6 +435,15 @@ async function handlePrReviewComments(argv) {
       items: result,
     });
   }
+  if (action === 'reply') {
+    const body = readBodyFile(options.bodyFile);
+    const { result } = await withPort(options, (port) => port.pullRequests.replyReviewComment({ commentId: options.commentId }, { body }));
+    return baseEnvelope('replied', resolveProviderPort(providerOptions(options), {}).provider, 'pr_review_comment', options, result);
+  }
+  if (action === 'resolve') {
+    const { result } = await withPort(options, (port) => port.pullRequests.resolveReviewComment({ commentId: options.commentId }));
+    return baseEnvelope('resolved', resolveProviderPort(providerOptions(options), {}).provider, 'pr_review_comment', options, result);
+  }
   throw new Error(`Unknown pr review-comments action: ${action}\n\n${prReviewCommentsHelp()}`);
 }
 
@@ -449,6 +463,19 @@ function handleLabels(argv) {
 function handleDispatch(argv) {
   if (argv.length === 0 || argv[0] === '--help') {
     return dispatchHelp();
+  }
+  if (argv[0] === 'review-comment') {
+    const options = parseOptions(mapAliasArgs(argv.slice(1)));
+    return withoutConsoleLog(async () => {
+      const dispatch = require('./scripts/dispatch.cjs');
+      const data = await dispatch.runReviewComment(options);
+      return {
+        action: 'dispatched',
+        resource: 'dispatch',
+        command: 'review-comment',
+        data,
+      };
+    }).then(({ result }) => result);
   }
   return runScript('dispatch.cjs', [argv[0], ...mapAliasArgs(argv.slice(1))], {
     action: 'dispatched',

@@ -1,0 +1,45 @@
+name: Issue Flow PR Review Comment
+
+on:
+  pull_request_review_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: issue-flow-review-comment-${{ github.event.pull_request.number }}-${{ github.event.comment.id }}
+  cancel-in-progress: false
+
+jobs:
+  review-comment:
+    if: github.event.pull_request.state == 'open' && contains(github.event.pull_request.body, 'issue-flow:agentrix:task=')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout issue-flow plugin
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          fetch-depth: 1
+          sparse-checkout: |
+            .agentrix/plugins/issue-flow
+            .issue-flow
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Route PR/MR review comment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENTRIX_BASE_URL: ${{ vars.AGENTRIX_BASE_URL }}
+          AGENTRIX_API_KEY: ${{ secrets.AGENTRIX_API_KEY }}
+          AGENTRIX_ISSUE_FLOW_AGENT: ${{ vars.AGENTRIX_ISSUE_FLOW_AGENT }}
+        run: |
+          node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs dispatch review-comment --event "$GITHUB_EVENT_PATH"

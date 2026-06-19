@@ -32,6 +32,8 @@ test('cli help is discoverable by resource and nested action', async () => {
   assert.match(await cli.run(['issue', 'comments', '--help']), /Usage: issue-flow issue comments <action>/);
   assert.match(await cli.run(['pr', 'submit', '--help']), /Usage: issue-flow pr submit <plan\|build>/);
   assert.match(await cli.run(['pr', 'review-comments', '--help']), /Usage: issue-flow pr review-comments <action>/);
+  assert.match(await cli.run(['pr', 'review-comments', '--help']), /reply --pr <num>/);
+  assert.match(await cli.run(['dispatch', '--help']), /review-comment/);
 });
 
 test('issue get dry-run outputs a single stable JSON envelope', () => {
@@ -225,6 +227,102 @@ test('pr review-comments list dry-run uses provider port', () => {
   assert.equal(parsed.resource, 'pr_review_comment');
   assert.equal(parsed.pr, 7);
   assert.deepEqual(parsed.items, []);
+});
+
+test('pr review-comments reply and resolve dry-run use provider port', () => {
+  const body = createBodyFile('Handled.');
+  try {
+    const reply = runCli([
+      'pr',
+      'review-comments',
+      'reply',
+      '--provider',
+      'github',
+      '--repo',
+      'acme/webapp',
+      '--pr',
+      '7',
+      '--comment-id',
+      '101',
+      '--body-file',
+      body.path,
+      '--dry-run',
+    ]);
+    assert.equal(reply.status, 0, reply.stderr);
+    const parsedReply = JSON.parse(reply.stdout);
+    assert.equal(parsedReply.action, 'replied');
+    assert.equal(parsedReply.resource, 'pr_review_comment');
+    assert.equal(parsedReply.commentId, 'dry-run-review-comment-reply');
+
+    const resolve = runCli([
+      'pr',
+      'review-comments',
+      'resolve',
+      '--provider',
+      'github',
+      '--repo',
+      'acme/webapp',
+      '--pr',
+      '7',
+      '--comment-id',
+      '101',
+      '--dry-run',
+    ]);
+    assert.equal(resolve.status, 0, resolve.stderr);
+    const parsedResolve = JSON.parse(resolve.stdout);
+    assert.equal(parsedResolve.action, 'resolved');
+    assert.equal(parsedResolve.resolved, true);
+  } finally {
+    body.cleanup();
+  }
+});
+
+test('dispatch review-comment dry-run returns structured JSON envelope', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-cli-event-'));
+  const eventPath = path.join(dir, 'event.json');
+  fs.writeFileSync(
+    eventPath,
+    JSON.stringify({
+      action: 'created',
+      comment: {
+        id: 101,
+        body: 'Please handle this edge case.',
+        html_url: 'https://github.com/acme/webapp/pull/7#discussion_r101',
+        path: 'src/app.js',
+        line: 42,
+        user: { login: 'reviewer' },
+      },
+      pull_request: {
+        number: 7,
+        state: 'open',
+        body: '<!-- issue-flow:agentrix:task=task-123 -->',
+        html_url: 'https://github.com/acme/webapp/pull/7',
+        head: { ref: '7-example/build', sha: 'abc123' },
+      },
+      repository: { full_name: 'acme/webapp' },
+    })
+  );
+
+  try {
+    const result = runCli([
+      'dispatch',
+      'review-comment',
+      '--provider',
+      'github',
+      '--event',
+      eventPath,
+      '--dry-run',
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.action, 'dispatched');
+    assert.equal(parsed.command, 'review-comment');
+    assert.equal(parsed.data.action, 'task_resume');
+    assert.equal(parsed.data.taskId, 'task-123');
+    assert.equal(parsed.data.reviewComment, '101');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('reaction content is controlled by issue-flow semantics', async () => {

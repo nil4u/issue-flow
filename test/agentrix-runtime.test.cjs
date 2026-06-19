@@ -209,5 +209,80 @@ test('agentrix task marker uses issue-flow namespace', () => {
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
     '<!-- issue-flow:agentrix:task:review:abc123 -->'
   );
+  assert.equal(
+    agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),
+    '<!-- issue-flow:agentrix:task:resume-review-comment:101 -->'
+  );
   assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
+});
+
+test('agentrix extracts PR/MR task id only from pull request body marker', () => {
+  assert.equal(
+    agentrix.extractAgentrixTaskIdFromPullRequest({
+      body: '<!-- issue-flow:agentrix:task=task-123 -->\nBody',
+    }),
+    'task-123'
+  );
+  assert.equal(
+    agentrix.extractAgentrixTaskIdFromPullRequest({
+      title: '<!-- issue-flow:agentrix:task=task-123 -->',
+      body: '',
+    }),
+    ''
+  );
+});
+
+test('agentrix resume task args use resume mode without new task metadata', () => {
+  const args = agentrix.buildResumeTaskArgs(
+    'task-123',
+    '有新的 PR/MR review comment，请查看并处理。',
+    {
+      baseUrl: 'https://agentrix.example.test',
+      apiKey: 'test-key',
+      runnerId: 'runner-1',
+    },
+    {
+      pullRequest: { repoFullName: 'example/platform', number: 9 },
+      reviewComment: { id: '101' },
+      sourceIssueNumber: 42,
+    },
+    '/tmp/result.json'
+  );
+
+  assert.equal(args[args.indexOf('--resume') + 1], 'task-123');
+  assert.ok(args.includes('--prompt'));
+  assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
+  assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');
+  assert.ok(args.includes('issue_flow_pr=example/platform#9'));
+  assert.ok(args.includes('issue_flow_review_comment=101'));
+  assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
+  assert.equal(args.includes('--runner-id'), false);
+  assert.equal(args.includes('--issue-number'), false);
+  assert.equal(args.includes('--title'), false);
+});
+
+test('agentrix review comment resume instruction includes closure commands', () => {
+  const prompt = agentrix.buildReviewCommentResumeInstruction(
+    {
+      number: 9,
+      htmlUrl: 'https://github.com/example/platform/pull/9',
+    },
+    {
+      id: '101',
+      htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101',
+      path: 'src/app.js',
+      line: 42,
+      author: 'reviewer',
+      body: 'Please handle this edge case.',
+    },
+    {
+      sourceIssueNumber: 42,
+    }
+  );
+
+  assert.match(prompt, /有新的 PR\/MR review comment/);
+  assert.match(prompt, /Review comment: https:\/\/github\.com\/example\/platform\/pull\/9#discussion_r101/);
+  assert.match(prompt, /File: src\/app\.js:42/);
+  assert.match(prompt, /pr review-comments reply --pr 9 --comment-id 101/);
+  assert.match(prompt, /pr review-comments resolve --pr 9 --comment-id 101/);
 });

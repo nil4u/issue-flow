@@ -29,6 +29,7 @@ const SUBMIT_KINDS = {
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
+const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
 
 function usage() {
   return [
@@ -42,6 +43,7 @@ function usage() {
     '  --issue-number <num>    Source issue number.',
     '  --title <title>         PR title. #<issue-number> is prepended when missing.',
     '  --body-file <path>      PR body markdown file.',
+    '  --agentrix-task-id <id> Agentrix task id to embed in the PR/MR body. Defaults to AGENTRIX_TASK_ID.',
     '  --provider <provider>   Git hosting provider: github or gitlab. Defaults from environment/repo.',
     '  --repo <owner/repo>     Repository/project override. Defaults to provider environment or git remote origin.',
     '  --base <branch>         PR base branch. Defaults to origin HEAD, develop, main, then master.',
@@ -268,24 +270,53 @@ function buildSourceIssueMarker(issueNumber) {
   return `<!-- issue-flow:source-issue=${issueNumber} -->`;
 }
 
-function buildPrBodyWithSourceMarker(body, issueNumber) {
-  const marker = buildSourceIssueMarker(issueNumber);
-  const content = String(body || '').trimStart();
-  if (SOURCE_ISSUE_MARKER_PATTERN.test(content)) {
-    return content.replace(SOURCE_ISSUE_MARKER_PATTERN, marker);
-  }
-  return `${marker}\n${content}`.trimEnd();
+function buildAgentrixTaskMarker(taskId) {
+  const normalized = String(taskId || '').trim();
+  return normalized ? `<!-- issue-flow:agentrix:task=${normalized} -->` : '';
 }
 
-function writePrBodyWithSourceMarker(bodyFile, issueNumber) {
+function resolveAgentrixTaskId(options = {}) {
+  return String(options.agentrixTaskId || process.env.AGENTRIX_TASK_ID || '').trim();
+}
+
+function buildPrBodyWithMarkers(body, issueNumber, taskId = '') {
+  const sourceMarker = buildSourceIssueMarker(issueNumber);
+  const taskMarker = buildAgentrixTaskMarker(taskId);
+  const content = String(body || '').trimStart();
+  let marked = SOURCE_ISSUE_MARKER_PATTERN.test(content)
+    ? content.replace(SOURCE_ISSUE_MARKER_PATTERN, sourceMarker)
+    : `${sourceMarker}\n${content}`;
+
+  if (taskMarker) {
+    if (AGENTRIX_TASK_MARKER_PATTERN.test(marked)) {
+      marked = marked.replace(AGENTRIX_TASK_MARKER_PATTERN, taskMarker);
+    } else if (marked.startsWith(sourceMarker)) {
+      marked = `${sourceMarker}\n${taskMarker}${marked.slice(sourceMarker.length)}`;
+    } else {
+      marked = `${taskMarker}\n${marked}`;
+    }
+  }
+
+  return marked.trimEnd();
+}
+
+function buildPrBodyWithSourceMarker(body, issueNumber) {
+  return buildPrBodyWithMarkers(body, issueNumber);
+}
+
+function writePrBodyWithMarkers(bodyFile, issueNumber, taskId = '') {
   const body = fs.readFileSync(bodyFile, 'utf8');
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-pr-body-'));
   const markedBodyFile = path.join(tempDir, 'body.md');
-  fs.writeFileSync(markedBodyFile, `${buildPrBodyWithSourceMarker(body, issueNumber)}\n`, 'utf8');
+  fs.writeFileSync(markedBodyFile, `${buildPrBodyWithMarkers(body, issueNumber, taskId)}\n`, 'utf8');
   return {
     path: markedBodyFile,
     cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
   };
+}
+
+function writePrBodyWithSourceMarker(bodyFile, issueNumber) {
+  return writePrBodyWithMarkers(bodyFile, issueNumber);
 }
 
 function validateLabel(label) {
@@ -530,7 +561,7 @@ async function main(argv = process.argv.slice(2)) {
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
-  const markedBody = writePrBodyWithSourceMarker(options.bodyFile, issueNumber);
+  const markedBody = writePrBodyWithMarkers(options.bodyFile, issueNumber, resolveAgentrixTaskId(options));
   try {
     const prUrl = await createOrUpdatePullRequest({
       provider,
@@ -553,6 +584,8 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   assertBodyFileNotTracked,
+  buildAgentrixTaskMarker,
+  buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
   createGitAskpassEnv,
@@ -567,6 +600,7 @@ module.exports = {
   normalizeOptionalUrl,
   normalizePrTitle,
   parseArgs,
+  resolveAgentrixTaskId,
   resolveBaseBranch,
   SUBMIT_KINDS,
   validateSourceIssueSize,

@@ -13,6 +13,7 @@ const {
   runPrMerged,
   runAuto,
   runReview,
+  runReviewComment,
   runResume,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
@@ -164,6 +165,105 @@ test('dispatch review queues runtime review when enabled', async () => {
 
   assert.equal(result.action, 'review');
   assert.equal(result.result.status, 'dry-run');
+});
+
+function githubReviewCommentPayload(overrides = {}) {
+  return {
+    action: overrides.action || 'created',
+    comment: {
+      id: 101,
+      body: 'Please handle this edge case.',
+      html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
+      path: 'src/app.js',
+      line: 42,
+      side: 'RIGHT',
+      user: { login: overrides.author || 'reviewer', type: overrides.userType || 'User' },
+    },
+    pull_request: {
+      number: 9,
+      state: overrides.state || 'open',
+      draft: Boolean(overrides.draft),
+      merged: Boolean(overrides.merged),
+      title: 'Build #42: Add widget support',
+      body: overrides.body === undefined
+        ? '<!-- issue-flow:source-issue=42 -->\n<!-- issue-flow:agentrix:task=task-123 -->\nBody'
+        : overrides.body,
+      html_url: 'https://github.com/example/platform/pull/9',
+      base: { ref: 'main' },
+      head: { ref: '42-add-widget-support/build', sha: 'abc123' },
+      labels: overrides.labels || [{ name: 'mr-by::build' }],
+      user: { login: 'alice' },
+    },
+    repository: { full_name: 'example/platform' },
+  };
+}
+
+test('dispatch review-comment resumes the PR body task id on created event', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ userType: 'Bot', author: 'agentrix-bot' }) }
+  );
+
+  assert.equal(result.action, 'task_resume');
+  assert.equal(result.taskId, 'task-123');
+  assert.equal(result.pullRequest, 9);
+  assert.equal(result.sourceIssue, 42);
+  assert.equal(result.reviewComment, '101');
+  assert.equal(result.result.status, 'dry-run');
+});
+
+test('dispatch review-comment skips unsupported edited events', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ action: 'edited' }) }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'unsupported_event_action');
+});
+
+test('dispatch review-comment skips missing PR task marker and closed PRs', async () => {
+  const missingTask = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ body: '<!-- issue-flow:source-issue=42 -->\nBody' }) }
+  );
+  assert.equal(missingTask.action, 'skipped');
+  assert.equal(missingTask.reason, 'missing_agentrix_task');
+
+  const closed = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ state: 'closed' }) }
+  );
+  assert.equal(closed.action, 'skipped');
+  assert.equal(closed.reason, 'pull_request_not_open');
+});
+
+test('dispatch review-comment duplicate lock does not resume twice', async () => {
+  const originalList = providers.github.listPullRequestComments;
+  providers.github.listPullRequestComments = async () => [
+    {
+      id: 300,
+      body: agentrix.buildTaskComment('task_resume', { status: 'starting' }, {
+        reviewComment: { id: '101', htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101' },
+        pullRequest: { number: 9 },
+        agentrixTaskId: 'task-123',
+      }),
+      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
+    },
+  ];
+
+  try {
+    const result = await runReviewComment(
+      { dryRun: true },
+      { payload: githubReviewCommentPayload() }
+    );
+
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'duplicate_review_comment_resume');
+    assert.equal(result.existingCommentId, 300);
+  } finally {
+    providers.github.listPullRequestComments = originalList;
+  }
 });
 
 test('dispatch review task lock is scoped to the PR head SHA', () => {
