@@ -186,6 +186,79 @@ test('github bootstrap includes existing workflows in failure intake trigger', (
   }
 });
 
+test('github bootstrap does not add new repository workflows after initial install', () => {
+  const root = makeTempRoot();
+  try {
+    const workflowDir = path.join(root, '.github/workflows');
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'ci.yml'), [
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo ok',
+      '',
+    ].join('\n'));
+
+    installGithub({ cwd: root });
+
+    fs.writeFileSync(path.join(workflowDir, 'deploy.yml'), [
+      'name: Deploy',
+      'on: push',
+      'jobs:',
+      '  deploy:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo deploy',
+      '',
+    ].join('\n'));
+    installGithub({ cwd: root });
+
+    const failureWorkflow = fs.readFileSync(path.join(workflowDir, 'issue-flow-failure-intake.yml'), 'utf8');
+    assert.match(failureWorkflow, /- 'CI'/);
+    assert.doesNotMatch(failureWorkflow, /- 'Deploy'/);
+    assert.match(failureWorkflow, /- 'Issue Flow Auto'/);
+    assert.doesNotMatch(failureWorkflow, /- 'Issue Flow Failure Intake'/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('github bootstrap preserves manually removed failure intake workflows on reinstall', () => {
+  const root = makeTempRoot();
+  try {
+    const workflowDir = path.join(root, '.github/workflows');
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'ci.yml'), [
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo ok',
+      '',
+    ].join('\n'));
+
+    installGithub({ cwd: root });
+
+    const failureWorkflowPath = path.join(workflowDir, 'issue-flow-failure-intake.yml');
+    fs.writeFileSync(
+      failureWorkflowPath,
+      fs.readFileSync(failureWorkflowPath, 'utf8').replace("      - 'CI'\n", '')
+    );
+    installGithub({ cwd: root });
+
+    const failureWorkflow = fs.readFileSync(failureWorkflowPath, 'utf8');
+    assert.doesNotMatch(failureWorkflow, /- 'CI'/);
+    assert.match(failureWorkflow, /- 'Issue Flow Auto'/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('bootstrap updates legacy managed files and force overwrites conflicts', () => {
   const root = makeTempRoot();
   try {

@@ -152,7 +152,7 @@ issue-flow dispatch pipeline-failed --provider gitlab --repo group/project --log
 
 创建的新 issue 带有 `failure::ci`、`ci-fp::<hash8>`、`type::bug`、`status::active`、`flow::build`、`automation::build`、`size::M`。如果 agent 判断根因属于 CI/workflow/provider 配置、权限、secret、variable、runner 等运维范围，应在处理时改成 `type::ops` 或流转到合适状态。
 
-GitHub 默认安装产物为 `.github/workflows/issue-flow-failure-intake.yml`，安装时会扫描 `.github/workflows/*.yml` / `.github/workflows/*.yaml` 并生成 GitHub Actions 要求的显式 `workflow_run.workflows` 列表，监听 completed failure 并要求 `actions: read` 与 `issues: write`。新增 GitHub workflow 后需要重新运行安装器刷新该列表。
+GitHub 默认安装产物为 `.github/workflows/issue-flow-failure-intake.yml`，初次安装时会扫描 `.github/workflows/*.yml` / `.github/workflows/*.yaml` 并生成 GitHub Actions 要求的显式 `workflow_run.workflows` 列表，监听 completed failure 并要求 `actions: read` 与 `issues: write`。后续重装会保留已配置的 workflow 列表，不会自动加入新发现的 workflow，避免覆盖用户手动排除的项；如果要监听新增 workflow，需要手动编辑 `.github/workflows/issue-flow-failure-intake.yml` 的 `workflow_run.workflows`。
 
 GitLab 默认安装产物为 `.gitlab/issue-flow.gitlab-ci.yml` 内的 `issue-flow-failure-intake` job，仅由 Agentrix daemon webhook bridge 触发。Agentrix 会把 GitLab pipeline failure 映射成 `workflow_run` / `completed`，并设置 `AGENTRIX_WORKFLOW_RUN_CONCLUSION=failure` 或 `AGENTRIX_PIPELINE_STATUS=failed`。
 
