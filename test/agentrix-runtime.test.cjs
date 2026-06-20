@@ -140,7 +140,8 @@ test('agentrix review prompt uses target URL and review submission script', () =
   assert.match(prompt, /## Review Target/);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.match(prompt, /## Review Submission/);
-  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file>/);
+  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\]/);
+  assert.match(prompt, /inline review comments/);
   assert.match(prompt, /do not call `gh`, `glab`, `gh api`, `glab api`/);
   assert.match(prompt, /使用下方 review 提交命令发布结果/);
   assert.doesNotMatch(prompt, /## Issue/);

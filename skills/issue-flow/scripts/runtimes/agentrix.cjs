@@ -256,10 +256,13 @@ function formatReviewSubmission(pr) {
   return [
     '## Review Submission',
     '',
-    'Write the review body to a repo-external temp file, then submit it once:',
+    'Write the review body to a repo-external temp file.',
+    'If a finding is tied to a specific changed file and line, also write inline review comments to a repo-external JSON file.',
+    'The inline comments file must be a JSON array like: `[{"path":"src/file.js","line":12,"body":"Comment"}]`.',
+    'Submit the review once:',
     '',
     '```bash',
-    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number} --body-file <tmp-review-body-file>`,
+    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number} --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]`,
     '```',
   ].join('\n');
 }
