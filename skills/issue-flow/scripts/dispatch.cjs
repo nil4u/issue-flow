@@ -287,9 +287,10 @@ async function addIssueReaction(issue, options = {}) {
 
 function findActionTaskComment(comments, action, runtime, data = {}) {
   const marker = runtime.buildTaskCommentMarker(action, data);
-  return Array.isArray(comments)
-    ? comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker))
-    : undefined;
+  if (!Array.isArray(comments)) {
+    return undefined;
+  }
+  return comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker));
 }
 
 function normalizeCommentId(comment) {
@@ -497,6 +498,9 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   if (!runtimeCanRunAction(runtime, action)) {
     throw new Error(`Runtime does not support issue-flow action: ${action}`);
   }
+  if (typeof runtime.resumeTask !== 'function') {
+    throw new Error('Runtime does not support task resume');
+  }
 
   logIssueFlow('Starting PR/MR review', {
     pr: `#${pr.number}`,
@@ -508,6 +512,69 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
     pullRequest: currentPr,
     sourceIssueNumber: options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr),
   };
+  const existingReviewTask = findActionTaskComment(await listPullRequestComments(currentPr, options), action, runtime, taskData);
+  if (existingReviewTask) {
+    const reviewedHeadSha = runtime.extractReviewHeadShaFromTaskComment(existingReviewTask);
+    if (reviewedHeadSha && reviewedHeadSha === currentPr.headSha) {
+      logIssueFlow('Skipping duplicate PR/MR review task', {
+        pr: `#${currentPr.number}`,
+        head: currentPr.headSha,
+        comment: existingReviewTask.id,
+      });
+      return {
+        action,
+        skipped: true,
+        reason: 'duplicate_task',
+        existingCommentId: existingReviewTask.id,
+        existingCommentUrl: existingReviewTask.html_url || existingReviewTask.htmlUrl || existingReviewTask.web_url,
+      };
+    }
+
+    const taskId = runtime.extractRunIdFromTaskComment(existingReviewTask);
+    if (!taskId) {
+      logIssueFlow('Skipping PR/MR review resume without task id', {
+        pr: `#${currentPr.number}`,
+        comment: existingReviewTask.id,
+      });
+      return {
+        action,
+        skipped: true,
+        reason: 'review_task_pending',
+        existingCommentId: existingReviewTask.id,
+        existingCommentUrl: existingReviewTask.html_url || existingReviewTask.htmlUrl || existingReviewTask.web_url,
+      };
+    }
+
+    const instruction = runtime.buildReviewResumeInstruction(currentPr, {
+      previousHeadSha: reviewedHeadSha,
+    });
+    const resumeData = {
+      ...taskData,
+      agentrixTaskId: taskId,
+    };
+    const result = runtime.resumeTask(taskId, instruction, options, resumeData);
+    if (existingReviewTask.id) {
+      await updatePullRequestComment(
+        currentPr,
+        existingReviewTask.id,
+        runtime.buildTaskComment(action, { ...result, runId: taskId }, resumeData),
+        options
+      );
+    }
+    logIssueFlow('Resumed PR/MR review task', {
+      pr: `#${currentPr.number}`,
+      runId: result.runId,
+      head: currentPr.headSha,
+    });
+    return {
+      action,
+      resumed: true,
+      result,
+      existingCommentId: existingReviewTask.id,
+      existingCommentUrl: existingReviewTask.html_url || existingReviewTask.htmlUrl || existingReviewTask.web_url,
+    };
+  }
+
   const taskClaim = await claimPullRequestActionTask(currentPr, action, runtime, taskData, options);
   if (!taskClaim.claimed) {
     logIssueFlow('Skipping duplicate PR/MR review task', {

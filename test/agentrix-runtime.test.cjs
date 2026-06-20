@@ -208,13 +208,27 @@ test('agentrix task marker uses issue-flow namespace', () => {
   assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:agentrix:task:build -->');
   assert.equal(
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
-    '<!-- issue-flow:agentrix:task:review:abc123 -->'
+    '<!-- issue-flow:agentrix:task:review -->'
+  );
+  assert.match(
+    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
+    /Head: `abc123`/
   );
   assert.equal(
     agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),
     '<!-- issue-flow:agentrix:task:resume-review-comment:101 -->'
   );
   assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
+});
+
+test('agentrix extracts task run and reviewed head from task comments', () => {
+  const comment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+    pullRequest: { headSha: 'abc123' },
+  });
+
+  assert.equal(agentrix.extractRunIdFromTaskComment(comment), 'task-review');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment(comment), 'abc123');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment('<!-- issue-flow:agentrix:task:review:legacy-sha -->'), '');
 });
 
 test('agentrix extracts PR/MR task id only from pull request body marker', () => {

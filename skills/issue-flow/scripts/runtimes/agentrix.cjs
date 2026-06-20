@@ -14,6 +14,8 @@ const DEFAULT_PROJECT_CONFIG_PATH = '.issue-flow/config.json';
 const DEFAULT_PROMPTS_DIR = '.issue-flow/prompts';
 const DEFAULT_TEMPLATES_DIR = '.issue-flow/templates';
 const DEFAULT_PLAN_ROOT_DIR = '.issue-flow/issues';
+const TASK_COMMENT_RUN_PATTERN = /^Run:\s*`([^`]+)`\s*$/im;
+const REVIEW_COMMENT_HEAD_PATTERN = /^Head:\s*`([^`]+)`\s*$/im;
 const PLAN_SUBDIR = 'plan';
 const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
@@ -356,6 +358,10 @@ function buildReviewCommentResumeInstruction() {
   ].join('\n');
 }
 
+function buildReviewResumeInstruction() {
+  return 'PR/MR 有新的提交，请继续 review 最新变更。';
+}
+
 function buildPullRequestPrompt(pr, data = {}, options = {}) {
   const prompt = readPrompt('review', pr, options);
   const blocks = [formatRequiredSkill(), '', prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
@@ -578,18 +584,15 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 }
 
 function buildTaskCommentMarker(action, data = {}) {
-  const pr = data.pullRequest || data;
   if (action === 'task_resume' && data.reviewComment) {
     const id = data.reviewComment.id || data.reviewComment.htmlUrl || 'unknown';
     return `<!-- issue-flow:agentrix:task:resume-review-comment:${String(id).replace(/\s+/g, '-')} -->`;
-  }
-  if (action === 'review' && pr && pr.headSha) {
-    return `<!-- issue-flow:agentrix:task:${action}:${pr.headSha} -->`;
   }
   return `<!-- issue-flow:agentrix:task:${action} -->`;
 }
 
 function buildTaskComment(action, result, data = {}) {
+  const pr = data.pullRequest || data;
   const lines = [buildTaskCommentMarker(action, data)];
   if (result.status === 'starting') {
     if (action === 'task_resume') {
@@ -606,6 +609,9 @@ function buildTaskComment(action, result, data = {}) {
   lines.push(`Action: \`${action}\``);
   if (result.runId) {
     lines.push(`Run: \`${result.runId}\``);
+  }
+  if (action === 'review' && pr && pr.headSha) {
+    lines.push(`Head: \`${pr.headSha}\``);
   }
   if (data.comment && data.comment.htmlUrl) {
     lines.push(`Trigger: ${data.comment.htmlUrl}`);
@@ -625,6 +631,18 @@ function buildTaskComment(action, result, data = {}) {
   return lines.join('\n');
 }
 
+function extractRunIdFromTaskComment(comment) {
+  const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
+  const match = body.match(TASK_COMMENT_RUN_PATTERN);
+  return match ? match[1].trim() : '';
+}
+
+function extractReviewHeadShaFromTaskComment(comment) {
+  const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
+  const headMatch = body.match(REVIEW_COMMENT_HEAD_PATTERN);
+  return headMatch ? headMatch[1].trim() : '';
+}
+
 function shouldAcknowledgeAutoIssue(action, data = {}) {
   return action === 'triage' && data.auto === true;
 }
@@ -641,10 +659,13 @@ module.exports = {
   buildResumeTaskArgs,
   buildRunArgs,
   buildReviewCommentResumeInstruction,
+  buildReviewResumeInstruction,
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,
   extractMention,
+  extractReviewHeadShaFromTaskComment,
+  extractRunIdFromTaskComment,
   extractSourceIssueNumberFromPullRequest,
   findIssuePlanFiles,
   issueDirectoryName,
