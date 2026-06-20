@@ -12,6 +12,7 @@ const VALUE_OPTIONS = new Set([
   '--body-file',
   '--comments-file',
   '--commit-id',
+  '--expected-head',
   '--gitlab-url',
   '--gitlab-api-url',
   '--gitlab-project',
@@ -32,6 +33,7 @@ function usage() {
     '  --body-file <path>      Markdown review body.',
     '  --comments-file <path>  JSON array of inline review comments.',
     '  --commit-id <sha>       Commit SHA for GitHub review submission. Defaults to PR head SHA.',
+    '  --expected-head <sha>   Skip submission if the current PR/MR head changed.',
     '  --dry-run',
     '  --help',
   ].join('\n');
@@ -122,6 +124,18 @@ async function submitReview(options = {}) {
   const body = readBodyFile(options.bodyFile);
   const comments = readReviewCommentsFile(options.commentsFile);
   const { provider, pr } = await buildReviewPullRequest(options);
+  const expectedHead = String(options.expectedHead || '').trim();
+  if (expectedHead && pr.headSha && pr.headSha !== expectedHead) {
+    return {
+      action: 'skipped',
+      reason: 'stale_head',
+      provider: provider.name,
+      pullRequest: pr.number,
+      expectedHead,
+      currentHead: pr.headSha,
+      inlineComments: comments.length,
+    };
+  }
   const review = await provider.submitPullRequestReview(pr, body, options, comments);
   return {
     action: 'submitted',

@@ -255,6 +255,7 @@ function formatPrBodyFileRule() {
 }
 
 function formatReviewSubmission(pr) {
+  const expectedHeadArg = pr && pr.headSha ? ` --expected-head ${pr.headSha}` : '';
   return [
     '## Review Submission',
     '',
@@ -264,7 +265,7 @@ function formatReviewSubmission(pr) {
     'Submit the review once:',
     '',
     '```bash',
-    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number} --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]`,
+    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number}${expectedHeadArg} --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]`,
     '```',
   ].join('\n');
 }

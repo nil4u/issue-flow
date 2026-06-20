@@ -19,6 +19,8 @@ test('review parser accepts PR number and body file', () => {
     '/tmp/review.md',
     '--comments-file',
     '/tmp/comments.json',
+    '--expected-head',
+    'abc123',
   ]), {
     _: [],
     provider: 'github',
@@ -26,6 +28,7 @@ test('review parser accepts PR number and body file', () => {
     prNumber: '5',
     bodyFile: '/tmp/review.md',
     commentsFile: '/tmp/comments.json',
+    expectedHead: 'abc123',
   });
 });
 
@@ -77,6 +80,47 @@ test('review script submits through provider review API', async () => {
     assert.equal(result.action, 'submitted');
     assert.equal(result.reviewUrl, 'https://github.com/example/platform/pull/5#pullrequestreview-1');
     assert.equal(result.inlineComments, 1);
+  } finally {
+    providers.github.fetchCurrentPullRequest = originalFetch;
+    providers.github.submitPullRequestReview = originalSubmit;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('review script skips stale PR head before submitting', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-review-test-'));
+  const bodyFile = path.join(root, 'review.md');
+  fs.writeFileSync(bodyFile, 'No blocking issues.\n', 'utf8');
+  const originalFetch = providers.github.fetchCurrentPullRequest;
+  const originalSubmit = providers.github.submitPullRequestReview;
+
+  providers.github.fetchCurrentPullRequest = async (pr) => ({
+    ...pr,
+    state: 'open',
+    headSha: 'new-head',
+  });
+  providers.github.submitPullRequestReview = async () => {
+    throw new Error('stale review should not be submitted');
+  };
+
+  try {
+    const result = await submitReview({
+      provider: 'github',
+      repo: 'example/platform',
+      prNumber: '5',
+      bodyFile,
+      expectedHead: 'old-head',
+    });
+
+    assert.deepEqual(result, {
+      action: 'skipped',
+      reason: 'stale_head',
+      provider: 'github',
+      pullRequest: 5,
+      expectedHead: 'old-head',
+      currentHead: 'new-head',
+      inlineComments: 0,
+    });
   } finally {
     providers.github.fetchCurrentPullRequest = originalFetch;
     providers.github.submitPullRequestReview = originalSubmit;
