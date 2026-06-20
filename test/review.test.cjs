@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -19,8 +20,6 @@ test('review parser accepts PR number and body file', () => {
     '/tmp/review.md',
     '--comments-file',
     '/tmp/comments.json',
-    '--expected-head',
-    'abc123',
   ]), {
     _: [],
     provider: 'github',
@@ -28,7 +27,6 @@ test('review parser accepts PR number and body file', () => {
     prNumber: '5',
     bodyFile: '/tmp/review.md',
     commentsFile: '/tmp/comments.json',
-    expectedHead: 'abc123',
   });
 });
 
@@ -46,8 +44,10 @@ test('review script submits through provider review API', async () => {
   ]), 'utf8');
   const originalFetch = providers.github.fetchCurrentPullRequest;
   const originalSubmit = providers.github.submitPullRequestReview;
+  const originalSpawnSync = childProcess.spawnSync;
   let captured;
 
+  childProcess.spawnSync = () => ({ status: 0, stdout: 'abc123\n' });
   providers.github.fetchCurrentPullRequest = async (pr) => ({
     ...pr,
     state: 'open',
@@ -83,6 +83,7 @@ test('review script submits through provider review API', async () => {
   } finally {
     providers.github.fetchCurrentPullRequest = originalFetch;
     providers.github.submitPullRequestReview = originalSubmit;
+    childProcess.spawnSync = originalSpawnSync;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -93,7 +94,9 @@ test('review script skips stale PR head before submitting', async () => {
   fs.writeFileSync(bodyFile, 'No blocking issues.\n', 'utf8');
   const originalFetch = providers.github.fetchCurrentPullRequest;
   const originalSubmit = providers.github.submitPullRequestReview;
+  const originalSpawnSync = childProcess.spawnSync;
 
+  childProcess.spawnSync = () => ({ status: 0, stdout: 'old-head\n' });
   providers.github.fetchCurrentPullRequest = async (pr) => ({
     ...pr,
     state: 'open',
@@ -109,7 +112,6 @@ test('review script skips stale PR head before submitting', async () => {
       repo: 'example/platform',
       prNumber: '5',
       bodyFile,
-      expectedHead: 'old-head',
     });
 
     assert.deepEqual(result, {
@@ -117,13 +119,14 @@ test('review script skips stale PR head before submitting', async () => {
       reason: 'stale_head',
       provider: 'github',
       pullRequest: 5,
-      expectedHead: 'old-head',
+      checkoutHead: 'old-head',
       currentHead: 'new-head',
       inlineComments: 0,
     });
   } finally {
     providers.github.fetchCurrentPullRequest = originalFetch;
     providers.github.submitPullRequestReview = originalSubmit;
+    childProcess.spawnSync = originalSpawnSync;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
