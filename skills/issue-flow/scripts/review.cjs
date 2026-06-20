@@ -144,6 +144,38 @@ function buildStaleHeadResult(provider, pr, comments, checkoutHead) {
   };
 }
 
+function normalizeMarkerValue(value) {
+  return String(value || '').trim().replace(/[^\w:./-]+/g, '-');
+}
+
+function resolveAgentrixTaskId() {
+  return String(process.env.AGENTRIX_TASK_ID || '').trim();
+}
+
+function buildReviewMetadataMarker(options = {}) {
+  const fields = [];
+  const taskId = normalizeMarkerValue(options.taskId);
+  const headSha = normalizeMarkerValue(options.headSha);
+  if (taskId) {
+    fields.push(`task=${taskId}`);
+  }
+  if (headSha) {
+    fields.push(`head=${headSha}`);
+  }
+  if (fields.length === 0) {
+    return '';
+  }
+  return `<!-- issue-flow:review ${fields.join(' ')} -->`;
+}
+
+function appendReviewMetadata(body, options = {}) {
+  const marker = buildReviewMetadataMarker(options);
+  if (!marker) {
+    return body;
+  }
+  return `${body.trim()}\n\n${marker}`;
+}
+
 async function submitReview(options = {}) {
   const body = readBodyFile(options.bodyFile);
   const comments = readReviewCommentsFile(options.commentsFile);
@@ -152,7 +184,11 @@ async function submitReview(options = {}) {
   if (!options.dryRun && (!checkoutHead || !pr.headSha || checkoutHead !== pr.headSha)) {
     return buildStaleHeadResult(provider, pr, comments, checkoutHead);
   }
-  const review = await provider.submitPullRequestReview(pr, body, options, comments);
+  const reviewBody = appendReviewMetadata(body, {
+    taskId: resolveAgentrixTaskId(),
+    headSha: pr.headSha,
+  });
+  const review = await provider.submitPullRequestReview(pr, reviewBody, options, comments);
   return {
     action: 'submitted',
     provider: provider.name,
@@ -174,7 +210,9 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
+  appendReviewMetadata,
   buildReviewPullRequest,
+  buildReviewMetadataMarker,
   resolveCurrentCheckoutHead,
   main,
   parseArgs,

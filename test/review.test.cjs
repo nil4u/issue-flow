@@ -45,8 +45,10 @@ test('review script submits through provider review API', async () => {
   const originalFetch = providers.github.fetchCurrentPullRequest;
   const originalSubmit = providers.github.submitPullRequestReview;
   const originalSpawnSync = childProcess.spawnSync;
+  const originalAgentrixTaskId = process.env.AGENTRIX_TASK_ID;
   let captured;
 
+  process.env.AGENTRIX_TASK_ID = 'task-review';
   childProcess.spawnSync = () => ({ status: 0, stdout: 'abc123\n' });
   providers.github.fetchCurrentPullRequest = async (pr) => ({
     ...pr,
@@ -69,7 +71,10 @@ test('review script submits through provider review API', async () => {
 
     assert.equal(captured.pr.number, 5);
     assert.equal(captured.pr.headSha, 'abc123');
-    assert.equal(captured.body, 'No blocking issues.');
+    assert.equal(
+      captured.body,
+      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->'
+    );
     assert.deepEqual(captured.comments, [
       {
         path: 'src/app.js',
@@ -84,6 +89,11 @@ test('review script submits through provider review API', async () => {
     providers.github.fetchCurrentPullRequest = originalFetch;
     providers.github.submitPullRequestReview = originalSubmit;
     childProcess.spawnSync = originalSpawnSync;
+    if (originalAgentrixTaskId === undefined) {
+      delete process.env.AGENTRIX_TASK_ID;
+    } else {
+      process.env.AGENTRIX_TASK_ID = originalAgentrixTaskId;
+    }
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
