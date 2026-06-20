@@ -4,6 +4,8 @@ const test = require('node:test');
 
 const {
   assertBodyFileNotTracked,
+  buildAgentrixTaskMarker,
+  buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
   createGitAskpassEnv,
@@ -46,15 +48,28 @@ function withTemporaryEnv(values, fn) {
 
 test('submit body wrapper inserts stable source issue marker', () => {
   assert.equal(buildSourceIssueMarker(482), '<!-- issue-flow:source-issue=482 -->');
+  assert.equal(buildAgentrixTaskMarker('task-123'), '<!-- issue-flow:agentrix:task=task-123 -->');
   assert.equal(
     buildPrBodyWithSourceMarker('Source issue: #111\n\nBody', 482),
     '<!-- issue-flow:source-issue=482 -->\nSource issue: #111\n\nBody'
+  );
+  assert.equal(
+    buildPrBodyWithMarkers('Source issue: #111\n\nBody', 482, 'task-123'),
+    '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=task-123 -->\nSource issue: #111\n\nBody'
   );
 });
 
 test('submit body wrapper replaces stale source issue marker', () => {
   assert.equal(
     buildPrBodyWithSourceMarker('<!-- issue-flow:source-issue=111 -->\nBody', 482),
+    '<!-- issue-flow:source-issue=482 -->\nBody'
+  );
+  assert.equal(
+    buildPrBodyWithMarkers('<!-- issue-flow:source-issue=111 -->\n<!-- issue-flow:agentrix:task=old -->\nBody', 482, 'new-task'),
+    '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=new-task -->\nBody'
+  );
+  assert.equal(
+    buildPrBodyWithMarkers('Body', 482),
     '<!-- issue-flow:source-issue=482 -->\nBody'
   );
 });

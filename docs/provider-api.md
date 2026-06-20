@@ -65,6 +65,7 @@ issue-flow dispatch auto --event /tmp/event.json
 issue-flow dispatch comment --event /tmp/event.json
 issue-flow dispatch review --event /tmp/event.json
 issue-flow dispatch review --pr 45
+issue-flow dispatch review-comment --event /tmp/event.json
 issue-flow dispatch pr-merged --event /tmp/event.json
 issue-flow dispatch pipeline-failed --event /tmp/event.json
 issue-flow dispatch resume --event /tmp/event.json
@@ -218,6 +219,18 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 3. 读取 source issue 并校验有且仅有一个 `size::`；缺失或冲突时不 push、不创建 PR/MR
 4. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
 5. push 分支
+6. 在临时 PR/MR body 顶部写入 `<!-- issue-flow:source-issue=<num> -->`；如果存在 `AGENTRIX_TASK_ID` 或传入 `--agentrix-task-id`，同时写入 `<!-- issue-flow:agentrix:task=<id> -->`
+
+## PR/MR review comments
+
+`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:agentrix:task=<id>` marker 时，它会 resume 该 Agentrix task，并用 PR/MR scoped comment lock 避免同一个 comment 重复触发。
+
+被 resume 的 agent 处理完成后，应使用受控入口在 PR/MR 下发布一条普通总结 comment：
+
+```bash
+issue-flow pr comments create --pr 45 --body-file /tmp/body.md
+```
+
 6. 创建或更新 PR/MR（存在则 update；GitHub/GitLab 均优先使用 token API，无 token 时 fallback CLI）
 7. 在 PR body 中插入 `<!-- issue-flow:source-issue=<num> -->`
 8. 调用 apply.cjs 把 source issue 转到 `flow::approve`

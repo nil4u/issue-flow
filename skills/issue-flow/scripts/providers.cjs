@@ -440,6 +440,47 @@ function getGithubCommentContext(payload = {}) {
   };
 }
 
+function isGithubReviewCommentCreatedEvent(payload = {}) {
+  if (!payload.pull_request || !payload.comment) {
+    return {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    };
+  }
+  if (payload.comment.in_reply_to_id !== undefined && payload.comment.in_reply_to_id !== null) {
+    return {
+      ok: false,
+      reason: 'review_comment_reply',
+    };
+  }
+  if (payload.action !== 'created') {
+    return {
+      ok: false,
+      reason: 'unsupported_event_action',
+      eventAction: payload.action || '',
+    };
+  }
+  return { ok: true };
+}
+
+function getGithubReviewCommentContext(payload = {}) {
+  const comment = payload.comment || {};
+  return {
+    id: comment.id === undefined ? '' : String(comment.id),
+    author: comment.user && typeof comment.user.login === 'string' ? comment.user.login : '',
+    body: typeof comment.body === 'string' ? comment.body : '',
+    htmlUrl: typeof comment.html_url === 'string' ? comment.html_url : '',
+    inReplyToId: comment.in_reply_to_id === undefined || comment.in_reply_to_id === null ? '' : String(comment.in_reply_to_id),
+    path: typeof comment.path === 'string' ? comment.path : '',
+    line: comment.line === undefined ? null : Number(comment.line),
+    side: typeof comment.side === 'string' ? comment.side : '',
+    diffHunk: typeof comment.diff_hunk === 'string' ? comment.diff_hunk : '',
+    createdAt: typeof comment.created_at === 'string' ? comment.created_at : '',
+    updatedAt: typeof comment.updated_at === 'string' ? comment.updated_at : '',
+    raw: comment,
+  };
+}
+
 async function fetchCurrentGithubIssue(issue, options = {}) {
   if (options.dryRun || !getGithubToken()) {
     return issue;
@@ -1020,6 +1061,9 @@ function pickGitlabMergeRequestPayload(payload = {}) {
   if (payload.merge_request) {
     return payload.merge_request;
   }
+  if (payload.object_kind === 'note' && payload.merge_request) {
+    return payload.merge_request;
+  }
   if (payload.object_kind === 'merge_request') {
     return payload.object_attributes || {};
   }
@@ -1066,6 +1110,62 @@ function buildGitlabPullRequestContext(payload = {}, options = {}) {
     ? parsePositiveInteger(options.prNumber, '--pr-number')
     : parsePositiveInteger(pr.iid || pr.number, 'GitLab merge request iid');
   return normalizeGitlabPullRequest({ ...pr, iid: number }, repo);
+}
+
+function isGitlabReviewCommentCreatedEvent(payload = {}) {
+  if (payload.object_kind !== 'note' && !payload.object_attributes) {
+    return {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    };
+  }
+  const note = payload.object_attributes || {};
+  const noteableType = String(note.noteable_type || '');
+  if (noteableType && noteableType !== 'MergeRequest') {
+    return {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    };
+  }
+  if (!payload.merge_request && !payload.object_attributes.merge_request && !note.noteable_id && !note.noteable_iid) {
+    return {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    };
+  }
+  if (!note.position && !payload.position && !note.diff_refs && !note.line_code) {
+    return {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    };
+  }
+  const action = String(note.action || payload.action || process.env.AGENTRIX_EVENT_ACTION || 'create').toLowerCase();
+  if (action && action !== 'create' && action !== 'created') {
+    return {
+      ok: false,
+      reason: 'unsupported_event_action',
+      eventAction: action,
+    };
+  }
+  return { ok: true };
+}
+
+function getGitlabReviewCommentContext(payload = {}) {
+  const note = payload.object_attributes || {};
+  const position = note.position || payload.position || {};
+  return {
+    id: note.id === undefined ? '' : String(note.id),
+    discussionId: String(note.discussion_id || note.discussionId || payload.discussion_id || payload.discussionId || ''),
+    author: payload.user && (payload.user.username || payload.user.name) ? payload.user.username || payload.user.name : '',
+    body: typeof note.note === 'string' ? note.note : typeof note.body === 'string' ? note.body : '',
+    htmlUrl: typeof note.url === 'string' ? note.url : typeof note.web_url === 'string' ? note.web_url : '',
+    path: String(position.new_path || position.old_path || note.path || ''),
+    line: position.new_line === undefined && position.old_line === undefined ? null : Number(position.new_line || position.old_line),
+    side: position.old_line ? 'LEFT' : position.new_line ? 'RIGHT' : '',
+    createdAt: typeof note.created_at === 'string' ? note.created_at : '',
+    updatedAt: typeof note.updated_at === 'string' ? note.updated_at : '',
+    raw: note,
+  };
 }
 
 async function fetchCurrentGitlabPullRequest(pr, options = {}) {
@@ -2149,6 +2249,8 @@ const githubProvider = {
   isPullRequestIssue: (payload) => Boolean(payload.issue && payload.issue.pull_request),
   isBotComment: (payload) => Boolean(payload.comment && payload.comment.user && payload.comment.user.type === 'Bot'),
   getCommentContext: getGithubCommentContext,
+  isReviewCommentCreatedEvent: isGithubReviewCommentCreatedEvent,
+  getReviewCommentContext: getGithubReviewCommentContext,
   fetchCurrentIssue: fetchCurrentGithubIssue,
   fetchCurrentPullRequest: fetchCurrentGithubPullRequest,
   listIssueComments: listGithubIssueComments,
@@ -2191,6 +2293,8 @@ const gitlabProvider = {
   isPullRequestIssue: isGitlabMergeRequestOrNonIssue,
   isBotComment: isGitlabBotComment,
   getCommentContext: getGitlabCommentContext,
+  isReviewCommentCreatedEvent: isGitlabReviewCommentCreatedEvent,
+  getReviewCommentContext: getGitlabReviewCommentContext,
   fetchCurrentIssue: fetchCurrentGitlabIssue,
   fetchCurrentPullRequest: fetchCurrentGitlabPullRequest,
   listIssueComments: listGitlabIssueComments,

@@ -74,6 +74,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --title "Plan #123: 
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build --issue 123 --title "Build #123: Add auth" --body-file <tmp-pr-body-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments list --pr 45
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr review-comments list --pr 45
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 ```
@@ -88,11 +89,14 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs labels check
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch auto --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch comment --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch review --pr 45
+node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch review-comment --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch resume --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-file>
 ```
 
 所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
+
+`dispatch review-comment` 用于带 `<!-- issue-flow:agentrix:task=<id> -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，重复 comment 事件通过 PR/MR scoped lock 跳过。
 
 ## 典型 Agent 工作流
 

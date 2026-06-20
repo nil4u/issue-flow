@@ -13,6 +13,7 @@ const {
   runPrMerged,
   runAuto,
   runReview,
+  runReviewComment,
   runResume,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
@@ -166,7 +167,117 @@ test('dispatch review queues runtime review when enabled', async () => {
   assert.equal(result.result.status, 'dry-run');
 });
 
-test('dispatch review task lock is scoped to the PR head SHA', () => {
+function githubReviewCommentPayload(overrides = {}) {
+  return {
+    action: overrides.action || 'created',
+    comment: {
+      id: 101,
+      body: 'Please handle this edge case.',
+      html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
+      in_reply_to_id: overrides.inReplyToId,
+      path: 'src/app.js',
+      line: 42,
+      side: 'RIGHT',
+      user: { login: overrides.author || 'reviewer', type: overrides.userType || 'User' },
+    },
+    pull_request: {
+      number: 9,
+      state: overrides.state || 'open',
+      draft: Boolean(overrides.draft),
+      merged: Boolean(overrides.merged),
+      title: 'Build #42: Add widget support',
+      body: overrides.body === undefined
+        ? '<!-- issue-flow:source-issue=42 -->\n<!-- issue-flow:agentrix:task=task-123 -->\nBody'
+        : overrides.body,
+      html_url: 'https://github.com/example/platform/pull/9',
+      base: { ref: 'main' },
+      head: { ref: '42-add-widget-support/build', sha: 'abc123' },
+      labels: overrides.labels || [{ name: 'mr-by::build' }],
+      user: { login: 'alice' },
+    },
+    repository: { full_name: 'example/platform' },
+  };
+}
+
+test('dispatch review-comment resumes the PR body task id on created event', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ userType: 'Bot', author: 'agentrix-bot' }) }
+  );
+
+  assert.equal(result.action, 'task_resume');
+  assert.equal(result.taskId, 'task-123');
+  assert.equal(result.pullRequest, 9);
+  assert.equal(result.sourceIssue, 42);
+  assert.equal(result.reviewComment, '101');
+  assert.equal(result.result.status, 'dry-run');
+});
+
+test('dispatch review-comment skips unsupported edited events', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ action: 'edited' }) }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'unsupported_event_action');
+});
+
+test('dispatch review-comment skips review comment replies', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ inReplyToId: 100 }) }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'review_comment_reply');
+});
+
+test('dispatch review-comment skips missing PR task marker and closed PRs', async () => {
+  const missingTask = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ body: '<!-- issue-flow:source-issue=42 -->\nBody' }) }
+  );
+  assert.equal(missingTask.action, 'skipped');
+  assert.equal(missingTask.reason, 'missing_agentrix_task');
+
+  const closed = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ state: 'closed' }) }
+  );
+  assert.equal(closed.action, 'skipped');
+  assert.equal(closed.reason, 'pull_request_not_open');
+});
+
+test('dispatch review-comment duplicate lock does not resume twice', async () => {
+  const originalList = providers.github.listPullRequestComments;
+  providers.github.listPullRequestComments = async () => [
+    {
+      id: 300,
+      body: agentrix.buildTaskComment('task_resume', { status: 'starting' }, {
+        reviewComment: { id: '101', htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101' },
+        pullRequest: { number: 9 },
+        agentrixTaskId: 'task-123',
+      }),
+      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
+    },
+  ];
+
+  try {
+    const result = await runReviewComment(
+      { dryRun: true },
+      { payload: githubReviewCommentPayload() }
+    );
+
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'duplicate_review_comment_resume');
+    assert.equal(result.existingCommentId, 300);
+  } finally {
+    providers.github.listPullRequestComments = originalList;
+  }
+});
+
+test('dispatch review task lock is scoped to the PR and records the reviewed head SHA', () => {
   const comments = [
     {
       body: agentrix.buildTaskComment('review', { status: 'starting' }, {
@@ -177,12 +288,119 @@ test('dispatch review task lock is scoped to the PR head SHA', () => {
 
   assert.equal(
     findActionTaskComment(comments, 'review', agentrix, { pullRequest: { headSha: 'new-sha' } }),
-    undefined
-  );
-  assert.equal(
-    findActionTaskComment(comments, 'review', agentrix, { pullRequest: { headSha: 'old-sha' } }),
     comments[0]
   );
+  assert.equal(
+    agentrix.extractReviewHeadShaFromTaskComment(comments[0]),
+    'old-sha'
+  );
+});
+
+test('dispatch review resumes the existing reviewer task for a new PR head', async () => {
+  const originalList = providers.github.listPullRequestComments;
+  const originalCreate = providers.github.createPullRequestComment;
+  const originalUpdate = providers.github.updatePullRequestComment;
+  const updates = [];
+  const existing = {
+    id: 300,
+    body: agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+      pullRequest: { headSha: 'old-sha' },
+    }),
+    html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
+  };
+  providers.github.listPullRequestComments = async () => [existing];
+  providers.github.createPullRequestComment = async () => {
+    throw new Error('review resume should not create a new task comment');
+  };
+  providers.github.updatePullRequestComment = async (_pr, commentId, body) => {
+    updates.push({ commentId, body });
+  };
+
+  try {
+    const result = await runReview(
+      {
+        dryRun: true,
+        reviewEnabled: '1',
+      },
+      {
+        payload: {
+          pull_request: {
+            number: 9,
+            state: 'open',
+            draft: false,
+            merged: false,
+            title: 'Build #42: Add widget support',
+            body: '<!-- issue-flow:source-issue=42 -->',
+            html_url: 'https://github.com/example/platform/pull/9',
+            base: { ref: 'main' },
+            head: { ref: '42-add-widget-support/build', sha: 'new-sha' },
+            labels: [{ name: 'mr-by::build' }],
+            user: { login: 'alice' },
+          },
+          repository: { full_name: 'example/platform' },
+        },
+      }
+    );
+
+    assert.equal(result.action, 'review');
+    assert.equal(result.resumed, true);
+    assert.equal(result.result.taskId, 'task-review');
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].commentId, 300);
+    assert.match(updates[0].body, /Run: `task-review`/);
+    assert.match(updates[0].body, /Head: `new-sha`/);
+  } finally {
+    providers.github.listPullRequestComments = originalList;
+    providers.github.createPullRequestComment = originalCreate;
+    providers.github.updatePullRequestComment = originalUpdate;
+  }
+});
+
+test('dispatch review skips the existing reviewer task for the same PR head', async () => {
+  const originalList = providers.github.listPullRequestComments;
+  providers.github.listPullRequestComments = async () => [
+    {
+      id: 300,
+      body: agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+        pullRequest: { headSha: 'same-sha' },
+      }),
+      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
+    },
+  ];
+
+  try {
+    const result = await runReview(
+      {
+        dryRun: true,
+        reviewEnabled: '1',
+      },
+      {
+        payload: {
+          pull_request: {
+            number: 9,
+            state: 'open',
+            draft: false,
+            merged: false,
+            title: 'Build #42: Add widget support',
+            body: '<!-- issue-flow:source-issue=42 -->',
+            html_url: 'https://github.com/example/platform/pull/9',
+            base: { ref: 'main' },
+            head: { ref: '42-add-widget-support/build', sha: 'same-sha' },
+            labels: [{ name: 'mr-by::build' }],
+            user: { login: 'alice' },
+          },
+          repository: { full_name: 'example/platform' },
+        },
+      }
+    );
+
+    assert.equal(result.action, 'review');
+    assert.equal(result.skipped, true);
+    assert.equal(result.reason, 'duplicate_task');
+    assert.equal(result.existingCommentId, 300);
+  } finally {
+    providers.github.listPullRequestComments = originalList;
+  }
 });
 
 test('dispatch auto skips non-routing labeled events', async () => {

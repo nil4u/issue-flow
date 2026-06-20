@@ -118,6 +118,27 @@ issue-flow-review:
       fi
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"
 
+issue-flow-review-comment:
+  rules:
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request_review_comment" && $AGENTRIX_EVENT_ACTION == "created"'
+      when: on_success
+    - if: '$GITLAB_EVENT_NAME == "note"'
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      git fetch origin "${CI_DEFAULT_BRANCH:-main}" --depth 1
+      git checkout FETCH_HEAD -- .agentrix/plugins/issue-flow .issue-flow
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      if [ -n "${GITLAB_EVENT_PATH:-}" ]; then
+        set -- "$@" --event "$GITLAB_EVENT_PATH"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs dispatch review-comment "$@"
+
 issue-flow-failure-intake:
   rules:
     - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "workflow_run" && $AGENTRIX_EVENT_ACTION == "completed" && $AGENTRIX_WORKFLOW_RUN_CONCLUSION == "failure"'

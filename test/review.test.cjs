@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -43,8 +44,12 @@ test('review script submits through provider review API', async () => {
   ]), 'utf8');
   const originalFetch = providers.github.fetchCurrentPullRequest;
   const originalSubmit = providers.github.submitPullRequestReview;
+  const originalSpawnSync = childProcess.spawnSync;
+  const originalAgentrixTaskId = process.env.AGENTRIX_TASK_ID;
   let captured;
 
+  process.env.AGENTRIX_TASK_ID = 'task-review';
+  childProcess.spawnSync = () => ({ status: 0, stdout: 'abc123\n' });
   providers.github.fetchCurrentPullRequest = async (pr) => ({
     ...pr,
     state: 'open',
@@ -66,7 +71,10 @@ test('review script submits through provider review API', async () => {
 
     assert.equal(captured.pr.number, 5);
     assert.equal(captured.pr.headSha, 'abc123');
-    assert.equal(captured.body, 'No blocking issues.');
+    assert.equal(
+      captured.body,
+      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->'
+    );
     assert.deepEqual(captured.comments, [
       {
         path: 'src/app.js',
@@ -80,6 +88,55 @@ test('review script submits through provider review API', async () => {
   } finally {
     providers.github.fetchCurrentPullRequest = originalFetch;
     providers.github.submitPullRequestReview = originalSubmit;
+    childProcess.spawnSync = originalSpawnSync;
+    if (originalAgentrixTaskId === undefined) {
+      delete process.env.AGENTRIX_TASK_ID;
+    } else {
+      process.env.AGENTRIX_TASK_ID = originalAgentrixTaskId;
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('review script skips stale PR head before submitting', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-review-test-'));
+  const bodyFile = path.join(root, 'review.md');
+  fs.writeFileSync(bodyFile, 'No blocking issues.\n', 'utf8');
+  const originalFetch = providers.github.fetchCurrentPullRequest;
+  const originalSubmit = providers.github.submitPullRequestReview;
+  const originalSpawnSync = childProcess.spawnSync;
+
+  childProcess.spawnSync = () => ({ status: 0, stdout: 'old-head\n' });
+  providers.github.fetchCurrentPullRequest = async (pr) => ({
+    ...pr,
+    state: 'open',
+    headSha: 'new-head',
+  });
+  providers.github.submitPullRequestReview = async () => {
+    throw new Error('stale review should not be submitted');
+  };
+
+  try {
+    const result = await submitReview({
+      provider: 'github',
+      repo: 'example/platform',
+      prNumber: '5',
+      bodyFile,
+    });
+
+    assert.deepEqual(result, {
+      action: 'skipped',
+      reason: 'stale_head',
+      provider: 'github',
+      pullRequest: 5,
+      checkoutHead: 'old-head',
+      currentHead: 'new-head',
+      inlineComments: 0,
+    });
+  } finally {
+    providers.github.fetchCurrentPullRequest = originalFetch;
+    providers.github.submitPullRequestReview = originalSubmit;
+    childProcess.spawnSync = originalSpawnSync;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
