@@ -50,7 +50,7 @@ function usage() {
     '  review     Run an independent PR/MR automatic review check',
     '  review-comment  Resume the PR/MR task for a new review comment',
     '  pr-merged  Apply merged plan/build PR transition',
-    '  pipeline-failed  Analyze a failed CI pipeline/job and create or update a build issue when actionable',
+    '  pipeline-failed  Create or update a build issue for a failed CI pipeline/job',
     '  resume     Run the action selected by the current flow:: label',
     '  general    Start a broad runtime action from a manual instruction',
     '  triage     Start triage action',

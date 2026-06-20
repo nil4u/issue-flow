@@ -99,7 +99,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs": {
       "source": "skills/issue-flow/scripts/dispatch.cjs",
       "mode": "managed",
-      "sha256": "edcf1b0cb4cb5de58a477296083ffd22512cad4383873c201f18ce882a5e8584"
+      "sha256": "7bac97dbf071f84b8b6c87ebd7c95c6a9bab7d57cb75ad69c1a6914e718dbf13"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/events.cjs": {
       "source": "skills/issue-flow/scripts/events.cjs",
@@ -119,7 +119,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/pipeline-failed.cjs": {
       "source": "skills/issue-flow/scripts/pipeline-failed.cjs",
       "mode": "managed",
-      "sha256": "3aadfcc4843d9fdc490084dccd43fe796f625670092d0ea5ee49402b8facfc8d"
+      "sha256": "0f910a067eaa3869477a185096a96e42fd398e577922dca3c1aa2950f2b97bff"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/pr-merged.cjs": {
       "source": "skills/issue-flow/scripts/pr-merged.cjs",

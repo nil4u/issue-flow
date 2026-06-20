@@ -31,7 +31,7 @@ function usage() {
   return [
     'Usage: pipeline-failed.cjs [options]',
     '',
-    'Analyze a failed CI pipeline/job and create or update a deduped issue-flow issue only when actionable.',
+    'Analyze a failed CI pipeline/job and create or update a deduped issue-flow issue for agent review.',
     '',
     'Options:',
     '  --event <path>          Provider event JSON path.',
@@ -93,20 +93,6 @@ function normalizeSignatureLine(value) {
     .trim();
 }
 
-function firstMatchingLine(log, patterns) {
-  const lines = String(log || '').split(/\r?\n/);
-  for (const line of lines) {
-    const normalized = normalizeSignatureLine(line);
-    if (!normalized) {
-      continue;
-    }
-    if (patterns.some((pattern) => pattern.test(normalized))) {
-      return normalized;
-    }
-  }
-  return '';
-}
-
 function compactLogSummary(log) {
   const lines = String(log || '')
     .split(/\r?\n/)
@@ -118,125 +104,28 @@ function compactLogSummary(log) {
   return (interesting.length > 0 ? interesting : lines).slice(0, 12).join('\n');
 }
 
-function classifyFailure(context) {
-  const log = `${context.stepName || ''}\n${context.log || ''}`;
-
-  const providerLine = firstMatchingLine(log, [
-    /resource not accessible by integration/i,
-    /bad credentials|unauthorized|authentication failed|permission denied/i,
-    /secret .* not found|secrets\.[A-Z0-9_]+|missing required secret/i,
-    /environment variable .* (missing|not set|required)/i,
-    /protected branch|branch protection/i,
-    /no runners? (available|online)|runner .* (offline|not found|unavailable)/i,
-    /input required and not supplied/i,
-    /\b(401|403)\b/,
-  ]);
-  if (providerLine) {
-    return {
-      category: 'actionable_provider_fix',
-      failureKind: 'provider_config',
-      suspectedFixScope: 'provider_config',
-      confidence: 'high',
-      normalizedErrorSignature: providerLine,
-      rootCause: 'CI failed because provider-side configuration, credentials, token permissions, or runner capacity appears to be missing or invalid.',
-      humanActions: inferProviderActions(providerLine),
-      validation: 'Re-run the failed workflow or pipeline after updating the referenced provider configuration.',
-    };
+function firstSummaryLine(summary, context = {}) {
+  const line = String(summary || '').split(/\r?\n/).find(Boolean);
+  if (line) {
+    return line;
   }
-
-  const workflowLine = firstMatchingLine(log, [
-    /invalid workflow file/i,
-    /workflow is not valid/i,
-    /\.ya?ml.*(syntax|parse|invalid)/i,
-    /unknown key .* in .*(workflow|pipeline|gitlab-ci)/i,
-  ]);
-  if (workflowLine) {
-    return {
-      category: 'actionable_repo_fix',
-      failureKind: 'workflow_config',
-      suspectedFixScope: 'repo_change',
-      confidence: 'high',
-      normalizedErrorSignature: workflowLine,
-      rootCause: 'CI failed because workflow or pipeline configuration in the repository appears invalid.',
-      validation: 'Validate the workflow or CI configuration and re-run the failed workflow or pipeline.',
-    };
-  }
-
-  const transientLine = firstMatchingLine(log, [
-    /econnreset|etimedout|eai_again|tls handshake timeout|network timeout/i,
-    /\b(502|503|504)\b|service unavailable|temporarily unavailable/i,
-    /rate limit|too many requests/i,
-    /runner failed to pick|job canceled|cancelled by/i,
-  ]);
-  if (transientLine) {
-    return {
-      category: 'non_actionable_or_transient',
-      failureKind: 'transient',
-      suspectedFixScope: 'none',
-      confidence: 'medium',
-      normalizedErrorSignature: transientLine,
-      rootCause: 'The failure looks transient or externally caused.',
-      skipReason: 'transient_or_external',
-    };
-  }
-
-  const repoLine = firstMatchingLine(log, [
-    /assertionerror|test(s)? failed|failing tests?/i,
-    /\bFAIL\b|failed tests?:|not ok \d+/i,
-    /typeerror|referenceerror|syntaxerror/i,
-    /cannot find module|module not found|missing script/i,
-    /eslint|prettier|lint failed|tsc|typescript|compilation failed/i,
-    /lockfile|package-lock|pnpm-lock|yarn.lock/i,
-    /npm ERR!|pnpm ERR!|yarn run/i,
-  ]);
-  if (repoLine) {
-    return {
-      category: 'actionable_repo_fix',
-      failureKind: 'repo_regression',
-      suspectedFixScope: 'repo_change',
-      confidence: 'medium',
-      normalizedErrorSignature: repoLine,
-      rootCause: 'CI failed with a repository-level build, lint, typecheck, dependency, or test error.',
-      validation: 'Run the failing local command or re-run the failed CI job after the repository change.',
-    };
-  }
-
-  return {
-    category: 'non_actionable_or_transient',
-    failureKind: 'unknown',
-    suspectedFixScope: 'none',
-    confidence: 'low',
-    normalizedErrorSignature: compactLogSummary(log).split('\n')[0] || 'log unavailable',
-    rootCause: 'The failed run did not include enough deterministic evidence to identify a fixable root cause.',
-    skipReason: 'insufficient_actionable_signal',
-  };
-}
-
-function inferProviderActions(signature) {
-  const actions = [];
-  if (/secret|secrets\./i.test(signature)) {
-    actions.push('Check the referenced repository or project secret.');
-  }
-  if (/environment variable/i.test(signature)) {
-    actions.push('Check the referenced CI/CD variable.');
-  }
-  if (/token|credential|unauthorized|401|403|resource not accessible/i.test(signature)) {
-    actions.push('Check token scopes and workflow/job permissions.');
-  }
-  if (/runner/i.test(signature)) {
-    actions.push('Check runner registration, tags, online status, and capacity.');
-  }
-  if (/protected branch|branch protection/i.test(signature)) {
-    actions.push('Check branch protection and protected branch settings.');
-  }
-  return actions.length > 0 ? actions : ['Check provider-side CI/CD configuration referenced by the error.'];
+  return [context.workflowName, context.jobName, context.stepName].filter(Boolean).join(' / ') || 'log unavailable';
 }
 
 function analyzeFailureContext(context) {
-  const analysis = classifyFailure(context);
+  const logSummary = compactLogSummary(context.log);
   return {
-    ...analysis,
-    logSummary: compactLogSummary(context.log),
+    category: 'agent_review_required',
+    failureKind: 'ci_failure',
+    suspectedFixScope: 'agent_to_determine',
+    confidence: 'unreviewed',
+    normalizedErrorSignature: firstSummaryLine(logSummary, context),
+    rootCause: 'CI failed. The issue-flow agent must inspect the linked run, logs, repository, and workflow configuration to determine whether the root cause is a repository change, provider configuration, transient infrastructure, or a false positive.',
+    humanActions: [
+      'Let the issue-flow agent determine the root cause and next state from the CI context.',
+    ],
+    validation: 'Agent should choose and run the smallest relevant validation, then re-run or reference the failed CI workflow when appropriate.',
+    logSummary,
   };
 }
 
@@ -303,9 +192,7 @@ function isSuspendIssue(issue) {
 }
 
 function typeLabelForAnalysis(analysis) {
-  if (analysis.category === 'actionable_provider_fix' || analysis.failureKind === 'workflow_config') {
-    return 'type::ops';
-  }
+  void analysis;
   return 'type::bug';
 }
 
@@ -335,15 +222,16 @@ function buildIssueBody(context, analysis, fingerprint, similarClosedIssue) {
 - Job: ${context.jobName || '(unknown)'}
 - Step: ${context.stepName || '(unknown)'}
 
-## Root Cause
+## Agent Triage Request
 
-- Category: ${analysis.category}
-- Confidence: ${analysis.confidence}
-- Root cause: ${analysis.rootCause}
-- Fix scope: ${analysis.suspectedFixScope}
-- Signature: \`${analysis.normalizedErrorSignature}\`
+This issue was created automatically from a failed CI run. Do not trust the intake summary as the root cause.
 
-## Provider Configuration Actions
+- Intake category: ${analysis.category}
+- Intake confidence: ${analysis.confidence}
+- Agent task: inspect the linked run, logs, repository, workflow configuration, and related PR/MR to decide whether this is a code regression, workflow/provider configuration issue, transient infrastructure failure, or false positive.
+- Signature for dedupe: \`${analysis.normalizedErrorSignature}\`
+
+## Suggested Human Actions
 
 ${humanActions}
 
@@ -447,7 +335,7 @@ async function githubFailureContext(payload, provider, repo, options = {}) {
     runUrl: job.htmlUrl || baseContext.runUrl,
     log: truncate(job.log || '', LOG_LIMIT),
   }));
-  return contexts.find((context) => analyzeFailureContext(context).category !== 'non_actionable_or_transient') || contexts[0];
+  return contexts[0];
 }
 
 function isFailedGitlabPayload(payload) {
@@ -591,6 +479,8 @@ function createIssueCliArgs({ title, bodyFile, type, fingerprint, options }) {
       'automation::build',
       '--priority',
       ISSUE_PRIORITY,
+      '--size',
+      'size::M',
       '--label',
       FAILURE_LABEL,
       '--label',
@@ -623,15 +513,6 @@ async function runFailureIntake(options = {}) {
   }
 
   const analysis = analyzeFailureContext(context);
-  if (analysis.category === 'non_actionable_or_transient') {
-    return {
-      action: 'skipped',
-      reason: analysis.skipReason,
-      analysis,
-      context,
-    };
-  }
-
   const fingerprint = fingerprintFailure(context, analysis);
   const provider = resolveProvider({ ...options, provider: context.provider }, context.raw || {});
   const repo = provider.resolveRepo(context.raw || {}, options);
@@ -644,7 +525,7 @@ async function runFailureIntake(options = {}) {
       context,
       analysis,
       fingerprint,
-      labels: [issueType, 'status::active', 'flow::build', 'automation::build', ISSUE_PRIORITY, FAILURE_LABEL, fingerprint.label],
+      labels: [issueType, 'status::active', 'flow::build', 'automation::build', ISSUE_PRIORITY, 'size::M', FAILURE_LABEL, fingerprint.label],
     };
   }
 
