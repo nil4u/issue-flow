@@ -134,7 +134,7 @@ GitLab 的推荐入口是 Agentrix daemon webhook bridge。bridge 触发 pipelin
 
 ## pipeline-failed
 
-分析 GitHub Actions workflow run 或 GitLab pipeline/job 失败，只在确定为可执行根因时创建或更新 issue-flow issue。
+分析 GitHub Actions workflow run 或 GitLab pipeline/job 失败，创建或更新 issue-flow issue，并交由 Agentrix 判断根因与下一步。
 
 ```bash
 issue-flow dispatch pipeline-failed --event /tmp/event.json
@@ -144,13 +144,13 @@ issue-flow dispatch pipeline-failed --provider gitlab --repo group/project --log
 行为：
 
 1. 收集 workflow/pipeline、job、step、run URL、commit、branch、PR/MR 和关键日志摘要
-2. 将失败归类为 `actionable_repo_fix`、`actionable_provider_fix` 或 `non_actionable_or_transient`
-3. 只为可执行分类创建或更新 issue
+2. 不在 intake 阶段用规则判断是否可执行；失败上下文会进入 issue body，作为 Agentrix task 的 prompt 输入
+3. 为失败创建或更新 issue，根因、类型、是否瞬时故障和验证方式由后续 agent 判断
 4. 去重只查询 open issue 上的 `ci-fp::<hash8>` label，再读取 body marker 比对完整 `sha256:<fingerprint>`
 5. 命中 open issue 时追加 comment；命中 `status::suspend` 时恢复为 `status::active`
 6. 命中 closed similar issue 时默认新建 issue，并在 body 中引用 closed issue
 
-创建的新 issue 带有 `failure::ci`、`ci-fp::<hash8>`、`status::active`、`flow::build`、`automation::build`。repo 代码/测试根因使用 `type::bug`；CI/workflow/provider 配置、权限、secret、variable、runner 根因使用 `type::ops`。
+创建的新 issue 带有 `failure::ci`、`ci-fp::<hash8>`、`type::bug`、`status::active`、`flow::build`、`automation::build`、`size::M`。如果 agent 判断根因属于 CI/workflow/provider 配置、权限、secret、variable、runner 等运维范围，应在处理时改成 `type::ops` 或流转到合适状态。
 
 GitHub 默认安装产物为 `.github/workflows/issue-flow-failure-intake.yml`，安装时会扫描 `.github/workflows/*.yml` / `.github/workflows/*.yaml` 并生成 GitHub Actions 要求的显式 `workflow_run.workflows` 列表，监听 completed failure 并要求 `actions: read` 与 `issues: write`。新增 GitHub workflow 后需要重新运行安装器刷新该列表。
 
