@@ -19,6 +19,7 @@ const {
   parseRepoFullName,
   planLabelSync,
   providerLabelDefinition,
+  providers,
   requestGitlab,
   resolveProvider,
   resolveProviderPort,
@@ -372,6 +373,56 @@ test('github pr review-comments list uses pull request review comments API', asy
   assert.equal(calls.length, 1);
 });
 
+test('github review comment event context normalizes inline payload fields', () => {
+  const payload = {
+    action: 'created',
+    pull_request: { number: 24 },
+    comment: {
+      id: 101,
+      body: 'Please handle this edge case.',
+      html_url: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+      path: 'src/app.js',
+      line: 42,
+      side: 'RIGHT',
+      user: { login: 'reviewer' },
+      created_at: '2026-06-18T01:00:00Z',
+      updated_at: '2026-06-18T01:01:00Z',
+    },
+    repository: { full_name: 'acme-org/webapp' },
+  };
+
+  assert.deepEqual(providers.github.isReviewCommentCreatedEvent(payload), { ok: true });
+  assert.deepEqual(providers.github.isReviewCommentCreatedEvent({ ...payload, action: 'edited' }), {
+    ok: false,
+    reason: 'unsupported_event_action',
+    eventAction: 'edited',
+  });
+  assert.deepEqual(
+    providers.github.isReviewCommentCreatedEvent({
+      ...payload,
+      comment: { ...payload.comment, in_reply_to_id: 100 },
+    }),
+    {
+      ok: false,
+      reason: 'review_comment_reply',
+    }
+  );
+  assert.deepEqual(providers.github.getReviewCommentContext(payload), {
+    id: '101',
+    author: 'reviewer',
+    body: 'Please handle this edge case.',
+    htmlUrl: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+    inReplyToId: '',
+    path: 'src/app.js',
+    line: 42,
+    side: 'RIGHT',
+    diffHunk: '',
+    createdAt: '2026-06-18T01:00:00Z',
+    updatedAt: '2026-06-18T01:01:00Z',
+    raw: payload.comment,
+  });
+});
+
 test('github create issue uses token API with labels in the create request', async () => {
   const provider = resolveProvider({ provider: 'github' }, {});
   const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
@@ -717,6 +768,57 @@ test('gitlab pr review-comments list uses merge request discussions API', async 
   }
 
   assert.equal(calls.length, 1);
+});
+
+test('gitlab review comment event context normalizes MR note payload fields', () => {
+  const payload = {
+    object_kind: 'note',
+    object_attributes: {
+      id: 202,
+      noteable_type: 'MergeRequest',
+      action: 'create',
+      note: 'Please handle this GitLab edge case.',
+      url: 'https://gitlab.com/group/sub/project/-/merge_requests/24#note_202',
+      position: {
+        new_path: 'src/app.js',
+        new_line: 42,
+      },
+    },
+    merge_request: { iid: 24 },
+    user: { username: 'reviewer' },
+    project: { path_with_namespace: 'group/sub/project' },
+  };
+
+  assert.deepEqual(providers.gitlab.isReviewCommentCreatedEvent(payload), { ok: true });
+  assert.deepEqual(
+    providers.gitlab.isReviewCommentCreatedEvent({
+      ...payload,
+      object_attributes: {
+        ...payload.object_attributes,
+        position: undefined,
+      },
+    }),
+    {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    }
+  );
+  assert.deepEqual(
+    providers.gitlab.isReviewCommentCreatedEvent({
+      ...payload,
+      object_attributes: {
+        ...payload.object_attributes,
+        position: undefined,
+        line_code: 'abc_42_42',
+      },
+    }),
+    { ok: true }
+  );
+  assert.equal(providers.gitlab.getReviewCommentContext(payload).id, '202');
+  assert.equal(providers.gitlab.getReviewCommentContext(payload).body, 'Please handle this GitLab edge case.');
+  assert.equal(providers.gitlab.getReviewCommentContext(payload).path, 'src/app.js');
+  assert.equal(providers.gitlab.getReviewCommentContext(payload).line, 42);
+  assert.equal(providers.gitlab.getReviewCommentContext(payload).author, 'reviewer');
 });
 
 test('gitlab review provider submits overall note and inline diff discussion', async () => {

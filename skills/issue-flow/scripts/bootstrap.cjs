@@ -16,6 +16,7 @@ const AGENTRIX_GITHUB_WORKFLOWS = [
   ['workflows/github/issue-flow-auto.yml', '.github/workflows/issue-flow-auto.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-comment.yml', '.github/workflows/issue-flow-comment.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-review.yml', '.github/workflows/issue-flow-pr-review.yml', { mode: MODE_MANAGED }],
+  ['workflows/github/issue-flow-pr-review-comment.yml', '.github/workflows/issue-flow-pr-review-comment.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-merged.yml', '.github/workflows/issue-flow-pr-merged.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-failure-intake.yml', '.github/workflows/issue-flow-failure-intake.yml', { mode: MODE_MANAGED }],
 ];
@@ -154,6 +155,10 @@ function installCwd(options = {}) {
 
 function manifestPath(options = {}) {
   return path.join(installCwd(options), INSTALL_MANIFEST);
+}
+
+function hasInstallManifest(options = {}) {
+  return fs.existsSync(manifestPath(options));
 }
 
 function normalizeRepoPath(value) {
@@ -299,6 +304,47 @@ function readGithubWorkflowName(filePath, fallbackName) {
   return parseGithubWorkflowName(content) || githubWorkflowNameFallback(filePath, fallbackName);
 }
 
+function parseGithubWorkflowRunWorkflowNames(content) {
+  const lines = String(content || '').split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)workflows:\s*(.*?)\s*$/);
+    if (!match) {
+      continue;
+    }
+
+    const inlineValue = unquoteYamlString(match[2]);
+    if (inlineValue) {
+      return [inlineValue];
+    }
+
+    const names = [];
+    const parentIndent = match[1].length;
+    for (let childIndex = index + 1; childIndex < lines.length; childIndex += 1) {
+      const line = lines[childIndex];
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue;
+      }
+
+      const childIndent = line.match(/^\s*/)[0].length;
+      if (childIndent <= parentIndent) {
+        break;
+      }
+
+      const itemMatch = line.match(/^\s*-\s*(.+?)\s*$/);
+      if (!itemMatch) {
+        continue;
+      }
+      const name = unquoteYamlString(itemMatch[1]);
+      if (name) {
+        names.push(name);
+      }
+    }
+    return names;
+  }
+  return [];
+}
+
 function discoverExistingGithubWorkflowNames(options = {}) {
   const workflowsDir = path.resolve(installCwd(options), GITHUB_WORKFLOWS_DIR);
   if (!fs.existsSync(workflowsDir) || !fs.statSync(workflowsDir).isDirectory()) {
@@ -309,6 +355,14 @@ function discoverExistingGithubWorkflowNames(options = {}) {
     .filter(isGithubWorkflowPath)
     .sort()
     .map((entry) => readGithubWorkflowName(path.join(workflowsDir, entry), joinRepoPath(GITHUB_WORKFLOWS_DIR, entry)));
+}
+
+function readConfiguredGithubFailureIntakeWorkflowNames(options = {}) {
+  const target = path.resolve(installCwd(options), GITHUB_FAILURE_INTAKE_TARGET);
+  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+    return [];
+  }
+  return parseGithubWorkflowRunWorkflowNames(fs.readFileSync(target, 'utf8'));
 }
 
 function discoverInstalledGithubWorkflowNames() {
@@ -350,8 +404,11 @@ function renderGithubFailureIntakeWorkflow(workflowNames) {
 }
 
 function githubWorkflowInstallSpecs(options = {}) {
+  const configuredWorkflowNames = hasInstallManifest(options)
+    ? readConfiguredGithubFailureIntakeWorkflowNames(options)
+    : discoverExistingGithubWorkflowNames(options);
   const workflowNames = uniqueWorkflowNames([
-    ...discoverExistingGithubWorkflowNames(options),
+    ...configuredWorkflowNames,
     ...discoverInstalledGithubWorkflowNames(),
   ]);
   return AGENTRIX_GITHUB_WORKFLOWS.map(([source, target, specOptions = {}]) => {

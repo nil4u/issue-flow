@@ -1,4 +1,7 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -11,6 +14,7 @@ const {
   githubFailureContext,
   gitlabFailureContext,
   parsePipelineFailureMarker,
+  runFailureIntake,
   typeLabelForAnalysis,
 } = require('../skills/issue-flow/scripts/pipeline-failed.cjs');
 
@@ -69,29 +73,30 @@ test('duplicate failure comment records the new run and same root cause', () => 
   assert.match(comment, /FAIL test\/app\.test\.js/);
 });
 
-test('transient and insufficient failures are skipped with explicit categories', () => {
+test('transient-looking and low-signal failures still require agent review', () => {
   const transient = analyzeFailureContext(baseContext({ log: 'npm ERR! network ECONNRESET while fetching package' }));
-  assert.equal(transient.category, 'non_actionable_or_transient');
-  assert.equal(transient.skipReason, 'transient_or_external');
+  assert.equal(transient.category, 'agent_review_required');
+  assert.equal(transient.failureKind, 'ci_failure');
+  assert.equal(transient.suspectedFixScope, 'agent_to_determine');
 
   const unknown = analyzeFailureContext(baseContext({ log: 'Error: Process completed with exit code 1' }));
-  assert.equal(unknown.category, 'non_actionable_or_transient');
-  assert.equal(unknown.skipReason, 'insufficient_actionable_signal');
+  assert.equal(unknown.category, 'agent_review_required');
+  assert.equal(unknown.normalizedErrorSignature, 'Error: Process completed with exit code 1');
 });
 
-test('repo and provider actionable failures map to expected issue types', () => {
+test('failure intake does not pre-classify repo or provider failures', () => {
   const repoAnalysis = analyzeFailureContext(baseContext());
-  assert.equal(repoAnalysis.category, 'actionable_repo_fix');
+  assert.equal(repoAnalysis.category, 'agent_review_required');
   assert.equal(typeLabelForAnalysis(repoAnalysis), 'type::bug');
 
   const providerAnalysis = analyzeFailureContext(baseContext({
     log: 'Error: Resource not accessible by integration',
   }));
-  assert.equal(providerAnalysis.category, 'actionable_provider_fix');
-  assert.equal(typeLabelForAnalysis(providerAnalysis), 'type::ops');
+  assert.equal(providerAnalysis.category, 'agent_review_required');
+  assert.equal(typeLabelForAnalysis(providerAnalysis), 'type::bug');
 });
 
-test('github workflow run analysis picks an actionable failed job after a transient first job', async () => {
+test('github workflow run analysis uses the first failed job without classifying actionability', async () => {
   const payload = {
     workflow_run: {
       id: 100,
@@ -123,9 +128,9 @@ test('github workflow run analysis picks an actionable failed job after a transi
   };
   const context = await githubFailureContext(payload, provider, { fullName: 'acme/webapp' });
 
-  assert.equal(context.jobName, 'test');
-  assert.equal(context.stepName, 'Run tests');
-  assert.equal(analyzeFailureContext(context).category, 'actionable_repo_fix');
+  assert.equal(context.jobName, 'download');
+  assert.equal(context.stepName, 'Install');
+  assert.equal(analyzeFailureContext(context).category, 'agent_review_required');
 });
 
 test('github failure intake skips its own failed workflow in script logic', async () => {
@@ -150,6 +155,43 @@ test('github failure intake skips its own failed workflow in script logic', asyn
     skipped: true,
     reason: 'self_failure_intake_workflow',
   });
+});
+
+test('low-signal failed workflow still creates an agent review issue in dry-run', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-pipeline-failed-test-'));
+  const eventPath = path.join(dir, 'event.json');
+  try {
+    fs.writeFileSync(
+      eventPath,
+      JSON.stringify({
+        workflow_run: {
+          id: 100,
+          conclusion: 'failure',
+          name: 'CI',
+          html_url: 'https://github.com/acme/webapp/actions/runs/100',
+          head_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          head_branch: 'main',
+        },
+        repository: {
+          full_name: 'acme/webapp',
+        },
+      }),
+      'utf8'
+    );
+
+    const result = await runFailureIntake({
+      dryRun: true,
+      event: eventPath,
+      provider: 'github',
+      repo: 'acme/webapp',
+    });
+
+    assert.equal(result.action, 'would_create_or_update');
+    assert.equal(result.analysis.category, 'agent_review_required');
+    assert.match(result.labels.join(' '), /size::M/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('gitlab Agentrix bridge env is treated as a failed pipeline signal', () => {
@@ -193,6 +235,7 @@ test('create issue cli args forward provider-specific options', () => {
   });
 
   assert.match(args.join(' '), /--provider gitlab/);
+  assert.match(args.join(' '), /--size size::M/);
   assert.match(args.join(' '), /--repo group\/project/);
   assert.match(args.join(' '), /--gitlab-url https:\/\/gitlab\.example/);
   assert.match(args.join(' '), /--gitlab-api-url https:\/\/gitlab\.example\/api\/v4/);

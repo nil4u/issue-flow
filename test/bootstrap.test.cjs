@@ -66,6 +66,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       '.github/workflows/issue-flow-comment.yml',
       '.github/workflows/issue-flow-failure-intake.yml',
       '.github/workflows/issue-flow-pr-merged.yml',
+      '.github/workflows/issue-flow-pr-review-comment.yml',
       '.github/workflows/issue-flow-pr-review.yml',
       '.issue-flow/install-manifest.json',
     ].sort());
@@ -73,10 +74,12 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-failure-intake.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review-comment.yml')), true);
     const labelsWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-labels.yml'), 'utf8');
     const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
     const failureWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-failure-intake.yml'), 'utf8');
     const reviewWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml'), 'utf8');
+    const reviewCommentWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review-comment.yml'), 'utf8');
     assert.match(labelsWorkflow, /Issue Flow Labels/);
     assert.match(labelsWorkflow, /issues: write/);
     assert.match(labelsWorkflow, /sync-labels\.cjs --provider github/);
@@ -105,6 +108,13 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(reviewWorkflow, /ISSUE_FLOW_REVIEW_ENABLED == 'true'/);
     assert.match(reviewWorkflow, /ISSUE_FLOW_REVIEW_ENABLED == '1'/);
     assert.match(reviewWorkflow, /dispatch\.cjs review --pr-number/);
+    assert.match(reviewCommentWorkflow, /Issue Flow PR Review Comment/);
+    assert.match(reviewCommentWorkflow, /pull_request_review_comment:/);
+    assert.match(reviewCommentWorkflow, /- created/);
+    assert.match(reviewCommentWorkflow, /pull-requests: write/);
+    assert.match(reviewCommentWorkflow, /contains\(github\.event\.pull_request\.body, 'issue-flow:agentrix:task='\)/);
+    assert.match(reviewCommentWorkflow, /cli\.cjs dispatch review-comment/);
+    assert.doesNotMatch(reviewCommentWorkflow, /ISSUE_FLOW_REVIEW_ENABLED/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/config.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
@@ -171,6 +181,79 @@ test('github bootstrap includes existing workflows in failure intake trigger', (
     assert.match(failureWorkflow, /- '\.github\/workflows\/unnamed\.yaml'/);
     assert.match(failureWorkflow, /- 'Issue Flow Auto'/);
     assert.doesNotMatch(failureWorkflow, /- 'Issue Flow Failure Intake'/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('github bootstrap does not add new repository workflows after initial install', () => {
+  const root = makeTempRoot();
+  try {
+    const workflowDir = path.join(root, '.github/workflows');
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'ci.yml'), [
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo ok',
+      '',
+    ].join('\n'));
+
+    installGithub({ cwd: root });
+
+    fs.writeFileSync(path.join(workflowDir, 'deploy.yml'), [
+      'name: Deploy',
+      'on: push',
+      'jobs:',
+      '  deploy:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo deploy',
+      '',
+    ].join('\n'));
+    installGithub({ cwd: root });
+
+    const failureWorkflow = fs.readFileSync(path.join(workflowDir, 'issue-flow-failure-intake.yml'), 'utf8');
+    assert.match(failureWorkflow, /- 'CI'/);
+    assert.doesNotMatch(failureWorkflow, /- 'Deploy'/);
+    assert.match(failureWorkflow, /- 'Issue Flow Auto'/);
+    assert.doesNotMatch(failureWorkflow, /- 'Issue Flow Failure Intake'/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('github bootstrap preserves manually removed failure intake workflows on reinstall', () => {
+  const root = makeTempRoot();
+  try {
+    const workflowDir = path.join(root, '.github/workflows');
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'ci.yml'), [
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo ok',
+      '',
+    ].join('\n'));
+
+    installGithub({ cwd: root });
+
+    const failureWorkflowPath = path.join(workflowDir, 'issue-flow-failure-intake.yml');
+    fs.writeFileSync(
+      failureWorkflowPath,
+      fs.readFileSync(failureWorkflowPath, 'utf8').replace("      - 'CI'\n", '')
+    );
+    installGithub({ cwd: root });
+
+    const failureWorkflow = fs.readFileSync(failureWorkflowPath, 'utf8');
+    assert.doesNotMatch(failureWorkflow, /- 'CI'/);
+    assert.match(failureWorkflow, /- 'Issue Flow Auto'/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -308,6 +391,10 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /git checkout FETCH_HEAD -- \.agentrix\/plugins\/issue-flow \.issue-flow/);
     assert.match(gitlabWorkflow, /--pr-number "\$AGENTRIX_PR_NUMBER"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs review/);
+    assert.match(gitlabWorkflow, /issue-flow-review-comment:/);
+    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "pull_request_review_comment"/);
+    assert.match(gitlabWorkflow, /GITLAB_EVENT_NAME == "note"/);
+    assert.match(gitlabWorkflow, /cli\.cjs dispatch review-comment/);
     assert.match(gitlabWorkflow, /issue-flow-failure-intake:/);
     assert.doesNotMatch(gitlabWorkflow, /stage: \.post/);
     assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "workflow_run"/);

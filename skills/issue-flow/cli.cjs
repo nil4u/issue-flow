@@ -93,6 +93,7 @@ function prSubmitHelp() {
     'Usage: issue-flow pr submit <plan|build> --issue <num> --title <title> --body-file <path> [options]',
     '',
     'Options:',
+    '  --agentrix-task-id <id>',
     '  --base <branch>',
     '  --head <branch>',
     '  --draft',
@@ -137,7 +138,7 @@ function dispatchHelp() {
     'Usage: issue-flow dispatch <action> [options]',
     '',
     'Actions:',
-    '  auto | comment | review | pr-merged | pipeline-failed | resume | triage | plan | build | general',
+    '  auto | comment | review | review-comment | pr-merged | pipeline-failed | resume | triage | plan | build | general',
   ].join('\n');
 }
 
@@ -449,6 +450,19 @@ function handleLabels(argv) {
 function handleDispatch(argv) {
   if (argv.length === 0 || argv[0] === '--help') {
     return dispatchHelp();
+  }
+  if (argv[0] === 'review-comment') {
+    const options = parseOptions(mapAliasArgs(argv.slice(1)));
+    return withoutConsoleLog(async () => {
+      const dispatch = require('./scripts/dispatch.cjs');
+      const data = await dispatch.runReviewComment(options);
+      return {
+        action: 'dispatched',
+        resource: 'dispatch',
+        command: 'review-comment',
+        data,
+      };
+    }).then(({ result }) => result);
   }
   return runScript('dispatch.cjs', [argv[0], ...mapAliasArgs(argv.slice(1))], {
     action: 'dispatched',

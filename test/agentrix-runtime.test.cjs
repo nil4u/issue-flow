@@ -134,13 +134,16 @@ test('agentrix review prompt uses target URL and review submission script', () =
     author: 'alice',
     htmlUrl: 'https://github.com/example/platform/pull/9',
     title: 'Build #42: Add export button',
+    headSha: 'abc123',
     body: '<!-- issue-flow:source-issue=42 -->\nAdds export support.',
   });
 
   assert.match(prompt, /## Review Target/);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.match(prompt, /## Review Submission/);
-  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file>/);
+  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\]/);
+  assert.doesNotMatch(prompt, /--expected-head/);
+  assert.match(prompt, /inline review comments/);
   assert.match(prompt, /do not call `gh`, `glab`, `gh api`, `glab api`/);
   assert.match(prompt, /使用下方 review 提交命令发布结果/);
   assert.doesNotMatch(prompt, /## Issue/);
@@ -207,7 +210,99 @@ test('agentrix task marker uses issue-flow namespace', () => {
   assert.equal(agentrix.buildTaskCommentMarker('build'), '<!-- issue-flow:agentrix:task:build -->');
   assert.equal(
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
-    '<!-- issue-flow:agentrix:task:review:abc123 -->'
+    '<!-- issue-flow:agentrix:task:review -->'
+  );
+  assert.match(
+    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
+    /Head: `abc123`/
+  );
+  assert.equal(
+    agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),
+    '<!-- issue-flow:agentrix:task:resume-review-comment:101 -->'
   );
   assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
+});
+
+test('agentrix extracts task run and reviewed head from task comments', () => {
+  const comment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+    pullRequest: { headSha: 'abc123' },
+  });
+
+  assert.equal(agentrix.extractRunIdFromTaskComment(comment), 'task-review');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment(comment), 'abc123');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment('<!-- issue-flow:agentrix:task:review:legacy-sha -->'), '');
+});
+
+test('agentrix extracts PR/MR task id only from pull request body marker', () => {
+  assert.equal(
+    agentrix.extractAgentrixTaskIdFromPullRequest({
+      body: '<!-- issue-flow:agentrix:task=task-123 -->\nBody',
+    }),
+    'task-123'
+  );
+  assert.equal(
+    agentrix.extractAgentrixTaskIdFromPullRequest({
+      title: '<!-- issue-flow:agentrix:task=task-123 -->',
+      body: '',
+    }),
+    ''
+  );
+});
+
+test('agentrix resume task args use resume mode without new task metadata', () => {
+  const args = agentrix.buildResumeTaskArgs(
+    'task-123',
+    '有新的 PR/MR review comment，请查看并处理。',
+    {
+      baseUrl: 'https://agentrix.example.test',
+      apiKey: 'test-key',
+      runnerId: 'runner-1',
+    },
+    {
+      pullRequest: { repoFullName: 'example/platform', number: 9 },
+      reviewComment: { id: '101' },
+      sourceIssueNumber: 42,
+    },
+    '/tmp/result.json'
+  );
+
+  assert.equal(args[args.indexOf('--resume') + 1], 'task-123');
+  assert.equal(args[1], '@agentrix/agentrix-run@0.7.0');
+  assert.ok(args.includes('--prompt'));
+  assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
+  assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');
+  assert.ok(args.includes('issue_flow_pr=example/platform#9'));
+  assert.ok(args.includes('issue_flow_review_comment=101'));
+  assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
+  assert.equal(args.includes('--runner-id'), false);
+  assert.equal(args.includes('--issue-number'), false);
+  assert.equal(args.includes('--title'), false);
+});
+
+test('agentrix review comment resume instruction stays minimal', () => {
+  const prompt = agentrix.buildReviewCommentResumeInstruction(
+    {
+      number: 9,
+      htmlUrl: 'https://github.com/example/platform/pull/9',
+    },
+    {
+      id: '101',
+      htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101',
+      path: 'src/app.js',
+      line: 42,
+      author: 'reviewer',
+      body: 'Please handle this edge case.',
+    },
+    {
+      sourceIssueNumber: 42,
+    }
+  );
+
+  assert.match(prompt, /PR\/MR 有新的 review comment/);
+  assert.match(prompt, /普通总结 comment/);
+  assert.match(prompt, /不要创建新的 inline review comment/);
+  assert.doesNotMatch(prompt, /https:\/\/github\.com\/example\/platform\/pull\/9/);
+  assert.doesNotMatch(prompt, /src\/app\.js/);
+  assert.doesNotMatch(prompt, /Please handle this edge case/);
+  assert.doesNotMatch(prompt, /review-comments/);
 });
