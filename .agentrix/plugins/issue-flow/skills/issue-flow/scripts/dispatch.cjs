@@ -48,6 +48,7 @@ function usage() {
     '  auto       Run the current flow:: action when automation policy allows it',
     '  comment    Route an issue comment for the selected runtime mention',
     '  review     Run an independent PR/MR automatic review check',
+    '  review-comment  Resume the PR/MR task for a new review comment',
     '  pr-merged  Apply merged plan/build PR transition',
     '  pipeline-failed  Analyze a failed CI pipeline/job and create or update a build issue when actionable',
     '  resume     Run the action selected by the current flow:: label',
@@ -173,6 +174,20 @@ function getCommentContext(payload, options = {}) {
   return resolveProvider(options, payload).getCommentContext(payload);
 }
 
+function isReviewCommentCreatedEvent(payload, options = {}) {
+  const provider = resolveProvider(options, payload);
+  return provider.isReviewCommentCreatedEvent
+    ? provider.isReviewCommentCreatedEvent(payload, options)
+    : { ok: false, reason: 'not_pull_request_review_comment' };
+}
+
+function getReviewCommentContext(payload, options = {}) {
+  const provider = resolveProvider(options, payload);
+  return provider.getReviewCommentContext
+    ? provider.getReviewCommentContext(payload, options)
+    : {};
+}
+
 async function fetchCurrentIssue(issue, options = {}) {
   const provider = providers[issue.provider] || resolveProvider(options);
   if (options.dryRun || !provider.hasToken(options)) {
@@ -272,9 +287,10 @@ async function addIssueReaction(issue, options = {}) {
 
 function findActionTaskComment(comments, action, runtime, data = {}) {
   const marker = runtime.buildTaskCommentMarker(action, data);
-  return Array.isArray(comments)
-    ? comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker))
-    : undefined;
+  if (!Array.isArray(comments)) {
+    return undefined;
+  }
+  return comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker));
 }
 
 function normalizeCommentId(comment) {
@@ -482,6 +498,9 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   if (!runtimeCanRunAction(runtime, action)) {
     throw new Error(`Runtime does not support issue-flow action: ${action}`);
   }
+  if (typeof runtime.resumeTask !== 'function') {
+    throw new Error('Runtime does not support task resume');
+  }
 
   logIssueFlow('Starting PR/MR review', {
     pr: `#${pr.number}`,
@@ -493,6 +512,69 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
     pullRequest: currentPr,
     sourceIssueNumber: options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr),
   };
+  const existingReviewTask = findActionTaskComment(await listPullRequestComments(currentPr, options), action, runtime, taskData);
+  if (existingReviewTask) {
+    const reviewedHeadSha = runtime.extractReviewHeadShaFromTaskComment(existingReviewTask);
+    if (reviewedHeadSha && reviewedHeadSha === currentPr.headSha) {
+      logIssueFlow('Skipping duplicate PR/MR review task', {
+        pr: `#${currentPr.number}`,
+        head: currentPr.headSha,
+        comment: existingReviewTask.id,
+      });
+      return {
+        action,
+        skipped: true,
+        reason: 'duplicate_task',
+        existingCommentId: existingReviewTask.id,
+        existingCommentUrl: existingReviewTask.html_url || existingReviewTask.htmlUrl || existingReviewTask.web_url,
+      };
+    }
+
+    const taskId = runtime.extractRunIdFromTaskComment(existingReviewTask);
+    if (!taskId) {
+      logIssueFlow('Skipping PR/MR review resume without task id', {
+        pr: `#${currentPr.number}`,
+        comment: existingReviewTask.id,
+      });
+      return {
+        action,
+        skipped: true,
+        reason: 'review_task_pending',
+        existingCommentId: existingReviewTask.id,
+        existingCommentUrl: existingReviewTask.html_url || existingReviewTask.htmlUrl || existingReviewTask.web_url,
+      };
+    }
+
+    const instruction = runtime.buildReviewResumeInstruction(currentPr, {
+      previousHeadSha: reviewedHeadSha,
+    });
+    const resumeData = {
+      ...taskData,
+      agentrixTaskId: taskId,
+    };
+    const result = runtime.resumeTask(taskId, instruction, options, resumeData);
+    if (existingReviewTask.id) {
+      await updatePullRequestComment(
+        currentPr,
+        existingReviewTask.id,
+        runtime.buildTaskComment(action, { ...result, runId: taskId }, resumeData),
+        options
+      );
+    }
+    logIssueFlow('Resumed PR/MR review task', {
+      pr: `#${currentPr.number}`,
+      runId: result.runId,
+      head: currentPr.headSha,
+    });
+    return {
+      action,
+      resumed: true,
+      result,
+      existingCommentId: existingReviewTask.id,
+      existingCommentUrl: existingReviewTask.html_url || existingReviewTask.htmlUrl || existingReviewTask.web_url,
+    };
+  }
+
   const taskClaim = await claimPullRequestActionTask(currentPr, action, runtime, taskData, options);
   if (!taskClaim.claimed) {
     logIssueFlow('Skipping duplicate PR/MR review task', {
@@ -530,6 +612,56 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
     pr: `#${currentPr.number}`,
     runId: result.runId,
   });
+  return {
+    action,
+    result,
+  };
+}
+
+async function resumeTaskForReviewComment(pr, taskId, instruction, options = {}, data = {}) {
+  const action = 'task_resume';
+  const runtime = loadRuntime(options);
+  if (typeof runtime.resumeTask !== 'function') {
+    throw new Error('Runtime does not support task resume');
+  }
+
+  const taskData = {
+    ...data,
+    pullRequest: pr,
+    agentrixTaskId: taskId,
+  };
+  const taskClaim = await claimPullRequestActionTask(pr, action, runtime, taskData, options);
+  if (!taskClaim.claimed) {
+    logIssueFlow('Skipping duplicate PR/MR review comment resume', {
+      pr: `#${pr.number}`,
+      comment: taskClaim.comment && taskClaim.comment.id,
+    });
+    return {
+      action: 'skipped',
+      reason: 'duplicate_review_comment_resume',
+      existingCommentId: taskClaim.comment && taskClaim.comment.id,
+      existingCommentUrl: taskClaim.comment && (taskClaim.comment.html_url || taskClaim.comment.htmlUrl || taskClaim.comment.web_url),
+    };
+  }
+
+  let result;
+  try {
+    result = runtime.resumeTask(taskId, instruction, options, taskData);
+  } catch (error) {
+    if (taskClaim.comment && taskClaim.comment.id) {
+      try {
+        await deletePullRequestComment(pr, taskClaim.comment.id, options);
+      } catch (deleteError) {
+        const detail = deleteError instanceof Error ? deleteError.message : String(deleteError);
+        console.warn(`Unable to delete failed issue-flow PR/MR resume lock comment; continuing. ${detail}`);
+      }
+    }
+    throw error;
+  }
+
+  if (taskClaim.comment && taskClaim.comment.id) {
+    await updatePullRequestComment(pr, taskClaim.comment.id, runtime.buildTaskComment(action, result, taskData), options);
+  }
   return {
     action,
     result,
@@ -759,6 +891,91 @@ async function runReview(options = {}, provided = {}) {
   });
 }
 
+async function runReviewComment(options = {}, provided = {}) {
+  const runtime = loadRuntime(options);
+  const payload = provided.payload || loadEvent(options);
+  const event = isReviewCommentCreatedEvent(payload, options);
+  if (!event.ok) {
+    logIssueFlow('PR/MR review comment skipped', { reason: event.reason, action: event.eventAction || '' });
+    return {
+      action: 'skipped',
+      reason: event.reason,
+      eventAction: event.eventAction,
+    };
+  }
+
+  let pr;
+  try {
+    pr = provided.pullRequest || buildPullRequestContext(payload, options);
+  } catch (error) {
+    logIssueFlow('PR/MR review comment skipped', { reason: 'not_pull_request_review_comment' });
+    return {
+      action: 'skipped',
+      reason: 'not_pull_request_review_comment',
+    };
+  }
+
+  const reviewComment = provided.reviewComment || getReviewCommentContext(payload, options);
+  const currentPr = await fetchCurrentPullRequest(pr, options);
+  const skipReason = shouldSkipPullRequestReview(currentPr);
+  if (skipReason) {
+    logIssueFlow('PR/MR review comment skipped', {
+      pr: currentPr.number ? `#${currentPr.number}` : '',
+      reason: skipReason,
+    });
+    return {
+      action: 'skipped',
+      reason: skipReason,
+      pullRequest: currentPr,
+      reviewComment: reviewComment.id,
+    };
+  }
+
+  const taskId = runtime.extractAgentrixTaskIdFromPullRequest(currentPr);
+  if (!taskId) {
+    logIssueFlow('PR/MR review comment skipped', {
+      pr: `#${currentPr.number}`,
+      reason: 'missing_agentrix_task',
+    });
+    return {
+      action: 'skipped',
+      reason: 'missing_agentrix_task',
+      pullRequest: currentPr.number,
+      reviewComment: reviewComment.id,
+    };
+  }
+
+  const sourceIssueNumber = options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr);
+  const instruction = runtime.buildReviewCommentResumeInstruction(currentPr, reviewComment, {
+    sourceIssueNumber,
+  });
+  const resume = await resumeTaskForReviewComment(currentPr, taskId, instruction, options, {
+    ...provided,
+    payload,
+    pullRequest: currentPr,
+    currentPullRequest: currentPr,
+    reviewComment,
+    sourceIssueNumber,
+  });
+  if (resume.reason === 'duplicate_review_comment_resume') {
+    return {
+      ...resume,
+      pullRequest: currentPr.number,
+      reviewComment: reviewComment.id,
+      sourceIssue: sourceIssueNumber,
+      taskId,
+    };
+  }
+  return {
+    action: 'task_resume',
+    result: resume.result,
+    sourceIssue: sourceIssueNumber,
+    pullRequest: currentPr.number,
+    reviewComment: reviewComment.id,
+    taskId,
+  };
+}
+
 async function runDirectAction(action, options = {}, provided = {}) {
   const payload = provided.payload || loadEvent(options);
   const issue = provided.issue || buildIssueContext(payload, options);
@@ -798,6 +1015,9 @@ async function main(argv = process.argv.slice(2)) {
     case 'review':
       await runReview(options);
       break;
+    case 'review-comment':
+      await runReviewComment(options);
+      break;
     case 'pr-merged':
       await runPrMerged(options);
       break;
@@ -824,6 +1044,8 @@ module.exports = {
   buildIssueContext,
   buildPullRequestContext,
   findActionTaskComment,
+  getReviewCommentContext,
+  isReviewCommentCreatedEvent,
   loadRuntime,
   main,
   parseArgs,
@@ -837,7 +1059,9 @@ module.exports = {
   runPipelineFailed,
   runPrMerged,
   runReview,
+  runReviewComment,
   runResume,
+  resumeTaskForReviewComment,
   startAction,
   startPullRequestReview,
 };
