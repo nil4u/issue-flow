@@ -81,8 +81,6 @@ function prHelp() {
     '  comments update --pr <num> --comment-id <id> --body-file <path>',
     '  comments delete --pr <num> --comment-id <id>',
     '  review-comments list --pr <num>',
-    '  review-comments reply --pr <num> --comment-id <id> --body-file <path>',
-    '  review-comments resolve --pr <num> --comment-id <id>',
     '  review --pr <num> --body-file <path> [--comments-file <path>]',
     '  merged --event <path>',
     '',
@@ -122,8 +120,6 @@ function prReviewCommentsHelp() {
     '',
     'Actions:',
     '  list --pr <num>',
-    '  reply --pr <num> --comment-id <id> --body-file <path>',
-    '  resolve --pr <num> --comment-id <id>',
   ].join('\n');
 }
 
@@ -434,15 +430,6 @@ async function handlePrReviewComments(argv) {
     return baseEnvelope('listed', resolveProviderPort(providerOptions(options), {}).provider, 'pr_review_comment', options, {
       items: result,
     });
-  }
-  if (action === 'reply') {
-    const body = readBodyFile(options.bodyFile);
-    const { result } = await withPort(options, (port) => port.pullRequests.replyReviewComment({ commentId: options.commentId }, { body }));
-    return baseEnvelope('replied', resolveProviderPort(providerOptions(options), {}).provider, 'pr_review_comment', options, result);
-  }
-  if (action === 'resolve') {
-    const { result } = await withPort(options, (port) => port.pullRequests.resolveReviewComment({ commentId: options.commentId }));
-    return baseEnvelope('resolved', resolveProviderPort(providerOptions(options), {}).provider, 'pr_review_comment', options, result);
   }
   throw new Error(`Unknown pr review-comments action: ${action}\n\n${prReviewCommentsHelp()}`);
 }

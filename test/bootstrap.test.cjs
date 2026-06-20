@@ -111,6 +111,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(reviewCommentWorkflow, /Issue Flow PR Review Comment/);
     assert.match(reviewCommentWorkflow, /pull_request_review_comment:/);
     assert.match(reviewCommentWorkflow, /- created/);
+    assert.match(reviewCommentWorkflow, /pull-requests: write/);
     assert.match(reviewCommentWorkflow, /contains\(github\.event\.pull_request\.body, 'issue-flow:agentrix:task='\)/);
     assert.match(reviewCommentWorkflow, /cli\.cjs dispatch review-comment/);
     assert.doesNotMatch(reviewCommentWorkflow, /ISSUE_FLOW_REVIEW_ENABLED/);

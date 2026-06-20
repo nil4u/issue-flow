@@ -75,8 +75,6 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build --issue 123 --title "Build #123
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments list --pr 45
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr review-comments list --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review-comments reply --pr 45 --comment-id <id> --body-file <tmp-reply-body-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review-comments resolve --pr 45 --comment-id <id>
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 ```

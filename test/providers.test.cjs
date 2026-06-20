@@ -397,11 +397,22 @@ test('github review comment event context normalizes inline payload fields', () 
     reason: 'unsupported_event_action',
     eventAction: 'edited',
   });
+  assert.deepEqual(
+    providers.github.isReviewCommentCreatedEvent({
+      ...payload,
+      comment: { ...payload.comment, in_reply_to_id: 100 },
+    }),
+    {
+      ok: false,
+      reason: 'review_comment_reply',
+    }
+  );
   assert.deepEqual(providers.github.getReviewCommentContext(payload), {
     id: '101',
     author: 'reviewer',
     body: 'Please handle this edge case.',
     htmlUrl: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+    inReplyToId: '',
     path: 'src/app.js',
     line: 42,
     side: 'RIGHT',
@@ -410,15 +421,6 @@ test('github review comment event context normalizes inline payload fields', () 
     updatedAt: '2026-06-18T01:01:00Z',
     raw: payload.comment,
   });
-});
-
-test('github pr review-comments reply and resolve dry-run use provider port', async () => {
-  const port = resolveProviderPort({ provider: 'github', repo: 'acme-org/webapp', prNumber: '24', dryRun: true }, {});
-  const reply = await port.pullRequests.replyReviewComment({ commentId: '101' }, { body: 'Handled.' });
-  assert.equal(reply.commentId, 'dry-run-review-comment-reply');
-
-  const resolved = await port.pullRequests.resolveReviewComment({ commentId: '101' });
-  assert.deepEqual(resolved, { commentId: '101', resolved: true });
 });
 
 test('github create issue uses token API with labels in the create request', async () => {
@@ -788,6 +790,30 @@ test('gitlab review comment event context normalizes MR note payload fields', ()
   };
 
   assert.deepEqual(providers.gitlab.isReviewCommentCreatedEvent(payload), { ok: true });
+  assert.deepEqual(
+    providers.gitlab.isReviewCommentCreatedEvent({
+      ...payload,
+      object_attributes: {
+        ...payload.object_attributes,
+        position: undefined,
+      },
+    }),
+    {
+      ok: false,
+      reason: 'not_pull_request_review_comment',
+    }
+  );
+  assert.deepEqual(
+    providers.gitlab.isReviewCommentCreatedEvent({
+      ...payload,
+      object_attributes: {
+        ...payload.object_attributes,
+        position: undefined,
+        line_code: 'abc_42_42',
+      },
+    }),
+    { ok: true }
+  );
   assert.equal(providers.gitlab.getReviewCommentContext(payload).id, '202');
   assert.equal(providers.gitlab.getReviewCommentContext(payload).body, 'Please handle this GitLab edge case.');
   assert.equal(providers.gitlab.getReviewCommentContext(payload).path, 'src/app.js');

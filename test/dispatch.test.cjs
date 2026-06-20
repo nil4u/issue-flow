@@ -174,6 +174,7 @@ function githubReviewCommentPayload(overrides = {}) {
       id: 101,
       body: 'Please handle this edge case.',
       html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
+      in_reply_to_id: overrides.inReplyToId,
       path: 'src/app.js',
       line: 42,
       side: 'RIGHT',
@@ -220,6 +221,16 @@ test('dispatch review-comment skips unsupported edited events', async () => {
 
   assert.equal(result.action, 'skipped');
   assert.equal(result.reason, 'unsupported_event_action');
+});
+
+test('dispatch review-comment skips review comment replies', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ inReplyToId: 100 }) }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'review_comment_reply');
 });
 
 test('dispatch review-comment skips missing PR task marker and closed PRs', async () => {

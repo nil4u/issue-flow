@@ -250,6 +250,7 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   );
 
   assert.equal(args[args.indexOf('--resume') + 1], 'task-123');
+  assert.equal(args[1], '@agentrix/agentrix-run@0.7.0');
   assert.ok(args.includes('--prompt'));
   assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
   assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');
@@ -261,7 +262,7 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.equal(args.includes('--title'), false);
 });
 
-test('agentrix review comment resume instruction includes closure commands', () => {
+test('agentrix review comment resume instruction stays minimal', () => {
   const prompt = agentrix.buildReviewCommentResumeInstruction(
     {
       number: 9,
@@ -280,9 +281,11 @@ test('agentrix review comment resume instruction includes closure commands', () 
     }
   );
 
-  assert.match(prompt, /有新的 PR\/MR review comment/);
-  assert.match(prompt, /Review comment: https:\/\/github\.com\/example\/platform\/pull\/9#discussion_r101/);
-  assert.match(prompt, /File: src\/app\.js:42/);
-  assert.match(prompt, /pr review-comments reply --pr 9 --comment-id 101/);
-  assert.match(prompt, /pr review-comments resolve --pr 9 --comment-id 101/);
+  assert.match(prompt, /PR\/MR 有新的 review comment/);
+  assert.match(prompt, /普通总结 comment/);
+  assert.match(prompt, /不要创建新的 inline review comment/);
+  assert.doesNotMatch(prompt, /https:\/\/github\.com\/example\/platform\/pull\/9/);
+  assert.doesNotMatch(prompt, /src\/app\.js/);
+  assert.doesNotMatch(prompt, /Please handle this edge case/);
+  assert.doesNotMatch(prompt, /review-comments/);
 });

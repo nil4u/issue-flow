@@ -6,7 +6,7 @@ const { resolveProvider } = require('../providers.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
-const DEFAULT_AGENTRIX_RUN_VERSION = '0.4.0';
+const DEFAULT_AGENTRIX_RUN_VERSION = '0.7.0';
 const DEFAULT_MENTION = '@agentrix';
 const MENTION_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/i;
 const MENTION_REPLACE_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/gi;
@@ -345,47 +345,12 @@ function extractAgentrixTaskIdFromPullRequest(pr = {}) {
   return match ? match[1].trim() : '';
 }
 
-function formatReviewCommentLocation(comment = {}) {
-  const pathValue = comment.path || '';
-  const line = comment.line || comment.startLine || '';
-  if (pathValue && line) {
-    return `${pathValue}:${line}`;
-  }
-  return pathValue || '';
-}
-
-function buildReviewCommentResumeInstruction(pr, reviewComment = {}, data = {}) {
-  const lines = [
-    '有新的 PR/MR review comment，请查看并处理。',
+function buildReviewCommentResumeInstruction() {
+  return [
+    'PR/MR 有新的 review comment，请查看并处理。',
     '',
-    `PR/MR: #${pr.number}${pr.htmlUrl ? ` ${pr.htmlUrl}` : ''}`,
-  ];
-  if (reviewComment.htmlUrl) {
-    lines.push(`Review comment: ${reviewComment.htmlUrl}`);
-  }
-  if (reviewComment.id) {
-    lines.push(`Review comment id: ${reviewComment.id}`);
-  }
-  const location = formatReviewCommentLocation(reviewComment);
-  if (location) {
-    lines.push(`File: ${location}`);
-  }
-  if (reviewComment.author) {
-    lines.push(`Comment author: ${reviewComment.author}`);
-  }
-  if (data.sourceIssueNumber) {
-    lines.push(`Source issue: #${data.sourceIssueNumber}`);
-  }
-  if (reviewComment.body) {
-    lines.push('', 'Comment summary:', truncate(reviewComment.body, 500));
-  }
-  lines.push(
-    '',
-    '处理完成后，请使用 issue-flow CLI 回复该 review comment，并在 provider 支持时 resolve 对应 discussion/thread。',
-    `回复命令: node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review-comments reply --pr ${pr.number} --comment-id ${reviewComment.id || '<id>'} --body-file <tmp-reply-body-file>`,
-    `Resolve 命令: node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review-comments resolve --pr ${pr.number} --comment-id ${reviewComment.id || '<id>'}`
-  );
-  return lines.join('\n');
+    '处理完成后，请使用 issue-flow CLI 在 PR/MR 下回复一条普通总结 comment；不要创建新的 inline review comment。',
+  ].join('\n');
 }
 
 function buildPullRequestPrompt(pr, data = {}, options = {}) {

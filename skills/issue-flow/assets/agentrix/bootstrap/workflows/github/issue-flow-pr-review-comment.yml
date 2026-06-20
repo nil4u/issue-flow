@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: issue-flow-review-comment-${{ github.event.pull_request.number }}-${{ github.event.comment.id }}
