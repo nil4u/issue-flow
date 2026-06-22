@@ -3,6 +3,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('../providers.cjs');
+const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
@@ -254,6 +255,42 @@ function formatPrBodyFileRule() {
   ].join('\n');
 }
 
+function normalizeBranchName(value) {
+  const branch = String(value || '').trim();
+  if (!branch || branch === 'null' || branch === 'undefined') {
+    return '';
+  }
+  return branch;
+}
+
+function resolvePromptBaseBranch(data = {}, options = {}) {
+  const payload = data.payload || {};
+  return normalizeBranchName(
+    process.env.AGENTRIX_BASE_REF ||
+    options.base ||
+    data.baseRef ||
+    data.pullRequest?.baseRef ||
+    payload.pull_request?.base?.ref ||
+    payload.object_attributes?.target_branch ||
+    payload.project?.default_branch ||
+    payload.repository?.default_branch ||
+    process.env.CI_DEFAULT_BRANCH ||
+    process.env.GITHUB_BASE_REF ||
+    process.env.AGENTRIX_REF
+  );
+}
+
+function formatBaseBranchSubmissionRule(data = {}, options = {}) {
+  const baseBranch = resolvePromptBaseBranch(data, options);
+  if (!baseBranch) {
+    return '';
+  }
+  return [
+    `Base branch: \`${baseBranch}\`.`,
+    `When publishing with \`issue-flow pr submit\`, the CLI first reads \`AGENTRIX_BASE_REF\` from the Agentrix worker environment. If that env var is absent, pass \`--base ${baseBranch}\` explicitly.`,
+  ].join('\n');
+}
+
 function formatReviewSubmission(pr) {
   return [
     '## Review Submission',
@@ -292,6 +329,12 @@ function buildPrompt(action, issue, data = {}, options = {}) {
 
   if ((action === 'plan' || action === 'build') && !prompt.body.includes('repo-external temp file')) {
     blocks.push('', formatPrBodyFileRule());
+  }
+  if (action === 'plan' || action === 'build') {
+    const baseBranchRule = formatBaseBranchSubmissionRule(data, options);
+    if (baseBranchRule) {
+      blocks.push('', baseBranchRule);
+    }
   }
 
   if (action === 'plan') {
@@ -463,6 +506,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
 
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
+  appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
 }
@@ -594,6 +638,13 @@ function buildTaskCommentMarker(action, data = {}) {
 function buildTaskComment(action, result, data = {}) {
   const pr = data.pullRequest || data;
   const lines = [buildTaskCommentMarker(action, data)];
+  const sourceMarker = buildSourceMarker({
+    sourceTaskId: result.runId || data.agentrixTaskId,
+    sourceAgent: data.sourceAgent || data.agent || DEFAULT_AGENT,
+  });
+  if (sourceMarker) {
+    lines.push(sourceMarker);
+  }
   if (result.status === 'starting') {
     if (action === 'task_resume') {
       lines.push('Agentrix task resume starting. This comment prevents duplicate issue-flow resumes for the same PR/MR review comment.');
@@ -663,15 +714,18 @@ module.exports = {
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,
+  parseSourceMarker,
   extractMention,
   extractReviewHeadShaFromTaskComment,
   extractRunIdFromTaskComment,
   extractSourceIssueNumberFromPullRequest,
   findIssuePlanFiles,
+  formatBaseBranchSubmissionRule,
   issueDirectoryName,
   normalizeRepoPath,
   resolveAgentrixConfig,
   resolvePlanTemplate,
+  resolvePromptBaseBranch,
   run,
   resumeTask,
   shouldAcknowledgeAutoIssue,

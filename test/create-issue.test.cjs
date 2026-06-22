@@ -121,11 +121,11 @@ test('create issue Agentrix task marker prepends and replaces hidden marker', ()
   assert.equal(buildAgentrixTaskMarker('task_123'), '<!-- issue-flow:agentrix:task=task_123 -->');
   assert.equal(
     buildIssueBodyWithTaskMarker('## Goal\n\nShip it.', 'task_123'),
-    '<!-- issue-flow:agentrix:task=task_123 -->\n\n## Goal\n\nShip it.'
+    '<!-- issue-flow:agentrix:task=task_123 -->\n<!-- issue-flow:source source_task_id=task_123 -->\n## Goal\n\nShip it.'
   );
   assert.equal(
     buildIssueBodyWithTaskMarker('<!-- issue-flow:agentrix:task=old -->\n\n## Goal', 'task_456'),
-    '<!-- issue-flow:agentrix:task=task_456 -->\n\n## Goal'
+    '<!-- issue-flow:agentrix:task=task_456 -->\n<!-- issue-flow:source source_task_id=task_456 -->\n## Goal'
   );
 });
 

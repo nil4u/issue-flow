@@ -17,6 +17,7 @@ const {
   isGitTrackedFile,
   normalizeOptionalUrl,
   normalizePrTitle,
+  resolveBaseBranch,
   SUBMIT_KINDS,
   validateSourceIssueSize,
 } = require('../skills/issue-flow/scripts/submit.cjs');
@@ -55,7 +56,7 @@ test('submit body wrapper inserts stable source issue marker', () => {
   );
   assert.equal(
     buildPrBodyWithMarkers('Source issue: #111\n\nBody', 482, 'task-123'),
-    '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=task-123 -->\nSource issue: #111\n\nBody'
+    '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=task-123 -->\n<!-- issue-flow:source source_task_id=task-123 -->\nSource issue: #111\n\nBody'
   );
 });
 
@@ -66,7 +67,7 @@ test('submit body wrapper replaces stale source issue marker', () => {
   );
   assert.equal(
     buildPrBodyWithMarkers('<!-- issue-flow:source-issue=111 -->\n<!-- issue-flow:agentrix:task=old -->\nBody', 482, 'new-task'),
-    '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=new-task -->\nBody'
+    '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=new-task -->\n<!-- issue-flow:source source_task_id=new-task -->\nBody'
   );
   assert.equal(
     buildPrBodyWithMarkers('Body', 482),
@@ -113,6 +114,60 @@ test('submit rejects PR body files that are tracked in git', () => {
   assert.throws(
     () => assertBodyFileNotTracked('package.json'),
     /PR body file must not be committed to the repository/
+  );
+});
+
+test('submit base branch prefers Agentrix worker base ref over explicit base fallback', () => {
+  withTemporaryEnv(
+    {
+      ISSUE_FLOW_BASE_BRANCH: undefined,
+      CI_DEFAULT_BRANCH: 'main',
+      CI_MERGE_REQUEST_TARGET_BRANCH_NAME: undefined,
+      AGENTRIX_BASE_REF: 'release/2026',
+      GITHUB_BASE_REF: undefined,
+      GITHUB_EVENT_PATH: undefined,
+      GITLAB_EVENT_PATH: undefined,
+    },
+    () => {
+      assert.equal(resolveBaseBranch({ base: 'develop' }), 'release/2026');
+    }
+  );
+});
+
+test('submit base branch uses explicit base when Agentrix worker base ref is absent', () => {
+  withTemporaryEnv(
+    {
+      ISSUE_FLOW_BASE_BRANCH: undefined,
+      CI_DEFAULT_BRANCH: 'main',
+      CI_MERGE_REQUEST_TARGET_BRANCH_NAME: 'target-from-ci',
+      AGENTRIX_BASE_REF: undefined,
+      GITHUB_BASE_REF: 'target-from-github',
+      GITHUB_EVENT_PATH: undefined,
+      GITLAB_EVENT_PATH: undefined,
+    },
+    () => {
+      assert.equal(resolveBaseBranch({ base: 'develop' }), 'develop');
+    }
+  );
+});
+
+test('submit base branch fails fast when no Agentrix worker env or explicit base exists', () => {
+  withTemporaryEnv(
+    {
+      ISSUE_FLOW_BASE_BRANCH: undefined,
+      CI_DEFAULT_BRANCH: undefined,
+      CI_MERGE_REQUEST_TARGET_BRANCH_NAME: undefined,
+      AGENTRIX_BASE_REF: undefined,
+      GITHUB_BASE_REF: undefined,
+      GITHUB_EVENT_PATH: undefined,
+      GITLAB_EVENT_PATH: undefined,
+    },
+    () => {
+      assert.throws(
+        () => resolveBaseBranch({}),
+        /Set AGENTRIX_BASE_REF in the Agentrix worker environment or pass --base <branch>/
+      );
+    }
   );
 });
 

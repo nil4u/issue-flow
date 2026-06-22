@@ -168,11 +168,11 @@ test('dispatch review queues runtime review when enabled', async () => {
 });
 
 function githubReviewCommentPayload(overrides = {}) {
-  return {
+  const payload = {
     action: overrides.action || 'created',
     comment: {
       id: 101,
-      body: 'Please handle this edge case.',
+      body: overrides.commentBody || 'Please handle this edge case.',
       html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
       in_reply_to_id: overrides.inReplyToId,
       path: 'src/app.js',
@@ -197,6 +197,20 @@ function githubReviewCommentPayload(overrides = {}) {
     },
     repository: { full_name: 'example/platform' },
   };
+  if (overrides.issueComment) {
+    payload.issue = {
+      number: payload.pull_request.number,
+      state: payload.pull_request.state,
+      title: payload.pull_request.title,
+      body: payload.pull_request.body,
+      html_url: payload.pull_request.html_url,
+      labels: payload.pull_request.labels,
+      user: payload.pull_request.user,
+      pull_request: { url: 'https://api.github.com/repos/example/platform/pulls/9' },
+    };
+    delete payload.pull_request;
+  }
+  return payload;
 }
 
 test('dispatch review-comment resumes the PR body task id on created event', async () => {
@@ -211,6 +225,35 @@ test('dispatch review-comment resumes the PR body task id on created event', asy
   assert.equal(result.sourceIssue, 42);
   assert.equal(result.reviewComment, '101');
   assert.equal(result.result.status, 'dry-run');
+});
+
+test('dispatch review-comment resumes GitHub PR ordinary issue comments', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ issueComment: true }) }
+  );
+
+  assert.equal(result.action, 'task_resume');
+  assert.equal(result.taskId, 'task-123');
+  assert.equal(result.pullRequest, 9);
+  assert.equal(result.sourceIssue, 42);
+  assert.equal(result.reviewComment, '101');
+});
+
+test('dispatch review-comment skips issue-flow sourced comments', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    {
+      payload: githubReviewCommentPayload({
+        commentBody: '<!-- issue-flow:source source_task_id=task-123 source_agent=codex -->\nAgent output.',
+      }),
+    }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'source_provenance');
+  assert.equal(result.sourceTaskId, 'task-123');
+  assert.equal(result.sourceAgent, 'codex');
 });
 
 test('dispatch review-comment skips unsupported edited events', async () => {

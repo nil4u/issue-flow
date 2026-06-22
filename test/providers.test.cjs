@@ -798,10 +798,7 @@ test('gitlab review comment event context normalizes MR note payload fields', ()
         position: undefined,
       },
     }),
-    {
-      ok: false,
-      reason: 'not_pull_request_review_comment',
-    }
+    { ok: true }
   );
   assert.deepEqual(
     providers.gitlab.isReviewCommentCreatedEvent({

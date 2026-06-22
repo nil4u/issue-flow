@@ -415,10 +415,19 @@ function normalizeGithubPullRequest(pr, repo, fallback = {}) {
 function buildGithubPullRequestContext(payload = {}, options = {}) {
   const repo = resolveGithubRepo(payload, options);
   const pr = payload.pull_request || {};
+  const issue = payload.issue || {};
   const number = options.prNumber
     ? parsePositiveInteger(options.prNumber, '--pr-number')
-    : parsePositiveInteger(pr.number, 'payload.pull_request.number');
-  return normalizeGithubPullRequest({ ...pr, number }, repo);
+    : parsePositiveInteger(pr.number || issue.number, 'payload.pull_request.number');
+  return normalizeGithubPullRequest({ ...pr, number }, repo, {
+    number,
+    title: issue.title || '',
+    body: issue.body || '',
+    htmlUrl: issue.html_url || '',
+    state: issue.state || '',
+    labels: issue.labels || [],
+    author: issue.user && issue.user.login,
+  });
 }
 
 async function fetchCurrentGithubPullRequest(pr, options = {}) {
@@ -441,7 +450,8 @@ function getGithubCommentContext(payload = {}) {
 }
 
 function isGithubReviewCommentCreatedEvent(payload = {}) {
-  if (!payload.pull_request || !payload.comment) {
+  const hasPullRequestSubject = Boolean(payload.pull_request || (payload.issue && payload.issue.pull_request));
+  if (!hasPullRequestSubject || !payload.comment) {
     return {
       ok: false,
       reason: 'not_pull_request_review_comment',
@@ -1128,12 +1138,6 @@ function isGitlabReviewCommentCreatedEvent(payload = {}) {
     };
   }
   if (!payload.merge_request && !payload.object_attributes.merge_request && !note.noteable_id && !note.noteable_iid) {
-    return {
-      ok: false,
-      reason: 'not_pull_request_review_comment',
-    };
-  }
-  if (!note.position && !payload.position && !note.diff_refs && !note.line_code) {
     return {
       ok: false,
       reason: 'not_pull_request_review_comment',

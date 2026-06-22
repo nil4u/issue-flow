@@ -6,6 +6,30 @@ const test = require('node:test');
 
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 
+function withTemporaryEnv(values, fn) {
+  const previous = new Map();
+  for (const key of Object.keys(values)) {
+    previous.set(key, process.env[key]);
+    if (values[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = values[key];
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 test('agentrix mention extraction keeps manual instruction text', () => {
   assert.deepEqual(agentrix.extractMention('@agentrix: please plan this'), {
     triggered: true,
@@ -81,28 +105,52 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
 });
 
 test('agentrix build prompt injects build context without plan output section', () => {
-  const prompt = agentrix.buildPrompt(
-    'build',
-    {
-      number: 42,
-      state: 'open',
-      labels: ['type::feature', 'flow::build'],
-      title: 'Add export button',
-      body: 'Add CSV export.',
-    },
-    {},
-    { planRootDir: '.work/items' }
-  );
+  withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
+    const prompt = agentrix.buildPrompt(
+      'build',
+      {
+        number: 42,
+        state: 'open',
+        labels: ['type::feature', 'flow::build'],
+        title: 'Add export button',
+        body: 'Add CSV export.',
+      },
+      {},
+      { planRootDir: '.work/items' }
+    );
 
-  assert.match(prompt, /## Branch/);
-  assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
-  assert.match(prompt, /## Plan Files/);
-  assert.match(prompt, /PR body: write it to a repo-external temp file/);
-  assert.match(prompt, /issue-flow pr submit/);
-  assert.match(prompt, /do not put it in git/);
-  assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
-  assert.doesNotMatch(prompt, /## Plan Output/);
-  assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
+    assert.match(prompt, /## Branch/);
+    assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
+    assert.match(prompt, /## Plan Files/);
+    assert.match(prompt, /PR body: write it to a repo-external temp file/);
+    assert.match(prompt, /Base branch: `main`/);
+    assert.match(prompt, /If that env var is absent, pass `--base main` explicitly/);
+    assert.match(prompt, /issue-flow pr submit/);
+    assert.match(prompt, /do not put it in git/);
+    assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
+    assert.doesNotMatch(prompt, /## Plan Output/);
+    assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
+  });
+});
+
+test('agentrix run args forward target base ref from Agentrix bridge env', () => {
+  withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
+    const args = agentrix.buildRunArgs(
+      'build',
+      {
+        provider: 'gitlab',
+        repoFullName: 'ai-arch/test',
+        number: 42,
+        title: 'Add export button',
+      },
+      {},
+      {},
+      'prompt',
+      '/tmp/result.json'
+    );
+
+    assert.equal(args[args.indexOf('--base-ref') + 1], 'main');
+  });
 });
 
 test('agentrix prompt context keeps size labels visible without extra prompt guidance', () => {
@@ -215,6 +263,14 @@ test('agentrix task marker uses issue-flow namespace', () => {
   assert.match(
     agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
     /Head: `abc123`/
+  );
+  assert.match(
+    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
+    /<!-- issue-flow:source source_task_id=task-review source_agent=codex -->/
+  );
+  assert.match(
+    agentrix.buildTaskComment('review', { status: 'starting' }, { pullRequest: { headSha: 'abc123' } }),
+    /<!-- issue-flow:source source_agent=codex -->/
   );
   assert.equal(
     agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),

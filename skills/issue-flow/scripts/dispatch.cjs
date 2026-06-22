@@ -7,6 +7,7 @@ const {
   resolveResumeDecision,
   shouldRunAutoForEvent,
 } = require('./resolve.cjs');
+const { parseSourceMarker } = require('./provenance.cjs');
 const prMerged = require('./pr-merged.cjs');
 const pipelineFailed = require('./pipeline-failed.cjs');
 
@@ -916,6 +917,22 @@ async function runReviewComment(options = {}, provided = {}) {
   }
 
   const reviewComment = provided.reviewComment || getReviewCommentContext(payload, options);
+  const source = parseSourceMarker(reviewComment.body);
+  if (source.source_task_id || source.source_agent) {
+    logIssueFlow('PR/MR review comment skipped', {
+      reason: 'source_provenance',
+      sourceTaskId: source.source_task_id || '',
+      sourceAgent: source.source_agent || '',
+      reviewComment: reviewComment.id,
+    });
+    return {
+      action: 'skipped',
+      reason: 'source_provenance',
+      sourceTaskId: source.source_task_id || '',
+      sourceAgent: source.source_agent || '',
+      reviewComment: reviewComment.id,
+    };
+  }
   const currentPr = await fetchCurrentPullRequest(pr, options);
   const skipReason = shouldSkipPullRequestReview(currentPr);
   if (skipReason) {

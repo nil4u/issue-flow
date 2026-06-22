@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const childProcess = require('node:child_process');
 const { loadEventPayload } = require('./events.cjs');
 const { providers, resolveProvider } = require('./providers.cjs');
+const { buildSourceMarker } = require('./provenance.cjs');
 
 const VALUE_OPTIONS = new Set([
   '--event',
@@ -170,10 +171,12 @@ function buildReviewMetadataMarker(options = {}) {
 
 function appendReviewMetadata(body, options = {}) {
   const marker = buildReviewMetadataMarker(options);
-  if (!marker) {
+  const sourceMarker = buildSourceMarker({ sourceTaskId: options.taskId });
+  const markers = [marker, sourceMarker].filter(Boolean);
+  if (markers.length === 0) {
     return body;
   }
-  return `${body.trim()}\n\n${marker}`;
+  return `${body.trim()}\n\n${markers.join('\n')}`;
 }
 
 async function submitReview(options = {}) {

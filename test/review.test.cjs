@@ -73,7 +73,7 @@ test('review script submits through provider review API', async () => {
     assert.equal(captured.pr.headSha, 'abc123');
     assert.equal(
       captured.body,
-      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->'
+      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->\n<!-- issue-flow:source source_task_id=task-review -->'
     );
     assert.deepEqual(captured.comments, [
       {
