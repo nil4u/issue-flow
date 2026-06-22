@@ -261,7 +261,30 @@ test('agentrix task marker uses issue-flow namespace', () => {
     '<!-- issue-flow:agentrix:task:review -->'
   );
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
+    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+      pullRequest: {
+        body: '<!-- issue-flow:agentrix:task=task-build -->',
+        headSha: 'abc123',
+      },
+    }),
+    /Review task: `task-review`/
+  );
+  assert.match(
+    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+      pullRequest: {
+        body: '<!-- issue-flow:agentrix:task=task-build -->',
+        headSha: 'abc123',
+      },
+    }),
+    /Build task: `task-build`/
+  );
+  assert.match(
+    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+      pullRequest: {
+        body: '<!-- issue-flow:agentrix:task=task-build -->',
+        headSha: 'abc123',
+      },
+    }),
     /Head: `abc123`/
   );
   assert.match(
@@ -337,6 +360,37 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.equal(args.includes('--runner-id'), false);
   assert.equal(args.includes('--issue-number'), false);
   assert.equal(args.includes('--title'), false);
+});
+
+test('agentrix-run child env does not forward provider tokens', () => {
+  const env = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITHUB_EVENT_NAME' },
+    'review',
+    {
+      GITHUB_TOKEN: 'actions-token',
+      GH_TOKEN: 'user-token',
+      GITLAB_TOKEN: 'gitlab-token',
+      GL_TOKEN: 'gl-token',
+      GITLAB_PRIVATE_TOKEN: 'private-token',
+      CI_JOB_TOKEN: 'ci-job-token',
+      ISSUE_FLOW_GIT_TOKEN: 'git-token',
+      GITHUB_EVENT_NAME: 'pull_request',
+      AGENTRIX_API_KEY: 'agentrix-key',
+      AGENTRIX_RUNNER_ID: 'runner-1',
+    }
+  );
+
+  assert.equal(env.GITHUB_TOKEN, undefined);
+  assert.equal(env.GH_TOKEN, undefined);
+  assert.equal(env.GITLAB_TOKEN, undefined);
+  assert.equal(env.GL_TOKEN, undefined);
+  assert.equal(env.GITLAB_PRIVATE_TOKEN, undefined);
+  assert.equal(env.CI_JOB_TOKEN, undefined);
+  assert.equal(env.ISSUE_FLOW_GIT_TOKEN, undefined);
+  assert.equal(env.AGENTRIX_API_KEY, 'agentrix-key');
+  assert.equal(env.AGENTRIX_RUNNER_ID, 'runner-1');
+  assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
+  assert.equal(env.AGENTRIX_EVENT_ACTION, 'review');
 });
 
 test('agentrix review comment resume instruction stays minimal', () => {

@@ -295,71 +295,34 @@ test('dispatch review-comment skips missing PR task marker and closed PRs', asyn
   assert.equal(closed.reason, 'pull_request_not_open');
 });
 
-test('dispatch review-comment duplicate lock does not resume twice', async () => {
-  const originalList = providers.github.listPullRequestComments;
-  providers.github.listPullRequestComments = async () => [
-    {
-      id: 300,
-      body: agentrix.buildTaskComment('task_resume', { status: 'starting' }, {
-        reviewComment: { id: '101', htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101' },
-        pullRequest: { number: 9 },
-        agentrixTaskId: 'task-123',
-      }),
-      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
-    },
-  ];
+test('dispatch review-comment acknowledges with reaction only', async () => {
+  const originalCreate = providers.github.createPullRequestComment;
+  const originalUpdate = providers.github.updatePullRequestComment;
+  const originalReaction = providers.github.addReviewCommentReaction;
+  const reactions = [];
+  providers.github.createPullRequestComment = async () => {
+    throw new Error('review-comment resume should not create a PR task comment');
+  };
+  providers.github.updatePullRequestComment = async () => {
+    throw new Error('review-comment resume should not update a PR task comment');
+  };
+  providers.github.addReviewCommentReaction = async (pr, comment, content) => {
+    reactions.push({ pr: pr.number, comment: comment.id, content });
+  };
 
   try {
     const result = await runReviewComment(
       { dryRun: true },
-      { payload: githubReviewCommentPayload() }
-    );
-
-    assert.equal(result.action, 'skipped');
-    assert.equal(result.reason, 'duplicate_review_comment_resume');
-    assert.equal(result.existingCommentId, 300);
-  } finally {
-    providers.github.listPullRequestComments = originalList;
-  }
-});
-
-test('dispatch review-comment duplicate lock is scoped to review batch id', async () => {
-  const originalList = providers.github.listPullRequestComments;
-  providers.github.listPullRequestComments = async () => [
-    {
-      id: 300,
-      body: agentrix.buildTaskComment('task_resume', { status: 'starting' }, {
-        reviewComment: {
-          id: '101',
-          reviewId: '900',
-          htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101',
-        },
-        pullRequest: { number: 9 },
-        agentrixTaskId: 'task-123',
-      }),
-      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
-    },
-  ];
-
-  try {
-    const duplicate = await runReviewComment(
-      { dryRun: true },
-      { payload: githubReviewCommentPayload({ commentId: 102, reviewId: 900 }) }
-    );
-
-    assert.equal(duplicate.action, 'skipped');
-    assert.equal(duplicate.reason, 'duplicate_review_comment_resume');
-    assert.equal(duplicate.existingCommentId, 300);
-
-    const differentBatch = await runReviewComment(
-      { dryRun: true },
       { payload: githubReviewCommentPayload({ commentId: 103, reviewId: 901 }) }
     );
 
-    assert.equal(differentBatch.action, 'task_resume');
-    assert.equal(differentBatch.reviewComment, '103');
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.reviewComment, '103');
+    assert.deepEqual(reactions, [{ pr: 9, comment: '103', content: 'eyes' }]);
   } finally {
-    providers.github.listPullRequestComments = originalList;
+    providers.github.createPullRequestComment = originalCreate;
+    providers.github.updatePullRequestComment = originalUpdate;
+    providers.github.addReviewCommentReaction = originalReaction;
   }
 });
 
@@ -433,7 +396,7 @@ test('dispatch review resumes the existing reviewer task for a new PR head', asy
     assert.equal(result.result.taskId, 'task-review');
     assert.equal(updates.length, 1);
     assert.equal(updates[0].commentId, 300);
-    assert.match(updates[0].body, /Run: `task-review`/);
+    assert.match(updates[0].body, /Review task: `task-review`/);
     assert.match(updates[0].body, /Head: `new-sha`/);
   } finally {
     providers.github.listPullRequestComments = originalList;

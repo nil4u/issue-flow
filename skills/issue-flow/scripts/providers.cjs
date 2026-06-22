@@ -250,6 +250,14 @@ function githubApiUrl(apiPath) {
   return `${baseUrl}${apiPath}`;
 }
 
+function githubGraphqlUrl() {
+  const baseUrl = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
+  if (baseUrl.endsWith('/api/v3')) {
+    return `${baseUrl.slice(0, -'/api/v3'.length)}/api/graphql`;
+  }
+  return `${baseUrl}/graphql`;
+}
+
 async function requestGithub(method, apiPath, body) {
   const token = getGithubToken();
   if (!token) {
@@ -274,6 +282,38 @@ async function requestGithub(method, apiPath, body) {
       parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof parsed.message === 'string'
         ? parsed.message
         : `GitHub API HTTP ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.response = parsed;
+    throw error;
+  }
+
+  return parsed;
+}
+
+async function requestGithubGraphql(query, variables = {}) {
+  const token = getGithubToken();
+  if (!token) {
+    throw new Error('Missing GITHUB_TOKEN or GH_TOKEN for GitHub API access');
+  }
+
+  const response = await fetch(githubGraphqlUrl(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const text = await response.text();
+  const parsed = parseJsonText(text);
+  if (!response.ok || (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0)) {
+    const message =
+      parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0
+        ? parsed.errors.map((error) => error.message).filter(Boolean).join('; ')
+        : `GitHub GraphQL HTTP ${response.status}`;
     const error = new Error(message);
     error.status = response.status;
     error.response = parsed;
@@ -352,6 +392,10 @@ function githubPullRequestApiPath(pr) {
   return `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/pulls/${pr.number}`;
 }
 
+function githubPullRequestReviewApiPath(pr, reviewId) {
+  return `${githubPullRequestApiPath(pr)}/reviews/${encodeURIComponent(reviewId)}`;
+}
+
 function githubPullRequestsApiPath(repo) {
   return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/pulls`;
 }
@@ -366,6 +410,10 @@ function githubIssueCommentApiPath(issue, comment) {
 
 function githubIssueReactionApiPath(issue) {
   return `${githubIssueApiPath(issue)}/reactions`;
+}
+
+function githubPullRequestReviewCommentReactionApiPath(pr, comment) {
+  return `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/pulls/comments/${encodeURIComponent(comment.id)}/reactions`;
 }
 
 function buildGithubIssueContext(payload = {}, options = {}) {
@@ -645,6 +693,105 @@ async function addGithubTriggerCommentReaction(issue, comment, content, options 
   }
 
   await requestGithub('POST', `${githubIssueCommentApiPath(issue, comment)}/reactions`, { content });
+}
+
+function isGithubInlineReviewComment(comment = {}) {
+  return Boolean(
+    comment.reviewId ||
+    comment.pullRequestReviewId ||
+    comment.pull_request_review_id ||
+    comment.path ||
+    comment.diffHunk ||
+    comment.diff_hunk ||
+    String(comment.htmlUrl || comment.html_url || '').includes('#discussion_r')
+  );
+}
+
+function isDuplicateReactionError(error) {
+  return Boolean(
+    error &&
+    (
+      (error.status === 422 && /already exists/i.test(error.message || '')) ||
+      /already (?:exists|reacted)/i.test(error.message || '')
+    )
+  );
+}
+
+function githubGraphqlReactionContent(content) {
+  const normalized = String(content || '').trim().toLowerCase();
+  const map = {
+    '+1': 'THUMBS_UP',
+    '-1': 'THUMBS_DOWN',
+    laugh: 'LAUGH',
+    confused: 'CONFUSED',
+    heart: 'HEART',
+    hooray: 'HOORAY',
+    rocket: 'ROCKET',
+    eyes: 'EYES',
+  };
+  return map[normalized] || 'EYES';
+}
+
+async function addGithubPullRequestReviewReaction(pr, reviewId, content) {
+  if (!reviewId) {
+    return false;
+  }
+  const review = await requestGithub('GET', githubPullRequestReviewApiPath(pr, reviewId));
+  const subjectId = review && review.node_id;
+  if (!subjectId) {
+    return false;
+  }
+
+  await requestGithubGraphql(
+    `mutation AddReaction($subjectId: ID!, $content: ReactionContent!) {
+      addReaction(input: {subjectId: $subjectId, content: $content}) {
+        reaction { content }
+      }
+    }`,
+    {
+      subjectId,
+      content: githubGraphqlReactionContent(content),
+    }
+  );
+  return true;
+}
+
+async function addGithubReviewCommentReaction(pr, comment, content, options = {}) {
+  if (!comment.id) {
+    console.warn('Review comment has no id; eyes reaction skipped.');
+    return;
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, reactionReviewComment: comment.id, content }, null, 2));
+    return;
+  }
+
+  try {
+    if (comment.reviewId) {
+      const reactedToReview = await addGithubPullRequestReviewReaction(pr, comment.reviewId, content);
+      if (reactedToReview) {
+        return;
+      }
+    }
+  } catch (error) {
+    if (!isDuplicateReactionError(error)) {
+      console.warn(`Unable to add reaction to pull request review; falling back to comment reaction. ${error instanceof Error ? error.message : String(error)}`);
+    } else {
+      return;
+    }
+  }
+
+  const apiPath = isGithubInlineReviewComment(comment)
+    ? githubPullRequestReviewCommentReactionApiPath(pr, comment)
+    : `${githubIssueCommentApiPath(pr, comment)}/reactions`;
+  try {
+    await requestGithub('POST', apiPath, { content });
+  } catch (error) {
+    if (!isDuplicateReactionError(error)) {
+      throw error;
+    }
+  }
 }
 
 async function addGithubIssueReaction(issue, content, options = {}) {
@@ -1044,6 +1191,25 @@ async function addGitlabTriggerCommentReaction(issue, comment, content, options 
   await requestGitlab(
     'POST',
     `${gitlabIssueNotesApiPath(issue)}/${encodeURIComponent(comment.id)}/award_emoji`,
+    { name: content },
+    options
+  );
+}
+
+async function addGitlabReviewCommentReaction(pr, comment, content, options = {}) {
+  if (!comment.id) {
+    console.warn('Review comment has no id; eyes reaction skipped.');
+    return;
+  }
+
+  if (options.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, reactionReviewComment: comment.id, content }, null, 2));
+    return;
+  }
+
+  await requestGitlab(
+    'POST',
+    `${gitlabMergeRequestNotesApiPath(pr)}/${encodeURIComponent(comment.id)}/award_emoji`,
     { name: content },
     options
   );
@@ -2284,6 +2450,7 @@ const githubProvider = {
   updatePullRequestComment: updateGithubIssueComment,
   deletePullRequestComment: deleteGithubIssueComment,
   addTriggerCommentReaction: addGithubTriggerCommentReaction,
+  addReviewCommentReaction: addGithubReviewCommentReaction,
   addIssueReaction: addGithubIssueReaction,
   issueApiPath: githubIssueApiPath,
   pullRequestApiPath: githubPullRequestApiPath,
@@ -2328,6 +2495,7 @@ const gitlabProvider = {
   updatePullRequestComment: updateGitlabPullRequestComment,
   deletePullRequestComment: deleteGitlabPullRequestComment,
   addTriggerCommentReaction: addGitlabTriggerCommentReaction,
+  addReviewCommentReaction: addGitlabReviewCommentReaction,
   addIssueReaction: addGitlabIssueReaction,
   issueApiPath: gitlabIssueApiPath,
   pullRequestApiPath: gitlabMergeRequestApiPath,

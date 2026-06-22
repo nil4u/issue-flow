@@ -24,6 +24,15 @@ const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const PROVIDER_TOKEN_ENV_KEYS = [
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'GITLAB_TOKEN',
+  'GL_TOKEN',
+  'GITLAB_PRIVATE_TOKEN',
+  'CI_JOB_TOKEN',
+  'ISSUE_FLOW_GIT_TOKEN',
+];
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
@@ -543,6 +552,21 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
+function buildAgentrixRunEnv(provider, action, env = process.env) {
+  const childEnv = { ...env };
+  for (const key of PROVIDER_TOKEN_ENV_KEYS) {
+    delete childEnv[key];
+  }
+  childEnv.AGENTRIX_EVENT_NAME =
+    env.AGENTRIX_EVENT_NAME ||
+    env[provider.envEventName] ||
+    env.GITHUB_EVENT_NAME ||
+    env.GITLAB_EVENT_NAME ||
+    'issue_flow';
+  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || action;
+  return childEnv;
+}
+
 function run(action, issue, options = {}, data = {}) {
   const prompt = buildPrompt(action, issue, data, options);
   if (options.dryRun) {
@@ -563,16 +587,7 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENTRIX_EVENT_NAME:
-        process.env.AGENTRIX_EVENT_NAME ||
-        process.env[provider.envEventName] ||
-        process.env.GITHUB_EVENT_NAME ||
-        process.env.GITLAB_EVENT_NAME ||
-        'issue_flow',
-      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || action,
-    },
+    env: buildAgentrixRunEnv(provider, action),
   });
 
   try {
@@ -605,16 +620,7 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENTRIX_EVENT_NAME:
-        process.env.AGENTRIX_EVENT_NAME ||
-        process.env[provider.envEventName] ||
-        process.env.GITHUB_EVENT_NAME ||
-        process.env.GITLAB_EVENT_NAME ||
-        'issue_flow',
-      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || 'task_resume',
-    },
+    env: buildAgentrixRunEnv(provider, 'task_resume'),
   });
 
   try {
@@ -670,6 +676,28 @@ function buildTaskComment(action, result, data = {}) {
   if (sourceMarker) {
     lines.push(sourceMarker);
   }
+  if (action === 'review') {
+    if (result.status === 'starting') {
+      lines.push('Agentrix review starting. This comment prevents duplicate issue-flow reviews for this PR/MR.');
+    } else if (result.detailUrl) {
+      lines.push(`Agentrix review queued: [open task](${result.detailUrl}).`);
+    } else {
+      lines.push('Agentrix review queued.');
+    }
+    lines.push('');
+    if (result.runId) {
+      lines.push(`Review task: \`${result.runId}\``);
+    }
+    const buildTaskId = data.agentrixTaskId || extractAgentrixTaskIdFromPullRequest(pr);
+    if (buildTaskId) {
+      lines.push(`Build task: \`${buildTaskId}\``);
+    }
+    if (pr && pr.headSha) {
+      lines.push(`Head: \`${pr.headSha}\``);
+    }
+    return lines.join('\n');
+  }
+
   if (result.status === 'starting') {
     if (action === 'task_resume') {
       lines.push('Agentrix task resume starting. This comment prevents duplicate issue-flow resumes for the same PR/MR review comment.');
@@ -713,7 +741,11 @@ function buildTaskComment(action, result, data = {}) {
 function extractRunIdFromTaskComment(comment) {
   const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
   const match = body.match(TASK_COMMENT_RUN_PATTERN);
-  return match ? match[1].trim() : '';
+  if (match) {
+    return match[1].trim();
+  }
+  const reviewTaskMatch = body.match(/^Review task:\s*`([^`]+)`\s*$/im);
+  return reviewTaskMatch ? reviewTaskMatch[1].trim() : '';
 }
 
 function extractReviewHeadShaFromTaskComment(comment) {
@@ -737,6 +769,7 @@ module.exports = {
   buildPullRequestPrompt,
   buildResumeTaskArgs,
   buildRunArgs,
+  buildAgentrixRunEnv,
   buildReviewCommentResumeInstruction,
   buildReviewResumeInstruction,
   buildReviewCommentResumeKey,

@@ -425,6 +425,148 @@ test('github review comment event context normalizes inline payload fields', () 
   });
 });
 
+test('github review comment reactions prefer review root and fall back to comments', async () => {
+  const previousFetch = global.fetch;
+  const calls = [];
+  const pr = {
+    provider: 'github',
+    owner: 'acme-org',
+    repo: 'webapp',
+    number: 24,
+  };
+
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        calls.push({
+          pathname: new URL(String(url)).pathname,
+          method: init.method,
+          body: init.body ? JSON.parse(init.body) : undefined,
+        });
+        if (String(url).endsWith('/pulls/24/reviews/9')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ id: 9, node_id: 'PRR_review_node' }),
+          };
+        }
+        return {
+          ok: true,
+          status: String(url).endsWith('/graphql') ? 200 : 201,
+          text: async () => JSON.stringify({ id: calls.length }),
+        };
+      };
+
+      await providers.github.addReviewCommentReaction(
+        pr,
+        {
+          id: 101,
+          reviewId: 9,
+          htmlUrl: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+          path: 'src/app.js',
+        },
+        'eyes'
+      );
+      await providers.github.addReviewCommentReaction(
+        pr,
+        {
+          id: 202,
+          htmlUrl: 'https://github.com/acme-org/webapp/pull/24#issuecomment-202',
+        },
+        'eyes'
+      );
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
+
+  assert.deepEqual(calls, [
+    {
+      pathname: '/repos/acme-org/webapp/pulls/24/reviews/9',
+      method: 'GET',
+      body: undefined,
+    },
+    {
+      pathname: '/graphql',
+      method: 'POST',
+      body: {
+        query: `mutation AddReaction($subjectId: ID!, $content: ReactionContent!) {
+      addReaction(input: {subjectId: $subjectId, content: $content}) {
+        reaction { content }
+      }
+    }`,
+        variables: { subjectId: 'PRR_review_node', content: 'EYES' },
+      },
+    },
+    {
+      pathname: '/repos/acme-org/webapp/issues/comments/202/reactions',
+      method: 'POST',
+      body: { content: 'eyes' },
+    },
+  ]);
+});
+
+test('github review comment reaction falls back to inline comment when review root is unavailable', async () => {
+  const previousFetch = global.fetch;
+  const calls = [];
+  const pr = {
+    provider: 'github',
+    owner: 'acme-org',
+    repo: 'webapp',
+    number: 24,
+  };
+
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        calls.push({
+          pathname: new URL(String(url)).pathname,
+          method: init.method,
+          body: init.body ? JSON.parse(init.body) : undefined,
+        });
+        if (String(url).endsWith('/pulls/24/reviews/9')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ id: 9 }),
+          };
+        }
+        return {
+          ok: true,
+          status: 201,
+          text: async () => JSON.stringify({ id: calls.length }),
+        };
+      };
+
+      await providers.github.addReviewCommentReaction(
+        pr,
+        {
+          id: 101,
+          reviewId: 9,
+          htmlUrl: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
+          path: 'src/app.js',
+        },
+        'eyes'
+      );
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
+
+  assert.deepEqual(calls, [
+    {
+      pathname: '/repos/acme-org/webapp/pulls/24/reviews/9',
+      method: 'GET',
+      body: undefined,
+    },
+    {
+      pathname: '/repos/acme-org/webapp/pulls/comments/101/reactions',
+      method: 'POST',
+      body: { content: 'eyes' },
+    },
+  ]);
+});
+
 test('github create issue uses token API with labels in the create request', async () => {
   const provider = resolveProvider({ provider: 'github' }, {});
   const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
