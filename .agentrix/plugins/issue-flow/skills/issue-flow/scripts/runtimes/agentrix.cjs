@@ -583,10 +583,35 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
   }
 }
 
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return value;
+    }
+  }
+  return '';
+}
+
+function buildReviewCommentResumeKey(reviewComment = {}) {
+  const raw = reviewComment.raw || {};
+  const reviewId = firstPresent(
+    reviewComment.reviewId,
+    reviewComment.pullRequestReviewId,
+    reviewComment.pull_request_review_id,
+    raw.pull_request_review_id,
+    raw.reviewId,
+    raw.pullRequestReviewId
+  );
+  if (reviewId) {
+    return `review:${reviewId}`;
+  }
+  return firstPresent(reviewComment.id, reviewComment.htmlUrl, 'unknown');
+}
+
 function buildTaskCommentMarker(action, data = {}) {
   if (action === 'task_resume' && data.reviewComment) {
-    const id = data.reviewComment.id || data.reviewComment.htmlUrl || 'unknown';
-    return `<!-- issue-flow:agentrix:task:resume-review-comment:${String(id).replace(/\s+/g, '-')} -->`;
+    const key = buildReviewCommentResumeKey(data.reviewComment);
+    return `<!-- issue-flow:agentrix:task:resume-review-comment:${String(key).replace(/\s+/g, '-')} -->`;
   }
   return `<!-- issue-flow:agentrix:task:${action} -->`;
 }
@@ -625,6 +650,9 @@ function buildTaskComment(action, result, data = {}) {
   if (data.reviewComment && data.reviewComment.id) {
     lines.push(`Review comment: \`${data.reviewComment.id}\``);
   }
+  if (data.reviewComment && data.reviewComment.reviewId) {
+    lines.push(`Review batch: \`${data.reviewComment.reviewId}\``);
+  }
   if (data.agentrixTaskId) {
     lines.push(`Agentrix task: \`${data.agentrixTaskId}\``);
   }
@@ -660,6 +688,7 @@ module.exports = {
   buildRunArgs,
   buildReviewCommentResumeInstruction,
   buildReviewResumeInstruction,
+  buildReviewCommentResumeKey,
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,

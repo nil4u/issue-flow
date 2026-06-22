@@ -171,7 +171,7 @@ function githubReviewCommentPayload(overrides = {}) {
   const payload = {
     action: overrides.action || 'created',
     comment: {
-      id: 101,
+      id: overrides.commentId || 101,
       body: overrides.commentBody || 'Please handle this edge case.',
       html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
       in_reply_to_id: overrides.inReplyToId,
@@ -197,6 +197,9 @@ function githubReviewCommentPayload(overrides = {}) {
     },
     repository: { full_name: 'example/platform' },
   };
+  if (overrides.reviewId !== undefined) {
+    payload.comment.pull_request_review_id = overrides.reviewId;
+  }
   if (overrides.issueComment) {
     payload.issue = {
       number: payload.pull_request.number,
@@ -315,6 +318,46 @@ test('dispatch review-comment duplicate lock does not resume twice', async () =>
     assert.equal(result.action, 'skipped');
     assert.equal(result.reason, 'duplicate_review_comment_resume');
     assert.equal(result.existingCommentId, 300);
+  } finally {
+    providers.github.listPullRequestComments = originalList;
+  }
+});
+
+test('dispatch review-comment duplicate lock is scoped to review batch id', async () => {
+  const originalList = providers.github.listPullRequestComments;
+  providers.github.listPullRequestComments = async () => [
+    {
+      id: 300,
+      body: agentrix.buildTaskComment('task_resume', { status: 'starting' }, {
+        reviewComment: {
+          id: '101',
+          reviewId: '900',
+          htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101',
+        },
+        pullRequest: { number: 9 },
+        agentrixTaskId: 'task-123',
+      }),
+      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
+    },
+  ];
+
+  try {
+    const duplicate = await runReviewComment(
+      { dryRun: true },
+      { payload: githubReviewCommentPayload({ commentId: 102, reviewId: 900 }) }
+    );
+
+    assert.equal(duplicate.action, 'skipped');
+    assert.equal(duplicate.reason, 'duplicate_review_comment_resume');
+    assert.equal(duplicate.existingCommentId, 300);
+
+    const differentBatch = await runReviewComment(
+      { dryRun: true },
+      { payload: githubReviewCommentPayload({ commentId: 103, reviewId: 901 }) }
+    );
+
+    assert.equal(differentBatch.action, 'task_resume');
+    assert.equal(differentBatch.reviewComment, '103');
   } finally {
     providers.github.listPullRequestComments = originalList;
   }

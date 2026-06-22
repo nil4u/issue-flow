@@ -96,7 +96,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-fi
 
 所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
 
-`dispatch review-comment` 用于带 `<!-- issue-flow:agentrix:task=<id> -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，重复 comment 事件通过 PR/MR scoped lock 跳过。
+`dispatch review-comment` 用于带 `<!-- issue-flow:agentrix:task=<id> -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，带 review batch id 的 inline comment 通过 PR/MR scoped review-batch lock 去重；普通 PR/MR comment 或缺少 batch id 的 payload 回退到 comment id lock。
 
 ## 典型 Agent 工作流
 
