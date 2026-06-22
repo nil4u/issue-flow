@@ -223,7 +223,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 
 ## PR/MR review comments
 
-`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:agentrix:task=<id>` marker 时，它会 resume 该 Agentrix task，并用 PR/MR scoped comment lock 避免同一个 comment 重复触发。
+`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:agentrix:task=<id>` marker 时，它会 resume 该 Agentrix task。带 review batch id 的 inline comment 使用 PR/MR scoped review-batch lock，同一轮 review 只 resume 一次；普通 PR/MR comment 或缺少 batch id 的 payload 继续使用 comment id lock。
 
 被 resume 的 agent 处理完成后，应使用受控入口在 PR/MR 下发布一条普通总结 comment：
 

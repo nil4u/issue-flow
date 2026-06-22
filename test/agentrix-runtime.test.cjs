@@ -276,6 +276,10 @@ test('agentrix task marker uses issue-flow namespace', () => {
     agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),
     '<!-- issue-flow:agentrix:task:resume-review-comment:101 -->'
   );
+  assert.equal(
+    agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101, reviewId: 9 } }),
+    '<!-- issue-flow:agentrix:task:resume-review-comment:review:9 -->'
+  );
   assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
 });
 

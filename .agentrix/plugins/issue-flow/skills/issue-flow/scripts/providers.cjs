@@ -465,8 +465,15 @@ function isGithubReviewCommentCreatedEvent(payload = {}) {
 
 function getGithubReviewCommentContext(payload = {}) {
   const comment = payload.comment || {};
+  const reviewId =
+    comment.pull_request_review_id ??
+    comment.reviewId ??
+    comment.pullRequestReviewId ??
+    (payload.review && payload.review.id) ??
+    (payload.pull_request_review && payload.pull_request_review.id);
   return {
     id: comment.id === undefined ? '' : String(comment.id),
+    reviewId: reviewId === undefined || reviewId === null ? '' : String(reviewId),
     author: comment.user && typeof comment.user.login === 'string' ? comment.user.login : '',
     body: typeof comment.body === 'string' ? comment.body : '',
     htmlUrl: typeof comment.html_url === 'string' ? comment.html_url : '',
@@ -1153,8 +1160,17 @@ function isGitlabReviewCommentCreatedEvent(payload = {}) {
 function getGitlabReviewCommentContext(payload = {}) {
   const note = payload.object_attributes || {};
   const position = note.position || payload.position || {};
+  const reviewId =
+    note.pull_request_review_id ??
+    note.reviewId ??
+    note.pullRequestReviewId ??
+    payload.pull_request_review_id ??
+    payload.reviewId ??
+    payload.pullRequestReviewId ??
+    (payload.review && payload.review.id);
   return {
     id: note.id === undefined ? '' : String(note.id),
+    reviewId: reviewId === undefined || reviewId === null ? '' : String(reviewId),
     discussionId: String(note.discussion_id || note.discussionId || payload.discussion_id || payload.discussionId || ''),
     author: payload.user && (payload.user.username || payload.user.name) ? payload.user.username || payload.user.name : '',
     body: typeof note.note === 'string' ? note.note : typeof note.body === 'string' ? note.body : '',
@@ -2105,7 +2121,7 @@ function normalizePortReviewComment(comment) {
   const startLine = comment && (comment.start_line ?? position.start_line);
   return {
     commentId: String(comment && comment.id !== undefined ? comment.id : ''),
-    reviewId: String((comment && (comment.pull_request_review_id || comment.reviewId)) || ''),
+    reviewId: String((comment && (comment.pull_request_review_id || comment.reviewId || comment.pullRequestReviewId)) || ''),
     discussionId: String((comment && (comment.discussionId || comment.discussion_id)) || ''),
     body: String((comment && (comment.body || comment.note)) || ''),
     url: String((comment && (comment.html_url || comment.htmlUrl || comment.web_url || comment.url)) || ''),

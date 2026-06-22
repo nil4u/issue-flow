@@ -96,7 +96,7 @@ Set these repository variables/secrets as needed:
 
 GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`.
 
-Review comment resume is separate from `ISSUE_FLOW_REVIEW_ENABLED`: when an open issue-flow PR/MR body contains `<!-- issue-flow:agentrix:task=<id> -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, which resumes that existing Agentrix task with the comment link. The task should reply through `issue-flow pr review-comments reply` and resolve the thread when supported.
+Review comment resume is separate from `ISSUE_FLOW_REVIEW_ENABLED`: when an open issue-flow PR/MR body contains `<!-- issue-flow:agentrix:task=<id> -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, which resumes that existing Agentrix task with the comment link. Inline comments from the same submitted review share a review-batch lock, while ordinary PR/MR comments and review-comment payloads without a batch id fall back to per-comment locks. The task should reply through `issue-flow pr review-comments reply` and resolve the thread when supported.
 
 GitHub failure intake listens to `workflow_run` completed failures. During the first install, issue-flow scans `.github/workflows/*.yml` and `.github/workflows/*.yaml` and generates the explicit upstream workflow list required by GitHub Actions. Reinstalls preserve the configured list instead of adding newly discovered workflows, so manual exclusions stay intact. To include a new workflow later, edit `.github/workflows/issue-flow-failure-intake.yml` and add it under `workflow_run.workflows`. It uses `GITHUB_TOKEN` with `actions: read` and `issues: write` to inspect failed jobs, classify actionable root causes, and create or update a deduped issue with `failure::ci`, `flow::build`, and `automation::build`.
 
@@ -123,7 +123,7 @@ GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `G
 
 GitLab failure intake is triggered by the Agentrix daemon webhook bridge for failed pipeline events. Agentrix maps GitLab pipeline failures to `workflow_run` / `completed` events with `AGENTRIX_WORKFLOW_RUN_CONCLUSION=failure` or `AGENTRIX_PIPELINE_STATUS=failed`.
 
-GitLab review comment resume is handled by the `issue-flow-review-comment` job for Agentrix bridge `pull_request_review_comment` events and native MR note events. The dispatch command safely skips non-MR notes, closed MRs, missing task markers, and duplicate comment deliveries.
+GitLab review comment resume is handled by the `issue-flow-review-comment` job for Agentrix bridge `pull_request_review_comment` events and native MR note events. The dispatch command safely skips non-MR notes, closed MRs, missing task markers, and duplicate review-batch or comment deliveries.
 
 ## Development Install
 

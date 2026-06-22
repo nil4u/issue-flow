@@ -379,6 +379,7 @@ test('github review comment event context normalizes inline payload fields', () 
     pull_request: { number: 24 },
     comment: {
       id: 101,
+      pull_request_review_id: 9,
       body: 'Please handle this edge case.',
       html_url: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
       path: 'src/app.js',
@@ -409,6 +410,7 @@ test('github review comment event context normalizes inline payload fields', () 
   );
   assert.deepEqual(providers.github.getReviewCommentContext(payload), {
     id: '101',
+    reviewId: '9',
     author: 'reviewer',
     body: 'Please handle this edge case.',
     htmlUrl: 'https://github.com/acme-org/webapp/pull/24#discussion_r101',
