@@ -23,11 +23,13 @@ const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
   general: 'general.prompt.md',
   build: 'build.prompt.md',
+  buildCiFailure: 'build-ci-failure.prompt.md',
   review: 'review.prompt.md',
   planBug: 'plan-bug.prompt.md',
   planImpl: 'plan-impl.prompt.md',
@@ -110,9 +112,16 @@ function readFirstExisting(paths, label) {
   throw new Error(`Missing ${label}. Looked in: ${paths.join(', ')}`);
 }
 
+function isPipelineFailureIssue(issue) {
+  return hasLabel(issue, 'failure::ci') || PIPELINE_FAILURE_MARKER_PATTERN.test(String(issue && issue.body || ''));
+}
+
 function promptNameForAction(action, issue) {
   if (action === 'review') {
     return 'review';
+  }
+  if (action === 'build' && isPipelineFailureIssue(issue)) {
+    return 'buildCiFailure';
   }
   if (action !== 'plan') {
     return action;

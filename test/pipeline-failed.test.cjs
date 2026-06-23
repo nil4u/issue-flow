@@ -13,6 +13,7 @@ const {
   fingerprintFailure,
   githubFailureContext,
   gitlabFailureContext,
+  parseCreateIssueCliOutput,
   parsePipelineFailureMarker,
   runFailureIntake,
   typeLabelForAnalysis,
@@ -87,13 +88,13 @@ test('transient-looking and low-signal failures still require agent review', () 
 test('failure intake does not pre-classify repo or provider failures', () => {
   const repoAnalysis = analyzeFailureContext(baseContext());
   assert.equal(repoAnalysis.category, 'agent_review_required');
-  assert.equal(typeLabelForAnalysis(repoAnalysis), 'type::bug');
+  assert.equal(typeLabelForAnalysis(repoAnalysis), 'type::ops');
 
   const providerAnalysis = analyzeFailureContext(baseContext({
     log: 'Error: Resource not accessible by integration',
   }));
   assert.equal(providerAnalysis.category, 'agent_review_required');
-  assert.equal(typeLabelForAnalysis(providerAnalysis), 'type::bug');
+  assert.equal(typeLabelForAnalysis(providerAnalysis), 'type::ops');
 });
 
 test('github workflow run analysis uses the first failed job without classifying actionability', async () => {
@@ -188,10 +189,44 @@ test('low-signal failed workflow still creates an agent review issue in dry-run'
 
     assert.equal(result.action, 'would_create_or_update');
     assert.equal(result.analysis.category, 'agent_review_required');
+    assert.match(result.labels.join(' '), /type::ops/);
+    assert.doesNotMatch(result.labels.join(' '), /type::bug/);
     assert.match(result.labels.join(' '), /size::M/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('failure intake unwraps unified issue create cli envelopes', () => {
+  const dataWrapped = parseCreateIssueCliOutput(JSON.stringify({
+    action: 'created',
+    resource: 'issue',
+    command: 'create',
+    data: {
+      dryRun: false,
+      issueNumber: 60,
+      issueUrl: 'https://gitlab.example/acme/webapp/-/issues/60',
+      labels: ['type::ops', 'failure::ci'],
+    },
+  }));
+  const stdoutWrapped = parseCreateIssueCliOutput(JSON.stringify({
+    action: 'dispatched',
+    resource: 'issue',
+    command: 'create',
+    stdout: JSON.stringify({
+      dryRun: false,
+      issueNumber: 87,
+      issueUrl: 'https://github.com/acme/webapp/issues/87',
+      labels: ['type::ops', 'failure::ci'],
+    }),
+  }));
+
+  assert.equal(dataWrapped.issueNumber, 60);
+  assert.equal(dataWrapped.issueUrl, 'https://gitlab.example/acme/webapp/-/issues/60');
+  assert.deepEqual(dataWrapped.labels, ['type::ops', 'failure::ci']);
+  assert.equal(stdoutWrapped.issueNumber, 87);
+  assert.equal(stdoutWrapped.issueUrl, 'https://github.com/acme/webapp/issues/87');
+  assert.deepEqual(stdoutWrapped.labels, ['type::ops', 'failure::ci']);
 });
 
 test('gitlab Agentrix bridge env is treated as a failed pipeline signal', () => {

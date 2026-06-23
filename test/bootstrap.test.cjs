@@ -120,23 +120,30 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
     assert.equal(manifest.version, 1);
-    assert.equal(manifest.files['.github/workflows/issue-flow-auto.yml'].mode, 'managed');
-    assert.equal(manifest.files['.issue-flow/templates/plan-impl.md'].mode, 'customizable');
+	    assert.equal(manifest.files['.github/workflows/issue-flow-auto.yml'].mode, 'managed');
+	    assert.equal(manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].mode, 'customizable');
+	    assert.equal(
+	      manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].source,
+	      'skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md'
+	    );
+	    assert.equal(manifest.files['.issue-flow/templates/plan-impl.md'].mode, 'customizable');
     assert.equal(
       manifest.files['.issue-flow/templates/plan-impl.md'].source,
       'skills/issue-flow/assets/agentrix/runtime/templates/plan-impl.md'
     );
     assert.match(manifest.files['.issue-flow/templates/plan-impl.md'].sha256, /^[a-f0-9]{64}$/);
-    assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
-    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-ci-failure.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/review.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);
-    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
-    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/CLAUDE.md')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);
@@ -381,6 +388,13 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
     assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
     assert.match(gitlabWorkflow, /AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook"/);
+    assert.match(gitlabWorkflow, /AGENTRIX_LABELS_JSON =~ \/failure::ci\//);
+    assert.match(gitlabWorkflow, /AGENTRIX_ISSUE_TITLE =~ \/\^Fix CI failure:\//);
+    assert.ok(
+      gitlabWorkflow.indexOf('AGENTRIX_LABELS_JSON =~ /failure::ci/') <
+        gitlabWorkflow.indexOf('AGENTRIX_EVENT_ACTION == "opened"'),
+      'GitLab failure::ci skip rule should run before issue opened auto routing'
+    );
     assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "pull_request"/);
     assert.match(gitlabWorkflow, /\$\{AGENTRIX_EVENT_ACTION:-\}" = "opened"/);
     assert.match(gitlabWorkflow, /intake\.cjs --issue-number "\$AGENTRIX_ISSUE_NUMBER"/);

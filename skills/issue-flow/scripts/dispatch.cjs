@@ -449,6 +449,59 @@ function resolveRuntimeResumeDecision(issue, runtime) {
   return decision;
 }
 
+function pipelineFailureIssueNumber(result = {}) {
+  return (
+    result.issueNumber ||
+    result.issue && (result.issue.issueNumber || result.issue.number)
+  );
+}
+
+function pipelineFailureIssueUrl(result = {}) {
+  return (
+    result.issueUrl ||
+    result.issue && (result.issue.issueUrl || result.issue.htmlUrl || result.issue.url)
+  );
+}
+
+function pipelineFailureIssueLabels(result = {}) {
+  const labels = result.labels || result.issue && result.issue.labels;
+  if (Array.isArray(labels) && labels.length > 0) {
+    return labels;
+  }
+  return [
+    'type::ops',
+    'status::active',
+    'flow::build',
+    'automation::build',
+    'priority::p2',
+    'size::M',
+    'failure::ci',
+    result.fingerprint && result.fingerprint.label,
+  ].filter(Boolean);
+}
+
+function buildPipelineFailureIssueContext(result = {}, options = {}) {
+  const number = pipelineFailureIssueNumber(result);
+  if (!number) {
+    return undefined;
+  }
+  const provider = resolveProvider(options);
+  const repo = provider.resolveRepo({}, options);
+  return {
+    provider: provider.name,
+    owner: repo.owner,
+    repo: repo.repo,
+    repoFullName: repo.fullName,
+    projectId: repo.projectId,
+    number,
+    title: '',
+    body: '',
+    htmlUrl: pipelineFailureIssueUrl(result),
+    state: 'open',
+    labels: pipelineFailureIssueLabels(result),
+  };
+}
+
 async function startAction(action, issue, options = {}, data = {}) {
   const runtime = loadRuntime(options);
   if (!runtimeCanRunAction(runtime, action)) {
@@ -824,9 +877,26 @@ async function runPipelineFailed(options = {}) {
   logIssueFlow('Pipeline failure intake finished', {
     action: result.action,
     reason: result.reason,
-    issue: result.issueNumber ? `#${result.issueNumber}` : '',
+    issue: pipelineFailureIssueNumber(result) ? `#${pipelineFailureIssueNumber(result)}` : '',
   });
-  return result;
+  const issue = buildPipelineFailureIssueContext(result, options);
+  if (!issue || result.action === 'skipped' || result.dryRun) {
+    return result;
+  }
+
+  logIssueFlow('Auto-resuming after pipeline failure intake', {
+    issue: `#${issue.number}`,
+    action: result.action,
+  });
+  const autoResume = await runAuto(options, {
+    payload: {},
+    issue,
+    pipelineFailure: result,
+  });
+  return {
+    failureIntake: result,
+    autoResume,
+  };
 }
 
 async function runReview(options = {}, provided = {}) {

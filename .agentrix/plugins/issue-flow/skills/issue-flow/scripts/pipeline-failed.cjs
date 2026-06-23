@@ -193,7 +193,7 @@ function isSuspendIssue(issue) {
 
 function typeLabelForAnalysis(analysis) {
   void analysis;
-  return 'type::bug';
+  return 'type::ops';
 }
 
 function bullet(value) {
@@ -497,10 +497,21 @@ function createIssueViaCli({ title, body, type, fingerprint, options }) {
     if (child.status !== 0) {
       throw new Error((child.stderr || child.stdout || '').trim() || `issue-flow issue create exited with status ${child.status ?? 1}`);
     }
-    return JSON.parse(String(child.stdout || '{}'));
+    return parseCreateIssueCliOutput(child.stdout);
   } finally {
     temp.cleanup();
   }
+}
+
+function parseCreateIssueCliOutput(stdout) {
+  const parsed = JSON.parse(String(stdout || '{}'));
+  if (parsed && parsed.data && typeof parsed.data === 'object') {
+    return parsed.data;
+  }
+  if (parsed && typeof parsed.stdout === 'string') {
+    return JSON.parse(parsed.stdout || '{}');
+  }
+  return parsed;
 }
 
 async function runFailureIntake(options = {}) {
@@ -572,7 +583,10 @@ async function runFailureIntake(options = {}) {
   return {
     action: 'created',
     issue: created,
+    issueNumber: created.issueNumber || created.number,
+    issueUrl: created.issueUrl || created.htmlUrl,
     fingerprint,
+    labels: created.labels,
     similarClosedIssue: similarClosedIssue ? similarClosedIssue.number : undefined,
   };
 }
@@ -606,6 +620,7 @@ module.exports = {
   gitlabFailureContext,
   parseArgs,
   parsePipelineFailureMarker,
+  parseCreateIssueCliOutput,
   runFailureIntake,
   typeLabelForAnalysis,
 };
