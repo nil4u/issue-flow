@@ -25,6 +25,8 @@ issue-flow-labels:
 
 issue-flow-auto:
   rules:
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && ($AGENTRIX_LABELS_JSON =~ /failure::ci/ || $AGENTRIX_LABELS =~ /failure::ci/ || $AGENTRIX_ISSUE_TITLE =~ /^Fix CI failure:/)'
+      when: never
     - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && $AGENTRIX_EVENT_ACTION == "opened"'
       when: on_success
     - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && $AGENTRIX_EVENT_ACTION == "labeled"'

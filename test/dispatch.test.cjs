@@ -12,11 +12,13 @@ const {
   resolveRuntimeResumeDecision,
   runPrMerged,
   runAuto,
+  runPipelineFailed,
   runReview,
   runReviewComment,
   runResume,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
+const pipelineFailed = require('../skills/issue-flow/scripts/pipeline-failed.cjs');
 const { providers } = require('../skills/issue-flow/scripts/providers.cjs');
 
 function withEnv(values, callback) {
@@ -598,6 +600,65 @@ test('dispatch pr-merged auto-resumes plan merges into build action', async () =
     assert.equal(result.autoResume.result.status, 'dry-run');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch pipeline-failed directly auto-resumes created failure issue', async () => {
+  const original = pipelineFailed.runFailureIntake;
+  pipelineFailed.runFailureIntake = async () => ({
+    action: 'created',
+    issueNumber: 563,
+    issueUrl: 'https://github.com/example/platform/issues/563',
+    labels: [
+      'type::ops',
+      'status::active',
+      'flow::build',
+      'automation::build',
+      'priority::p2',
+      'size::M',
+      'failure::ci',
+      'ci-fp::1234abcd',
+    ],
+    fingerprint: { label: 'ci-fp::1234abcd' },
+  });
+
+  try {
+    const result = await runPipelineFailed({
+      provider: 'github',
+      repo: 'example/platform',
+      dryRun: true,
+      autoDefault: 'off',
+    });
+
+    assert.equal(result.failureIntake.action, 'created');
+    assert.equal(result.autoResume.action, 'build');
+    assert.equal(result.autoResume.result.status, 'dry-run');
+  } finally {
+    pipelineFailed.runFailureIntake = original;
+  }
+});
+
+test('dispatch pipeline-failed does not auto-resume skipped intake', async () => {
+  const original = pipelineFailed.runFailureIntake;
+  pipelineFailed.runFailureIntake = async () => ({
+    action: 'skipped',
+    reason: 'github_workflow_run_not_failed',
+  });
+
+  try {
+    const result = await runPipelineFailed({
+      provider: 'github',
+      repo: 'example/platform',
+      dryRun: true,
+      autoDefault: 'build',
+    });
+
+    assert.deepEqual(result, {
+      action: 'skipped',
+      reason: 'github_workflow_run_not_failed',
+    });
+  } finally {
+    pipelineFailed.runFailureIntake = original;
   }
 });
 

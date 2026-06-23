@@ -128,9 +128,52 @@ test('agentrix build prompt injects build context without plan output section', 
     assert.match(prompt, /issue-flow pr submit/);
     assert.match(prompt, /do not put it in git/);
     assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
+    assert.doesNotMatch(prompt, /先判断根因类别/);
     assert.doesNotMatch(prompt, /## Plan Output/);
     assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
   });
+});
+
+test('agentrix build prompt uses CI failure template for failure intake issues', () => {
+  const prompt = agentrix.buildPrompt(
+    'build',
+    {
+      number: 563,
+      state: 'open',
+      labels: ['type::ops', 'failure::ci', 'flow::build', 'automation::build', 'size::M'],
+      title: 'Fix CI failure: CI / test',
+      body: '<!-- issue-flow:pipeline-failure\nfingerprint: sha256:abc\n-->\n# CI Failure Analysis',
+    },
+    {},
+    { planRootDir: '.work/items' }
+  );
+
+  assert.match(prompt, /定位 CI failure intake 创建的失败 issue/);
+  assert.match(prompt, /先判断根因类别/);
+  assert.match(prompt, /repository regression、workflow config、provider permission/);
+  assert.match(prompt, /只有确认是仓库代码回归时，才把 `type::ops` 改成 `type::bug`/);
+  assert.match(prompt, /不要硬改业务代码/);
+  assert.match(prompt, /PR body 写清 Source issue、Root cause、Fix、Validation/);
+  assert.match(prompt, /Create or switch to this non-base branch before committing: `563-fix-ci-failure-ci-test\/build`/);
+  assert.match(prompt, /^Labels: type::ops, failure::ci, size::M$/m);
+});
+
+test('agentrix build prompt uses CI failure template when only the body marker remains', () => {
+  const prompt = agentrix.buildPrompt(
+    'build',
+    {
+      number: 564,
+      state: 'open',
+      labels: ['type::ops', 'flow::build', 'automation::build', 'size::M'],
+      title: 'Fix CI failure: Deploy',
+      body: '<!-- issue-flow:pipeline-failure\nfingerprint: sha256:def\n-->',
+    },
+    {},
+    { planRootDir: '.work/items' }
+  );
+
+  assert.match(prompt, /定位 CI failure intake 创建的失败 issue/);
+  assert.match(prompt, /^Labels: type::ops, size::M$/m);
 });
 
 test('agentrix run args forward target base ref from Agentrix bridge env', () => {

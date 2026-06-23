@@ -43,6 +43,16 @@ issue-flow <resource> <action> [options]
 
 详情请参考：`references/labels.md`。
 
+### CI failure intake label policy
+
+`dispatch pipeline-failed` 创建或更新的 CI failure issue 默认使用 `type::ops`、`status::active`、`flow::build`、`automation::build`、`failure::ci` 和单一 `size::`。它仍走 build action，但 agent 必须先定位根因再调整标签或提交修复。
+
+- 确认是仓库代码回归时，改为 `type::bug` 并按 build 修复。
+- workflow/provider/secret/variable/runner/environment/transient/external 问题保持 `type::ops`。
+- 等外部权限、secret、runner 或服务恢复时，设置 `status::suspend`，避免保留 `status::active` + `flow::build` 反复触发。
+- 确认误报或无可执行事项时，设置 `status::drop`。
+- 确认已恢复并有验证依据时，设置 `status::done`。
+
 ## Provider 操作
 
 ### Issue
