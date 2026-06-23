@@ -3,6 +3,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('../providers.cjs');
+const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
@@ -23,6 +24,15 @@ const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const PROVIDER_TOKEN_ENV_KEYS = [
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'GITLAB_TOKEN',
+  'GL_TOKEN',
+  'GITLAB_PRIVATE_TOKEN',
+  'CI_JOB_TOKEN',
+  'ISSUE_FLOW_GIT_TOKEN',
+];
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
@@ -254,6 +264,42 @@ function formatPrBodyFileRule() {
   ].join('\n');
 }
 
+function normalizeBranchName(value) {
+  const branch = String(value || '').trim();
+  if (!branch || branch === 'null' || branch === 'undefined') {
+    return '';
+  }
+  return branch;
+}
+
+function resolvePromptBaseBranch(data = {}, options = {}) {
+  const payload = data.payload || {};
+  return normalizeBranchName(
+    process.env.AGENTRIX_BASE_REF ||
+    options.base ||
+    data.baseRef ||
+    data.pullRequest?.baseRef ||
+    payload.pull_request?.base?.ref ||
+    payload.object_attributes?.target_branch ||
+    payload.project?.default_branch ||
+    payload.repository?.default_branch ||
+    process.env.CI_DEFAULT_BRANCH ||
+    process.env.GITHUB_BASE_REF ||
+    process.env.AGENTRIX_REF
+  );
+}
+
+function formatBaseBranchSubmissionRule(data = {}, options = {}) {
+  const baseBranch = resolvePromptBaseBranch(data, options);
+  if (!baseBranch) {
+    return '';
+  }
+  return [
+    `Base branch: \`${baseBranch}\`.`,
+    `When publishing with \`issue-flow pr submit\`, the CLI first reads \`AGENTRIX_BASE_REF\` from the Agentrix worker environment. If that env var is absent, pass \`--base ${baseBranch}\` explicitly.`,
+  ].join('\n');
+}
+
 function formatReviewSubmission(pr) {
   return [
     '## Review Submission',
@@ -292,6 +338,12 @@ function buildPrompt(action, issue, data = {}, options = {}) {
 
   if ((action === 'plan' || action === 'build') && !prompt.body.includes('repo-external temp file')) {
     blocks.push('', formatPrBodyFileRule());
+  }
+  if (action === 'plan' || action === 'build') {
+    const baseBranchRule = formatBaseBranchSubmissionRule(data, options);
+    if (baseBranchRule) {
+      blocks.push('', baseBranchRule);
+    }
   }
 
   if (action === 'plan') {
@@ -463,6 +515,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
 
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
+  appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
 }
@@ -499,6 +552,21 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
+function buildAgentrixRunEnv(provider, action, env = process.env) {
+  const childEnv = { ...env };
+  for (const key of PROVIDER_TOKEN_ENV_KEYS) {
+    delete childEnv[key];
+  }
+  childEnv.AGENTRIX_EVENT_NAME =
+    env.AGENTRIX_EVENT_NAME ||
+    env[provider.envEventName] ||
+    env.GITHUB_EVENT_NAME ||
+    env.GITLAB_EVENT_NAME ||
+    'issue_flow';
+  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || action;
+  return childEnv;
+}
+
 function run(action, issue, options = {}, data = {}) {
   const prompt = buildPrompt(action, issue, data, options);
   if (options.dryRun) {
@@ -519,16 +587,7 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENTRIX_EVENT_NAME:
-        process.env.AGENTRIX_EVENT_NAME ||
-        process.env[provider.envEventName] ||
-        process.env.GITHUB_EVENT_NAME ||
-        process.env.GITLAB_EVENT_NAME ||
-        'issue_flow',
-      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || action,
-    },
+    env: buildAgentrixRunEnv(provider, action),
   });
 
   try {
@@ -561,16 +620,7 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENTRIX_EVENT_NAME:
-        process.env.AGENTRIX_EVENT_NAME ||
-        process.env[provider.envEventName] ||
-        process.env.GITHUB_EVENT_NAME ||
-        process.env.GITLAB_EVENT_NAME ||
-        'issue_flow',
-      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || 'task_resume',
-    },
+    env: buildAgentrixRunEnv(provider, 'task_resume'),
   });
 
   try {
@@ -583,10 +633,35 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
   }
 }
 
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return value;
+    }
+  }
+  return '';
+}
+
+function buildReviewCommentResumeKey(reviewComment = {}) {
+  const raw = reviewComment.raw || {};
+  const reviewId = firstPresent(
+    reviewComment.reviewId,
+    reviewComment.pullRequestReviewId,
+    reviewComment.pull_request_review_id,
+    raw.pull_request_review_id,
+    raw.reviewId,
+    raw.pullRequestReviewId
+  );
+  if (reviewId) {
+    return `review:${reviewId}`;
+  }
+  return firstPresent(reviewComment.id, reviewComment.htmlUrl, 'unknown');
+}
+
 function buildTaskCommentMarker(action, data = {}) {
   if (action === 'task_resume' && data.reviewComment) {
-    const id = data.reviewComment.id || data.reviewComment.htmlUrl || 'unknown';
-    return `<!-- issue-flow:agentrix:task:resume-review-comment:${String(id).replace(/\s+/g, '-')} -->`;
+    const key = buildReviewCommentResumeKey(data.reviewComment);
+    return `<!-- issue-flow:agentrix:task:resume-review-comment:${String(key).replace(/\s+/g, '-')} -->`;
   }
   return `<!-- issue-flow:agentrix:task:${action} -->`;
 }
@@ -594,6 +669,35 @@ function buildTaskCommentMarker(action, data = {}) {
 function buildTaskComment(action, result, data = {}) {
   const pr = data.pullRequest || data;
   const lines = [buildTaskCommentMarker(action, data)];
+  const sourceMarker = buildSourceMarker({
+    sourceTaskId: result.runId || data.agentrixTaskId,
+    sourceAgent: data.sourceAgent || data.agent || DEFAULT_AGENT,
+  });
+  if (sourceMarker) {
+    lines.push(sourceMarker);
+  }
+  if (action === 'review') {
+    if (result.status === 'starting') {
+      lines.push('Agentrix review starting. This comment prevents duplicate issue-flow reviews for this PR/MR.');
+    } else if (result.detailUrl) {
+      lines.push(`Agentrix review queued: [open task](${result.detailUrl}).`);
+    } else {
+      lines.push('Agentrix review queued.');
+    }
+    lines.push('');
+    if (result.runId) {
+      lines.push(`Review task: \`${result.runId}\``);
+    }
+    const buildTaskId = data.agentrixTaskId || extractAgentrixTaskIdFromPullRequest(pr);
+    if (buildTaskId) {
+      lines.push(`Build task: \`${buildTaskId}\``);
+    }
+    if (pr && pr.headSha) {
+      lines.push(`Head: \`${pr.headSha}\``);
+    }
+    return lines.join('\n');
+  }
+
   if (result.status === 'starting') {
     if (action === 'task_resume') {
       lines.push('Agentrix task resume starting. This comment prevents duplicate issue-flow resumes for the same PR/MR review comment.');
@@ -625,6 +729,9 @@ function buildTaskComment(action, result, data = {}) {
   if (data.reviewComment && data.reviewComment.id) {
     lines.push(`Review comment: \`${data.reviewComment.id}\``);
   }
+  if (data.reviewComment && data.reviewComment.reviewId) {
+    lines.push(`Review batch: \`${data.reviewComment.reviewId}\``);
+  }
   if (data.agentrixTaskId) {
     lines.push(`Agentrix task: \`${data.agentrixTaskId}\``);
   }
@@ -634,7 +741,11 @@ function buildTaskComment(action, result, data = {}) {
 function extractRunIdFromTaskComment(comment) {
   const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
   const match = body.match(TASK_COMMENT_RUN_PATTERN);
-  return match ? match[1].trim() : '';
+  if (match) {
+    return match[1].trim();
+  }
+  const reviewTaskMatch = body.match(/^Review task:\s*`([^`]+)`\s*$/im);
+  return reviewTaskMatch ? reviewTaskMatch[1].trim() : '';
 }
 
 function extractReviewHeadShaFromTaskComment(comment) {
@@ -658,20 +769,25 @@ module.exports = {
   buildPullRequestPrompt,
   buildResumeTaskArgs,
   buildRunArgs,
+  buildAgentrixRunEnv,
   buildReviewCommentResumeInstruction,
   buildReviewResumeInstruction,
+  buildReviewCommentResumeKey,
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,
+  parseSourceMarker,
   extractMention,
   extractReviewHeadShaFromTaskComment,
   extractRunIdFromTaskComment,
   extractSourceIssueNumberFromPullRequest,
   findIssuePlanFiles,
+  formatBaseBranchSubmissionRule,
   issueDirectoryName,
   normalizeRepoPath,
   resolveAgentrixConfig,
   resolvePlanTemplate,
+  resolvePromptBaseBranch,
   run,
   resumeTask,
   shouldAcknowledgeAutoIssue,

@@ -7,6 +7,7 @@ const {
   resolveResumeDecision,
   shouldRunAutoForEvent,
 } = require('./resolve.cjs');
+const { parseSourceMarker } = require('./provenance.cjs');
 const prMerged = require('./pr-merged.cjs');
 const pipelineFailed = require('./pipeline-failed.cjs');
 
@@ -280,6 +281,11 @@ async function addTriggerCommentReaction(issue, comment, options = {}) {
   await provider.addTriggerCommentReaction(issue, comment, TRIGGER_COMMENT_REACTION, options);
 }
 
+async function addReviewCommentReaction(pr, comment, options = {}) {
+  const provider = providers[pr.provider] || resolveProvider(options);
+  await provider.addReviewCommentReaction(pr, comment, TRIGGER_COMMENT_REACTION, options);
+}
+
 async function addIssueReaction(issue, options = {}) {
   const provider = providers[issue.provider] || resolveProvider(options);
   await provider.addIssueReaction(issue, TRIGGER_COMMENT_REACTION, options);
@@ -390,6 +396,15 @@ async function acknowledgeTriggerComment(issue, comment, options = {}) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`Unable to add reaction to trigger comment; continuing. ${detail}`);
+  }
+}
+
+async function acknowledgeReviewComment(pr, comment, options = {}) {
+  try {
+    await addReviewCommentReaction(pr, comment, options);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`Unable to add reaction to review comment; continuing. ${detail}`);
   }
 }
 
@@ -630,38 +645,7 @@ async function resumeTaskForReviewComment(pr, taskId, instruction, options = {},
     pullRequest: pr,
     agentrixTaskId: taskId,
   };
-  const taskClaim = await claimPullRequestActionTask(pr, action, runtime, taskData, options);
-  if (!taskClaim.claimed) {
-    logIssueFlow('Skipping duplicate PR/MR review comment resume', {
-      pr: `#${pr.number}`,
-      comment: taskClaim.comment && taskClaim.comment.id,
-    });
-    return {
-      action: 'skipped',
-      reason: 'duplicate_review_comment_resume',
-      existingCommentId: taskClaim.comment && taskClaim.comment.id,
-      existingCommentUrl: taskClaim.comment && (taskClaim.comment.html_url || taskClaim.comment.htmlUrl || taskClaim.comment.web_url),
-    };
-  }
-
-  let result;
-  try {
-    result = runtime.resumeTask(taskId, instruction, options, taskData);
-  } catch (error) {
-    if (taskClaim.comment && taskClaim.comment.id) {
-      try {
-        await deletePullRequestComment(pr, taskClaim.comment.id, options);
-      } catch (deleteError) {
-        const detail = deleteError instanceof Error ? deleteError.message : String(deleteError);
-        console.warn(`Unable to delete failed issue-flow PR/MR resume lock comment; continuing. ${detail}`);
-      }
-    }
-    throw error;
-  }
-
-  if (taskClaim.comment && taskClaim.comment.id) {
-    await updatePullRequestComment(pr, taskClaim.comment.id, runtime.buildTaskComment(action, result, taskData), options);
-  }
+  const result = runtime.resumeTask(taskId, instruction, options, taskData);
   return {
     action,
     result,
@@ -916,6 +900,22 @@ async function runReviewComment(options = {}, provided = {}) {
   }
 
   const reviewComment = provided.reviewComment || getReviewCommentContext(payload, options);
+  const source = parseSourceMarker(reviewComment.body);
+  if (source.source_task_id || source.source_agent) {
+    logIssueFlow('PR/MR review comment skipped', {
+      reason: 'source_provenance',
+      sourceTaskId: source.source_task_id || '',
+      sourceAgent: source.source_agent || '',
+      reviewComment: reviewComment.id,
+    });
+    return {
+      action: 'skipped',
+      reason: 'source_provenance',
+      sourceTaskId: source.source_task_id || '',
+      sourceAgent: source.source_agent || '',
+      reviewComment: reviewComment.id,
+    };
+  }
   const currentPr = await fetchCurrentPullRequest(pr, options);
   const skipReason = shouldSkipPullRequestReview(currentPr);
   if (skipReason) {
@@ -949,6 +949,7 @@ async function runReviewComment(options = {}, provided = {}) {
   const instruction = runtime.buildReviewCommentResumeInstruction(currentPr, reviewComment, {
     sourceIssueNumber,
   });
+  await acknowledgeReviewComment(currentPr, reviewComment, options);
   const resume = await resumeTaskForReviewComment(currentPr, taskId, instruction, options, {
     ...provided,
     payload,
@@ -957,15 +958,6 @@ async function runReviewComment(options = {}, provided = {}) {
     reviewComment,
     sourceIssueNumber,
   });
-  if (resume.reason === 'duplicate_review_comment_resume') {
-    return {
-      ...resume,
-      pullRequest: currentPr.number,
-      reviewComment: reviewComment.id,
-      sourceIssue: sourceIssueNumber,
-      taskId,
-    };
-  }
   return {
     action: 'task_resume',
     result: resume.result,

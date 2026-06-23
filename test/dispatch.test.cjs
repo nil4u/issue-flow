@@ -168,11 +168,11 @@ test('dispatch review queues runtime review when enabled', async () => {
 });
 
 function githubReviewCommentPayload(overrides = {}) {
-  return {
+  const payload = {
     action: overrides.action || 'created',
     comment: {
-      id: 101,
-      body: 'Please handle this edge case.',
+      id: overrides.commentId || 101,
+      body: overrides.commentBody || 'Please handle this edge case.',
       html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
       in_reply_to_id: overrides.inReplyToId,
       path: 'src/app.js',
@@ -197,6 +197,23 @@ function githubReviewCommentPayload(overrides = {}) {
     },
     repository: { full_name: 'example/platform' },
   };
+  if (overrides.reviewId !== undefined) {
+    payload.comment.pull_request_review_id = overrides.reviewId;
+  }
+  if (overrides.issueComment) {
+    payload.issue = {
+      number: payload.pull_request.number,
+      state: payload.pull_request.state,
+      title: payload.pull_request.title,
+      body: payload.pull_request.body,
+      html_url: payload.pull_request.html_url,
+      labels: payload.pull_request.labels,
+      user: payload.pull_request.user,
+      pull_request: { url: 'https://api.github.com/repos/example/platform/pulls/9' },
+    };
+    delete payload.pull_request;
+  }
+  return payload;
 }
 
 test('dispatch review-comment resumes the PR body task id on created event', async () => {
@@ -211,6 +228,35 @@ test('dispatch review-comment resumes the PR body task id on created event', asy
   assert.equal(result.sourceIssue, 42);
   assert.equal(result.reviewComment, '101');
   assert.equal(result.result.status, 'dry-run');
+});
+
+test('dispatch review-comment resumes GitHub PR ordinary issue comments', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    { payload: githubReviewCommentPayload({ issueComment: true }) }
+  );
+
+  assert.equal(result.action, 'task_resume');
+  assert.equal(result.taskId, 'task-123');
+  assert.equal(result.pullRequest, 9);
+  assert.equal(result.sourceIssue, 42);
+  assert.equal(result.reviewComment, '101');
+});
+
+test('dispatch review-comment skips issue-flow sourced comments', async () => {
+  const result = await runReviewComment(
+    { dryRun: true },
+    {
+      payload: githubReviewCommentPayload({
+        commentBody: '<!-- issue-flow:source source_task_id=task-123 source_agent=codex -->\nAgent output.',
+      }),
+    }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'source_provenance');
+  assert.equal(result.sourceTaskId, 'task-123');
+  assert.equal(result.sourceAgent, 'codex');
 });
 
 test('dispatch review-comment skips unsupported edited events', async () => {
@@ -249,31 +295,34 @@ test('dispatch review-comment skips missing PR task marker and closed PRs', asyn
   assert.equal(closed.reason, 'pull_request_not_open');
 });
 
-test('dispatch review-comment duplicate lock does not resume twice', async () => {
-  const originalList = providers.github.listPullRequestComments;
-  providers.github.listPullRequestComments = async () => [
-    {
-      id: 300,
-      body: agentrix.buildTaskComment('task_resume', { status: 'starting' }, {
-        reviewComment: { id: '101', htmlUrl: 'https://github.com/example/platform/pull/9#discussion_r101' },
-        pullRequest: { number: 9 },
-        agentrixTaskId: 'task-123',
-      }),
-      html_url: 'https://github.com/example/platform/pull/9#issuecomment-300',
-    },
-  ];
+test('dispatch review-comment acknowledges with reaction only', async () => {
+  const originalCreate = providers.github.createPullRequestComment;
+  const originalUpdate = providers.github.updatePullRequestComment;
+  const originalReaction = providers.github.addReviewCommentReaction;
+  const reactions = [];
+  providers.github.createPullRequestComment = async () => {
+    throw new Error('review-comment resume should not create a PR task comment');
+  };
+  providers.github.updatePullRequestComment = async () => {
+    throw new Error('review-comment resume should not update a PR task comment');
+  };
+  providers.github.addReviewCommentReaction = async (pr, comment, content) => {
+    reactions.push({ pr: pr.number, comment: comment.id, content });
+  };
 
   try {
     const result = await runReviewComment(
       { dryRun: true },
-      { payload: githubReviewCommentPayload() }
+      { payload: githubReviewCommentPayload({ commentId: 103, reviewId: 901 }) }
     );
 
-    assert.equal(result.action, 'skipped');
-    assert.equal(result.reason, 'duplicate_review_comment_resume');
-    assert.equal(result.existingCommentId, 300);
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.reviewComment, '103');
+    assert.deepEqual(reactions, [{ pr: 9, comment: '103', content: 'eyes' }]);
   } finally {
-    providers.github.listPullRequestComments = originalList;
+    providers.github.createPullRequestComment = originalCreate;
+    providers.github.updatePullRequestComment = originalUpdate;
+    providers.github.addReviewCommentReaction = originalReaction;
   }
 });
 
@@ -347,7 +396,7 @@ test('dispatch review resumes the existing reviewer task for a new PR head', asy
     assert.equal(result.result.taskId, 'task-review');
     assert.equal(updates.length, 1);
     assert.equal(updates[0].commentId, 300);
-    assert.match(updates[0].body, /Run: `task-review`/);
+    assert.match(updates[0].body, /Review task: `task-review`/);
     assert.match(updates[0].body, /Head: `new-sha`/);
   } finally {
     providers.github.listPullRequestComments = originalList;

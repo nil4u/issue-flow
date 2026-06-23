@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: issue-flow-review-comment-${{ github.event.pull_request.number }}-${{ github.event.comment.id }}
+  group: issue-flow-review-comment-${{ github.event.pull_request.number }}-${{ github.event.comment.pull_request_review_id || github.event.comment.id }}
   cancel-in-progress: false
 
 jobs:

@@ -109,6 +109,8 @@ GitHub API token 至少需要：
 
 `submit.cjs` 的 `git push` 优先使用本地 git remote/credential helper；当没有自定义 `GIT_ASKPASS` 且存在 `GITHUB_TOKEN`/`GH_TOKEN` 时，会为本次 push 创建临时 askpass 凭据。
 
+Agentrix runtime 启动或 resume task 时会从子进程环境中移除 provider token（`GITHUB_TOKEN`、`GH_TOKEN`、`GITLAB_TOKEN`、`GL_TOKEN`、`GITLAB_PRIVATE_TOKEN`、`CI_JOB_TOKEN`、`ISSUE_FLOW_GIT_TOKEN`）。这些 token 只供 issue-flow routing job 调用 provider API；Agentrix task 里的 provider 凭据由 Agentrix worker 环境提供。
+
 ### GitLab
 
 读取顺序：`GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN` → git remote URL 中的 token（如存在）。
@@ -223,7 +225,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 
 ## PR/MR review comments
 
-`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:agentrix:task=<id>` marker 时，它会 resume 该 Agentrix task，并用 PR/MR scoped comment lock 避免同一个 comment 重复触发。
+`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:agentrix:task=<id>` marker 时，它会给触发 comment 加 `eyes` reaction，然后 resume 该 Agentrix task。该路径不再创建 PR/MR 顶层排队 comment。
 
 被 resume 的 agent 处理完成后，应使用受控入口在 PR/MR 下发布一条普通总结 comment：
 

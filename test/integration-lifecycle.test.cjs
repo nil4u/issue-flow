@@ -159,13 +159,17 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function gitlabMergeMr(projectRef, mrIid, retries = 5) {
+async function gitlabMergeMr(projectRef, mrIid, retries = 20) {
   for (let i = 0; i < retries; i++) {
     try {
       await gitlabApi('PUT', `/projects/${projectRef}/merge_requests/${mrIid}/merge`, { squash: true });
       return;
     } catch (err) {
-      if (i === retries - 1 || !err.message.includes('cannot be merged')) throw err;
+      const retryable = err.message.includes('cannot be merged') || err.message.includes('405 Method Not Allowed');
+      if (i === retries - 1 || !retryable) throw err;
+      const mr = await gitlabApi('GET', `/projects/${projectRef}/merge_requests/${mrIid}`);
+      if (mr.state !== 'opened') throw err;
+      if (mr.detailed_merge_status === 'conflict' || mr.merge_status === 'cannot_be_merged') throw err;
       await sleep(3000);
     }
   }
@@ -217,6 +221,7 @@ test('github: full issue lifecycle (triage → plan PR → merge → build PR �
       '--issue-number', String(num),
       '--flow', 'flow::plan',
       '--type', 'type::feature',
+      '--size', 'size::M',
       '--repo', githubRepo,
       '--provider', 'github',
     ], { env });
@@ -224,6 +229,7 @@ test('github: full issue lifecycle (triage → plan PR → merge → build PR �
     labels = (await githubApi('GET', `${apiBase}/issues/${num}`)).labels.map(l => l.name);
     assert.ok(labels.includes('flow::plan'));
     assert.ok(labels.includes('type::feature'));
+    assert.ok(labels.includes('size::M'));
     assert.ok(!labels.includes('flow::triage'));
 
     // 5. Create plan branch, commit (no push — submit.cjs will push)
@@ -405,6 +411,7 @@ test('gitlab: full issue lifecycle (triage → plan MR → merge → build MR �
       '--issue-number', String(num),
       '--flow', 'flow::plan',
       '--type', 'type::feature',
+      '--size', 'size::M',
       '--repo', gitlabProject,
       '--provider', 'gitlab',
     ], { env });
@@ -412,6 +419,7 @@ test('gitlab: full issue lifecycle (triage → plan MR → merge → build MR �
     updated = await gitlabApi('GET', `/projects/${projectRef}/issues/${num}`);
     assert.ok(updated.labels.includes('flow::plan'));
     assert.ok(updated.labels.includes('type::feature'));
+    assert.ok(updated.labels.includes('size::M'));
     assert.ok(!updated.labels.includes('flow::triage'));
 
     // 5. Plan branch (submit.cjs will push)

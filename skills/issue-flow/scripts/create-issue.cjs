@@ -4,9 +4,11 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider, normalizeLabelName } = require('./providers.cjs');
 const { labelDefinitionFor, labelGroupsForScope, resolveIssueSizeLabel } = require('./labels.cjs');
+const { buildSourceMarker } = require('./provenance.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=[^>]*-->\s*/i;
+const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
 
 function usage() {
   return [
@@ -193,14 +195,28 @@ function buildAgentrixTaskMarker(taskId) {
 
 function buildIssueBodyWithTaskMarker(body, taskId) {
   const marker = buildAgentrixTaskMarker(taskId);
-  const currentBody = String(body || '').trim();
-  if (!marker) {
+  const provenanceMarker = buildSourceMarker({ sourceTaskId: taskId });
+  let currentBody = String(body || '').trim();
+  if (!marker && !provenanceMarker) {
     return currentBody;
   }
-  if (AGENTRIX_TASK_MARKER_PATTERN.test(currentBody)) {
-    return currentBody.replace(AGENTRIX_TASK_MARKER_PATTERN, `${marker}\n\n`);
+  if (marker) {
+    if (AGENTRIX_TASK_MARKER_PATTERN.test(currentBody)) {
+      currentBody = currentBody.replace(AGENTRIX_TASK_MARKER_PATTERN, `${marker}\n`);
+    } else {
+      currentBody = `${marker}\n${currentBody}`;
+    }
   }
-  return `${marker}\n\n${currentBody}`.trim();
+  if (provenanceMarker) {
+    if (SOURCE_PROVENANCE_MARKER_PATTERN.test(currentBody)) {
+      currentBody = currentBody.replace(SOURCE_PROVENANCE_MARKER_PATTERN, `${provenanceMarker}\n`);
+    } else if (marker && currentBody.startsWith(marker)) {
+      currentBody = `${marker}\n${provenanceMarker}${currentBody.slice(marker.length)}`;
+    } else {
+      currentBody = `${provenanceMarker}\n${currentBody}`;
+    }
+  }
+  return currentBody.trim();
 }
 
 function managedDefinitionsForLabels(labels) {
