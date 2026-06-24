@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 agentrix runtime 的 prompt/run/comment 构造能力
+ * [OUTPUT]: 对外提供 Agentrix runtime 的行为回归测试
+ * [POS]: test 套件中的 Agentrix runtime 契约验证，覆盖提示拼装、任务参数与评论标记
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -5,6 +12,12 @@ const path = require('node:path');
 const test = require('node:test');
 
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
+const REQUIRED_SKILL_BLOCK = '## Required Skill\n\nRead this project-level skill file before acting: `skills/issue-flow/SKILL.md`';
+
+function assertRequiredSkillAtEnd(prompt) {
+  assert.equal(prompt.trimEnd().endsWith(REQUIRED_SKILL_BLOCK), true);
+  assert.doesNotMatch(prompt, /Provider operations covered by issue-flow/);
+}
 
 function withTemporaryEnv(values, fn) {
   const previous = new Map();
@@ -90,9 +103,7 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.match(prompt, /PR body: write it to a repo-external temp file/);
   assert.match(prompt, /issue-flow pr submit/);
   assert.match(prompt, /do not put it in git/);
-  assert.match(prompt, /do not call `gh`, `glab`, `gh api`, `glab api`/);
-  assert.match(prompt, /## Required Skill/);
-  assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
+  assertRequiredSkillAtEnd(prompt);
   assert.match(prompt, /^Labels: type::bug, priority::p2$/m);
   assert.doesNotMatch(prompt, /^State: open$/m);
   assert.doesNotMatch(prompt, /^Labels: .*status::active/m);
@@ -127,7 +138,7 @@ test('agentrix build prompt injects build context without plan output section', 
     assert.match(prompt, /If that env var is absent, pass `--base main` explicitly/);
     assert.match(prompt, /issue-flow pr submit/);
     assert.match(prompt, /do not put it in git/);
-    assert.match(prompt, /Read this project-level skill file before acting: `skills\/issue-flow\/SKILL\.md`/);
+    assertRequiredSkillAtEnd(prompt);
     assert.doesNotMatch(prompt, /先判断根因类别/);
     assert.doesNotMatch(prompt, /## Plan Output/);
     assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
@@ -235,7 +246,7 @@ test('agentrix review prompt uses target URL and review submission script', () =
   assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\]/);
   assert.doesNotMatch(prompt, /--expected-head/);
   assert.match(prompt, /inline review comments/);
-  assert.match(prompt, /do not call `gh`, `glab`, `gh api`, `glab api`/);
+  assertRequiredSkillAtEnd(prompt);
   assert.match(prompt, /使用下方 review 提交命令发布结果/);
   assert.doesNotMatch(prompt, /## Issue/);
   assert.doesNotMatch(prompt, /Possible source issue/);
@@ -295,6 +306,7 @@ test('agentrix general prompt includes create issue guidance', () => {
 
   assert.match(prompt, /issue-flow issue create/);
   assert.match(prompt, /automation::off/);
+  assertRequiredSkillAtEnd(prompt);
 });
 
 test('agentrix task marker uses issue-flow namespace', () => {

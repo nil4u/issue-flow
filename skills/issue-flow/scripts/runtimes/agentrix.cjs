@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 providers.cjs 的 provider 解析、provenance.cjs 的 source marker 能力
+ * [OUTPUT]: 对外提供 Agentrix prompt、run args、resume args、task comment 的构造与执行函数
+ * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -262,8 +269,6 @@ function formatRequiredSkill() {
     '## Required Skill',
     '',
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
-    '',
-    'Provider operations covered by issue-flow must use the unified `issue-flow` CLI / `cli.cjs`; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-written provider API requests for those actions.',
   ].join('\n');
 }
 
@@ -343,7 +348,7 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   }
 
   const prompt = readPrompt(action, issue, options);
-  const blocks = [formatRequiredSkill(), '', prompt.body];
+  const blocks = [prompt.body];
 
   if ((action === 'plan' || action === 'build') && !prompt.body.includes('repo-external temp file')) {
     blocks.push('', formatPrBodyFileRule());
@@ -376,6 +381,8 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
+
+  blocks.push('', formatRequiredSkill());
 
   return blocks.join('\n');
 }
@@ -425,10 +432,11 @@ function buildReviewResumeInstruction() {
 
 function buildPullRequestPrompt(pr, data = {}, options = {}) {
   const prompt = readPrompt('review', pr, options);
-  const blocks = [formatRequiredSkill(), '', prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
+  const blocks = [prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
+  blocks.push('', formatRequiredSkill());
   return blocks.join('\n');
 }
 
