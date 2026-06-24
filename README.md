@@ -53,6 +53,32 @@ Size labels also define Weighted Throughput: for completed issues in a time wind
 
 Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
 
+## Release Management
+
+`main` is the release branch. Pushes to `main` run Release Please, which opens or updates a release PR from Conventional Commit history.
+
+The release PR updates:
+
+- `package.json`
+- `skills/issue-flow/SKILL.md`
+- `.release-please-manifest.json`
+- `CHANGELOG.md`
+
+Merge the release PR to create the GitHub release and `vX.Y.Z` tag. The release workflow does not publish to npm.
+
+Write merge commits and direct commits with Conventional Commit prefixes:
+
+- `fix:` creates a patch release.
+- `feat:` creates a minor release.
+- `feat!:` or a `BREAKING CHANGE:` footer creates a major release.
+
+Pinned installs can use a tag:
+
+```bash
+ISSUE_FLOW_REF=v0.1.1 \
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github
+```
+
 ## Reinstall and Upgrade
 
 The installer writes `.issue-flow/install-manifest.json` with the source path, mode, and sha256 for installed files. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, and removes stale files that were installed before and have not been edited.
