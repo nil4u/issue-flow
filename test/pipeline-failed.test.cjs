@@ -253,6 +253,29 @@ test('gitlab Agentrix bridge env is treated as a failed pipeline signal', () => 
   assert.equal(context.skipped, undefined);
 });
 
+test('current GitLab bridge env is treated as a failed pipeline signal', () => {
+  const context = gitlabFailureContext(
+    {},
+    { fullName: 'acme/webapp' },
+    {},
+    {
+      GITLAB_BRIDGE_EVENT_NAME: 'workflow_run',
+      GITLAB_BRIDGE_EVENT_ACTION: 'completed',
+      GITLAB_BRIDGE_WORKFLOW_RUN_CONCLUSION: 'failure',
+      GITLAB_BRIDGE_WORKFLOW_RUN_URL: 'https://gitlab.example/acme/webapp/-/pipelines/99',
+      GITLAB_BRIDGE_WORKFLOW_RUN_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      GITLAB_BRIDGE_WORKFLOW_RUN_REF: 'main',
+      ISSUE_FLOW_FAILURE_LOG: 'FAIL test/app.test.js',
+    }
+  );
+
+  assert.equal(context.provider, 'gitlab');
+  assert.equal(context.runUrl, 'https://gitlab.example/acme/webapp/-/pipelines/99');
+  assert.equal(context.commitSha, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  assert.equal(context.branch, 'main');
+  assert.equal(context.skipped, undefined);
+});
+
 test('create issue cli args forward provider-specific options', () => {
   const args = createIssueCliArgs({
     title: 'Fix CI failure',

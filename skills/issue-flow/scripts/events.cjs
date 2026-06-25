@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 
 const AGENTRIX_GITLAB_TRIGGER_SOURCE = 'agentrix_daemon_webhook';
+const GITLAB_BRIDGE_PREFIX = 'GITLAB_BRIDGE_';
 
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -23,6 +24,22 @@ function parsePositiveInteger(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function firstEnv(env, names) {
+  for (const name of names) {
+    if (env[name] !== undefined && env[name] !== '') {
+      return env[name];
+    }
+  }
+  return '';
+}
+
+function gitlabBridgeValue(env = process.env, name, legacyNames = [name]) {
+  return firstEnv(env, [
+    `${GITLAB_BRIDGE_PREFIX}${name}`,
+    ...legacyNames.map((legacyName) => `AGENTRIX_${legacyName}`),
+  ]);
+}
+
 function splitProjectPath(projectPath) {
   const parts = String(projectPath || '').split('/').filter(Boolean);
   return {
@@ -38,6 +55,9 @@ function agentrixProjectPath(env = process.env) {
   if (env.GITLAB_PROJECT_PATH) {
     return env.GITLAB_PROJECT_PATH;
   }
+  if (env.GITLAB_BRIDGE_REPOSITORY) {
+    return env.GITLAB_BRIDGE_REPOSITORY;
+  }
   if (env.AGENTRIX_REPOSITORY_OWNER && env.AGENTRIX_REPOSITORY_NAME) {
     return `${env.AGENTRIX_REPOSITORY_OWNER}/${env.AGENTRIX_REPOSITORY_NAME}`;
   }
@@ -45,7 +65,7 @@ function agentrixProjectPath(env = process.env) {
 }
 
 function labelTitlesFromEnv(env = process.env) {
-  const parsed = parseJsonArray(env.AGENTRIX_LABELS_JSON);
+  const parsed = parseJsonArray(gitlabBridgeValue(env, 'LABELS_JSON'));
   if (parsed) {
     return parsed.map((label) => {
       if (typeof label === 'string') {
@@ -60,7 +80,7 @@ function labelTitlesFromEnv(env = process.env) {
       return '';
     }).filter(Boolean);
   }
-  return String(env.AGENTRIX_LABELS || '')
+  return String(gitlabBridgeValue(env, 'LABELS') || '')
     .split(',')
     .map((label) => label.trim())
     .filter(Boolean);
@@ -77,7 +97,7 @@ function buildGitlabBridgeProject(env = process.env) {
     id: parsePositiveInteger(env.CI_PROJECT_ID),
     path: name,
     path_with_namespace: projectPath,
-    default_branch: env.CI_DEFAULT_BRANCH || env.AGENTRIX_BASE_REF || env.CI_COMMIT_REF_NAME || '',
+    default_branch: env.CI_DEFAULT_BRANCH || gitlabBridgeValue(env, 'BASE_REF') || gitlabBridgeValue(env, 'REF_NAME') || env.CI_COMMIT_REF_NAME || '',
     web_url: env.CI_PROJECT_URL || '',
   };
 }
@@ -99,26 +119,26 @@ function noteProviderAction(action) {
 function mergeRequestProviderAction(action, env = process.env) {
   if (action === 'opened') return 'open';
   if (action === 'reopened') return 'reopen';
-  if (action === 'closed' && env.AGENTRIX_PULL_REQUEST_MERGED === 'true') return 'merge';
+  if (action === 'closed' && gitlabBridgeValue(env, 'PULL_REQUEST_MERGED') === 'true') return 'merge';
   if (action === 'closed') return 'close';
   if (action === 'synchronize') return 'update';
   return action;
 }
 
 function buildGitlabBridgeIssuePayload(env = process.env, project = buildGitlabBridgeProject(env)) {
-  const action = env.AGENTRIX_EVENT_ACTION || '';
-  const issueNumber = parsePositiveInteger(env.AGENTRIX_ISSUE_NUMBER);
+  const action = gitlabBridgeValue(env, 'EVENT_ACTION') || '';
+  const issueNumber = parsePositiveInteger(gitlabBridgeValue(env, 'ISSUE_NUMBER'));
   if (!issueNumber) {
     return undefined;
   }
 
   const issue = {
     iid: issueNumber,
-    title: env.AGENTRIX_ISSUE_TITLE || '',
-    description: env.AGENTRIX_ISSUE_BODY || '',
+    title: gitlabBridgeValue(env, 'ISSUE_TITLE') || '',
+    description: gitlabBridgeValue(env, 'ISSUE_BODY') || '',
     action: issueProviderAction(action),
     state: action === 'closed' ? 'closed' : 'opened',
-    url: env.AGENTRIX_ISSUE_URL || '',
+    url: gitlabBridgeValue(env, 'ISSUE_URL') || '',
     labels: labelsFromEnv(env),
   };
 
@@ -135,11 +155,12 @@ function buildGitlabBridgeIssuePayload(env = process.env, project = buildGitlabB
 }
 
 function buildGitlabBridgeNotePayload(env = process.env, project = buildGitlabBridgeProject(env)) {
-  const action = env.AGENTRIX_EVENT_ACTION || '';
-  const subjectKind = env.AGENTRIX_SUBJECT_KIND || (env.AGENTRIX_PR_NUMBER ? 'pull_request' : 'issue');
+  const action = gitlabBridgeValue(env, 'EVENT_ACTION') || '';
+  const eventName = gitlabBridgeValue(env, 'EVENT_NAME');
+  const subjectKind = env.AGENTRIX_SUBJECT_KIND || (eventName === 'pull_request_review_comment' || gitlabBridgeValue(env, 'PR_NUMBER') ? 'pull_request' : 'issue');
   const noteableType = subjectKind === 'pull_request' ? 'MergeRequest' : 'Issue';
-  const issueNumber = parsePositiveInteger(env.AGENTRIX_ISSUE_NUMBER);
-  const mergeRequestNumber = parsePositiveInteger(env.AGENTRIX_PR_NUMBER);
+  const issueNumber = parsePositiveInteger(gitlabBridgeValue(env, 'ISSUE_NUMBER'));
+  const mergeRequestNumber = parsePositiveInteger(gitlabBridgeValue(env, 'PR_NUMBER'));
   const subjectNumber = subjectKind === 'pull_request' ? mergeRequestNumber : issueNumber;
   if (!subjectNumber) {
     return undefined;
@@ -150,11 +171,11 @@ function buildGitlabBridgeNotePayload(env = process.env, project = buildGitlabBr
     object_kind: 'note',
     project,
     object_attributes: {
-      id: parsePositiveInteger(env.AGENTRIX_COMMENT_ID) || env.AGENTRIX_COMMENT_ID,
+      id: parsePositiveInteger(gitlabBridgeValue(env, 'COMMENT_ID')) || gitlabBridgeValue(env, 'COMMENT_ID'),
       action: noteProviderAction(action),
-      note: env.AGENTRIX_COMMENT_BODY || '',
+      note: gitlabBridgeValue(env, 'COMMENT_BODY') || '',
       noteable_type: env.AGENTRIX_GITLAB_NOTEABLE_TYPE || noteableType,
-      url: env.AGENTRIX_COMMENT_URL || '',
+      url: gitlabBridgeValue(env, 'COMMENT_URL') || '',
     },
     user: {
       username: env.GITLAB_USER_LOGIN || env.GITLAB_USER_NAME || '',
@@ -165,16 +186,16 @@ function buildGitlabBridgeNotePayload(env = process.env, project = buildGitlabBr
   if (subjectKind === 'pull_request') {
     payload.merge_request = {
       iid: mergeRequestNumber,
-      source_branch: env.AGENTRIX_HEAD_REF || '',
-      target_branch: env.AGENTRIX_BASE_REF || '',
+      source_branch: gitlabBridgeValue(env, 'HEAD_REF') || '',
+      target_branch: gitlabBridgeValue(env, 'BASE_REF') || '',
     };
   } else {
     payload.issue = {
       iid: issueNumber,
-      title: env.AGENTRIX_ISSUE_TITLE || '',
-      description: env.AGENTRIX_ISSUE_BODY || '',
+      title: gitlabBridgeValue(env, 'ISSUE_TITLE') || '',
+      description: gitlabBridgeValue(env, 'ISSUE_BODY') || '',
       state: 'opened',
-      url: env.AGENTRIX_ISSUE_URL || '',
+      url: gitlabBridgeValue(env, 'ISSUE_URL') || '',
       labels: labelsFromEnv(env),
     };
   }
@@ -183,23 +204,24 @@ function buildGitlabBridgeNotePayload(env = process.env, project = buildGitlabBr
 }
 
 function buildGitlabBridgeMergeRequestPayload(env = process.env, project = buildGitlabBridgeProject(env)) {
-  const action = env.AGENTRIX_EVENT_ACTION || '';
-  const mergeRequestNumber = parsePositiveInteger(env.AGENTRIX_PR_NUMBER);
+  const action = gitlabBridgeValue(env, 'EVENT_ACTION') || '';
+  const mergeRequestNumber = parsePositiveInteger(gitlabBridgeValue(env, 'PR_NUMBER'));
   if (!mergeRequestNumber) {
     return undefined;
   }
 
-  const merged = env.AGENTRIX_PULL_REQUEST_MERGED === 'true';
+  const merged = gitlabBridgeValue(env, 'PULL_REQUEST_MERGED') === 'true';
+  const headSha = gitlabBridgeValue(env, 'HEAD_SHA') || env.CI_COMMIT_SHA;
   const attrs = {
     iid: mergeRequestNumber,
-    title: env.AGENTRIX_MR_TITLE || '',
-    description: env.AGENTRIX_PR_BODY || env.AGENTRIX_MR_DESCRIPTION || '',
+    title: gitlabBridgeValue(env, 'PR_TITLE', ['PR_TITLE', 'MR_TITLE']) || '',
+    description: gitlabBridgeValue(env, 'PR_BODY', ['PR_BODY', 'MR_DESCRIPTION']) || '',
     action: mergeRequestProviderAction(action, env),
     state: merged ? 'merged' : action === 'closed' ? 'closed' : 'opened',
-    source_branch: env.AGENTRIX_HEAD_REF || '',
-    target_branch: env.AGENTRIX_BASE_REF || '',
-    last_commit: env.AGENTRIX_HEAD_SHA || env.CI_COMMIT_SHA ? { id: env.AGENTRIX_HEAD_SHA || env.CI_COMMIT_SHA } : undefined,
-    url: env.AGENTRIX_MR_URL || '',
+    source_branch: gitlabBridgeValue(env, 'HEAD_REF') || '',
+    target_branch: gitlabBridgeValue(env, 'BASE_REF') || '',
+    last_commit: headSha ? { id: headSha } : undefined,
+    url: gitlabBridgeValue(env, 'PR_URL', ['PR_URL', 'MR_URL']) || '',
     labels: labelsFromEnv(env),
   };
 
@@ -216,7 +238,7 @@ function buildGitlabBridgeMergeRequestPayload(env = process.env, project = build
 }
 
 function isAgentrixGitlabBridgeEnv(env = process.env) {
-  return env.AGENTRIX_TRIGGER_SOURCE === AGENTRIX_GITLAB_TRIGGER_SOURCE && env.AGENTRIX_PROVIDER === 'gitlab';
+  return Boolean(env.GITLAB_BRIDGE_EVENT_NAME) || (env.AGENTRIX_TRIGGER_SOURCE === AGENTRIX_GITLAB_TRIGGER_SOURCE && env.AGENTRIX_PROVIDER === 'gitlab');
 }
 
 function buildAgentrixGitlabBridgePayload(env = process.env) {
@@ -225,7 +247,7 @@ function buildAgentrixGitlabBridgePayload(env = process.env) {
   }
 
   const project = buildGitlabBridgeProject(env);
-  switch (env.AGENTRIX_EVENT_NAME) {
+  switch (gitlabBridgeValue(env, 'EVENT_NAME')) {
     case 'issues':
       return buildGitlabBridgeIssuePayload(env, project);
     case 'issue_comment':
@@ -240,7 +262,7 @@ function buildAgentrixGitlabBridgePayload(env = process.env) {
 }
 
 function resolveEventPath(options = {}, env = process.env) {
-  return options.event || env.GITHUB_EVENT_PATH || env.GITLAB_EVENT_PATH || '';
+  return options.event || env.GITHUB_EVENT_PATH || env.GITLAB_EVENT_PATH || env.GITLAB_BRIDGE_EVENT_PATH || '';
 }
 
 function loadEventPayload(options = {}, env = process.env) {
@@ -275,6 +297,7 @@ module.exports = {
   buildGitlabBridgeIssuePayload,
   buildGitlabBridgeMergeRequestPayload,
   buildGitlabBridgeNotePayload,
+  gitlabBridgeValue,
   isAgentrixGitlabBridgeEnv,
   labelTitlesFromEnv,
   loadEventPayload,

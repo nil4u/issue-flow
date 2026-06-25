@@ -290,6 +290,8 @@ function resolvePromptBaseBranch(data = {}, options = {}) {
   const payload = data.payload || {};
   return normalizeBranchName(
     process.env.AGENTRIX_BASE_REF ||
+    process.env.GITLAB_BRIDGE_BASE_REF ||
+    process.env.GITLAB_BRIDGE_REF_NAME ||
     options.base ||
     data.baseRef ||
     data.pullRequest?.baseRef ||
@@ -299,6 +301,7 @@ function resolvePromptBaseBranch(data = {}, options = {}) {
     payload.repository?.default_branch ||
     process.env.CI_DEFAULT_BRANCH ||
     process.env.GITHUB_BASE_REF ||
+    process.env.GITLAB_BRIDGE_WORKFLOW_RUN_REF ||
     process.env.AGENTRIX_REF
   );
 }
@@ -576,12 +579,35 @@ function buildAgentrixRunEnv(provider, action, env = process.env) {
   }
   childEnv.AGENTRIX_EVENT_NAME =
     env.AGENTRIX_EVENT_NAME ||
+    env.GITLAB_BRIDGE_EVENT_NAME ||
     env[provider.envEventName] ||
     env.GITHUB_EVENT_NAME ||
     env.GITLAB_EVENT_NAME ||
     'issue_flow';
-  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || action;
+  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || env.GITLAB_BRIDGE_EVENT_ACTION || action;
+  copyBridgeEnv(childEnv, 'AGENTRIX_BASE_REF', ['GITLAB_BRIDGE_BASE_REF', 'GITLAB_BRIDGE_REF_NAME']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_REF', ['GITLAB_BRIDGE_HEAD_REF']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_SHA', ['GITLAB_BRIDGE_HEAD_SHA']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_PR_NUMBER', ['GITLAB_BRIDGE_PR_NUMBER']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_ISSUE_NUMBER', ['GITLAB_BRIDGE_ISSUE_NUMBER']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS', ['GITLAB_BRIDGE_LABELS']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS_JSON', ['GITLAB_BRIDGE_LABELS_JSON']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_PR_BODY', ['GITLAB_BRIDGE_PR_BODY']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_REF', ['GITLAB_BRIDGE_WORKFLOW_RUN_REF', 'GITLAB_BRIDGE_REF_NAME']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_SHA', ['GITLAB_BRIDGE_WORKFLOW_RUN_SHA', 'GITLAB_BRIDGE_HEAD_SHA']);
   return childEnv;
+}
+
+function copyBridgeEnv(env, target, sources) {
+  if (env[target]) {
+    return;
+  }
+  for (const source of sources) {
+    if (env[source]) {
+      env[target] = env[source];
+      return;
+    }
+  }
 }
 
 function run(action, issue, options = {}, data = {}) {

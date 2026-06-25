@@ -145,6 +145,26 @@ test('agentrix build prompt injects build context without plan output section', 
   });
 });
 
+test('agentrix build prompt accepts current GitLab bridge base ref', () => {
+  withTemporaryEnv({ AGENTRIX_BASE_REF: undefined, GITLAB_BRIDGE_BASE_REF: 'main' }, () => {
+    const prompt = agentrix.buildPrompt(
+      'build',
+      {
+        number: 42,
+        state: 'open',
+        labels: ['type::feature', 'flow::build'],
+        title: 'Add export button',
+        body: 'Add CSV export.',
+      },
+      {},
+      { planRootDir: '.work/items' }
+    );
+
+    assert.match(prompt, /Base branch: `main`/);
+    assert.match(prompt, /pass `--base main` explicitly/);
+  });
+});
+
 test('agentrix build prompt uses CI failure template for failure intake issues', () => {
   const prompt = agentrix.buildPrompt(
     'build',
@@ -446,6 +466,30 @@ test('agentrix-run child env does not forward provider tokens', () => {
   assert.equal(env.AGENTRIX_RUNNER_ID, 'runner-1');
   assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
   assert.equal(env.AGENTRIX_EVENT_ACTION, 'review');
+});
+
+test('agentrix-run child env maps current GitLab bridge variables to Agentrix compatibility names', () => {
+  const env = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'build',
+    {
+      GITLAB_BRIDGE_EVENT_NAME: 'pull_request',
+      GITLAB_BRIDGE_EVENT_ACTION: 'opened',
+      GITLAB_BRIDGE_BASE_REF: 'main',
+      GITLAB_BRIDGE_HEAD_REF: 'feature/auth',
+      GITLAB_BRIDGE_HEAD_SHA: 'abc123',
+      GITLAB_BRIDGE_PR_NUMBER: '7',
+      GITLAB_BRIDGE_LABELS_JSON: '["mr-by::build"]',
+    }
+  );
+
+  assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
+  assert.equal(env.AGENTRIX_EVENT_ACTION, 'opened');
+  assert.equal(env.AGENTRIX_BASE_REF, 'main');
+  assert.equal(env.AGENTRIX_HEAD_REF, 'feature/auth');
+  assert.equal(env.AGENTRIX_HEAD_SHA, 'abc123');
+  assert.equal(env.AGENTRIX_PR_NUMBER, '7');
+  assert.equal(env.AGENTRIX_LABELS_JSON, '["mr-by::build"]');
 });
 
 test('agentrix review comment resume instruction stays minimal', () => {

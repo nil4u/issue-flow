@@ -186,7 +186,7 @@ function normalizeBranchName(value) {
 }
 
 function resolveAgentrixWorkerBaseBranch(env = process.env) {
-  return normalizeBranchName(env.AGENTRIX_BASE_REF);
+  return normalizeBranchName(env.AGENTRIX_BASE_REF || env.GITLAB_BRIDGE_BASE_REF || env.GITLAB_BRIDGE_REF_NAME);
 }
 
 function resolveBaseBranch(options) {
@@ -199,7 +199,7 @@ function resolveBaseBranch(options) {
     return options.base;
   }
 
-  throw new Error('Unable to resolve PR/MR base branch. Set AGENTRIX_BASE_REF in the Agentrix worker environment or pass --base <branch>.');
+  throw new Error('Unable to resolve PR/MR base branch. Set AGENTRIX_BASE_REF/GITLAB_BRIDGE_BASE_REF in the worker environment or pass --base <branch>.');
 }
 
 function assertCleanWorktree(options) {
