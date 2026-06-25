@@ -7,25 +7,27 @@ Label-based issue state machine and deterministic GitHub/GitLab issue automation
 Run this from the project you want to enable:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github
 ```
 
 For GitLab:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- gitlab
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh gitlab
 ```
+
+Downloading the installer before running it keeps stdin attached to your terminal, so reinstall conflicts can prompt for `skip`, `overwrite`, `skip all`, or `overwrite all`. The `curl | bash` form is fine for one-off non-interactive installs, but it cannot show conflict prompts because stdin is already occupied by the pipe.
 
 Preview without writing files:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github --dry-run
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --dry-run
 ```
 
 Overwrite generated files:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github --force
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --force
 ```
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.

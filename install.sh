@@ -12,8 +12,11 @@ Installs issue-flow into the current project.
 After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github
-  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- gitlab --dry-run
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh gitlab --dry-run
+
+Download before running when reinstall conflicts may need a prompt.
+The curl | bash form cannot prompt because stdin is occupied by the pipe.
 
 Environment:
   ISSUE_FLOW_REPO  Git repository to clone. Defaults to https://github.com/nil4u/issue-flow.git
