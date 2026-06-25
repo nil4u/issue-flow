@@ -425,7 +425,7 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   );
 
   assert.equal(args[args.indexOf('--resume') + 1], 'task-123');
-  assert.equal(args[1], '@agentrix/agentrix-run@0.7.0');
+  assert.equal(args[1], '@agentrix/agentrix-run@latest');
   assert.ok(args.includes('--prompt'));
   assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
   assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');

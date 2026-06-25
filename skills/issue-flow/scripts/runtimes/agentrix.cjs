@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 providers.cjs 的 provider 解析、provenance.cjs 的 source marker 能力
- * [OUTPUT]: 对外提供 Agentrix prompt、run args、resume args、task comment 的构造与执行函数
+ * [OUTPUT]: 对外提供 Agentrix prompt、agentrix-run package、run/resume args、task comment 的构造与执行函数
  * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -14,7 +14,7 @@ const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
-const DEFAULT_AGENTRIX_RUN_VERSION = '0.7.0';
+const DEFAULT_AGENTRIX_RUN_VERSION = 'latest';
 const DEFAULT_MENTION = '@agentrix';
 const MENTION_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/i;
 const MENTION_REPLACE_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/gi;
