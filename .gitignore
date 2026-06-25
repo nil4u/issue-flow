@@ -1,3 +1,32 @@
+# Environment
 .env
+.env.*
+
+# Dependencies
 node_modules/
+
+# Build output
+dist/
+*.tgz
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Runtime artifacts
 tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Console (planned module)
+console/*/node_modules/
+console/web/dist/
