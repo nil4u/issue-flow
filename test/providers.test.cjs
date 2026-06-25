@@ -805,6 +805,17 @@ test('agentrix GitLab bridge labels parse from JSON first', () => {
   );
 });
 
+test('GitLab bridge labels prefer the current default variable prefix', () => {
+  assert.deepEqual(
+    labelTitlesFromEnv({
+      GITLAB_BRIDGE_LABELS: 'stale',
+      GITLAB_BRIDGE_LABELS_JSON: '["flow::plan","automation::plan"]',
+      AGENTRIX_LABELS_JSON: '["flow::build"]',
+    }),
+    ['flow::plan', 'automation::plan']
+  );
+});
+
 test('gitlab base URL defaults from the git remote host', () => {
   assert.deepEqual(parseGitRemoteUrl('git@git.internal.example:group/sub/project.git'), {
     host: 'git.internal.example',
@@ -1279,6 +1290,36 @@ test('agentrix GitLab bridge issue event normalizes to issue-flow context', () =
   });
 });
 
+test('current GitLab bridge issue event normalizes to issue-flow context', () => {
+  const payload = buildAgentrixGitlabBridgePayload({
+    GITLAB_BRIDGE_EVENT_NAME: 'issues',
+    GITLAB_BRIDGE_EVENT_ACTION: 'labeled',
+    GITLAB_BRIDGE_ISSUE_NUMBER: '17',
+    GITLAB_BRIDGE_ISSUE_TITLE: 'Support GitLab bridge',
+    GITLAB_BRIDGE_ISSUE_URL: 'https://gitlab.example/acme/platform/-/issues/17',
+    GITLAB_BRIDGE_LABELS_JSON: '["status::active","flow::build","automation::build"]',
+    CI_PROJECT_ID: '42',
+    CI_PROJECT_PATH: 'acme/platform',
+    CI_PROJECT_URL: 'https://gitlab.example/acme/platform',
+  });
+  const provider = resolveProvider({}, payload);
+
+  assert.deepEqual(provider.buildIssueContext(payload, {}), {
+    provider: 'gitlab',
+    owner: 'acme',
+    repo: 'platform',
+    repoFullName: 'acme/platform',
+    projectId: '42',
+    number: 17,
+    title: 'Support GitLab bridge',
+    body: '',
+    htmlUrl: 'https://gitlab.example/acme/platform/-/issues/17',
+    state: 'open',
+    author: '',
+    labels: ['status::active', 'flow::build', 'automation::build'],
+  });
+});
+
 test('agentrix GitLab bridge issue comment event carries note context', () => {
   const payload = buildAgentrixGitlabBridgePayload({
     AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
@@ -1303,6 +1344,27 @@ test('agentrix GitLab bridge issue comment event carries note context', () => {
     htmlUrl: 'https://gitlab.example/acme/platform/-/issues/17#note_101',
   });
   assert.equal(provider.buildIssueContext(payload, { provider: 'gitlab' }).number, 17);
+});
+
+test('current GitLab bridge merge request note carries review comment context', () => {
+  const payload = buildAgentrixGitlabBridgePayload({
+    GITLAB_BRIDGE_EVENT_NAME: 'issue_comment',
+    GITLAB_BRIDGE_EVENT_ACTION: 'created',
+    GITLAB_BRIDGE_PR_NUMBER: '7',
+    GITLAB_BRIDGE_COMMENT_ID: '101',
+    GITLAB_BRIDGE_COMMENT_BODY: '@agentrix please review',
+    GITLAB_BRIDGE_COMMENT_URL: 'https://gitlab.example/acme/platform/-/merge_requests/7#note_101',
+    GITLAB_BRIDGE_HEAD_REF: 'feature/auth',
+    GITLAB_BRIDGE_BASE_REF: 'main',
+    CI_PROJECT_ID: '42',
+    CI_PROJECT_PATH: 'acme/platform',
+  });
+  const provider = resolveProvider({}, payload);
+
+  assert.equal(provider.isPullRequestIssue(payload), true);
+  assert.deepEqual(provider.isReviewCommentCreatedEvent(payload), { ok: true });
+  assert.equal(provider.getReviewCommentContext(payload).body, '@agentrix please review');
+  assert.equal(provider.buildPullRequestContext(payload, {}).number, 7);
 });
 
 test('gitlab issue payload normalizes to issue-flow context', () => {

@@ -697,3 +697,35 @@ test('dispatch pr-merged accepts Agentrix GitLab bridge MR labels and body', asy
     assert.equal(result.autoResume.result.status, 'dry-run');
   });
 });
+
+test('dispatch pr-merged accepts current GitLab bridge MR labels and body', async () => {
+  await withEnv({
+    GITLAB_BRIDGE_EVENT_NAME: 'pull_request',
+    GITLAB_BRIDGE_EVENT_ACTION: 'closed',
+    GITLAB_BRIDGE_PULL_REQUEST_MERGED: 'true',
+    GITLAB_BRIDGE_PR_NUMBER: '7',
+    GITLAB_BRIDGE_HEAD_REF: '42-add-widget-support/plan',
+    GITLAB_BRIDGE_BASE_REF: 'main',
+    GITLAB_BRIDGE_PR_TITLE: 'Plan #42: Add widget support',
+    GITLAB_BRIDGE_PR_BODY: '<!-- issue-flow:source-issue=42 -->\nSource issue: #42',
+    GITLAB_BRIDGE_PR_URL: 'https://gitlab.example/example/platform/-/merge_requests/7',
+    GITLAB_BRIDGE_LABELS_JSON: '["mr-by::plan"]',
+    CI_PROJECT_ID: '99',
+    CI_PROJECT_PATH: 'example/platform',
+    GITHUB_EVENT_PATH: undefined,
+    GITLAB_EVENT_PATH: undefined,
+  }, async () => {
+    const result = await runPrMerged({
+      provider: 'gitlab',
+      dryRun: true,
+      autoDefault: 'build',
+    });
+
+    assert.equal(result.transition.provider, 'gitlab');
+    assert.equal(result.transition.action, 'applied');
+    assert.equal(result.transition.issueNumber, 42);
+    assert.equal(result.transition.flow, 'flow::build');
+    assert.equal(result.autoResume.action, 'build');
+    assert.equal(result.autoResume.result.status, 'dry-run');
+  });
+});

@@ -1,0 +1,33 @@
+# [INPUT]: 依赖 main push/workflow_dispatch、release-please-config.json 与 .release-please-manifest.json
+# [OUTPUT]: 创建或更新 release PR；release PR 合并后创建 GitHub Release 与 vX.Y.Z tag
+# [POS]: workflows 的发布自动化入口，统一维护 package.json、SKILL.md、CHANGELOG 与 manifest 版本
+# [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Create or update release PR
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

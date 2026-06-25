@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "23c392a369d1b98a70a084ae842fa26124767827",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "issue-flow",
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": false,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "skills/issue-flow/SKILL.md"
+        }
+      ]
+    }
+  }
+}

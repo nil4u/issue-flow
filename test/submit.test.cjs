@@ -124,6 +124,26 @@ test('submit base branch prefers Agentrix worker base ref over explicit base fal
       CI_DEFAULT_BRANCH: 'main',
       CI_MERGE_REQUEST_TARGET_BRANCH_NAME: undefined,
       AGENTRIX_BASE_REF: 'release/2026',
+      GITLAB_BRIDGE_BASE_REF: undefined,
+      GITHUB_BASE_REF: undefined,
+      GITHUB_EVENT_PATH: undefined,
+      GITLAB_EVENT_PATH: undefined,
+    },
+    () => {
+      assert.equal(resolveBaseBranch({ base: 'develop' }), 'release/2026');
+    }
+  );
+});
+
+test('submit base branch accepts current GitLab bridge base ref', () => {
+  withTemporaryEnv(
+    {
+      ISSUE_FLOW_BASE_BRANCH: undefined,
+      CI_DEFAULT_BRANCH: 'main',
+      CI_MERGE_REQUEST_TARGET_BRANCH_NAME: undefined,
+      AGENTRIX_BASE_REF: undefined,
+      GITLAB_BRIDGE_BASE_REF: 'release/2026',
+      GITLAB_BRIDGE_REF_NAME: undefined,
       GITHUB_BASE_REF: undefined,
       GITHUB_EVENT_PATH: undefined,
       GITLAB_EVENT_PATH: undefined,
@@ -141,6 +161,8 @@ test('submit base branch uses explicit base when Agentrix worker base ref is abs
       CI_DEFAULT_BRANCH: 'main',
       CI_MERGE_REQUEST_TARGET_BRANCH_NAME: 'target-from-ci',
       AGENTRIX_BASE_REF: undefined,
+      GITLAB_BRIDGE_BASE_REF: undefined,
+      GITLAB_BRIDGE_REF_NAME: undefined,
       GITHUB_BASE_REF: 'target-from-github',
       GITHUB_EVENT_PATH: undefined,
       GITLAB_EVENT_PATH: undefined,
@@ -158,6 +180,8 @@ test('submit base branch fails fast when no Agentrix worker env or explicit base
       CI_DEFAULT_BRANCH: undefined,
       CI_MERGE_REQUEST_TARGET_BRANCH_NAME: undefined,
       AGENTRIX_BASE_REF: undefined,
+      GITLAB_BRIDGE_BASE_REF: undefined,
+      GITLAB_BRIDGE_REF_NAME: undefined,
       GITHUB_BASE_REF: undefined,
       GITHUB_EVENT_PATH: undefined,
       GITLAB_EVENT_PATH: undefined,
@@ -165,7 +189,7 @@ test('submit base branch fails fast when no Agentrix worker env or explicit base
     () => {
       assert.throws(
         () => resolveBaseBranch({}),
-        /Set AGENTRIX_BASE_REF in the Agentrix worker environment or pass --base <branch>/
+        /Set AGENTRIX_BASE_REF\/GITLAB_BRIDGE_BASE_REF in the worker environment or pass --base <branch>/
       );
     }
   );

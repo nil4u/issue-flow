@@ -30,6 +30,9 @@ function detectProvider(options = {}, payload = {}) {
   if (process.env.AGENTRIX_PROVIDER) {
     return normalizeProviderName(process.env.AGENTRIX_PROVIDER);
   }
+  if (process.env.GITLAB_BRIDGE_EVENT_NAME) {
+    return 'gitlab';
+  }
   if (options.gitlabUrl || options.gitlabApiUrl || process.env.GITLAB_BASE_URL || process.env.GITLAB_API_URL) {
     return 'gitlab';
   }
@@ -989,6 +992,7 @@ function resolveGitlabRepo(payload = {}, options = {}) {
     options.gitlabProject,
     process.env.GITLAB_PROJECT_PATH,
     process.env.CI_PROJECT_PATH,
+    process.env.GITLAB_BRIDGE_REPOSITORY,
     process.env.AGENTRIX_REPOSITORY_OWNER && process.env.AGENTRIX_REPOSITORY_NAME
       ? `${process.env.AGENTRIX_REPOSITORY_OWNER}/${process.env.AGENTRIX_REPOSITORY_NAME}`
       : '',
@@ -1316,7 +1320,7 @@ function isGitlabReviewCommentCreatedEvent(payload = {}) {
       reason: 'not_pull_request_review_comment',
     };
   }
-  const action = String(note.action || payload.action || process.env.AGENTRIX_EVENT_ACTION || 'create').toLowerCase();
+  const action = String(note.action || payload.action || process.env.GITLAB_BRIDGE_EVENT_ACTION || process.env.AGENTRIX_EVENT_ACTION || 'create').toLowerCase();
   if (action && action !== 'create' && action !== 'created') {
     return {
       ok: false,

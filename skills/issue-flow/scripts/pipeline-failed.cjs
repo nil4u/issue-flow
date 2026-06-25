@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { loadEventPayload } = require('./events.cjs');
+const { gitlabBridgeValue, loadEventPayload } = require('./events.cjs');
 const { resolveProvider } = require('./providers.cjs');
 const { computeLabelChanges } = require('./apply.cjs');
 
@@ -354,24 +354,25 @@ function gitlabFailureContext(payload, repo, options = {}, env = process.env) {
   const hasPayloadFailure = payload.object_kind === 'pipeline' || payload.object_kind === 'job' || isFailedGitlabPayload(payload);
   const hasEnvFailure =
     env.CI_JOB_STATUS === 'failed' ||
-    env.AGENTRIX_EVENT_ACTION === 'failed' ||
-    env.AGENTRIX_WORKFLOW_RUN_CONCLUSION === 'failure' ||
-    env.AGENTRIX_PIPELINE_STATUS === 'failed';
+    gitlabBridgeValue(env, 'EVENT_ACTION') === 'failed' ||
+    gitlabBridgeValue(env, 'WORKFLOW_RUN_CONCLUSION') === 'failure' ||
+    gitlabBridgeValue(env, 'PIPELINE_STATUS') === 'failed';
   if (!hasPayloadFailure && !hasEnvFailure) {
     return { skipped: true, reason: 'gitlab_pipeline_or_job_not_failed' };
   }
 
+  const prNumber = gitlabBridgeValue(env, 'PR_NUMBER');
   return {
     provider: 'gitlab',
     repoFullName: repo.fullName,
-    workflowName: attrs.name || attrs.ref || env.AGENTRIX_PIPELINE_NAME || env.CI_PIPELINE_NAME || 'GitLab CI',
-    jobName: build.name || attrs.name || env.AGENTRIX_JOB_NAME || env.CI_JOB_NAME || '',
+    workflowName: attrs.name || attrs.ref || gitlabBridgeValue(env, 'PIPELINE_NAME') || env.CI_PIPELINE_NAME || 'GitLab CI',
+    jobName: build.name || attrs.name || gitlabBridgeValue(env, 'JOB_NAME') || env.CI_JOB_NAME || '',
     stepName: env.ISSUE_FLOW_FAILURE_STEP || '',
-    runUrl: build.web_url || attrs.url || env.AGENTRIX_JOB_URL || env.AGENTRIX_PIPELINE_URL || env.CI_JOB_URL || env.CI_PIPELINE_URL || '',
-    commitSha: attrs.sha || env.AGENTRIX_COMMIT_SHA || env.AGENTRIX_SHA || env.CI_COMMIT_SHA || '',
-    branch: attrs.ref || env.AGENTRIX_REF || env.CI_COMMIT_REF_NAME || '',
-    pullRequest: env.AGENTRIX_PR_NUMBER ? `!${env.AGENTRIX_PR_NUMBER}` : env.CI_MERGE_REQUEST_IID ? `!${env.CI_MERGE_REQUEST_IID}` : '',
-    log: truncate(readOptionalLogFile(options, env) || env.ISSUE_FLOW_FAILURE_LOG || env.AGENTRIX_FAILURE_LOG || '', LOG_LIMIT),
+    runUrl: build.web_url || attrs.url || gitlabBridgeValue(env, 'WORKFLOW_RUN_URL', ['WORKFLOW_RUN_URL', 'JOB_URL', 'PIPELINE_URL']) || env.CI_JOB_URL || env.CI_PIPELINE_URL || '',
+    commitSha: attrs.sha || gitlabBridgeValue(env, 'WORKFLOW_RUN_SHA', ['WORKFLOW_RUN_SHA', 'COMMIT_SHA', 'SHA']) || env.CI_COMMIT_SHA || '',
+    branch: attrs.ref || gitlabBridgeValue(env, 'WORKFLOW_RUN_REF', ['WORKFLOW_RUN_REF', 'REF']) || env.CI_COMMIT_REF_NAME || '',
+    pullRequest: prNumber ? `!${prNumber}` : env.CI_MERGE_REQUEST_IID ? `!${env.CI_MERGE_REQUEST_IID}` : '',
+    log: truncate(readOptionalLogFile(options, env) || env.ISSUE_FLOW_FAILURE_LOG || gitlabBridgeValue(env, 'FAILURE_LOG') || '', LOG_LIMIT),
     raw: payload,
   };
 }

@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 providers.cjs 的 provider 解析、provenance.cjs 的 source marker 能力
+ * [OUTPUT]: 对外提供 Agentrix prompt、run args、resume args、task comment 的构造与执行函数
+ * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -262,8 +269,6 @@ function formatRequiredSkill() {
     '## Required Skill',
     '',
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
-    '',
-    'Provider operations covered by issue-flow must use the unified `issue-flow` CLI / `cli.cjs`; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-written provider API requests for those actions.',
   ].join('\n');
 }
 
@@ -285,6 +290,8 @@ function resolvePromptBaseBranch(data = {}, options = {}) {
   const payload = data.payload || {};
   return normalizeBranchName(
     process.env.AGENTRIX_BASE_REF ||
+    process.env.GITLAB_BRIDGE_BASE_REF ||
+    process.env.GITLAB_BRIDGE_REF_NAME ||
     options.base ||
     data.baseRef ||
     data.pullRequest?.baseRef ||
@@ -294,6 +301,7 @@ function resolvePromptBaseBranch(data = {}, options = {}) {
     payload.repository?.default_branch ||
     process.env.CI_DEFAULT_BRANCH ||
     process.env.GITHUB_BASE_REF ||
+    process.env.GITLAB_BRIDGE_WORKFLOW_RUN_REF ||
     process.env.AGENTRIX_REF
   );
 }
@@ -343,7 +351,7 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   }
 
   const prompt = readPrompt(action, issue, options);
-  const blocks = [formatRequiredSkill(), '', prompt.body];
+  const blocks = [prompt.body];
 
   if ((action === 'plan' || action === 'build') && !prompt.body.includes('repo-external temp file')) {
     blocks.push('', formatPrBodyFileRule());
@@ -376,6 +384,8 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
+
+  blocks.push('', formatRequiredSkill());
 
   return blocks.join('\n');
 }
@@ -425,10 +435,11 @@ function buildReviewResumeInstruction() {
 
 function buildPullRequestPrompt(pr, data = {}, options = {}) {
   const prompt = readPrompt('review', pr, options);
-  const blocks = [formatRequiredSkill(), '', prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
+  const blocks = [prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
+  blocks.push('', formatRequiredSkill());
   return blocks.join('\n');
 }
 
@@ -568,12 +579,35 @@ function buildAgentrixRunEnv(provider, action, env = process.env) {
   }
   childEnv.AGENTRIX_EVENT_NAME =
     env.AGENTRIX_EVENT_NAME ||
+    env.GITLAB_BRIDGE_EVENT_NAME ||
     env[provider.envEventName] ||
     env.GITHUB_EVENT_NAME ||
     env.GITLAB_EVENT_NAME ||
     'issue_flow';
-  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || action;
+  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || env.GITLAB_BRIDGE_EVENT_ACTION || action;
+  copyBridgeEnv(childEnv, 'AGENTRIX_BASE_REF', ['GITLAB_BRIDGE_BASE_REF', 'GITLAB_BRIDGE_REF_NAME']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_REF', ['GITLAB_BRIDGE_HEAD_REF']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_SHA', ['GITLAB_BRIDGE_HEAD_SHA']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_PR_NUMBER', ['GITLAB_BRIDGE_PR_NUMBER']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_ISSUE_NUMBER', ['GITLAB_BRIDGE_ISSUE_NUMBER']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS', ['GITLAB_BRIDGE_LABELS']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS_JSON', ['GITLAB_BRIDGE_LABELS_JSON']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_PR_BODY', ['GITLAB_BRIDGE_PR_BODY']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_REF', ['GITLAB_BRIDGE_WORKFLOW_RUN_REF', 'GITLAB_BRIDGE_REF_NAME']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_SHA', ['GITLAB_BRIDGE_WORKFLOW_RUN_SHA', 'GITLAB_BRIDGE_HEAD_SHA']);
   return childEnv;
+}
+
+function copyBridgeEnv(env, target, sources) {
+  if (env[target]) {
+    return;
+  }
+  for (const source of sources) {
+    if (env[source]) {
+      env[target] = env[source];
+      return;
+    }
+  }
 }
 
 function run(action, issue, options = {}, data = {}) {

@@ -387,34 +387,36 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /issue-flow-labels:/);
     assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
     assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issues"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_LABELS_JSON =~ \/failure::ci\//);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_ISSUE_TITLE =~ \/\^Fix CI failure:\//);
     assert.match(gitlabWorkflow, /AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook"/);
-    assert.match(gitlabWorkflow, /AGENTRIX_LABELS_JSON =~ \/failure::ci\//);
-    assert.match(gitlabWorkflow, /AGENTRIX_ISSUE_TITLE =~ \/\^Fix CI failure:\//);
     assert.ok(
-      gitlabWorkflow.indexOf('AGENTRIX_LABELS_JSON =~ /failure::ci/') <
-        gitlabWorkflow.indexOf('AGENTRIX_EVENT_ACTION == "opened"'),
+      gitlabWorkflow.indexOf('GITLAB_BRIDGE_LABELS_JSON =~ /failure::ci/') <
+        gitlabWorkflow.indexOf('GITLAB_BRIDGE_EVENT_ACTION == "opened"'),
       'GitLab failure::ci skip rule should run before issue opened auto routing'
     );
-    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "pull_request"/);
-    assert.match(gitlabWorkflow, /\$\{AGENTRIX_EVENT_ACTION:-\}" = "opened"/);
-    assert.match(gitlabWorkflow, /intake\.cjs --issue-number "\$AGENTRIX_ISSUE_NUMBER"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "pull_request"/);
+    assert.match(gitlabWorkflow, /bridge_event_action="\$\{GITLAB_BRIDGE_EVENT_ACTION:-\$\{AGENTRIX_EVENT_ACTION:-\}\}"/);
+    assert.match(gitlabWorkflow, /intake\.cjs --issue-number "\$bridge_issue_number"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs auto/);
     assert.match(gitlabWorkflow, /issue-flow-review:/);
     assert.match(gitlabWorkflow, /ISSUE_FLOW_REVIEW_ENABLED =~ \/\^\(true\|1\)\$\//);
-    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_ACTION == "ready_for_review"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_ACTION == "ready_for_review"/);
     assert.match(gitlabWorkflow, /git fetch origin "\$\{CI_DEFAULT_BRANCH:-main\}" --depth 1/);
     assert.match(gitlabWorkflow, /git checkout FETCH_HEAD -- \.agentrix\/plugins\/issue-flow \.issue-flow/);
-    assert.match(gitlabWorkflow, /--pr-number "\$AGENTRIX_PR_NUMBER"/);
+    assert.match(gitlabWorkflow, /--pr-number "\$bridge_pr_number"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs review/);
     assert.match(gitlabWorkflow, /issue-flow-review-comment:/);
-    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "pull_request_review_comment"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "pull_request_review_comment"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && \$GITLAB_BRIDGE_PR_NUMBER/);
     assert.match(gitlabWorkflow, /GITLAB_EVENT_NAME == "note"/);
     assert.match(gitlabWorkflow, /cli\.cjs dispatch review-comment/);
     assert.match(gitlabWorkflow, /issue-flow-failure-intake:/);
     assert.doesNotMatch(gitlabWorkflow, /stage: \.post/);
-    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "workflow_run"/);
-    assert.match(gitlabWorkflow, /AGENTRIX_EVENT_ACTION == "completed"/);
-    assert.match(gitlabWorkflow, /AGENTRIX_WORKFLOW_RUN_CONCLUSION == "failure"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "workflow_run"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_ACTION == "completed"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_WORKFLOW_RUN_CONCLUSION == "failure"/);
     assert.match(gitlabWorkflow, /AGENTRIX_PIPELINE_STATUS == "failed"/);
     assert.doesNotMatch(gitlabWorkflow, /when: on_failure/);
     assert.doesNotMatch(gitlabWorkflow, /ISSUE_FLOW_PIPELINE_FAILED/);
