@@ -335,33 +335,28 @@ test('agentrix task marker uses issue-flow namespace', () => {
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
     '<!-- issue-flow:agentrix:task:review -->'
   );
+  const reviewComment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+    pullRequest: {
+      body: '<!-- issue-flow:agentrix:task=task-build -->',
+      headSha: 'abc123',
+    },
+  });
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
-      pullRequest: {
-        body: '<!-- issue-flow:agentrix:task=task-build -->',
-        headSha: 'abc123',
-      },
-    }),
-    /Review task: `task-review`/
+    reviewComment,
+    /^- Review task: `task-review`$/m
   );
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
-      pullRequest: {
-        body: '<!-- issue-flow:agentrix:task=task-build -->',
-        headSha: 'abc123',
-      },
-    }),
-    /Build task: `task-build`/
+    reviewComment,
+    /^- Build task: `task-build`$/m
   );
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
-      pullRequest: {
-        body: '<!-- issue-flow:agentrix:task=task-build -->',
-        headSha: 'abc123',
-      },
-    }),
-    /Head: `abc123`/
+    reviewComment,
+    /^- Head: `abc123`$/m
   );
+  assert.equal(agentrix.extractRunIdFromTaskComment(reviewComment), 'task-review');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment(reviewComment), 'abc123');
+  assert.equal(agentrix.extractRunIdFromTaskComment('Review task: `legacy-task`'), 'legacy-task');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment('Head: `legacy-head`'), 'legacy-head');
   assert.match(
     agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
     /<!-- issue-flow:source source_task_id=task-review source_agent=codex -->/

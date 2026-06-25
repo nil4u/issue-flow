@@ -22,8 +22,9 @@ const DEFAULT_PROJECT_CONFIG_PATH = '.issue-flow/config.json';
 const DEFAULT_PROMPTS_DIR = '.issue-flow/prompts';
 const DEFAULT_TEMPLATES_DIR = '.issue-flow/templates';
 const DEFAULT_PLAN_ROOT_DIR = '.issue-flow/issues';
-const TASK_COMMENT_RUN_PATTERN = /^Run:\s*`([^`]+)`\s*$/im;
-const REVIEW_COMMENT_HEAD_PATTERN = /^Head:\s*`([^`]+)`\s*$/im;
+const TASK_COMMENT_RUN_PATTERN = /^(?:[-*]\s+)?Run:\s*`([^`]+)`\s*$/im;
+const REVIEW_COMMENT_TASK_PATTERN = /^(?:[-*]\s+)?Review task:\s*`([^`]+)`\s*$/im;
+const REVIEW_COMMENT_HEAD_PATTERN = /^(?:[-*]\s+)?Head:\s*`([^`]+)`\s*$/im;
 const PLAN_SUBDIR = 'plan';
 const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
@@ -729,14 +730,14 @@ function buildTaskComment(action, result, data = {}) {
     }
     lines.push('');
     if (result.runId) {
-      lines.push(`Review task: \`${result.runId}\``);
+      lines.push(`- Review task: \`${result.runId}\``);
     }
     const buildTaskId = data.agentrixTaskId || extractAgentrixTaskIdFromPullRequest(pr);
     if (buildTaskId) {
-      lines.push(`Build task: \`${buildTaskId}\``);
+      lines.push(`- Build task: \`${buildTaskId}\``);
     }
     if (pr && pr.headSha) {
-      lines.push(`Head: \`${pr.headSha}\``);
+      lines.push(`- Head: \`${pr.headSha}\``);
     }
     return lines.join('\n');
   }
@@ -787,7 +788,7 @@ function extractRunIdFromTaskComment(comment) {
   if (match) {
     return match[1].trim();
   }
-  const reviewTaskMatch = body.match(/^Review task:\s*`([^`]+)`\s*$/im);
+  const reviewTaskMatch = body.match(REVIEW_COMMENT_TASK_PATTERN);
   return reviewTaskMatch ? reviewTaskMatch[1].trim() : '';
 }
 
