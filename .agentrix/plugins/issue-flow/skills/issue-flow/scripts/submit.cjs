@@ -13,6 +13,7 @@ const {
   resolveProvider,
 } = require('./providers.cjs');
 const { labelDefinitionFor, resolveIssueSizeLabel } = require('./labels.cjs');
+const { buildSourceMarker } = require('./provenance.cjs');
 
 const SUBMIT_KINDS = {
   plan: {
@@ -30,6 +31,7 @@ const SUBMIT_KINDS = {
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
 
 function usage() {
   return [
@@ -46,7 +48,7 @@ function usage() {
     '  --agentrix-task-id <id> Agentrix task id to embed in the PR/MR body. Defaults to AGENTRIX_TASK_ID.',
     '  --provider <provider>   Git hosting provider: github or gitlab. Defaults from environment/repo.',
     '  --repo <owner/repo>     Repository/project override. Defaults to provider environment or git remote origin.',
-    '  --base <branch>         PR base branch. Defaults to origin HEAD, develop, main, then master.',
+    '  --base <branch>         PR base branch. AGENTRIX_BASE_REF takes precedence when present.',
     '  --head <branch>         PR head branch. Defaults to the current branch.',
     '  --label <mr-by::...>    PR/MR label override. Defaults by kind.',
     '  --draft                Create the PR as draft.',
@@ -175,29 +177,29 @@ function resolveHeadBranch(options) {
   return branch;
 }
 
-function gitRefExists(ref) {
-  return Boolean(runOutput('git', ['rev-parse', '--verify', '--quiet', ref], { optional: true }));
+function normalizeBranchName(value) {
+  const branch = String(value || '').trim();
+  if (!branch || branch === 'null' || branch === 'undefined') {
+    return '';
+  }
+  return branch;
+}
+
+function resolveAgentrixWorkerBaseBranch(env = process.env) {
+  return normalizeBranchName(env.AGENTRIX_BASE_REF || env.GITLAB_BRIDGE_BASE_REF || env.GITLAB_BRIDGE_REF_NAME);
 }
 
 function resolveBaseBranch(options) {
+  const agentrixWorkerBaseBranch = resolveAgentrixWorkerBaseBranch();
+  if (agentrixWorkerBaseBranch) {
+    return agentrixWorkerBaseBranch;
+  }
+
   if (options.base) {
     return options.base;
   }
 
-  const originHead = runOutput('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], {
-    optional: true,
-  });
-  if (originHead.startsWith('origin/')) {
-    return originHead.slice('origin/'.length);
-  }
-
-  for (const candidate of ['develop', 'main', 'master']) {
-    if (gitRefExists(`refs/remotes/origin/${candidate}`) || gitRefExists(candidate)) {
-      return candidate;
-    }
-  }
-
-  return 'main';
+  throw new Error('Unable to resolve PR/MR base branch. Set AGENTRIX_BASE_REF/GITLAB_BRIDGE_BASE_REF in the worker environment or pass --base <branch>.');
 }
 
 function assertCleanWorktree(options) {
@@ -282,6 +284,7 @@ function resolveAgentrixTaskId(options = {}) {
 function buildPrBodyWithMarkers(body, issueNumber, taskId = '') {
   const sourceMarker = buildSourceIssueMarker(issueNumber);
   const taskMarker = buildAgentrixTaskMarker(taskId);
+  const provenanceMarker = buildSourceMarker({ sourceTaskId: taskId });
   const content = String(body || '').trimStart();
   let marked = SOURCE_ISSUE_MARKER_PATTERN.test(content)
     ? content.replace(SOURCE_ISSUE_MARKER_PATTERN, sourceMarker)
@@ -294,6 +297,18 @@ function buildPrBodyWithMarkers(body, issueNumber, taskId = '') {
       marked = `${sourceMarker}\n${taskMarker}${marked.slice(sourceMarker.length)}`;
     } else {
       marked = `${taskMarker}\n${marked}`;
+    }
+  }
+
+  if (provenanceMarker) {
+    if (SOURCE_PROVENANCE_MARKER_PATTERN.test(marked)) {
+      marked = marked.replace(SOURCE_PROVENANCE_MARKER_PATTERN, `${provenanceMarker}\n`);
+    } else if (taskMarker && marked.includes(taskMarker)) {
+      marked = marked.replace(taskMarker, `${taskMarker}\n${provenanceMarker}`);
+    } else if (marked.startsWith(sourceMarker)) {
+      marked = `${sourceMarker}\n${provenanceMarker}${marked.slice(sourceMarker.length)}`;
+    } else {
+      marked = `${provenanceMarker}\n${marked}`;
     }
   }
 
@@ -601,6 +616,7 @@ module.exports = {
   normalizePrTitle,
   parseArgs,
   resolveAgentrixTaskId,
+  resolveAgentrixWorkerBaseBranch,
   resolveBaseBranch,
   SUBMIT_KINDS,
   validateSourceIssueSize,

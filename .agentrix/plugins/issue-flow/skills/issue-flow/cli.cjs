@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProviderPort } = require('./scripts/providers.cjs');
+const { upsertSourceMarker } = require('./scripts/provenance.cjs');
 
 const SCRIPT_DIR = path.join(__dirname, 'scripts');
 const BOOLEAN_OPTIONS = new Set([
@@ -249,6 +250,10 @@ function readBodyFile(bodyFile) {
   return fs.readFileSync(bodyFile, 'utf8').trim();
 }
 
+function readMarkedCommentBody(bodyFile) {
+  return upsertSourceMarker(readBodyFile(bodyFile));
+}
+
 async function withoutConsoleLog(callback) {
   const originalLog = console.log;
   const lines = [];
@@ -339,12 +344,12 @@ async function handleIssueComments(argv) {
     });
   }
   if (action === 'create') {
-    const body = readBodyFile(options.bodyFile);
+    const body = readMarkedCommentBody(options.bodyFile);
     const { result } = await withPort(options, (port) => port.issues.createComment({ body }));
     return baseEnvelope('created', resolveProviderPort(providerOptions(options), {}).provider, 'issue_comment', options, result);
   }
   if (action === 'update') {
-    const body = readBodyFile(options.bodyFile);
+    const body = readMarkedCommentBody(options.bodyFile);
     const { result } = await withPort(options, (port) => port.issues.updateComment({ commentId: options.commentId }, { body }));
     return baseEnvelope('updated', resolveProviderPort(providerOptions(options), {}).provider, 'issue_comment', options, result);
   }
@@ -403,12 +408,12 @@ async function handlePrComments(argv) {
     });
   }
   if (action === 'create') {
-    const body = readBodyFile(options.bodyFile);
+    const body = readMarkedCommentBody(options.bodyFile);
     const { result } = await withPort(options, (port) => port.pullRequests.createComment({ body }));
     return baseEnvelope('created', resolveProviderPort(providerOptions(options), {}).provider, 'pr_comment', options, result);
   }
   if (action === 'update') {
-    const body = readBodyFile(options.bodyFile);
+    const body = readMarkedCommentBody(options.bodyFile);
     const { result } = await withPort(options, (port) => port.pullRequests.updateComment({ commentId: options.commentId }, { body }));
     return baseEnvelope('updated', resolveProviderPort(providerOptions(options), {}).provider, 'pr_comment', options, result);
   }

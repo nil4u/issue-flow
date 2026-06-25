@@ -1,8 +1,16 @@
+/**
+ * [INPUT]: 依赖 providers.cjs 的 provider 解析、provenance.cjs 的 source marker 能力
+ * [OUTPUT]: 对外提供 Agentrix prompt、run args、resume args、task comment 的构造与执行函数
+ * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('../providers.cjs');
+const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
@@ -24,6 +32,15 @@ const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
 const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
+const PROVIDER_TOKEN_ENV_KEYS = [
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'GITLAB_TOKEN',
+  'GL_TOKEN',
+  'GITLAB_PRIVATE_TOKEN',
+  'CI_JOB_TOKEN',
+  'ISSUE_FLOW_GIT_TOKEN',
+];
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
@@ -252,14 +269,51 @@ function formatRequiredSkill() {
     '## Required Skill',
     '',
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
-    '',
-    'Provider operations covered by issue-flow must use the unified `issue-flow` CLI / `cli.cjs`; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-written provider API requests for those actions.',
   ].join('\n');
 }
 
 function formatPrBodyFileRule() {
   return [
     'PR body: write it to a repo-external temp file (for example `mktemp`) for `issue-flow pr submit ... --body-file`; do not put it in git.',
+  ].join('\n');
+}
+
+function normalizeBranchName(value) {
+  const branch = String(value || '').trim();
+  if (!branch || branch === 'null' || branch === 'undefined') {
+    return '';
+  }
+  return branch;
+}
+
+function resolvePromptBaseBranch(data = {}, options = {}) {
+  const payload = data.payload || {};
+  return normalizeBranchName(
+    process.env.AGENTRIX_BASE_REF ||
+    process.env.GITLAB_BRIDGE_BASE_REF ||
+    process.env.GITLAB_BRIDGE_REF_NAME ||
+    options.base ||
+    data.baseRef ||
+    data.pullRequest?.baseRef ||
+    payload.pull_request?.base?.ref ||
+    payload.object_attributes?.target_branch ||
+    payload.project?.default_branch ||
+    payload.repository?.default_branch ||
+    process.env.CI_DEFAULT_BRANCH ||
+    process.env.GITHUB_BASE_REF ||
+    process.env.GITLAB_BRIDGE_WORKFLOW_RUN_REF ||
+    process.env.AGENTRIX_REF
+  );
+}
+
+function formatBaseBranchSubmissionRule(data = {}, options = {}) {
+  const baseBranch = resolvePromptBaseBranch(data, options);
+  if (!baseBranch) {
+    return '';
+  }
+  return [
+    `Base branch: \`${baseBranch}\`.`,
+    `When publishing with \`issue-flow pr submit\`, the CLI first reads \`AGENTRIX_BASE_REF\` from the Agentrix worker environment. If that env var is absent, pass \`--base ${baseBranch}\` explicitly.`,
   ].join('\n');
 }
 
@@ -297,10 +351,16 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   }
 
   const prompt = readPrompt(action, issue, options);
-  const blocks = [formatRequiredSkill(), '', prompt.body];
+  const blocks = [prompt.body];
 
   if ((action === 'plan' || action === 'build') && !prompt.body.includes('repo-external temp file')) {
     blocks.push('', formatPrBodyFileRule());
+  }
+  if (action === 'plan' || action === 'build') {
+    const baseBranchRule = formatBaseBranchSubmissionRule(data, options);
+    if (baseBranchRule) {
+      blocks.push('', baseBranchRule);
+    }
   }
 
   if (action === 'plan') {
@@ -324,6 +384,8 @@ function buildPrompt(action, issue, data = {}, options = {}) {
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
+
+  blocks.push('', formatRequiredSkill());
 
   return blocks.join('\n');
 }
@@ -373,10 +435,11 @@ function buildReviewResumeInstruction() {
 
 function buildPullRequestPrompt(pr, data = {}, options = {}) {
   const prompt = readPrompt('review', pr, options);
-  const blocks = [formatRequiredSkill(), '', prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
+  const blocks = [prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }
+  blocks.push('', formatRequiredSkill());
   return blocks.join('\n');
 }
 
@@ -472,6 +535,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
 
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
+  appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
 }
@@ -508,6 +572,44 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
+function buildAgentrixRunEnv(provider, action, env = process.env) {
+  const childEnv = { ...env };
+  for (const key of PROVIDER_TOKEN_ENV_KEYS) {
+    delete childEnv[key];
+  }
+  childEnv.AGENTRIX_EVENT_NAME =
+    env.AGENTRIX_EVENT_NAME ||
+    env.GITLAB_BRIDGE_EVENT_NAME ||
+    env[provider.envEventName] ||
+    env.GITHUB_EVENT_NAME ||
+    env.GITLAB_EVENT_NAME ||
+    'issue_flow';
+  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || env.GITLAB_BRIDGE_EVENT_ACTION || action;
+  copyBridgeEnv(childEnv, 'AGENTRIX_BASE_REF', ['GITLAB_BRIDGE_BASE_REF', 'GITLAB_BRIDGE_REF_NAME']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_REF', ['GITLAB_BRIDGE_HEAD_REF']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_SHA', ['GITLAB_BRIDGE_HEAD_SHA']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_PR_NUMBER', ['GITLAB_BRIDGE_PR_NUMBER']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_ISSUE_NUMBER', ['GITLAB_BRIDGE_ISSUE_NUMBER']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS', ['GITLAB_BRIDGE_LABELS']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS_JSON', ['GITLAB_BRIDGE_LABELS_JSON']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_PR_BODY', ['GITLAB_BRIDGE_PR_BODY']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_REF', ['GITLAB_BRIDGE_WORKFLOW_RUN_REF', 'GITLAB_BRIDGE_REF_NAME']);
+  copyBridgeEnv(childEnv, 'AGENTRIX_SHA', ['GITLAB_BRIDGE_WORKFLOW_RUN_SHA', 'GITLAB_BRIDGE_HEAD_SHA']);
+  return childEnv;
+}
+
+function copyBridgeEnv(env, target, sources) {
+  if (env[target]) {
+    return;
+  }
+  for (const source of sources) {
+    if (env[source]) {
+      env[target] = env[source];
+      return;
+    }
+  }
+}
+
 function run(action, issue, options = {}, data = {}) {
   const prompt = buildPrompt(action, issue, data, options);
   if (options.dryRun) {
@@ -528,16 +630,7 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENTRIX_EVENT_NAME:
-        process.env.AGENTRIX_EVENT_NAME ||
-        process.env[provider.envEventName] ||
-        process.env.GITHUB_EVENT_NAME ||
-        process.env.GITLAB_EVENT_NAME ||
-        'issue_flow',
-      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || action,
-    },
+    env: buildAgentrixRunEnv(provider, action),
   });
 
   try {
@@ -570,16 +663,7 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENTRIX_EVENT_NAME:
-        process.env.AGENTRIX_EVENT_NAME ||
-        process.env[provider.envEventName] ||
-        process.env.GITHUB_EVENT_NAME ||
-        process.env.GITLAB_EVENT_NAME ||
-        'issue_flow',
-      AGENTRIX_EVENT_ACTION: process.env.AGENTRIX_EVENT_ACTION || 'task_resume',
-    },
+    env: buildAgentrixRunEnv(provider, 'task_resume'),
   });
 
   try {
@@ -628,6 +712,35 @@ function buildTaskCommentMarker(action, data = {}) {
 function buildTaskComment(action, result, data = {}) {
   const pr = data.pullRequest || data;
   const lines = [buildTaskCommentMarker(action, data)];
+  const sourceMarker = buildSourceMarker({
+    sourceTaskId: result.runId || data.agentrixTaskId,
+    sourceAgent: data.sourceAgent || data.agent || DEFAULT_AGENT,
+  });
+  if (sourceMarker) {
+    lines.push(sourceMarker);
+  }
+  if (action === 'review') {
+    if (result.status === 'starting') {
+      lines.push('Agentrix review starting. This comment prevents duplicate issue-flow reviews for this PR/MR.');
+    } else if (result.detailUrl) {
+      lines.push(`Agentrix review queued: [open task](${result.detailUrl}).`);
+    } else {
+      lines.push('Agentrix review queued.');
+    }
+    lines.push('');
+    if (result.runId) {
+      lines.push(`Review task: \`${result.runId}\``);
+    }
+    const buildTaskId = data.agentrixTaskId || extractAgentrixTaskIdFromPullRequest(pr);
+    if (buildTaskId) {
+      lines.push(`Build task: \`${buildTaskId}\``);
+    }
+    if (pr && pr.headSha) {
+      lines.push(`Head: \`${pr.headSha}\``);
+    }
+    return lines.join('\n');
+  }
+
   if (result.status === 'starting') {
     if (action === 'task_resume') {
       lines.push('Agentrix task resume starting. This comment prevents duplicate issue-flow resumes for the same PR/MR review comment.');
@@ -671,7 +784,11 @@ function buildTaskComment(action, result, data = {}) {
 function extractRunIdFromTaskComment(comment) {
   const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
   const match = body.match(TASK_COMMENT_RUN_PATTERN);
-  return match ? match[1].trim() : '';
+  if (match) {
+    return match[1].trim();
+  }
+  const reviewTaskMatch = body.match(/^Review task:\s*`([^`]+)`\s*$/im);
+  return reviewTaskMatch ? reviewTaskMatch[1].trim() : '';
 }
 
 function extractReviewHeadShaFromTaskComment(comment) {
@@ -695,21 +812,25 @@ module.exports = {
   buildPullRequestPrompt,
   buildResumeTaskArgs,
   buildRunArgs,
+  buildAgentrixRunEnv,
   buildReviewCommentResumeInstruction,
   buildReviewResumeInstruction,
   buildReviewCommentResumeKey,
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,
+  parseSourceMarker,
   extractMention,
   extractReviewHeadShaFromTaskComment,
   extractRunIdFromTaskComment,
   extractSourceIssueNumberFromPullRequest,
   findIssuePlanFiles,
+  formatBaseBranchSubmissionRule,
   issueDirectoryName,
   normalizeRepoPath,
   resolveAgentrixConfig,
   resolvePlanTemplate,
+  resolvePromptBaseBranch,
   run,
   resumeTask,
   shouldAcknowledgeAutoIssue,

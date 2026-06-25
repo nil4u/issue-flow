@@ -8,6 +8,7 @@ on:
       - 'Issue Flow PR Merged'
       - 'Issue Flow PR Review'
       - 'Issue Flow PR Review Comment'
+      - 'Issue Flow Labels'
     types:
       - completed
 

@@ -1,6 +1,6 @@
 ---
 name: issue-flow
-version: 0.1.0
+version: 0.1.0 # x-release-please-version
 description: "Label-based issue 状态流转工具。通过统一 issue-flow CLI 操作 GitHub/GitLab issue、labels、comments、PR/MR 和 review。"
 metadata:
   requires:
