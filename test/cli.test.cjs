@@ -209,6 +209,35 @@ test('pr review maps --pr alias through the unified cli', () => {
   }
 });
 
+test('pr review passes normal comment mode through the unified cli', () => {
+  const body = createBodyFile('No blocking issues.');
+  try {
+    const result = runCli([
+      'pr',
+      'review',
+      '--provider',
+      'github',
+      '--repo',
+      'acme/webapp',
+      '--pr',
+      '7',
+      '--body-file',
+      body.path,
+      '--as-comment',
+      '--dry-run',
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.action, 'reviewed');
+    assert.equal(parsed.resource, 'pr');
+    assert.match(parsed.stdout, /commentIssue/);
+    assert.match(parsed.stdout, /"action": "commented"/);
+    assert.doesNotMatch(parsed.stdout, /reviewPullRequest/);
+  } finally {
+    body.cleanup();
+  }
+});
+
 test('pr review-comments list dry-run uses provider port', () => {
   const result = runCli([
     'pr',

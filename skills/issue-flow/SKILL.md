@@ -85,7 +85,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build --issue 123 --title "Build #123
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments list --pr 45
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr review-comments list --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 ```
 
@@ -144,7 +144,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build \
 ### Review
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr <num> --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr <num> --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]
 ```
 
 ### 信息不足

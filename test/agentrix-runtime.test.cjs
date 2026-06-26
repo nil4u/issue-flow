@@ -263,11 +263,11 @@ test('agentrix review prompt uses target URL and review submission script', () =
   assert.match(prompt, /## Review Target/);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.match(prompt, /## Review Submission/);
-  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\]/);
+  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\] \[--as-comment\]/);
   assert.doesNotMatch(prompt, /--expected-head/);
   assert.match(prompt, /inline review comments/);
   assertRequiredSkillAtEnd(prompt);
-  assert.match(prompt, /使用下方 review 提交命令发布结果/);
+  assert.match(prompt, /没有明确问题时加 `--as-comment`/);
   assert.doesNotMatch(prompt, /## Issue/);
   assert.doesNotMatch(prompt, /Possible source issue/);
   assert.doesNotMatch(prompt, /flow::triage/);

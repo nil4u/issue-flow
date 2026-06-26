@@ -20,6 +20,12 @@ const VALUE_OPTIONS = new Set([
   '--gitlab-token',
 ]);
 
+const BOOLEAN_OPTIONS = new Set([
+  '--as-comment',
+  '--dry-run',
+  '--help',
+]);
+
 function usage() {
   return [
     'Usage: review.cjs --pr-number <num> --body-file <path> [options]',
@@ -34,6 +40,7 @@ function usage() {
     '  --body-file <path>      Markdown review body.',
     '  --comments-file <path>  JSON array of inline review comments.',
     '  --commit-id <sha>       Commit SHA for GitHub review submission. Defaults to PR head SHA.',
+    '  --as-comment            Post the body as a normal PR/MR comment. Cannot include inline comments.',
     '  --dry-run',
     '  --help',
   ].join('\n');
@@ -46,12 +53,9 @@ function parseArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === '--help') {
-      options.help = true;
-      continue;
-    }
-    if (arg === '--dry-run') {
-      options.dryRun = true;
+    if (BOOLEAN_OPTIONS.has(arg)) {
+      const key = arg.slice(2).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+      options[key] = true;
       continue;
     }
     if (!arg.startsWith('--')) {
@@ -182,6 +186,9 @@ function appendReviewMetadata(body, options = {}) {
 async function submitReview(options = {}) {
   const body = readBodyFile(options.bodyFile);
   const comments = readReviewCommentsFile(options.commentsFile);
+  if (options.asComment && comments.length > 0) {
+    throw new Error('--as-comment cannot include inline review comments');
+  }
   const { provider, pr } = await buildReviewPullRequest(options);
   const checkoutHead = resolveCurrentCheckoutHead(options);
   if (!options.dryRun && (!checkoutHead || !pr.headSha || checkoutHead !== pr.headSha)) {
@@ -191,6 +198,16 @@ async function submitReview(options = {}) {
     taskId: resolveAgentrixTaskId(),
     headSha: pr.headSha,
   });
+  if (options.asComment) {
+    const comment = await provider.createPullRequestComment(pr, reviewBody, options);
+    return {
+      action: 'commented',
+      provider: provider.name,
+      pullRequest: pr.number,
+      commentUrl: comment && (comment.html_url || comment.htmlUrl || comment.web_url || ''),
+      inlineComments: 0,
+    };
+  }
   const review = await provider.submitPullRequestReview(pr, reviewBody, options, comments);
   return {
     action: 'submitted',
