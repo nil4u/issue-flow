@@ -553,8 +553,6 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
     resolveResponseMode(options),
     '--result-file',
     resultFile,
-    '--metadata',
-    `issue_flow_agentrix_task=${taskId}`,
   ];
   const pr = data.pullRequest || {};
   if (pr.repoFullName && pr.number) {
@@ -573,10 +571,14 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
-function buildAgentrixRunEnv(provider, action, env = process.env) {
+function buildAgentrixRunEnv(provider, action, env = process.env, data = {}) {
   const childEnv = { ...env };
   for (const key of PROVIDER_TOKEN_ENV_KEYS) {
     delete childEnv[key];
+  }
+  const taskId = String(data.agentrixTaskId || data.taskId || '').trim();
+  if (action === 'task_resume' && taskId) {
+    childEnv.AGENTRIX_TASK_ID = taskId;
   }
   childEnv.AGENTRIX_EVENT_NAME =
     env.AGENTRIX_EVENT_NAME ||
@@ -664,7 +666,10 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: buildAgentrixRunEnv(provider, 'task_resume'),
+    env: buildAgentrixRunEnv(provider, 'task_resume', process.env, {
+      ...data,
+      agentrixTaskId: taskId,
+    }),
   });
 
   try {

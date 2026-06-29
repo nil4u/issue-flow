@@ -424,6 +424,7 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.ok(args.includes('--prompt'));
   assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
   assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');
+  assert.equal(args.includes('issue_flow_agentrix_task=task-123'), false);
   assert.ok(args.includes('issue_flow_pr=example/platform#9'));
   assert.ok(args.includes('issue_flow_review_comment=101'));
   assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
@@ -461,6 +462,35 @@ test('agentrix-run child env does not forward provider tokens', () => {
   assert.equal(env.AGENTRIX_RUNNER_ID, 'runner-1');
   assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
   assert.equal(env.AGENTRIX_EVENT_ACTION, 'review');
+});
+
+test('agentrix-run child env carries resumed task id only for task resume', () => {
+  const env = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'task_resume',
+    {
+      AGENTRIX_TASK_ID: 'stale-task',
+      GITLAB_EVENT_NAME: 'note',
+    },
+    {
+      agentrixTaskId: 'task-123',
+    }
+  );
+
+  assert.equal(env.AGENTRIX_TASK_ID, 'task-123');
+
+  const buildEnv = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'build',
+    {
+      GITLAB_EVENT_NAME: 'issue',
+    },
+    {
+      agentrixTaskId: 'task-123',
+    }
+  );
+
+  assert.equal(buildEnv.AGENTRIX_TASK_ID, undefined);
 });
 
 test('agentrix-run child env maps current GitLab bridge variables to Agentrix compatibility names', () => {
