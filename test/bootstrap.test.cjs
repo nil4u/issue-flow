@@ -384,9 +384,18 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ].sort());
     assert.match(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
-    assert.match(gitlabWorkflow, /issue-flow-labels:/);
-    assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
-    assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
+    for (const job of [
+      'issue-flow-auto',
+      'issue-flow-comment',
+      'issue-flow-merged',
+      'issue-flow-review',
+      'issue-flow-review-comment',
+      'issue-flow-failure-intake',
+    ]) {
+      assert.match(gitlabWorkflow, new RegExp(`${job}:\\n  stage: build`));
+    }
+    assert.doesNotMatch(gitlabWorkflow, /issue-flow-labels:/);
+    assert.doesNotMatch(gitlabWorkflow, /sync-labels\.cjs/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issues"/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_LABELS_JSON =~ \/failure::ci\//);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_ISSUE_TITLE =~ \/\^Fix CI failure:\//);

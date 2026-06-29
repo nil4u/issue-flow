@@ -1,8 +1,8 @@
 # Environment
 .env
 .env.*
-
-# Dependencies
+!.env.example
+!.env.dev.example
 node_modules/
 
 # Build output
@@ -15,6 +15,7 @@ coverage/
 
 # Runtime artifacts
 tmp/
+.issue-flow-service/
 
 # OS
 .DS_Store

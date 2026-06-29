@@ -361,10 +361,12 @@ test('agentrix task marker uses issue-flow namespace', () => {
     agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
     /<!-- issue-flow:source source_task_id=task-review source_agent=codex -->/
   );
-  assert.match(
-    agentrix.buildTaskComment('review', { status: 'starting' }, { pullRequest: { headSha: 'abc123' } }),
-    /<!-- issue-flow:source source_agent=codex -->/
-  );
+  withTemporaryEnv({ AGENTRIX_TASK_ID: undefined }, () => {
+    assert.match(
+      agentrix.buildTaskComment('review', { status: 'starting' }, { pullRequest: { headSha: 'abc123' } }),
+      /<!-- issue-flow:source source_agent=codex -->/
+    );
+  });
   assert.equal(
     agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),
     '<!-- issue-flow:agentrix:task:resume-review-comment:101 -->'
@@ -433,6 +435,30 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.equal(args.includes('--title'), false);
 });
 
+test('agentrix run args pass git server repo context to agentrix-run', () => {
+  const args = agentrix.buildRunArgs(
+    'build',
+    {
+      number: 42,
+      repoFullName: 'team/app',
+      title: 'Fix auth',
+    },
+    {
+      gitServerId: 'gitlab-main',
+      gitlabProject: '123',
+      responseMode: 'async',
+    },
+    {},
+    'prompt',
+    '/tmp/result.json'
+  );
+  const repo = JSON.parse(args[args.indexOf('--repo') + 1]);
+  assert.equal(repo.gitServerId, 'gitlab-main');
+  assert.equal(repo.serverRepoId, '123');
+  assert.equal(repo.owner, 'team');
+  assert.equal(repo.name, 'app');
+});
+
 test('agentrix-run child env does not forward provider tokens', () => {
   const env = agentrix.buildAgentrixRunEnv(
     { envEventName: 'GITHUB_EVENT_NAME' },
@@ -462,6 +488,23 @@ test('agentrix-run child env does not forward provider tokens', () => {
   assert.equal(env.AGENTRIX_RUNNER_ID, 'runner-1');
   assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
   assert.equal(env.AGENTRIX_EVENT_ACTION, 'review');
+});
+
+test('agentrix-run child env forwards git server id without provider tokens', () => {
+  const env = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'build',
+    {
+      GITLAB_TOKEN: 'gitlab-token',
+      GITLAB_EVENT_NAME: 'issue',
+    },
+    {
+      gitServerId: 'gitlab-main',
+    }
+  );
+
+  assert.equal(env.GITLAB_TOKEN, undefined);
+  assert.equal(env.AGENTRIX_GIT_SERVER_ID, 'gitlab-main');
 });
 
 test('agentrix-run child env carries resumed task id only for task resume', () => {

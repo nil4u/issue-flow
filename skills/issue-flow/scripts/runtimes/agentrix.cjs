@@ -505,6 +505,22 @@ function buildRunTitle(action, issue) {
   return `${actionTitle} #${issue.number}: ${truncate(issue.title || 'untitled issue', 80)}`;
 }
 
+function buildRepoArg(issue = {}, options = {}) {
+  const gitServerId = String(options.gitServerId || process.env.AGENTRIX_GIT_SERVER_ID || '').trim();
+  if (!gitServerId) {
+    return '';
+  }
+  const repoFullName = String(issue.repoFullName || options.repo || '').trim();
+  const [owner, ...nameParts] = repoFullName.split('/');
+  const name = nameParts.join('/');
+  return JSON.stringify({
+    gitServerId,
+    serverRepoId: options.gitlabProject ? String(options.gitlabProject) : undefined,
+    owner: owner || undefined,
+    name: name || undefined,
+  });
+}
+
 function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resultFile = '') {
   const metadataSubject = action === 'review'
     ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
@@ -536,6 +552,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
 
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
+  appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
   appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
@@ -579,6 +596,10 @@ function buildAgentrixRunEnv(provider, action, env = process.env, data = {}) {
   const taskId = String(data.agentrixTaskId || data.taskId || '').trim();
   if (action === 'task_resume' && taskId) {
     childEnv.AGENTRIX_TASK_ID = taskId;
+  }
+  const gitServerId = String(data.gitServerId || env.AGENTRIX_GIT_SERVER_ID || '').trim();
+  if (gitServerId) {
+    childEnv.AGENTRIX_GIT_SERVER_ID = gitServerId;
   }
   childEnv.AGENTRIX_EVENT_NAME =
     env.AGENTRIX_EVENT_NAME ||
@@ -633,7 +654,9 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: buildAgentrixRunEnv(provider, action),
+    env: buildAgentrixRunEnv(provider, action, process.env, {
+      gitServerId: options.gitServerId,
+    }),
   });
 
   try {
@@ -669,6 +692,7 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
     env: buildAgentrixRunEnv(provider, 'task_resume', process.env, {
       ...data,
       agentrixTaskId: taskId,
+      gitServerId: options.gitServerId,
     }),
   });
 
