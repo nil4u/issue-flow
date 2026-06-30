@@ -46,7 +46,7 @@ export function RepoSidebar(props: {
   onFilter: (value: string) => void
   onSelectProject: (id: string) => void
   onLoginCurrent: () => void
-  onRefresh: () => void
+  onRefresh: (gitServerId?: string) => void | Promise<void>
   onLogout: () => void
   onCollapsedChange: (collapsed: boolean) => void
 }) {
@@ -159,24 +159,33 @@ export function RepoSidebar(props: {
       {pickerOpen === "server" && (
         <div className="sidebar-picker">
           {gitServers.map((server) => (
-            <button
-              type="button"
-              className={`picker-row ${server.id === selectedGitServerId ? "active" : ""}`}
+            <div
+              className={`picker-row server-picker-row ${server.id === selectedGitServerId ? "active" : ""}`}
               key={server.id}
-              onClick={() => {
-                onSelectGitServer(server.id)
-                setPickerOpen(null)
-              }}
             >
-              <GitBranch className="size-4" />
-              <span>{server.name || server.id}</span>
-              {server.id === selectedGitServerId && <Check className="size-4" />}
-            </button>
+              <button
+                type="button"
+                className="picker-select"
+                onClick={() => {
+                  onSelectGitServer(server.id)
+                  setPickerOpen(null)
+                }}
+              >
+                <GitBranch className="size-4" />
+                <span>{server.name || server.id}</span>
+                {server.id === selectedGitServerId && <Check className="size-4" />}
+              </button>
+              <button
+                type="button"
+                className="picker-icon-action"
+                disabled={!currentUser || loading}
+                title="强制刷新同步"
+                onClick={() => onRefresh(server.id)}
+              >
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              </button>
+            </div>
           ))}
-          <button type="button" className="picker-row action" disabled={!currentUser} onClick={onRefresh}>
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            <span>强制刷新同步</span>
-          </button>
         </div>
       )}
 

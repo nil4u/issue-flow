@@ -291,7 +291,7 @@ function Dashboard() {
         onFilter={setFilter}
         onSelectProject={selectProject}
         onLoginCurrent={() => loginGitLab(selectedGitServerId)}
-        onRefresh={() => refreshGitServer(selectedGitServerId)}
+        onRefresh={refreshGitServer}
         onLogout={logoutAll}
         onCollapsedChange={updateSidebarCollapsed}
       />
