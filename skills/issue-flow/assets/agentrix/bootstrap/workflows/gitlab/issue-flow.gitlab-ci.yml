@@ -6,6 +6,7 @@ variables:
 
 issue-flow-auto:
   stage: build
+  resource_group: "issue-flow-auto-${CI_PROJECT_PATH_SLUG}-${GITLAB_BRIDGE_ISSUE_NUMBER}-${AGENTRIX_ISSUE_NUMBER}"
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issues" && ($GITLAB_BRIDGE_LABELS_JSON =~ /failure::ci/ || $GITLAB_BRIDGE_LABELS =~ /failure::ci/ || $GITLAB_BRIDGE_ISSUE_TITLE =~ /^Fix CI failure:/)'
       when: never

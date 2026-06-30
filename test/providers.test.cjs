@@ -795,6 +795,85 @@ test('github API duplicate PR response updates the existing pull request', async
   );
 });
 
+test('gitlab API duplicate MR response updates the existing merge request', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'acme', repo: 'platform', fullName: 'acme/platform' };
+  const bodyFile = createBodyFile('Duplicate GitLab body');
+  const previousFetch = global.fetch;
+  const calls = [];
+  let mergeRequestListCount = 0;
+
+  await withTemporaryEnv(
+    {
+      GITLAB_PRIVATE_TOKEN: 'token-123',
+      GITLAB_TOKEN: undefined,
+      CI_JOB_TOKEN: undefined,
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsedBody = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body: parsedBody });
+
+        if (String(url).includes('/merge_requests?') && init.method === 'GET') {
+          mergeRequestListCount += 1;
+          const items =
+            mergeRequestListCount === 1
+              ? []
+              : [{ iid: 24, web_url: 'https://gitlab.com/acme/platform/-/merge_requests/24' }];
+          return { ok: true, status: 200, text: async () => JSON.stringify(items) };
+        }
+        if (String(url).endsWith('/merge_requests') && init.method === 'POST') {
+          return {
+            ok: false,
+            status: 409,
+            text: async () =>
+              JSON.stringify({
+                message: { source_branch: ['Another open merge request already exists for this source branch: !24'] },
+              }),
+          };
+        }
+        if (String(url).endsWith('/merge_requests/24') && init.method === 'PUT') {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ web_url: 'https://gitlab.com/acme/platform/-/merge_requests/24' }),
+          };
+        }
+
+        throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+      };
+
+      const url = await provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #7: Duplicate update',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'main',
+        headBranch: '7-token-first/build',
+        draft: false,
+        options: {},
+      });
+
+      assert.equal(url, 'https://gitlab.com/acme/platform/-/merge_requests/24');
+    }
+  );
+
+  global.fetch = previousFetch;
+  bodyFile.cleanup();
+
+  assert.deepEqual(
+    calls.map((call) => [call.method, new URL(call.url).pathname]),
+    [
+      ['GET', '/api/v4/projects/acme%2Fplatform/merge_requests'],
+      ['POST', '/api/v4/projects/acme%2Fplatform/merge_requests'],
+      ['GET', '/api/v4/projects/acme%2Fplatform/merge_requests'],
+      ['PUT', '/api/v4/projects/acme%2Fplatform/merge_requests/24'],
+    ]
+  );
+  assert.equal(calls[3].body.description, 'Duplicate GitLab body');
+  assert.equal(calls[3].body.add_labels, 'mr-by::build');
+});
+
 test('agentrix GitLab bridge labels parse from JSON first', () => {
   assert.deepEqual(
     labelTitlesFromEnv({

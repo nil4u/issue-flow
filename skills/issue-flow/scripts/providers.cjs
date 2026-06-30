@@ -1606,6 +1606,20 @@ function isExistingPullRequestError(error) {
   return /pull request .*already exists/i.test(JSON.stringify(response));
 }
 
+function isExistingGitlabMergeRequestError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/merge request .*already exists/i.test(message) || /open merge request already exists/i.test(message)) {
+    return true;
+  }
+
+  const response = error && typeof error === 'object' ? error.response : undefined;
+  if (!response) {
+    return false;
+  }
+  const serialized = JSON.stringify(response);
+  return /merge request .*already exists/i.test(serialized) || /open merge request already exists/i.test(serialized);
+}
+
 async function ensureGithubPullRequestLabel(repo, label, config = {}, options = {}) {
   const labelColor = config.color || config.labelColor || '1D76DB';
   const labelDescription = config.description || config.labelDescription || '';
@@ -1869,6 +1883,20 @@ async function findExistingGitlabMergeRequest(repo, headBranch, options = {}) {
   return Array.isArray(items) ? items[0] : undefined;
 }
 
+async function updateGitlabMergeRequest(repo, existing, title, description, label, options = {}) {
+  const updated = await requestGitlab(
+    'PUT',
+    `${gitlabMergeRequestsApiPath(repo)}/${encodeURIComponent(existing.iid)}`,
+    {
+      title,
+      description,
+      add_labels: label,
+    },
+    options
+  );
+  return updated.web_url || existing.web_url || '';
+}
+
 async function createOrUpdateGitlabMergeRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
   if (options.dryRun) {
     const url = `${(options.gitlabUrl || process.env.GITLAB_BASE_URL || process.env.CI_SERVER_URL || 'https://gitlab.com').replace(/\/+$/, '')}/${repo.fullName}/-/merge_requests/dry-run`;
@@ -1895,32 +1923,33 @@ async function createOrUpdateGitlabMergeRequest({ repo, title, bodyFile, label, 
   const description = readBodyFile(bodyFile);
   const mrTitle = draft && !/^draft:/i.test(title) ? `Draft: ${title}` : title;
   if (existing && existing.iid) {
-    const updated = await requestGitlab(
-      'PUT',
-      `${gitlabMergeRequestsApiPath(repo)}/${encodeURIComponent(existing.iid)}`,
+    return updateGitlabMergeRequest(repo, existing, mrTitle, description, label, options);
+  }
+
+  try {
+    const created = await requestGitlab(
+      'POST',
+      gitlabMergeRequestsApiPath(repo),
       {
+        source_branch: headBranch,
+        target_branch: baseBranch,
         title: mrTitle,
         description,
-        add_labels: label,
+        labels: label,
       },
       options
     );
-    return updated.web_url || existing.web_url || '';
+    return created.web_url || '';
+  } catch (error) {
+    if (!isExistingGitlabMergeRequestError(error)) {
+      throw error;
+    }
+    const duplicate = await findExistingGitlabMergeRequest(repo, headBranch, options);
+    if (!duplicate || !duplicate.iid) {
+      throw error;
+    }
+    return updateGitlabMergeRequest(repo, duplicate, mrTitle, description, label, options);
   }
-
-  const created = await requestGitlab(
-    'POST',
-    gitlabMergeRequestsApiPath(repo),
-    {
-      source_branch: headBranch,
-      target_branch: baseBranch,
-      title: mrTitle,
-      description,
-      labels: label,
-    },
-    options
-  );
-  return created.web_url || '';
 }
 
 async function getGitlabIssueForApply(target, options = {}) {
