@@ -61,6 +61,8 @@ test('release workflow runs release-please in manifest mode on main', () => {
   assert.match(workflow, /pull-requests: write/);
   assert.doesNotMatch(workflow, /issues: write/);
   assert.match(workflow, /uses: googleapis\/release-please-action@v4/);
+  assert.match(workflow, /group: release-please-main/);
+  assert.match(workflow, /target-branch: main/);
   assert.match(workflow, /config-file: release-please-config\.json/);
   assert.match(workflow, /manifest-file: \.release-please-manifest\.json/);
 });
