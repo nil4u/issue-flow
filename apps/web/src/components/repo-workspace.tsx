@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react"
-import type { FormEvent, ReactNode } from "react"
+import { useEffect, useMemo, useState } from "react"
+import type { ReactNode } from "react"
 import {
   AlertCircle,
   CheckCircle2,
+  CircleDot,
   GitBranch,
   GitMerge,
   KeyRound,
   Loader2,
+  RefreshCw,
   Search,
   ShieldCheck,
   Webhook,
@@ -19,7 +21,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { EmptyPanelProps, GitLabProject, InstallStep, RecordRow, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
+import type { InstallCheckConfigItem } from "@/install-check-config"
 import { formatWhen } from "@/issue-flow-model"
 
 export function RepoWorkspace(props: RepoWorkspaceProps) {
@@ -36,7 +40,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           <OverviewTab {...props} onOpenSettings={() => props.onTab("settings")} />
         </TabsContent>
         <TabsContent value="settings">
-          <InstallWizard {...props} />
+          <InstallConsole {...props} />
         </TabsContent>
       </Tabs>
     </div>
@@ -81,9 +85,8 @@ function OverviewTab({
   )
 }
 
-function InstallWizard({
+function InstallConsole({
   project,
-  repository,
   defaults,
   installCheck,
   checking,
@@ -92,99 +95,358 @@ function InstallWizard({
   onCheck,
   onInstall,
 }: RepoWorkspaceProps) {
-  const [apiKey, setApiKey] = useState("")
-  const [runnerId, setRunnerId] = useState(defaults?.agentrix?.runnerId || "")
-  const [agent, setAgent] = useState(defaults?.automation?.agent || "codex")
-  const [autoDefault, setAutoDefault] = useState(defaults?.automation?.autoDefault || "triage")
-  const [reviewEnabled, setReviewEnabled] = useState(Boolean(defaults?.automation?.reviewEnabled))
-  const hasSavedKey = Boolean(repository?.agentrix?.apiKeyFingerprint || defaults?.agentrix?.apiKeyFingerprint)
-  const passedCount = installCheck?.steps.filter((step) => step.status === "passed").length || 0
-  const totalCount = installCheck?.steps.length || 0
+  const [installForm, setInstallForm] = useState(() => installFormFromDefaults(defaults))
+  const [expandedRowId, setExpandedRowId] = useState("")
+  const [checkingRowId, setCheckingRowId] = useState("")
+  const installInput = useMemo(() => installForm, [installForm])
+  const groups = useMemo(() => buildInstallGroups({
+    installCheck,
+  }), [installCheck])
+  const rows = groups.flatMap((group) => group.rows)
+  const checkedRows = installCheck ? rows : []
+  const checkedCount = checkedRows.filter((row) => row.status !== "unknown").length
+  const repoChangeCount = checkedRows.filter((row) => row.kind === "repo" && row.status === "needs_action").length
+  const hasInputBlocker = checkedRows.some((row) => rowNeedsInput(row, installForm))
+  const canRunInstall = Boolean(project && installCheck) && !checking && !installing && checkedCount > 0 && !hasInputBlocker
+  const repairLabel = repoChangeCount > 0 ? "应用配置并创建 MR" : "自动修复可修复项"
 
   useEffect(() => {
-    setRunnerId(defaults?.agentrix?.runnerId || "")
-    setAgent(defaults?.automation?.agent || "codex")
-    setAutoDefault(defaults?.automation?.autoDefault || "triage")
-    setReviewEnabled(Boolean(defaults?.automation?.reviewEnabled))
+    setInstallForm(installFormFromDefaults(defaults))
   }, [defaults?.agentrix?.runnerId, defaults?.automation?.agent, defaults?.automation?.autoDefault, defaults?.automation?.reviewEnabled])
 
-  async function checkWithForm() {
-    return onCheck({
-      automation: { autoDefault, reviewEnabled, agent, runnerId, responseMode: "async" },
-      agentrix: { apiKey, runnerId },
-    })
+  async function checkRows(rowId = "all") {
+    setCheckingRowId(rowId)
+    try {
+      await onCheck(installInput)
+    } finally {
+      setCheckingRowId("")
+    }
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    await onInstall({
-      automation: { autoDefault, reviewEnabled, agent, runnerId, responseMode: "async" },
-      agentrix: { apiKey, runnerId },
-    })
+  async function runInstallPlan() {
+    await onInstall(installInput)
   }
 
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="先从左侧选择一个 repo。" />
 
   return (
-    <div className="wizard-layout">
-      <section className="wizard-section">
-        <header className="section-head">
-          <h2>安装向导</h2>
-          <p>先检查，遇到缺失配置就停下来填；仓库文件变更走分支、commit、push、MR。</p>
-        </header>
-        <form className="wizard-form" onSubmit={submit}>
-          {!hasSavedKey && <Field label="Agentrix API key" value={apiKey} onChange={setApiKey} type="password" required />}
-          {hasSavedKey && (
-            <div className="key-summary">
-              <KeyRound className="size-4" />
-              <span>
-                <strong>使用已保存 API key</strong>
-                <small>fingerprint {repository?.agentrix?.apiKeyFingerprint || defaults?.agentrix?.apiKeyFingerprint}</small>
-              </span>
-              <Input value={apiKey} onChange={(event) => setApiKey(event.currentTarget.value)} type="password" placeholder="覆盖 API key" />
-            </div>
-          )}
-          <Field label="Runner ID" value={runnerId} onChange={setRunnerId} />
-          <Field label="Agent" value={agent} onChange={setAgent} />
-          <div className="field">
-            <Label>Auto default</Label>
-            <Select value={autoDefault} onValueChange={setAutoDefault}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["off", "triage", "plan", "build"].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <label className="check-row">
-            <input type="checkbox" checked={reviewEnabled} onChange={(event) => setReviewEnabled(event.currentTarget.checked)} />
-            <span>
-              <strong>启用 PR review</strong>
-              <small>写入 ISSUE_FLOW_REVIEW_ENABLED</small>
-            </span>
-          </label>
-          <div className="wizard-actions">
-            <Button type="button" variant="secondary" onClick={checkWithForm} disabled={checking}>
-              {checking ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-              运行检查
-            </Button>
-            <Button type="submit" disabled={installing || (!hasSavedKey && !apiKey)}>
-              {installing ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
-              创建安装 MR
-            </Button>
-          </div>
-          {installMessage && <p className="wizard-message">{installMessage}</p>}
-        </form>
-      </section>
-
-      <section className="wizard-section">
-        <header className="section-head">
-          <h2>检查流程</h2>
-          <p>{totalCount ? `${passedCount}/${totalCount} 通过` : "等待首次检查"}</p>
-        </header>
-        <StepList steps={installCheck?.steps || []} />
-      </section>
+    <div className="install-console">
+      <header className="install-console-toolbar">
+        <div className="install-console-actions">
+          <Button type="button" variant="secondary" onClick={() => checkRows()} disabled={checking}>
+            {checkingRowId === "all" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            检查全部
+          </Button>
+          <Button type="button" onClick={runInstallPlan} disabled={!canRunInstall}>
+            {installing ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
+            {repairLabel}
+          </Button>
+        </div>
+      </header>
+      {installMessage && <p className="install-console-message">{installMessage}</p>}
+      <div className="check-table">
+        {groups.map((group) => (
+          <section className="check-group" key={group.title}>
+            <header>
+              <strong>{group.title}</strong>
+              <span>{installCheck ? group.rows.filter((row) => row.status === "passed").length : 0}/{group.rows.length}</span>
+            </header>
+            {group.rows.map((row) => (
+              <CheckTableRow
+                checking={checking && checkingRowId === row.id}
+                expanded={expandedRowId === row.id}
+                installForm={installForm}
+                key={row.id}
+                row={row}
+                canRunInstall={canRunInstall}
+                setExpanded={(expanded) => setExpandedRowId(expanded ? row.id : "")}
+                setInstallForm={setInstallForm}
+                onCheck={() => checkRows(row.id)}
+                onInstall={runInstallPlan}
+                installing={installing}
+              />
+            ))}
+          </section>
+        ))}
+      </div>
     </div>
   )
+}
+
+type CheckStatus = InstallStep["status"]
+type CheckKind = InstallStep["kind"] | "local"
+
+type CheckRow = {
+  id: string
+  title: string
+  description: string
+  kind: CheckKind
+  status: CheckStatus
+  detail?: string
+  files?: string[]
+  missing?: string[]
+  inputRequired?: string[]
+  variable?: NonNullable<InstallStep["variables"]>[number]
+  configItem?: InstallCheckConfigItem
+  actionCount?: number
+}
+
+type CheckGroup = {
+  title: string
+  rows: CheckRow[]
+}
+
+type InstallForm = {
+  automation: {
+    autoDefault: string
+    reviewEnabled: boolean
+    agent: string
+    runnerId: string
+    responseMode: string
+  }
+  agentrix: {
+    apiKey: string
+    baseUrl: string
+    runnerId: string
+  }
+}
+
+function buildInstallGroups({
+  installCheck,
+}: {
+  installCheck?: RepoWorkspaceProps["installCheck"]
+}): CheckGroup[] {
+  const byId = new Map((installCheck?.steps || []).map((step) => [step.id, step]))
+  const variables = byId.get("variables")?.variables || []
+  const variableByKey = new Map(variables.map((variable) => [variable.key, variable]))
+  const row = (item: InstallCheckConfigItem): CheckRow => {
+    if (item.type === "variable") {
+      const checkedVariable = variableByKey.get(item.name)
+      const variable = {
+        key: item.name,
+        label: item.name,
+        description: item.description,
+        status: "unknown" as CheckStatus,
+        ...(checkedVariable || {}),
+        control: checkedVariable?.control || item.control,
+      }
+      return {
+        id: item.id,
+        title: variable.label || item.name,
+        description: variable.description || item.description,
+        kind: "api",
+        status: variable.status || "unknown",
+        detail: variable.detail,
+        variable,
+        configItem: item,
+      }
+    }
+    const step = byId.get(item.id)
+    return {
+      id: item.id,
+      title: item.name,
+      description: item.description || "",
+      kind: item.type === "permission" ? "auth" : item.type === "repo_file" ? "repo" : "api",
+      status: step?.status || "unknown",
+      detail: step?.detail,
+      files: step?.files,
+      missing: step?.missing,
+      inputRequired: step?.inputRequired,
+      configItem: item,
+      actionCount: step?.actionCount,
+    }
+  }
+  return gitlabInstallCheckConfig.groups.map((group) => ({
+    title: group.title,
+    rows: group.items.map(row),
+  }))
+}
+
+function installFormFromDefaults(defaults?: RepoWorkspaceProps["defaults"]): InstallForm {
+  return {
+    automation: {
+      autoDefault: defaults?.automation?.autoDefault || String(variableDefaultValue("ISSUE_FLOW_AUTO_DEFAULT", "triage")),
+      reviewEnabled: defaults?.automation?.reviewEnabled ?? Boolean(variableDefaultValue("ISSUE_FLOW_REVIEW_ENABLED", false)),
+      agent: defaults?.automation?.agent || String(variableDefaultValue("AGENTRIX_ISSUE_FLOW_AGENT", "codex")),
+      runnerId: defaults?.automation?.runnerId || defaults?.agentrix?.runnerId || "",
+      responseMode: "async",
+    },
+    agentrix: {
+      apiKey: "",
+      baseUrl: String(variableDefaultValue("AGENTRIX_BASE_URL", "")),
+      runnerId: defaults?.agentrix?.runnerId || defaults?.automation?.runnerId || "",
+    },
+  }
+}
+
+function variableDefaultValue(name: string, fallback: string | boolean) {
+  const items = gitlabInstallCheckConfig.groups.flatMap((group) => group.items)
+  return items.find((item) => item.type === "variable" && item.name === name)?.defaultValue ?? fallback
+}
+
+function formValue(form: InstallForm, path = "") {
+  return path.split(".").reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== "object") return undefined
+    return (current as Record<string, unknown>)[segment]
+  }, form)
+}
+
+function updateFormValue(form: InstallForm, path: string, value: string | boolean): InstallForm {
+  const [section, key] = path.split(".")
+  if (section !== "automation" && section !== "agentrix") return form
+  return {
+    ...form,
+    [section]: {
+      ...form[section],
+      [key]: value,
+    },
+  }
+}
+
+function rowNeedsInput(row: CheckRow, form: InstallForm) {
+  if (row.variable?.needsInput && row.variable.control) {
+    return !formValue(form, row.variable.control.path)
+  }
+  return row.status === "needs_input"
+}
+
+function CheckTableRow({
+  canRunInstall,
+  checking,
+  expanded,
+  installForm,
+  installing,
+  row,
+  setExpanded,
+  setInstallForm,
+  onCheck,
+  onInstall,
+}: {
+  canRunInstall: boolean
+  checking: boolean
+  expanded: boolean
+  installForm: InstallForm
+  installing: boolean
+  row: CheckRow
+  setExpanded: (expanded: boolean) => void
+  setInstallForm: (value: InstallForm | ((current: InstallForm) => InstallForm)) => void
+  onCheck: () => Promise<void>
+  onInstall: () => Promise<void>
+}) {
+  const canEdit = Boolean(row.variable?.control)
+  const needsInput = rowNeedsInput(row, installForm)
+  const canRepair = row.status === "needs_action" && (row.kind === "api" || row.kind === "repo")
+  const statusIcon = row.status === "passed"
+    ? <CheckCircle2 className="size-4" />
+    : row.status === "unknown"
+      ? <CircleDot className="size-4" />
+      : <AlertCircle className="size-4" />
+  return (
+    <div className={`check-table-row ${row.status} ${expanded ? "expanded" : ""}`}>
+      <div className="check-row-main">
+        <span className="check-status-icon">{statusIcon}</span>
+        <span className="check-row-copy">
+          <strong>{row.title}</strong>
+          <small>{row.detail || row.description}</small>
+        </span>
+        <div className="check-row-actions">
+          {(canEdit || needsInput) && <Button type="button" size="sm" variant="secondary" onClick={() => setExpanded(!expanded)}>{expanded ? "收起" : "设置"}</Button>}
+          {canRepair && <Button type="button" size="sm" variant="secondary" onClick={onInstall} disabled={installing || !canRunInstall}>{row.kind === "repo" ? "创建 MR" : "自动修复"}</Button>}
+          <Button type="button" size="sm" variant="ghost" onClick={onCheck} disabled={checking}>
+            {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            检查
+          </Button>
+        </div>
+      </div>
+      {expanded && (
+        <CheckRowDetail
+          installForm={installForm}
+          row={row}
+          setInstallForm={setInstallForm}
+        />
+      )}
+      {(row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
+    </div>
+  )
+}
+
+function CheckRowDetail({
+  installForm,
+  row,
+  setInstallForm,
+}: {
+  installForm: InstallForm
+  row: CheckRow
+  setInstallForm: (value: InstallForm | ((current: InstallForm) => InstallForm)) => void
+}) {
+  const control = row.variable?.control
+  if (control) {
+    const value = formValue(installForm, control.path)
+    return (
+      <div className="check-row-detail">
+        <Label>{row.variable?.label || row.title}</Label>
+        <VariableInput
+          control={control}
+          value={value}
+          onChange={(nextValue) => setInstallForm((current) => updateFormValue(current, control.path, nextValue))}
+        />
+        <small>{row.variable?.description || row.variable?.key}</small>
+      </div>
+    )
+  }
+  return <div className="check-row-detail muted">此项需要在 Git server 配置中维护，保存后重新检查。</div>
+}
+
+function VariableInput({
+  control,
+  value,
+  onChange,
+}: {
+  control: NonNullable<NonNullable<InstallStep["variables"]>[number]["control"]>
+  value: unknown
+  onChange: (value: string | boolean) => void
+}) {
+  if (control.type === "checkbox") {
+    return (
+      <label className="inline-check">
+        <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.currentTarget.checked)} />
+        启用
+      </label>
+    )
+  }
+  if (control.type === "select") {
+    return (
+      <Select value={String(value || "")} onValueChange={onChange}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {(control.options || []).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+  }
+  return (
+    <Input
+      value={String(value || "")}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      type={control.type}
+      placeholder={control.placeholder}
+    />
+  )
+}
+
+function CheckRowMeta({ row }: { row: CheckRow }) {
+  if (row.files?.length) {
+    return (
+      <details className="check-row-meta">
+        <summary>{row.actionCount || row.files.length} 个仓库文件变更</summary>
+        <code>{row.files.join("\n")}</code>
+      </details>
+    )
+  }
+  if (row.missing?.length) {
+    return <div className="check-row-meta chips">{row.missing.map((item) => <code key={item}>{item}</code>)}</div>
+  }
+  return null
 }
 
 function StatusGrid({ project, repository }: { project: GitLabProject; repository: Repository }) {
@@ -201,25 +463,6 @@ function StatusGrid({ project, repository }: { project: GitLabProject; repositor
 
 function StatusCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return <div className="status-card"><span>{icon}{label}</span><strong>{value}</strong></div>
-}
-
-function StepList({ steps }: { steps: InstallStep[] }) {
-  if (steps.length === 0) return <div className="empty-panel compact">点击“运行检查”开始。</div>
-  return (
-    <div className="step-list">
-      {steps.map((step) => (
-        <div className={`step-row ${step.status}`} key={step.id}>
-          {step.status === "passed" ? <CheckCircle2 className="size-4" /> : <AlertCircle className="size-4" />}
-          <span>
-            <strong>{step.label}</strong>
-            <small>{step.detail || step.kind}</small>
-            {step.files?.length ? <code>{step.files.join(", ")}</code> : null}
-          </span>
-          <Badge variant="secondary">{step.kind}</Badge>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 function ActivityList({ deliveries, runs }: { deliveries: RecordRow[]; runs: RecordRow[] }) {
@@ -263,16 +506,6 @@ function EmptyPanel({ icon, title, detail, children }: EmptyPanelProps) {
       <strong>{title}</strong>
       <span>{detail}</span>
       {children}
-    </div>
-  )
-}
-
-function Field({ label, value, onChange, type, required }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean }) {
-  const id = label.toLowerCase().replace(/\s+/g, "-")
-  return (
-    <div className="field">
-      <Label htmlFor={id}>{label}</Label>
-      <Input id={id} value={value} type={type} required={required} onChange={(event) => onChange(event.currentTarget.value)} />
     </div>
   )
 }

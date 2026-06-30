@@ -28,13 +28,14 @@ import { sanitizeError } from './sanitize.js'
 function gitlabCiVariablesForInstall({ config, installConfig }) {
   const automation = installConfig.automation || {};
   const agentrix = installConfig.agentrix || {};
+  const runnerId = agentrix.runnerId || automation.runnerId || '';
   return [
-    { key: 'AGENTRIX_BASE_URL', value: agentrix.baseUrl },
-    { key: 'AGENTRIX_API_KEY', value: agentrix.apiKey, masked: true },
-    { key: 'AGENTRIX_RUNNER_ID', value: agentrix.runnerId || automation.runnerId || '' },
-    { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: automation.agent || 'codex' },
-    { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: automation.autoDefault || 'triage' },
-    { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: automation.reviewEnabled ? 'true' : 'false' },
+    { key: 'AGENTRIX_BASE_URL', value: agentrix.baseUrl, required: true },
+    { key: 'AGENTRIX_API_KEY', value: agentrix.apiKey, masked: true, required: true },
+    { key: 'AGENTRIX_RUNNER_ID', value: runnerId, required: Boolean(runnerId), emptyDetail: '未指定，使用默认 runner' },
+    { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: automation.agent || 'codex', required: true },
+    { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: automation.autoDefault || 'triage', required: true },
+    { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: automation.reviewEnabled ? 'true' : 'false', required: true },
   ];
 }
 
@@ -53,6 +54,23 @@ function statusFromBoolean(ok, missingDetail, readyDetail = '') {
   return ok
     ? { status: 'passed', detail: readyDetail }
     : { status: 'needs_action', detail: missingDetail };
+}
+
+function variableCheckState(variable, existingVariable) {
+  const exists = Boolean(existingVariable);
+  const required = variable.required !== false;
+  const writable = variable.value !== undefined && variable.value !== '';
+  const needsInput = required && !exists && !writable;
+  if (exists) {
+    return { status: 'passed', detail: 'GitLab 已配置' };
+  }
+  if (!required && !writable) {
+    return { status: 'passed', detail: variable.emptyDetail || '未设置，使用默认值' };
+  }
+  if (needsInput) {
+    return { status: 'needs_input', detail: '需要填写后写入 GitLab' };
+  }
+  return { status: 'needs_action', detail: '可通过 GitLab API 写入' };
 }
 
 async function listGitlabProjectsWithInstallStatus({ store, input = {}, session }) {
@@ -173,22 +191,6 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     };
   }
   const installConfig = mergeAgentrixInstallInput(input, agentrixDefaults, env);
-  steps.push(installStep(
-    'agentrix_api_key',
-    'input',
-    'Agentrix API key',
-    installConfig.agentrix && installConfig.agentrix.apiKey ? 'passed' : 'needs_input',
-    installConfig.agentrix && installConfig.agentrix.apiKey
-      ? '已找到可用 API key'
-      : '需要填写 Agentrix API key'
-  ));
-  steps.push(installStep(
-    'webhook_secret',
-    'input',
-    'Webhook secret',
-    config.webhookSecret ? 'passed' : 'needs_input',
-    config.webhookSecret ? 'Git server 已配置 webhook secret' : '需要在 Git server 配置 webhook secret'
-  ));
 
   const apiInput = {
     apiUrl: config.apiUrl,
@@ -228,23 +230,51 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
   const variables = gitlabCiVariablesForInstall({ config, installConfig });
   const variableResults = [];
   for (const variable of variables) {
-    if (!variable.value && variable.key === 'AGENTRIX_API_KEY') {
-      variableResults.push({ key: variable.key, exists: false, blockedByInput: true });
-      continue;
-    }
     const existingVariable = await getGitlabProjectVariable(apiInput, variable.key);
-    variableResults.push({ key: variable.key, exists: Boolean(existingVariable) });
+    const state = variableCheckState(variable, existingVariable);
+    const required = variable.required !== false;
+    const writable = variable.value !== undefined && variable.value !== '';
+    variableResults.push({
+      key: variable.key,
+      label: variable.label || variable.key,
+      description: variable.description || '',
+      exists: Boolean(existingVariable),
+      required,
+      writable,
+      masked: Boolean(variable.masked),
+      status: state.status,
+      detail: state.detail,
+      needsInput: state.status === 'needs_input',
+      control: variable.control || undefined,
+    });
   }
-  const missingVariables = variableResults.filter((item) => !item.exists).map((item) => item.key);
+  const missingVariables = variableResults
+    .filter((item) => item.required && !item.exists)
+    .map((item) => item.key);
+  const inputRequiredVariables = variableResults
+    .filter((item) => item.needsInput)
+    .map((item) => item.key);
+  const variableStatus = inputRequiredVariables.length
+    ? 'needs_input'
+    : missingVariables.length
+      ? 'needs_action'
+      : 'passed';
+  const variableDetail = inputRequiredVariables.length
+    ? `缺少 ${inputRequiredVariables.join(', ')}，需要补充后才能写入`
+    : missingVariables.length
+      ? `缺少 ${missingVariables.length} 个变量，可通过 API 写入`
+      : 'GitLab variables 已完整';
   steps.push(installStep(
     'variables',
     'api',
     'CI/CD variables',
-    missingVariables.length ? 'needs_action' : 'passed',
-    missingVariables.length
-      ? `需要通过 API 写入 ${missingVariables.length} 个变量`
-      : '变量已存在',
-    { missing: missingVariables }
+    variableStatus,
+    variableDetail,
+    {
+      missing: missingVariables,
+      inputRequired: inputRequiredVariables,
+      variables: variableResults,
+    }
   ));
 
   if (existing) {

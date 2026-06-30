@@ -3,6 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @import "./styles/theme.css";
+@import "./styles/install-console.css";
 @custom-variant dark (&:is(.dark *));
 @theme inline {
   --font-sans: Geist, sans-serif;
@@ -88,8 +89,7 @@
     align-items: center;
   }
   .sidebar-titlebar,
-  .brand-row,
-  .wizard-actions {
+  .brand-row {
     display: flex;
     align-items: center;
     gap: 0.65rem;
@@ -149,8 +149,6 @@
   }
   .search-row,
   .status-card,
-  .step-row,
-  .key-summary,
   .empty-panel {
     border: 1px solid var(--border);
     background: color-mix(in srgb, var(--card) 86%, var(--background));
@@ -473,12 +471,8 @@
   .brand-row small,
   .empty-panel span,
   .install-empty p,
-  .step-row small,
   .activity-row small,
   .status-card span,
-  .key-summary small,
-  .wizard-message,
-  .check-row small,
   .login-copy p {
     color: var(--muted-foreground);
   }
@@ -517,8 +511,7 @@
   .app-alert {
     margin-bottom: 0.7rem;
   }
-  .overview-grid,
-  .wizard-layout {
+  .overview-grid {
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(22rem, 0.55fr);
     gap: 0.8rem;
@@ -615,74 +608,12 @@
     background: color-mix(in srgb, var(--primary) 12%, var(--card));
     color: var(--primary);
   }
-  .wizard-form {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-  }
   .field,
-  .check-row,
-  .key-summary {
-    display: grid;
-    gap: 0.38rem;
-  }
-  .key-summary,
-  .check-row,
-  .wizard-actions,
-  .wizard-message {
-    grid-column: 1 / -1;
-  }
-  .key-summary {
-    grid-template-columns: auto minmax(0, 1fr) minmax(13rem, 0.5fr);
-    align-items: center;
-    padding: 0.75rem;
-    border-radius: 8px;
-  }
-  .wizard-section,
   .activity-section {
     min-width: 0;
+    display: grid;
+    gap: 0.38rem;
     padding-top: 0.2rem;
-  }
-  .check-row {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    padding: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--muted) 64%, var(--if-color-transparent));
-  }
-  .wizard-actions {
-    justify-content: flex-end;
-    padding-top: 0.25rem;
-  }
-  .step-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 0.55rem;
-    padding: 0.7rem;
-    border-radius: 8px;
-  }
-  .step-row.passed {
-    color: var(--success);
-  }
-  .step-row.blocked,
-  .step-row.needs_input {
-    color: var(--destructive);
-  }
-  .step-row.needs_action {
-    color: color-mix(in srgb, var(--warning) 75%, var(--foreground));
-  }
-  .step-row span {
-    display: grid;
-    gap: 0.22rem;
-    min-width: 0;
-  }
-  .step-row code {
-    color: var(--muted-foreground);
-    font-family: var(--font-mono);
-    font-size: 0.76rem;
-    overflow-wrap: anywhere;
   }
   .login-screen {
     min-height: 100svh;
@@ -742,8 +673,7 @@
   .issue-app {
     grid-template-columns: var(--if-sidebar-width) minmax(0, 1fr);
   }
-  .overview-grid,
-  .wizard-layout {
+  .overview-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -766,18 +696,10 @@
     height: auto;
     padding: 0.75rem;
   }
-  .wizard-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .wizard-actions > * {
-    width: 100%;
-  }
   .repo-switchers,
   .status-grid,
-  .wizard-form,
   .activity-row,
-  .key-summary {
+  .check-row-detail.inline {
     grid-template-columns: 1fr;
   }
   .repo-row {

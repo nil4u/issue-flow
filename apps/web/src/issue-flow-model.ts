@@ -49,6 +49,27 @@ export type GitLabProject = {
   permissionStatus?: string
 }
 
+export type InstallStatus = "passed" | "needs_action" | "needs_input" | "blocked" | "unknown"
+
+export type AgentrixVariable = {
+  key: string
+  label?: string
+  description?: string
+  exists?: boolean
+  required?: boolean
+  writable?: boolean
+  masked?: boolean
+  status?: InstallStatus
+  detail?: string
+  needsInput?: boolean
+  control?: {
+    path: string
+    type: "text" | "password" | "select" | "checkbox"
+    placeholder?: string
+    options?: string[]
+  }
+}
+
 export type SessionState = {
   authenticated: boolean
   user?: GitLabUser
@@ -80,10 +101,12 @@ export type InstallStep = {
   id: string
   kind: "auth" | "input" | "api" | "repo"
   label: string
-  status: "passed" | "needs_action" | "needs_input" | "blocked" | "unknown"
+  status: InstallStatus
   detail?: string
   files?: string[]
   missing?: string[]
+  inputRequired?: string[]
+  variables?: AgentrixVariable[]
   actionCount?: number
 }
 

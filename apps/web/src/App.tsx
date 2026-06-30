@@ -201,7 +201,7 @@ function Dashboard() {
       await refreshGitServer(selectedGitServerId)
       await runInstallCheck()
     } catch (error) {
-      setInstallMessage((error as Error).message)
+      setInstallMessage(installErrorMessage(error))
     } finally {
       setInstalling(false)
     }
@@ -255,6 +255,13 @@ function Dashboard() {
     setInstallCheck(undefined)
     setInstallMessage("")
   }, [selectedProjectId])
+
+  useEffect(() => {
+    if (activeTab !== "settings" || !selectedGitServerId || !userSession.authenticated) return
+    void loadAgentrixDefaults(selectedGitServerId).catch((error) => {
+      setLoadError((error as Error).message)
+    })
+  }, [activeTab, selectedGitServerId, userSession.authenticated])
 
   useEffect(() => {
     void loadActivity(selectedRepo?.id)
@@ -325,6 +332,14 @@ function Dashboard() {
       </section>
     </main>
   )
+}
+
+function installErrorMessage(error: unknown) {
+  const code = error instanceof Error ? error.message : ""
+  if (code === "git_server_webhook_secret_required") {
+    return "Git server 缺少启动期 webhook secret，请在服务配置里设置后重启。"
+  }
+  return code || "安装失败"
 }
 
 export default AppShell
