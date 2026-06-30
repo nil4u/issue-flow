@@ -10,6 +10,7 @@ const SCRIPT_DIR = path.join(__dirname, 'scripts');
 const BOOLEAN_OPTIONS = new Set([
   '--dry-run',
   '--draft',
+  '--as-comment',
   '--no-push',
   '--clear-flow',
   '--clear-automation',
@@ -82,7 +83,7 @@ function prHelp() {
     '  comments update --pr <num> --comment-id <id> --body-file <path>',
     '  comments delete --pr <num> --comment-id <id>',
     '  review-comments list --pr <num>',
-    '  review --pr <num> --body-file <path> [--comments-file <path>]',
+    '  review --pr <num> --body-file <path> [--comments-file <path>] [--as-comment]',
     '  merged --event <path>',
     '',
     'Note: pr means GitHub PR or GitLab MR.',
