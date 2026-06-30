@@ -15,6 +15,7 @@ const {
   runPipelineFailed,
   runReview,
   runReviewComment,
+  runComment,
   runResume,
 } = require('../skills/issue-flow/scripts/dispatch.cjs');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
@@ -217,6 +218,91 @@ function githubReviewCommentPayload(overrides = {}) {
   }
   return payload;
 }
+
+function githubIssueCommentPayload(overrides = {}) {
+  return {
+    action: overrides.action || 'created',
+    comment: {
+      id: overrides.commentId || 501,
+      body: overrides.commentBody || '@agentrix here is the missing product constraint',
+      html_url: 'https://github.com/example/platform/issues/42#issuecomment-501',
+      user: { login: overrides.author || 'reviewer', type: overrides.userType || 'User' },
+    },
+    issue: {
+      number: 42,
+      state: overrides.state || 'open',
+      title: 'Need clarification',
+      body: 'Context',
+      html_url: 'https://github.com/example/platform/issues/42',
+      labels: overrides.labels || [{ name: 'status::active' }, { name: 'flow::clarify' }],
+      user: { login: 'alice' },
+    },
+    repository: { full_name: 'example/platform' },
+  };
+}
+
+test('dispatch comment without instruction does not auto-run clarify flow', async () => {
+  const result = await runComment(
+    { dryRun: true },
+    { payload: githubIssueCommentPayload({ commentBody: '@agentrix' }) }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'unsupported_flow');
+  assert.equal(result.flowLabel, 'flow::clarify');
+});
+
+test('dispatch comment resumes the only resumable issue task while clarifying', async () => {
+  const originalList = providers.github.listIssueComments;
+  providers.github.listIssueComments = async () => [
+    {
+      id: 300,
+      html_url: 'https://github.com/example/platform/issues/42#issuecomment-300',
+      body: agentrix.buildTaskComment('triage', { status: 'dry-run', runId: 'task-triage' }),
+    },
+  ];
+
+  try {
+    const result = await runComment(
+      { dryRun: true },
+      { payload: githubIssueCommentPayload() }
+    );
+
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.taskId, 'task-triage');
+    assert.equal(result.taskAction, 'triage');
+    assert.equal(result.issueNumber, 42);
+    assert.equal(result.result.status, 'dry-run');
+  } finally {
+    providers.github.listIssueComments = originalList;
+  }
+});
+
+test('dispatch comment falls back to general when clarify has multiple resumable issue tasks', async () => {
+  const originalList = providers.github.listIssueComments;
+  providers.github.listIssueComments = async () => [
+    {
+      id: 300,
+      body: agentrix.buildTaskComment('triage', { status: 'dry-run', runId: 'task-triage' }),
+    },
+    {
+      id: 301,
+      body: agentrix.buildTaskComment('build', { status: 'dry-run', runId: 'task-build' }),
+    },
+  ];
+
+  try {
+    const result = await runComment(
+      { dryRun: true },
+      { payload: githubIssueCommentPayload() }
+    );
+
+    assert.equal(result.action, 'general');
+    assert.equal(result.result.status, 'dry-run');
+  } finally {
+    providers.github.listIssueComments = originalList;
+  }
+});
 
 test('dispatch review-comment resumes the PR body task id on created event', async () => {
   const result = await runReviewComment(

@@ -388,6 +388,29 @@ test('agentrix extracts task run and reviewed head from task comments', () => {
   assert.equal(agentrix.extractReviewHeadShaFromTaskComment('<!-- issue-flow:agentrix:task:review:legacy-sha -->'), '');
 });
 
+test('agentrix extracts only resumable issue tasks from task comments', () => {
+  const taskComment = {
+    id: 300,
+    html_url: 'https://github.com/example/platform/issues/42#issuecomment-300',
+    body: agentrix.buildTaskComment('plan', { status: 'dry-run', runId: 'task-plan' }),
+  };
+
+  assert.deepEqual(agentrix.extractIssueTaskFromTaskComment(taskComment), {
+    action: 'plan',
+    taskId: 'task-plan',
+    commentId: '300',
+    commentUrl: 'https://github.com/example/platform/issues/42#issuecomment-300',
+  });
+  assert.equal(
+    agentrix.extractIssueTaskFromTaskComment(agentrix.buildTaskComment('triage', { status: 'starting' })),
+    undefined
+  );
+  assert.equal(
+    agentrix.extractIssueTaskFromTaskComment(agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' })),
+    undefined
+  );
+});
+
 test('agentrix extracts PR/MR task id only from pull request body marker', () => {
   assert.equal(
     agentrix.extractAgentrixTaskIdFromPullRequest({
@@ -586,4 +609,31 @@ test('agentrix review comment resume instruction stays minimal', () => {
   assert.doesNotMatch(prompt, /src\/app\.js/);
   assert.doesNotMatch(prompt, /Please handle this edge case/);
   assert.doesNotMatch(prompt, /review-comments/);
+});
+
+test('agentrix issue comment resume instruction stays minimal', () => {
+  const prompt = agentrix.buildIssueCommentResumeInstruction(
+    {
+      number: 42,
+      htmlUrl: 'https://github.com/example/platform/issues/42',
+    },
+    {
+      id: '501',
+      htmlUrl: 'https://github.com/example/platform/issues/42#issuecomment-501',
+      body: 'Use the markdown marker path.',
+    },
+    {
+      issueTask: {
+        action: 'triage',
+        taskId: 'task-triage',
+      },
+      instruction: 'Use the markdown marker path.',
+    }
+  );
+
+  assert.equal(prompt, 'Issue 有新的 comment，请查看并继续处理。');
+  assert.doesNotMatch(prompt, /https:\/\/github\.com\/example\/platform\/issues\/42/);
+  assert.doesNotMatch(prompt, /Use the markdown marker path/);
+  assert.doesNotMatch(prompt, /triage/);
+  assert.doesNotMatch(prompt, /task-triage/);
 });

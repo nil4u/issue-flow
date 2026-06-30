@@ -25,6 +25,7 @@ const DEFAULT_PLAN_ROOT_DIR = '.issue-flow/issues';
 const TASK_COMMENT_RUN_PATTERN = /^(?:[-*]\s+)?Run:\s*`([^`]+)`\s*$/im;
 const REVIEW_COMMENT_TASK_PATTERN = /^(?:[-*]\s+)?Review task:\s*`([^`]+)`\s*$/im;
 const REVIEW_COMMENT_HEAD_PATTERN = /^(?:[-*]\s+)?Head:\s*`([^`]+)`\s*$/im;
+const ISSUE_TASK_COMMENT_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task:(triage|plan|build)\s*-->/i;
 const PLAN_SUBDIR = 'plan';
 const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
@@ -430,6 +431,10 @@ function buildReviewCommentResumeInstruction() {
   ].join('\n');
 }
 
+function buildIssueCommentResumeInstruction() {
+  return 'Issue 有新的 comment，请查看并继续处理。';
+}
+
 function buildReviewResumeInstruction() {
   return 'PR/MR 有新的提交，请继续 review 最新变更。';
 }
@@ -821,6 +826,24 @@ function extractRunIdFromTaskComment(comment) {
   return reviewTaskMatch ? reviewTaskMatch[1].trim() : '';
 }
 
+function extractIssueTaskFromTaskComment(comment) {
+  const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
+  const marker = body.match(ISSUE_TASK_COMMENT_MARKER_PATTERN);
+  if (!marker) {
+    return undefined;
+  }
+  const taskId = extractRunIdFromTaskComment(body);
+  if (!taskId) {
+    return undefined;
+  }
+  return {
+    action: marker[1],
+    taskId,
+    commentId: comment && comment.id !== undefined ? String(comment.id) : '',
+    commentUrl: String(comment && (comment.html_url || comment.htmlUrl || comment.web_url || comment.url) || ''),
+  };
+}
+
 function extractReviewHeadShaFromTaskComment(comment) {
   const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
   const headMatch = body.match(REVIEW_COMMENT_HEAD_PATTERN);
@@ -840,6 +863,7 @@ module.exports = {
   buildIssuePlanPattern,
   buildPrompt,
   buildPullRequestPrompt,
+  buildIssueCommentResumeInstruction,
   buildResumeTaskArgs,
   buildRunArgs,
   buildAgentrixRunEnv,
@@ -849,6 +873,7 @@ module.exports = {
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,
+  extractIssueTaskFromTaskComment,
   parseSourceMarker,
   extractMention,
   extractReviewHeadShaFromTaskComment,

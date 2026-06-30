@@ -111,6 +111,15 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 
 For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files. The GitLab include contains an Agentrix daemon webhook bridge `issue-flow-failure-intake` job for failed pipeline events.
 
+## Prompt Principles
+
+Treat the agent like a person. A prompt should be minimal and complete: give the agent the goal, the hard constraints, and the expected output, then let it inspect the issue, comments, PR/MR, and repository context itself.
+
+- Do not duplicate context the runtime already provides, such as issue bodies, comment text, task ids, URLs, labels, or event metadata.
+- Put durable workflow rules in the action prompts and skill docs; keep event-specific resume prompts short.
+- Resume prompts should only state the new signal and the expected continuation. For example, "Issue has a new comment; review it and continue."
+- Add detail only when it changes the agent's decision boundary. If a sentence merely restates available context, remove it.
+
 ## GitHub Configuration
 
 Set these repository variables/secrets as needed:
