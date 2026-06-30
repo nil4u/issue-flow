@@ -260,10 +260,6 @@ function Dashboard() {
     void loadActivity(selectedRepo?.id)
   }, [selectedRepo?.id])
 
-  useEffect(() => {
-    if (activeTab === "settings" && selectedProject && currentUser) void runInstallCheck()
-  }, [activeTab, selectedProject?.id, currentUser?.username])
-
   if (!userSession.authenticated) {
     return (
       <LoginPage
