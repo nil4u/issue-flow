@@ -37,13 +37,21 @@
   }
   html {
     @apply font-sans;
+    height: 100%;
+    overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
   body {
     @apply bg-background text-foreground;
+    height: 100%;
     margin: 0;
+    overflow: hidden;
     letter-spacing: 0;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
   }
   button,
   input,
@@ -54,10 +62,12 @@
 }
 @layer components {
   .issue-app {
-    min-height: 100svh;
+    height: 100svh;
+    min-height: 0;
     display: grid;
     grid-template-columns: var(--if-sidebar-width) minmax(0, 1fr);
     background: var(--surface-main);
+    overflow: hidden;
   }
   .issue-app.sidebar-collapsed {
     grid-template-columns: 4.375rem minmax(0, 1fr);
@@ -293,7 +303,7 @@
     background: var(--if-color-surface);
   }
   .user-menu {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     width: 100%;
     height: 3.5rem;
     min-height: 3.5rem;
@@ -445,18 +455,22 @@
   .workspace-surface {
     min-width: 0;
     background: var(--card);
+    overflow: hidden;
   }
   .workspace-panel {
-    min-height: 100svh;
+    height: 100svh;
+    min-height: 0;
     background: var(--card);
+    overflow: hidden;
   }
   .workspace-tabs {
+    height: 100%;
     min-height: 0;
     display: grid;
-    grid-template-rows: 3.25rem minmax(0, 1fr);
+    grid-template-rows: 2.75rem minmax(0, 1fr);
   }
   .workspace-tabbar {
-    height: 3.25rem;
+    height: 2.75rem;
     display: flex;
     align-items: end;
     padding: 0 1.35rem;
@@ -468,6 +482,7 @@
   .workspace-tabs [data-slot="tabs-content"] {
     min-height: 0;
     padding: 1.15rem 1.35rem;
+    overflow: auto;
   }
   .app-alert {
     margin-bottom: 0.7rem;
@@ -718,6 +733,7 @@
   }
   .workspace-panel {
     min-height: 70svh;
+    height: auto;
     padding: 0.75rem;
   }
   .wizard-actions {

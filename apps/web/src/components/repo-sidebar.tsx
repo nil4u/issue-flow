@@ -12,7 +12,6 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
-  Settings,
   UserRound,
 } from "lucide-react"
 
@@ -285,7 +284,6 @@ function UserMenu({
                 <strong>{user?.name || user?.username || "User"}</strong>
                 <small>{currentUser ? selectedGitServer?.name || selectedGitServer?.id : "未连接当前 Git server"}</small>
               </span>
-              <ChevronDown className="size-4" />
             </>
           )}
         </button>
@@ -293,10 +291,6 @@ function UserMenu({
       <DropdownMenuContent align={compact ? "start" : "end"} side={compact ? "right" : "top"} className="user-menu-content">
         <DropdownMenuLabel>{user?.username || "issue-flow user"}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
-          <Settings className="size-4" />
-          用户设置入口
-        </DropdownMenuItem>
         <DropdownMenuItem variant="destructive" onSelect={onLogout}>
           <LogOut className="size-4" />
           退出登录
