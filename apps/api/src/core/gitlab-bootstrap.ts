@@ -2,13 +2,17 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import bootstrap from '../../../../skills/issue-flow/scripts/bootstrap.cjs'
 import {
+  createGitlabMergeRequest,
   createGitlabRepositoryCommit,
   getGitlabRepositoryFile,
 } from './gitlab.js'
 
 const { installGitlab } = bootstrap
+const execFileAsync = promisify(execFile)
 
 const ROOT_CI = '.gitlab-ci.yml';
 const ISSUE_FLOW_CI = '.gitlab/issue-flow.gitlab-ci.yml';
@@ -79,7 +83,7 @@ async function generateGitlabBootstrapFiles() {
   }
 }
 
-async function installGitlabBootstrap(input = {}) {
+async function buildGitlabBootstrapActions(input = {}) {
   const branch = input.branch || input.defaultBranch || 'main';
   const generated = await generateGitlabBootstrapFiles();
   const apiInput = {
@@ -130,6 +134,33 @@ async function installGitlabBootstrap(input = {}) {
     });
   }
 
+  return {
+    branch,
+    actions,
+    apiInput,
+    generated,
+    existingRoot: Boolean(existingRoot),
+    hasIssueFlowInclude: hasIssueFlowInclude(existingRootContent),
+  };
+}
+
+async function planGitlabBootstrap(input = {}) {
+  const plan = await buildGitlabBootstrapActions(input);
+  return {
+    branch: plan.branch,
+    required: plan.actions.length > 0,
+    skipped: plan.actions.length === 0,
+    actionCount: plan.actions.length,
+    files: plan.actions.map((action) => action.file_path),
+    actions: plan.actions.map((action) => ({
+      action: action.action,
+      filePath: action.file_path,
+    })),
+  };
+}
+
+async function installGitlabBootstrap(input = {}) {
+  const { branch, actions, apiInput } = await buildGitlabBootstrapActions(input);
   if (actions.length === 0) {
     return {
       skipped: true,
@@ -153,6 +184,146 @@ async function installGitlabBootstrap(input = {}) {
   };
 }
 
+function redact(value = '', token = '') {
+  return token ? String(value || '').replaceAll(token, '[redacted]') : String(value || '');
+}
+
+async function runGit(cwd, args, token = '') {
+  try {
+    return await execFileAsync('git', args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+      },
+      maxBuffer: 1024 * 1024 * 4,
+    });
+  } catch (error) {
+    const detail = redact(error && (error.stderr || error.stdout || error.message) || '', token).trim();
+    const failure = new Error(`git ${args[0]} failed${detail ? `: ${detail}` : ''}`);
+    failure.status = 502;
+    throw failure;
+  }
+}
+
+async function tryGit(cwd, args, token = '') {
+  try {
+    return await runGit(cwd, args, token);
+  } catch {
+    return undefined;
+  }
+}
+
+function gitlabRemoteUrl(input = {}) {
+  const url = new URL(input.baseUrl || '');
+  const rootPath = url.pathname.replace(/\/+$/, '');
+  const projectPath = String(input.projectPath || '').replace(/^\/+/, '');
+  url.pathname = `${rootPath}/${projectPath}.git`;
+  url.username = 'oauth2';
+  url.password = input.token || '';
+  return url.toString();
+}
+
+function writeActionFile(root, action = {}) {
+  const filePath = String(action.file_path || '');
+  if (!filePath) return;
+  const target = path.join(root, filePath);
+  if (action.action === 'delete') {
+    fs.rmSync(target, { force: true });
+    return;
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, action.content || '', 'utf8');
+}
+
+async function installGitlabBootstrapMergeRequest(input = {}) {
+  const { branch: targetBranch, actions } = await buildGitlabBootstrapActions(input);
+  if (actions.length === 0) {
+    return {
+      skipped: true,
+      branch: targetBranch,
+      actions: [],
+    };
+  }
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-gitlab-mr-'));
+  const checkout = path.join(root, 'repo');
+  const sourceBranch = input.sourceBranch || `issue-flow/install-${Date.now().toString(36)}`;
+  const token = input.token || '';
+  try {
+    await runGit(root, [
+      'clone',
+      '--filter=blob:none',
+      '--no-checkout',
+      '--depth',
+      '1',
+      '--branch',
+      targetBranch,
+      gitlabRemoteUrl(input),
+      checkout,
+    ], token);
+    await tryGit(checkout, ['sparse-checkout', 'init', '--no-cone'], token);
+    await tryGit(checkout, ['sparse-checkout', 'set', '.gitlab-ci.yml', '.gitlab/*', '.issue-flow/*'], token);
+    await runGit(checkout, ['checkout', targetBranch], token);
+    await runGit(checkout, ['checkout', '-b', sourceBranch], token);
+
+    for (const action of actions) {
+      writeActionFile(checkout, action);
+    }
+
+    await runGit(checkout, ['add', '--', ...actions.map((action) => action.file_path)], token);
+    const status = await runGit(checkout, ['status', '--porcelain'], token);
+    if (!String(status.stdout || '').trim()) {
+      return {
+        skipped: true,
+        branch: targetBranch,
+        actions: [],
+      };
+    }
+
+    await runGit(checkout, ['config', 'user.name', 'issue-flow'], token);
+    await runGit(checkout, ['config', 'user.email', 'issue-flow@localhost'], token);
+    await runGit(checkout, ['commit', '-m', input.commitMessage || 'Install issue-flow'], token);
+    await runGit(checkout, ['push', 'origin', `HEAD:refs/heads/${sourceBranch}`], token);
+
+    const mergeRequest = await createGitlabMergeRequest({
+      apiUrl: input.apiUrl,
+      token,
+      authType: input.authType,
+      projectIdOrPath: input.projectIdOrPath,
+      sourceBranch,
+      targetBranch,
+      title: input.mergeRequestTitle || 'Install issue-flow',
+      description: input.mergeRequestDescription || [
+        'Installs issue-flow bootstrap files.',
+        '',
+        'Direct API setup for variables, labels, and webhook is handled by issue-flow after this request is created.',
+      ].join('\n'),
+      removeSourceBranch: true,
+    });
+
+    return {
+      skipped: false,
+      branch: targetBranch,
+      sourceBranch,
+      actionCount: actions.length,
+      actions: actions.map((action) => ({
+        action: action.action,
+        filePath: action.file_path,
+      })),
+      mergeRequest: {
+        id: mergeRequest.id ? String(mergeRequest.id) : '',
+        iid: mergeRequest.iid ? String(mergeRequest.iid) : '',
+        webUrl: mergeRequest.web_url || mergeRequest.webUrl || '',
+      },
+    };
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 export {
   installGitlabBootstrap,
+  installGitlabBootstrapMergeRequest,
+  planGitlabBootstrap,
 }

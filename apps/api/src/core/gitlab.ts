@@ -301,6 +301,26 @@ async function listGitlabWebhooks(input = {}) {
   return Array.isArray(result.parsed) ? result.parsed : [];
 }
 
+async function createGitlabMergeRequest(input = {}) {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/merge_requests`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        source_branch: input.sourceBranch,
+        target_branch: input.targetBranch,
+        title: input.title || 'Install issue-flow',
+        description: input.description || '',
+        remove_source_branch: input.removeSourceBranch !== false,
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
 async function upsertGitlabWebhook(input = {}) {
   if (input.hookId) {
     try {
@@ -320,6 +340,24 @@ async function upsertGitlabWebhook(input = {}) {
     });
   }
   return installGitlabWebhook(input);
+}
+
+async function getGitlabProjectVariable(input = {}, key = '') {
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/variables/${encodeURIComponent(key)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && error.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function upsertGitlabProjectVariable(input = {}, variable = {}) {
@@ -516,15 +554,18 @@ async function validateGitlabToken(input = {}) {
 
 export {
   createGitlabRepositoryCommit,
+  createGitlabMergeRequest,
   configureGitlabProjectVariables,
   exchangeGitlabOAuthCode,
   refreshGitlabOAuthToken,
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
+  getGitlabProjectVariable,
   getGitlabRepositoryFile,
   gitlabOAuthAuthorizeUrl,
   gitlabOAuthRedirectUri,
   installGitlabWebhook,
+  listGitlabWebhooks,
   listGitlabProjects,
   projectApiPath,
   syncGitlabProjectLabels,
