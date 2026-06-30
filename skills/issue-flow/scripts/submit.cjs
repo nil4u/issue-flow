@@ -224,6 +224,32 @@ function assertPublishBranch(headBranch, baseBranch, options) {
   throw new Error(`Head branch and base branch are both ${headBranch}. Create a topic branch before publishing.`);
 }
 
+function expectedBranchSuffixForKind(kind) {
+  if (kind === 'plan' || kind === 'build') {
+    return `/${kind}`;
+  }
+  return '';
+}
+
+function validateIssueFlowBranch(kind, issueNumber, headBranch, options = {}) {
+  if (options.allowNonIssueFlowBranch) {
+    return;
+  }
+
+  const branch = String(headBranch || '').trim();
+  const suffix = expectedBranchSuffixForKind(kind);
+  if (!suffix || (branch.startsWith(`${issueNumber}-`) && branch.endsWith(suffix))) {
+    return;
+  }
+
+  throw new Error(
+    [
+      `Refusing to submit ${kind} PR/MR from branch ${branch || '<empty>'}.`,
+      `Use the issue-flow branch for issue #${issueNumber}: ${issueNumber}-<issue-slug>${suffix}.`,
+    ].join(' ')
+  );
+}
+
 function normalizePrTitle(kindConfig, issueNumber, title) {
   const trimmed = (title || '').trim() || `${kindConfig.titlePrefix} for issue`;
   const issuePattern = new RegExp(`#${issueNumber}(\\b|\\D)`);
@@ -573,6 +599,7 @@ async function main(argv = process.argv.slice(2)) {
   assertPublishBranch(headBranch, baseBranch, options);
   const sourceIssue = await loadSourceIssueForSubmit(provider, repo, issueNumber, options);
   validateSourceIssueSize(sourceIssue, issueNumber);
+  validateIssueFlowBranch(kind, issueNumber, headBranch, options);
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
@@ -619,6 +646,7 @@ module.exports = {
   resolveAgentrixWorkerBaseBranch,
   resolveBaseBranch,
   SUBMIT_KINDS,
+  validateIssueFlowBranch,
   validateSourceIssueSize,
 };
 
