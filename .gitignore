@@ -1,3 +1,33 @@
+# Environment
 .env
+.env.*
+!.env.example
+!.env.dev.example
 node_modules/
+
+# Build output
+dist/
+*.tgz
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Runtime artifacts
 tmp/
+.issue-flow-service/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Console (planned module)
+console/*/node_modules/
+console/web/dist/

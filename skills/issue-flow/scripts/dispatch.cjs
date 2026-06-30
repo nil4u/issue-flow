@@ -3,6 +3,7 @@
 const { providers, resolveProvider } = require('./providers.cjs');
 const { loadEventPayload } = require('./events.cjs');
 const {
+  normalizeLabels,
   resolveAutomationDecision: resolveCoreAutomationDecision,
   resolveResumeDecision,
   shouldRunAutoForEvent,
@@ -705,6 +706,40 @@ async function resumeTaskForReviewComment(pr, taskId, instruction, options = {},
   };
 }
 
+async function resumeTaskForIssueComment(issue, issueTask, instruction, options = {}, data = {}) {
+  const action = 'task_resume';
+  const runtime = loadRuntime(options);
+  if (typeof runtime.resumeTask !== 'function') {
+    throw new Error('Runtime does not support task resume');
+  }
+
+  const taskData = {
+    ...data,
+    issue,
+    issueTask,
+    agentrixTaskId: issueTask.taskId,
+  };
+  const result = runtime.resumeTask(issueTask.taskId, instruction, options, taskData);
+  return {
+    action,
+    result,
+  };
+}
+
+function getSingleFlowLabel(issue = {}) {
+  const flowLabels = normalizeLabels(issue.labels).filter((label) => label.startsWith('flow::'));
+  return flowLabels.length === 1 ? flowLabels[0] : '';
+}
+
+function listResumableIssueTasks(comments, runtime) {
+  if (typeof runtime.extractIssueTaskFromTaskComment !== 'function' || !Array.isArray(comments)) {
+    return [];
+  }
+  return comments
+    .map((comment) => runtime.extractIssueTaskFromTaskComment(comment))
+    .filter(Boolean);
+}
+
 function shouldSkipPullRequestReview(pr) {
   if (!pr || !pr.number) {
     return 'not_pull_request';
@@ -800,9 +835,9 @@ async function runResume(options = {}, provided = {}) {
   });
 }
 
-async function runComment(options = {}) {
+async function runComment(options = {}, provided = {}) {
   const runtime = loadRuntime(options);
-  const payload = loadEvent(options);
+  const payload = provided.payload || loadEvent(options);
   logIssueFlow('Handling issue comment event');
   if (isPullRequestIssue(payload, options)) {
     logIssueFlow('Issue comment belongs to a pull request; ignored');
@@ -833,9 +868,43 @@ async function runComment(options = {}) {
   await acknowledgeTriggerComment(issue, comment, options);
 
   if (route.instruction) {
-    return startAction('general', issue, options, {
+    const currentIssue = await fetchCurrentIssue(issue, options);
+    if (getSingleFlowLabel(currentIssue) === 'flow::clarify') {
+      const issueTasks = listResumableIssueTasks(await listIssueComments(currentIssue, options), runtime);
+      if (issueTasks.length === 1) {
+        const instruction = typeof runtime.buildIssueCommentResumeInstruction === 'function'
+          ? runtime.buildIssueCommentResumeInstruction(currentIssue, comment, {
+            issueTask: issueTasks[0],
+            instruction: route.instruction,
+          })
+          : route.instruction;
+        const resume = await resumeTaskForIssueComment(currentIssue, issueTasks[0], instruction, options, {
+          payload,
+          issue: currentIssue,
+          comment,
+          instruction: route.instruction,
+        });
+        logIssueFlow('Resumed issue task from clarify comment', {
+          issue: `#${currentIssue.number}`,
+          task: issueTasks[0].taskId,
+          taskAction: issueTasks[0].action,
+        });
+        return {
+          ...resume,
+          issueNumber: currentIssue.number,
+          taskId: issueTasks[0].taskId,
+          taskAction: issueTasks[0].action,
+        };
+      }
+      logIssueFlow('Clarify comment did not have exactly one resumable issue task', {
+        issue: `#${currentIssue.number}`,
+        tasks: issueTasks.length,
+      });
+    }
+
+    return startAction('general', currentIssue, options, {
       payload,
-      issue,
+      issue: currentIssue,
       comment,
       instruction: route.instruction,
     });
@@ -1108,6 +1177,7 @@ module.exports = {
   findActionTaskComment,
   getReviewCommentContext,
   isReviewCommentCreatedEvent,
+  listResumableIssueTasks,
   loadRuntime,
   main,
   parseArgs,
@@ -1123,6 +1193,7 @@ module.exports = {
   runReview,
   runReviewComment,
   runResume,
+  resumeTaskForIssueComment,
   resumeTaskForReviewComment,
   startAction,
   startPullRequestReview,

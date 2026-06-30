@@ -3,11 +3,38 @@
   "version": "0.2.0",
   "description": "Label-based issue state machine and deterministic git provider operations for development automation.",
   "license": "MIT",
+  "workspaces": [
+    "apps/web"
+  ],
   "bin": {
     "issue-flow": "skills/issue-flow/cli.cjs"
   },
   "scripts": {
-    "test": "node --test test/agentrix-runtime.test.cjs test/bootstrap.test.cjs test/cli.test.cjs test/create-issue.test.cjs test/dispatch.test.cjs test/install.test.cjs test/intake.test.cjs test/labels.test.cjs test/merged.test.cjs test/pipeline-failed.test.cjs test/providers.test.cjs test/release-config.test.cjs test/resolve.test.cjs test/review.test.cjs test/submit.test.cjs test/sync-labels.test.cjs",
+    "dev": "node --env-file-if-exists=.env.dev scripts/dev.cjs",
+    "db:up": "docker compose up -d postgres",
+    "db:generate": "node --env-file-if-exists=.env.dev ./node_modules/prisma/build/index.js generate",
+    "db:migrate:dev": "node --env-file-if-exists=.env.dev ./node_modules/prisma/build/index.js migrate dev",
+    "db:migrate": "node --env-file-if-exists=.env ./node_modules/prisma/build/index.js migrate deploy",
+    "api": "tsx --env-file=.env apps/api/src/main.ts",
+    "api:dev": "tsx --env-file=.env.dev apps/api/src/main.ts",
+    "api:build": "tsc -p apps/api/tsconfig.json --noEmit",
+    "web": "node --env-file-if-exists=.env.dev scripts/web.cjs dev",
+    "web:build": "node --env-file-if-exists=.env scripts/web.cjs build",
+    "web:preview": "node --env-file-if-exists=.env scripts/web.cjs preview",
+    "test": "node --test test/agentrix-runtime.test.cjs test/bootstrap.test.cjs test/cli.test.cjs test/create-issue.test.cjs test/dispatch.test.cjs test/install.test.cjs test/intake.test.cjs test/labels.test.cjs test/merged.test.cjs test/pipeline-failed.test.cjs test/providers.test.cjs test/release-config.test.cjs test/resolve.test.cjs test/review.test.cjs test/service.test.cjs test/submit.test.cjs test/sync-labels.test.cjs",
     "test:integration": "node --test test/integration.test.cjs test/integration-lifecycle.test.cjs"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@xmz-ai/gitlab-webhook-bridge": "^0.1.2",
+    "fastify": "^5.8.5",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4"
   }
 }

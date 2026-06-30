@@ -22,8 +22,10 @@ const DEFAULT_PROJECT_CONFIG_PATH = '.issue-flow/config.json';
 const DEFAULT_PROMPTS_DIR = '.issue-flow/prompts';
 const DEFAULT_TEMPLATES_DIR = '.issue-flow/templates';
 const DEFAULT_PLAN_ROOT_DIR = '.issue-flow/issues';
-const TASK_COMMENT_RUN_PATTERN = /^Run:\s*`([^`]+)`\s*$/im;
-const REVIEW_COMMENT_HEAD_PATTERN = /^Head:\s*`([^`]+)`\s*$/im;
+const TASK_COMMENT_RUN_PATTERN = /^(?:[-*]\s+)?Run:\s*`([^`]+)`\s*$/im;
+const REVIEW_COMMENT_TASK_PATTERN = /^(?:[-*]\s+)?Review task:\s*`([^`]+)`\s*$/im;
+const REVIEW_COMMENT_HEAD_PATTERN = /^(?:[-*]\s+)?Head:\s*`([^`]+)`\s*$/im;
+const ISSUE_TASK_COMMENT_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task:(triage|plan|build)\s*-->/i;
 const PLAN_SUBDIR = 'plan';
 const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
@@ -324,10 +326,10 @@ function formatReviewSubmission(pr) {
     'Write the review body to a repo-external temp file.',
     'If a finding is tied to a specific changed file and line, also write inline review comments to a repo-external JSON file.',
     'The inline comments file must be a JSON array like: `[{"path":"src/file.js","line":12,"body":"Comment"}]`.',
-    'Submit the review once:',
+    'Submit exactly once. Use the inline comments file when there are concrete findings; add `--as-comment` when there are no findings.',
     '',
     '```bash',
-    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number} --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>]`,
+    `node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr review --pr ${pr.number} --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]`,
     '```',
   ].join('\n');
 }
@@ -429,6 +431,10 @@ function buildReviewCommentResumeInstruction() {
   ].join('\n');
 }
 
+function buildIssueCommentResumeInstruction() {
+  return 'Issue 有新的 comment，请查看并继续处理。';
+}
+
 function buildReviewResumeInstruction() {
   return 'PR/MR 有新的提交，请继续 review 最新变更。';
 }
@@ -504,6 +510,22 @@ function buildRunTitle(action, issue) {
   return `${actionTitle} #${issue.number}: ${truncate(issue.title || 'untitled issue', 80)}`;
 }
 
+function buildRepoArg(issue = {}, options = {}) {
+  const gitServerId = String(options.gitServerId || process.env.AGENTRIX_GIT_SERVER_ID || '').trim();
+  if (!gitServerId) {
+    return '';
+  }
+  const repoFullName = String(issue.repoFullName || options.repo || '').trim();
+  const [owner, ...nameParts] = repoFullName.split('/');
+  const name = nameParts.join('/');
+  return JSON.stringify({
+    gitServerId,
+    serverRepoId: options.gitlabProject ? String(options.gitlabProject) : undefined,
+    owner: owner || undefined,
+    name: name || undefined,
+  });
+}
+
 function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resultFile = '') {
   const metadataSubject = action === 'review'
     ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
@@ -535,6 +557,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
 
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
+  appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
   appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
@@ -552,8 +575,6 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
     resolveResponseMode(options),
     '--result-file',
     resultFile,
-    '--metadata',
-    `issue_flow_agentrix_task=${taskId}`,
   ];
   const pr = data.pullRequest || {};
   if (pr.repoFullName && pr.number) {
@@ -572,10 +593,18 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
-function buildAgentrixRunEnv(provider, action, env = process.env) {
+function buildAgentrixRunEnv(provider, action, env = process.env, data = {}) {
   const childEnv = { ...env };
   for (const key of PROVIDER_TOKEN_ENV_KEYS) {
     delete childEnv[key];
+  }
+  const taskId = String(data.agentrixTaskId || data.taskId || '').trim();
+  if (action === 'task_resume' && taskId) {
+    childEnv.AGENTRIX_TASK_ID = taskId;
+  }
+  const gitServerId = String(data.gitServerId || env.AGENTRIX_GIT_SERVER_ID || '').trim();
+  if (gitServerId) {
+    childEnv.AGENTRIX_GIT_SERVER_ID = gitServerId;
   }
   childEnv.AGENTRIX_EVENT_NAME =
     env.AGENTRIX_EVENT_NAME ||
@@ -630,7 +659,9 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: buildAgentrixRunEnv(provider, action),
+    env: buildAgentrixRunEnv(provider, action, process.env, {
+      gitServerId: options.gitServerId,
+    }),
   });
 
   try {
@@ -663,7 +694,11 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: buildAgentrixRunEnv(provider, 'task_resume'),
+    env: buildAgentrixRunEnv(provider, 'task_resume', process.env, {
+      ...data,
+      agentrixTaskId: taskId,
+      gitServerId: options.gitServerId,
+    }),
   });
 
   try {
@@ -729,14 +764,14 @@ function buildTaskComment(action, result, data = {}) {
     }
     lines.push('');
     if (result.runId) {
-      lines.push(`Review task: \`${result.runId}\``);
+      lines.push(`- Review task: \`${result.runId}\``);
     }
     const buildTaskId = data.agentrixTaskId || extractAgentrixTaskIdFromPullRequest(pr);
     if (buildTaskId) {
-      lines.push(`Build task: \`${buildTaskId}\``);
+      lines.push(`- Build task: \`${buildTaskId}\``);
     }
     if (pr && pr.headSha) {
-      lines.push(`Head: \`${pr.headSha}\``);
+      lines.push(`- Head: \`${pr.headSha}\``);
     }
     return lines.join('\n');
   }
@@ -787,8 +822,26 @@ function extractRunIdFromTaskComment(comment) {
   if (match) {
     return match[1].trim();
   }
-  const reviewTaskMatch = body.match(/^Review task:\s*`([^`]+)`\s*$/im);
+  const reviewTaskMatch = body.match(REVIEW_COMMENT_TASK_PATTERN);
   return reviewTaskMatch ? reviewTaskMatch[1].trim() : '';
+}
+
+function extractIssueTaskFromTaskComment(comment) {
+  const body = typeof comment === 'string' ? comment : (comment && comment.body) || '';
+  const marker = body.match(ISSUE_TASK_COMMENT_MARKER_PATTERN);
+  if (!marker) {
+    return undefined;
+  }
+  const taskId = extractRunIdFromTaskComment(body);
+  if (!taskId) {
+    return undefined;
+  }
+  return {
+    action: marker[1],
+    taskId,
+    commentId: comment && comment.id !== undefined ? String(comment.id) : '',
+    commentUrl: String(comment && (comment.html_url || comment.htmlUrl || comment.web_url || comment.url) || ''),
+  };
 }
 
 function extractReviewHeadShaFromTaskComment(comment) {
@@ -810,6 +863,7 @@ module.exports = {
   buildIssuePlanPattern,
   buildPrompt,
   buildPullRequestPrompt,
+  buildIssueCommentResumeInstruction,
   buildResumeTaskArgs,
   buildRunArgs,
   buildAgentrixRunEnv,
@@ -819,6 +873,7 @@ module.exports = {
   buildTaskComment,
   buildTaskCommentMarker,
   extractAgentrixTaskIdFromPullRequest,
+  extractIssueTaskFromTaskComment,
   parseSourceMarker,
   extractMention,
   extractReviewHeadShaFromTaskComment,

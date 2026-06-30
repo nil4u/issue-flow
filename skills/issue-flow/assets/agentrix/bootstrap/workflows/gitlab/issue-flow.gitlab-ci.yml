@@ -4,26 +4,8 @@ variables:
   ISSUE_FLOW_PROVIDER: gitlab
   ISSUE_FLOW_RUNTIME: agentrix
 
-issue-flow-labels:
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-      changes:
-        - .agentrix/plugins/issue-flow/**/*
-        - .gitlab-ci.yml
-        - .gitlab/issue-flow.gitlab-ci.yml
-        - .issue-flow/**/*
-      when: on_success
-    - when: never
-  script:
-    - |
-      set -eu
-      set -- --provider gitlab
-      if [ -n "${CI_PROJECT_PATH:-}" ]; then
-        set -- "$@" --repo "$CI_PROJECT_PATH"
-      fi
-      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
-
 issue-flow-auto:
+  stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issues" && ($GITLAB_BRIDGE_LABELS_JSON =~ /failure::ci/ || $GITLAB_BRIDGE_LABELS =~ /failure::ci/ || $GITLAB_BRIDGE_ISSUE_TITLE =~ /^Fix CI failure:/)'
       when: never
@@ -58,6 +40,7 @@ issue-flow-auto:
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs auto "$@"
 
 issue-flow-comment:
+  stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && $GITLAB_BRIDGE_ISSUE_NUMBER && $GITLAB_BRIDGE_COMMENT_BODY =~ /(^|[^A-Za-z0-9._-])(@agentrix|\/agentrix)($|[^A-Za-z0-9._-])/'
       when: on_success
@@ -79,6 +62,7 @@ issue-flow-comment:
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs comment "$@"
 
 issue-flow-merged:
+  stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "pull_request" && $GITLAB_BRIDGE_EVENT_ACTION == "closed" && $GITLAB_BRIDGE_PULL_REQUEST_MERGED == "true"'
       when: on_success
@@ -102,6 +86,7 @@ issue-flow-merged:
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs pr-merged "$@"
 
 issue-flow-review:
+  stage: build
   rules:
     - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $GITLAB_BRIDGE_EVENT_NAME == "pull_request" && $GITLAB_BRIDGE_EVENT_ACTION == "opened"'
       when: on_success
@@ -140,6 +125,7 @@ issue-flow-review:
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"
 
 issue-flow-review-comment:
+  stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "pull_request_review_comment" && $GITLAB_BRIDGE_EVENT_ACTION == "created"'
       when: on_success
@@ -167,6 +153,7 @@ issue-flow-review-comment:
       node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs dispatch review-comment "$@"
 
 issue-flow-failure-intake:
+  stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "workflow_run" && $GITLAB_BRIDGE_EVENT_ACTION == "completed" && $GITLAB_BRIDGE_WORKFLOW_RUN_CONCLUSION == "failure"'
       when: on_success

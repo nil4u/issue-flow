@@ -956,7 +956,10 @@ async function requestGitlab(method, apiPath, body, options = {}) {
     Accept: 'application/json',
     'Content-Type': 'application/json',
   };
-  if (process.env.CI_JOB_TOKEN && token === process.env.CI_JOB_TOKEN) {
+  const tokenAuth = String(options.gitlabTokenAuth || process.env.GITLAB_TOKEN_AUTH || '').toLowerCase();
+  if (tokenAuth === 'bearer') {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (process.env.CI_JOB_TOKEN && token === process.env.CI_JOB_TOKEN) {
     headers['JOB-TOKEN'] = token;
   } else {
     headers['PRIVATE-TOKEN'] = token;

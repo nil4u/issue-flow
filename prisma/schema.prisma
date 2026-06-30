@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GitServer {
+  id                String   @id
+  type              String
+  name              String   @default("")
+  baseUrl           String   @map("base_url")
+  apiUrl            String   @map("api_url")
+  tokenAuth         String   @default("bearer") @map("token_auth")
+  oauthClientId     String   @default("") @map("oauth_client_id")
+  oauthClientSecret String   @default("") @map("oauth_client_secret")
+  oauthRedirectUri  String   @default("") @map("oauth_redirect_uri")
+  oauthScopes       String   @default("") @map("oauth_scopes")
+  webhookSecret     String   @default("") @map("webhook_secret")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  repositories Repository[]
+
+  @@index([type, createdAt])
+  @@map("git_servers")
+}
+
+model Repository {
+  id             String   @id
+  gitServerId    String?  @map("git_server_id")
+  oauthSessionId String?  @map("oauth_session_id")
+  data           Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  gitServer        GitServer?            @relation(fields: [gitServerId], references: [id])
+  oauthSession     OAuthSession?         @relation(fields: [oauthSessionId], references: [id], onDelete: SetNull)
+  credentials      Credential?
+  deliveries       WebhookDelivery[]
+  bridgeStateItems WebhookBridgeState[]
+  dispatchRuns     DispatchRun[]
+
+  @@index([gitServerId])
+  @@index([oauthSessionId])
+  @@map("repositories")
+}
+
+model Credential {
+  repoId         String   @id @map("repo_id")
+  webhookSecret  String   @default("") @map("webhook_secret")
+  agentrixApiKey String   @default("") @map("agentrix_api_key")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@map("credentials")
+}
+
+model WebhookDelivery {
+  id          String   @id
+  repoId      String   @map("repo_id")
+  deliveryKey String   @map("delivery_key")
+  consumer    String
+  data        Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@index([repoId, createdAt])
+  @@index([repoId, deliveryKey, consumer, createdAt])
+  @@map("webhook_deliveries")
+}
+
+model WebhookBridgeState {
+  repoId    String    @map("repo_id")
+  key       String
+  value     String
+  expiresAt DateTime? @map("expires_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@id([repoId, key])
+  @@map("webhook_bridge_state")
+}
+
+model DispatchRun {
+  id         String   @id
+  repoId     String   @map("repo_id")
+  deliveryId String   @default("") @map("delivery_id")
+  data       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@index([repoId, createdAt])
+  @@map("dispatch_runs")
+}
+
+model OAuthSession {
+  id           String    @id
+  accessToken  String    @default("") @map("access_token")
+  refreshToken String    @default("") @map("refresh_token")
+  data         Json
+  expiresAt    DateTime? @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  repositories Repository[]
+
+  @@map("oauth_sessions")
+}
+
+model UserAgentrixConfig {
+  userKey        String   @id @map("user_key")
+  agentrixApiKey String   @default("") @map("agentrix_api_key")
+  data           Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("user_agentrix_configs")
+}

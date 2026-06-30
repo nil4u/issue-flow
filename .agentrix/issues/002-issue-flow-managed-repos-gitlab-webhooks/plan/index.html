@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Issue Flow 管理页与独立 GitLab Webhook 方案</title>
+  <link rel="stylesheet" href="css/plan.css" />
+</head>
+<body>
+  <header class="hero" data-review-scope="north-star">
+    <div>
+      <p class="eyebrow">Issue Flow · 内部部署管理台 · GitLab Webhook Gateway</p>
+      <h1>把 issue-flow 从“安装脚本 + Agentrix bridge”升级为可独立接 GitLab Webhook 的内部服务</h1>
+      <p class="lead">核心变化：GitLab webhook 直接打到 issue-flow；仓库 token、webhook secret、安装状态和自动化策略在 issue-flow 管理页配置；Agentrix 只保留 agent task runtime 依赖，不再承接 GitLab webhook。</p>
+    </div>
+    <aside class="decision-card">
+      <span class="pill danger">需评审的关键决策</span>
+      <strong>优先 server-side dispatch</strong>
+      <p>不再把每个事件转换成 GitLab CI pipeline trigger。CI bridge 只作为兼容模式，否则“token 配在 issue-flow”无法闭环。</p>
+    </aside>
+  </header>
+
+  <main>
+    <section class="split" data-review-scope="before-after-boundary">
+      <div class="panel before">
+        <h2>当前链路：Agentrix daemon webhook bridge 是必经入口</h2>
+        <ol class="flow-list">
+          <li><b>GitLab webhook</b><span>项目 webhook 指向 Agentrix/daemon bridge</span></li>
+          <li><b>@xmz-ai/gitlab-webhook-bridge</b><span>规范化事件，触发 GitLab pipeline</span></li>
+          <li><b>GitLab CI job</b><span>读取 GITLAB_BRIDGE_* / AGENTRIX_* 变量</span></li>
+          <li><b>issue-flow dispatch.cjs</b><span>在 CI 里运行，需要仓库 CI 变量中的 token</span></li>
+          <li><b>Agentrix task</b><span>通过 agentrix-run 创建/恢复任务</span></li>
+        </ol>
+        <div class="warning">问题：安装复杂；每个仓要配 CI 文件和变量；webhook 入口依赖 Agentrix；GitLab token 不在 issue-flow 自己的配置域内。</div>
+      </div>
+      <div class="panel after">
+        <h2>目标链路：issue-flow 自己承接 webhook 与仓库配置</h2>
+        <ol class="flow-list">
+          <li><b>管理页添加仓库</b><span>保存 GitLab token、webhook secret、Agentrix API 配置</span></li>
+          <li><b>GitLab webhook → issue-flow</b><span>URL 指向 /webhooks/gitlab/{repoId}</span></li>
+          <li><b>Webhook Gateway</b><span>校验、去重、记录 delivery、规范化事件</span></li>
+          <li><b>Server-side Dispatcher</b><span>直接调用 issue-flow runtime/provider adapter</span></li>
+          <li><b>GitLab API + Agentrix API</b><span>用服务保存的凭据更新 issue/MR/label，并创建或恢复任务</span></li>
+        </ol>
+        <div class="success">收益：接入只需“添加仓库 + 配 webhook”；token 在 issue-flow 加密存储；Agentrix webhook bridge 退出主链路。</div>
+      </div>
+    </section>
+
+    <section class="canvas" data-review-scope="primary-runtime-model">
+      <div class="canvas-head">
+        <div>
+          <h2>主方案：管理台 + Webhook Gateway + Runtime Dispatcher</h2>
+          <p>下面的图把管理页面、后端模块、存储、GitLab 和 Agentrix 的责任边界放在同一张运行时地图上。点击不同路径查看 happy path、重复 webhook、token 失效和兼容 CI bridge。</p>
+        </div>
+        <div class="path-tabs" role="tablist">
+          <button class="path-tab active" data-path="happy">正常自动化</button>
+          <button class="path-tab" data-path="duplicate">重复投递</button>
+          <button class="path-tab" data-path="token">Token 失效</button>
+          <button class="path-tab" data-path="compat">兼容 CI</button>
+        </div>
+      </div>
+
+      <div class="runtime-map">
+        <div class="zone ui" data-entity="admin-ui">
+          <h3>管理页面</h3>
+          <div class="mock-screen">
+            <div class="mock-toolbar"><span>Repositories</span><button>+ 添加仓库</button></div>
+            <div class="repo-row active"><b>platform/api</b><small>GitLab · installed · webhook ok</small></div>
+            <div class="repo-row"><b>mobile/app</b><small>GitLab · token needs update</small></div>
+            <div class="repo-row"><b>infra/ops</b><small>GitLab · not installed</small></div>
+          </div>
+          <ul>
+            <li>仓库列表 / 添加向导 / 详情诊断</li>
+            <li>显示 webhook URL，但 secret 只显示一次或重置</li>
+            <li>安装、升级、同步 labels、重放 delivery</li>
+          </ul>
+        </div>
+
+        <div class="zone service" data-entity="issue-flow-service">
+          <h3>issue-flow 服务</h3>
+          <div class="module-grid">
+            <div class="module" data-stage="config">Repo Config API</div>
+            <div class="module" data-stage="install">Installer/Upgrade Manager</div>
+            <div class="module hot" data-stage="webhook">GitLab Webhook Gateway</div>
+            <div class="module hot" data-stage="normalize">Event Normalizer</div>
+            <div class="module hot" data-stage="dispatch">Runtime Dispatcher</div>
+            <div class="module" data-stage="diagnostics">Delivery/Run Diagnostics</div>
+          </div>
+        </div>
+
+        <div class="zone storage" data-entity="storage">
+          <h3>配置与审计存储</h3>
+          <div class="data-stack">
+            <div>RepositoryConfig</div>
+            <div>EncryptedCredential</div>
+            <div>WebhookDelivery</div>
+            <div>DispatchRun</div>
+            <div>InstallManifest</div>
+          </div>
+          <p class="invariant" data-invariant="secret-boundary">不保存明文 token；日志和前端只显示 fingerprint / lastValidatedAt / error code。</p>
+        </div>
+
+        <div class="zone external gitlab" data-entity="gitlab">
+          <h3>GitLab</h3>
+          <div class="external-card">Project Webhook</div>
+          <div class="external-card">Issues / Notes / MRs</div>
+          <div class="external-card">Pipelines / Job Logs</div>
+          <div class="external-card">Repository Files / Labels</div>
+        </div>
+
+        <div class="zone external agentrix" data-entity="agentrix">
+          <h3>Agentrix</h3>
+          <div class="external-card">Create task</div>
+          <div class="external-card">Resume task</div>
+          <div class="external-card muted">不再接收 GitLab webhook</div>
+        </div>
+
+        <svg class="arrows" viewBox="0 0 1200 620" preserveAspectRatio="none" aria-hidden="true">
+          <path class="edge happy" d="M170 160 C300 120 360 120 470 150" />
+          <path class="edge happy" d="M970 150 C850 115 790 120 690 165" />
+          <path class="edge happy" d="M670 230 C800 260 855 330 955 390" />
+          <path class="edge happy" d="M610 270 C610 335 600 390 570 455" />
+          <path class="edge duplicate" d="M960 130 C760 80 710 112 640 165" />
+          <path class="edge token" d="M640 290 C760 360 840 430 955 475" />
+          <path class="edge compat" d="M660 180 C840 190 915 220 980 295" />
+        </svg>
+      </div>
+
+      <div class="path-detail" id="path-detail" data-review-scope="scenario-explanation">
+        <h3>正常自动化路径</h3>
+        <p>GitLab webhook 进入 issue-flow Gateway，校验 secret 后记录 delivery；Normalizer 产生 issue-flow event context；Dispatcher 使用保存的仓库 token 调 GitLab API，并在需要时调用 Agentrix 创建/恢复任务。</p>
+      </div>
+    </section>
+
+    <section class="workbench" data-review-scope="admin-ui-contract">
+      <div class="section-title">
+        <h2>管理页应该让接入变成“添加仓库 → 复制 webhook → 验证通过”</h2>
+        <p>这不是单纯 UI，页面上的每个控件都对应一个后端配置对象、一次校验或一个可诊断状态。</p>
+      </div>
+      <div class="wizard">
+        <div class="wizard-step" data-entity="gitlab-identity"><span>1</span><b>选择 GitLab</b><small>baseUrl/apiUrl/project path</small></div>
+        <div class="wizard-step" data-entity="repo-token"><span>2</span><b>配置 Token</b><small>校验 /user、project、labels、files 权限</small></div>
+        <div class="wizard-step" data-entity="agentrix-config"><span>3</span><b>配置 Agentrix</b><small>baseUrl/apiKey/runner/agent</small></div>
+        <div class="wizard-step" data-entity="install-mode"><span>4</span><b>选择安装模式</b><small>server-side 或兼容 CI bridge</small></div>
+        <div class="wizard-step" data-entity="webhook-config"><span>5</span><b>生成 Webhook</b><small>URL + secret + event list</small></div>
+        <div class="wizard-step" data-entity="verify"><span>6</span><b>发送测试事件</b><small>delivery/run 可见，失败可重试</small></div>
+      </div>
+      <div class="ui-contract-grid">
+        <div class="contract-card">
+          <h3>仓库详情页状态</h3>
+          <ul>
+            <li><b>Installed</b>：runtime 文件版本与 manifest 匹配</li>
+            <li><b>Webhook OK</b>：最近测试事件通过校验并完成路由</li>
+            <li><b>Token OK</b>：最近校验成功，显示 scopes/username/fingerprint</li>
+            <li><b>Automation</b>：auto default、review enabled、默认 agent</li>
+          </ul>
+        </div>
+        <div class="contract-card risk">
+          <h3>必须避免的 UI 泄漏</h3>
+          <ul>
+            <li>不回显完整 token / secret</li>
+            <li>错误详情不包含 provider token 或 Authorization header</li>
+            <li>重放 delivery 时只展示 sanitized payload 摘要</li>
+            <li>Agentrix task env 不注入 GitLab provider token</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="dataflow" data-review-scope="webhook-event-lifecycle">
+      <div class="section-title">
+        <h2>Webhook 生命周期：把 Agentrix 的能力拆成 issue-flow 自己需要的四层</h2>
+        <p>不是把 Agentrix 的表和 API 整体搬过来，而是迁移关键行为：校验、delivery 去重、GitLab event normalization、route side effects。</p>
+      </div>
+      <div class="lifecycle">
+        <div class="life-step" data-stage="receive"><span>01</span><h3>Receive</h3><p>读取 headers、raw body、GitLab event type、delivery id，按 repoId 找配置。</p></div>
+        <div class="life-step" data-stage="verify"><span>02</span><h3>Verify</h3><p>对比 `X-Gitlab-Token` 和仓库 webhook secret；失败直接 401，记录安全事件。</p></div>
+        <div class="life-step" data-stage="dedupe"><span>03</span><h3>Dedupe</h3><p>按 provider/repo/deliveryId/consumer 去重；无 delivery id 时用 canonical payload hash。</p></div>
+        <div class="life-step" data-stage="normalize"><span>04</span><h3>Normalize</h3><p>使用 `@xmz-ai/gitlab-webhook-bridge` 或抽出的 normalizer 生成 GitHub-style events。</p></div>
+        <div class="life-step" data-stage="route"><span>05</span><h3>Route</h3><p>映射到 issue-flow actions：auto、comment、review、review-comment、pr-merged、pipeline-failed。</p></div>
+        <div class="life-step" data-stage="dispatch"><span>06</span><h3>Dispatch</h3><p>用保存的 token 调 GitLab API；用 Agentrix API 创建/恢复 task；写 DispatchRun。</p></div>
+      </div>
+    </section>
+
+    <section class="models" data-review-scope="data-model-slice">
+      <div class="section-title">
+        <h2>建议数据模型切片</h2>
+        <p>保持 issue-flow 服务自己的轻模型，吸收 Agentrix 的设计经验但不继承其完整平台模型。</p>
+      </div>
+      <div class="model-grid">
+        <div class="model-card" data-entity="GitProviderConfig"><h3>GitProviderConfig</h3><code>id, type, baseUrl, apiUrl, name</code><p>对应 Agentrix `GitServer` 的轻量版本。</p></div>
+        <div class="model-card" data-entity="RepositoryConfig"><h3>RepositoryConfig</h3><code>id, providerId, projectId, fullName, defaultBranch, installMode</code><p>仓库配置与 webhook URL 的主实体。</p></div>
+        <div class="model-card secret" data-entity="RepositoryCredential"><h3>RepositoryCredential</h3><code>repoId, encryptedToken, fingerprint, username, scopes</code><p>对应 Agentrix `LocalPatGitServerCredential` 的加密边界。</p></div>
+        <div class="model-card secret" data-entity="WebhookSecret"><h3>WebhookSecret</h3><code>repoId, encryptedSecret, lastRotatedAt</code><p>只生成/重置，不明文常驻前端。</p></div>
+        <div class="model-card" data-entity="AutomationConfig"><h3>AutomationConfig</h3><code>autoDefault, reviewEnabled, agent, runnerId</code><p>替代散落在 CI variables 的配置。</p></div>
+        <div class="model-card" data-entity="DeliveryRun"><h3>WebhookDelivery / DispatchRun</h3><code>deliveryId, event, status, action, sanitizedError</code><p>诊断、重放和幂等的基础。</p></div>
+      </div>
+    </section>
+
+    <section class="phases" data-review-scope="implementation-slicing">
+      <div class="section-title">
+        <h2>实施拆分</h2>
+        <p>先把 webhook 和 token 域从 Agentrix bridge 中摘出来，再做安装体验和完整诊断。</p>
+      </div>
+      <div class="phase-board">
+        <div class="phase"><span>P0</span><h3>代码重构准备</h3><p>把 issue-flow runtime provider/dispatch 抽成可被服务端调用的模块；保留 CLI 入口。</p><b>验收：现有 test 全过，CLI 行为不变。</b></div>
+        <div class="phase"><span>P1</span><h3>Repo Config + Credential</h3><p>新增服务端、DB、加密 token、GitLab project 校验、仓库列表/详情 API。</p><b>验收：能添加仓库并校验 token。</b></div>
+        <div class="phase"><span>P2</span><h3>GitLab Webhook Gateway</h3><p>实现 secret 校验、delivery 去重、normalization、action routing、dispatch run log。</p><b>验收：直接 webhook 跑通 issue/comment/MR/pipeline failure。</b></div>
+        <div class="phase"><span>P3</span><h3>管理页面与安装管理</h3><p>添加仓库向导、webhook 配置页、runtime 安装/升级、label sync、诊断/重放。</p><b>验收：无需手工 curl 安装即可接入一个仓。</b></div>
+        <div class="phase"><span>P4</span><h3>迁移与兼容</h3><p>保留旧 CI bridge 模式，提供逐仓迁移状态和回滚路径。</p><b>验收：旧仓不坏，新仓不依赖 Agentrix bridge。</b></div>
+      </div>
+    </section>
+
+    <section class="validation" data-review-scope="acceptance-validation">
+      <div class="section-title">
+        <h2>验收矩阵</h2>
+      </div>
+      <table>
+        <thead><tr><th>风险/行为</th><th>验证方式</th><th>必须看到</th></tr></thead>
+        <tbody>
+          <tr><td>Webhook 不依赖 Agentrix bridge</td><td>GitLab project webhook 直接 POST issue-flow URL</td><td>delivery recorded + dispatch action completed</td></tr>
+          <tr><td>重复投递</td><td>同 delivery id 连续发送两次</td><td>第二次 marked duplicate，不重复创建 task/comment</td></tr>
+          <tr><td>Token 权限不足</td><td>保存缺 scope token 或模拟 401/403</td><td>管理页显示 token action required，日志无明文 token</td></tr>
+          <tr><td>事件路由正确</td><td>issue opened/labeled、note、MR、pipeline failed fixtures</td><td>分别进入 auto/comment/review/review-comment/pr-merged/pipeline-failed</td></tr>
+          <tr><td>兼容旧安装</td><td>旧 `.gitlab/issue-flow.gitlab-ci.yml` 仓库继续跑</td><td>CI bridge mode 可用，server-side mode 可逐仓启用</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="js/plan.js"></script>
+</body>
+</html>

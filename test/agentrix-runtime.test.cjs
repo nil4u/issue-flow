@@ -263,11 +263,11 @@ test('agentrix review prompt uses target URL and review submission script', () =
   assert.match(prompt, /## Review Target/);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.match(prompt, /## Review Submission/);
-  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\]/);
+  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\] \[--as-comment\]/);
   assert.doesNotMatch(prompt, /--expected-head/);
   assert.match(prompt, /inline review comments/);
   assertRequiredSkillAtEnd(prompt);
-  assert.match(prompt, /使用下方 review 提交命令发布结果/);
+  assert.match(prompt, /没有明确问题时加 `--as-comment`/);
   assert.doesNotMatch(prompt, /## Issue/);
   assert.doesNotMatch(prompt, /Possible source issue/);
   assert.doesNotMatch(prompt, /flow::triage/);
@@ -335,41 +335,38 @@ test('agentrix task marker uses issue-flow namespace', () => {
     agentrix.buildTaskCommentMarker('review', { headSha: 'abc123' }),
     '<!-- issue-flow:agentrix:task:review -->'
   );
+  const reviewComment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+    pullRequest: {
+      body: '<!-- issue-flow:agentrix:task=task-build -->',
+      headSha: 'abc123',
+    },
+  });
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
-      pullRequest: {
-        body: '<!-- issue-flow:agentrix:task=task-build -->',
-        headSha: 'abc123',
-      },
-    }),
-    /Review task: `task-review`/
+    reviewComment,
+    /^- Review task: `task-review`$/m
   );
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
-      pullRequest: {
-        body: '<!-- issue-flow:agentrix:task=task-build -->',
-        headSha: 'abc123',
-      },
-    }),
-    /Build task: `task-build`/
+    reviewComment,
+    /^- Build task: `task-build`$/m
   );
   assert.match(
-    agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
-      pullRequest: {
-        body: '<!-- issue-flow:agentrix:task=task-build -->',
-        headSha: 'abc123',
-      },
-    }),
-    /Head: `abc123`/
+    reviewComment,
+    /^- Head: `abc123`$/m
   );
+  assert.equal(agentrix.extractRunIdFromTaskComment(reviewComment), 'task-review');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment(reviewComment), 'abc123');
+  assert.equal(agentrix.extractRunIdFromTaskComment('Review task: `legacy-task`'), 'legacy-task');
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment('Head: `legacy-head`'), 'legacy-head');
   assert.match(
     agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
     /<!-- issue-flow:source source_task_id=task-review source_agent=codex -->/
   );
-  assert.match(
-    agentrix.buildTaskComment('review', { status: 'starting' }, { pullRequest: { headSha: 'abc123' } }),
-    /<!-- issue-flow:source source_agent=codex -->/
-  );
+  withTemporaryEnv({ AGENTRIX_TASK_ID: undefined }, () => {
+    assert.match(
+      agentrix.buildTaskComment('review', { status: 'starting' }, { pullRequest: { headSha: 'abc123' } }),
+      /<!-- issue-flow:source source_agent=codex -->/
+    );
+  });
   assert.equal(
     agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101 } }),
     '<!-- issue-flow:agentrix:task:resume-review-comment:101 -->'
@@ -389,6 +386,29 @@ test('agentrix extracts task run and reviewed head from task comments', () => {
   assert.equal(agentrix.extractRunIdFromTaskComment(comment), 'task-review');
   assert.equal(agentrix.extractReviewHeadShaFromTaskComment(comment), 'abc123');
   assert.equal(agentrix.extractReviewHeadShaFromTaskComment('<!-- issue-flow:agentrix:task:review:legacy-sha -->'), '');
+});
+
+test('agentrix extracts only resumable issue tasks from task comments', () => {
+  const taskComment = {
+    id: 300,
+    html_url: 'https://github.com/example/platform/issues/42#issuecomment-300',
+    body: agentrix.buildTaskComment('plan', { status: 'dry-run', runId: 'task-plan' }),
+  };
+
+  assert.deepEqual(agentrix.extractIssueTaskFromTaskComment(taskComment), {
+    action: 'plan',
+    taskId: 'task-plan',
+    commentId: '300',
+    commentUrl: 'https://github.com/example/platform/issues/42#issuecomment-300',
+  });
+  assert.equal(
+    agentrix.extractIssueTaskFromTaskComment(agentrix.buildTaskComment('triage', { status: 'starting' })),
+    undefined
+  );
+  assert.equal(
+    agentrix.extractIssueTaskFromTaskComment(agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' })),
+    undefined
+  );
 });
 
 test('agentrix extracts PR/MR task id only from pull request body marker', () => {
@@ -429,12 +449,37 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.ok(args.includes('--prompt'));
   assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
   assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');
+  assert.equal(args.includes('issue_flow_agentrix_task=task-123'), false);
   assert.ok(args.includes('issue_flow_pr=example/platform#9'));
   assert.ok(args.includes('issue_flow_review_comment=101'));
   assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
   assert.equal(args.includes('--runner-id'), false);
   assert.equal(args.includes('--issue-number'), false);
   assert.equal(args.includes('--title'), false);
+});
+
+test('agentrix run args pass git server repo context to agentrix-run', () => {
+  const args = agentrix.buildRunArgs(
+    'build',
+    {
+      number: 42,
+      repoFullName: 'team/app',
+      title: 'Fix auth',
+    },
+    {
+      gitServerId: 'gitlab-main',
+      gitlabProject: '123',
+      responseMode: 'async',
+    },
+    {},
+    'prompt',
+    '/tmp/result.json'
+  );
+  const repo = JSON.parse(args[args.indexOf('--repo') + 1]);
+  assert.equal(repo.gitServerId, 'gitlab-main');
+  assert.equal(repo.serverRepoId, '123');
+  assert.equal(repo.owner, 'team');
+  assert.equal(repo.name, 'app');
 });
 
 test('agentrix-run child env does not forward provider tokens', () => {
@@ -466,6 +511,52 @@ test('agentrix-run child env does not forward provider tokens', () => {
   assert.equal(env.AGENTRIX_RUNNER_ID, 'runner-1');
   assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
   assert.equal(env.AGENTRIX_EVENT_ACTION, 'review');
+});
+
+test('agentrix-run child env forwards git server id without provider tokens', () => {
+  const env = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'build',
+    {
+      GITLAB_TOKEN: 'gitlab-token',
+      GITLAB_EVENT_NAME: 'issue',
+    },
+    {
+      gitServerId: 'gitlab-main',
+    }
+  );
+
+  assert.equal(env.GITLAB_TOKEN, undefined);
+  assert.equal(env.AGENTRIX_GIT_SERVER_ID, 'gitlab-main');
+});
+
+test('agentrix-run child env carries resumed task id only for task resume', () => {
+  const env = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'task_resume',
+    {
+      AGENTRIX_TASK_ID: 'stale-task',
+      GITLAB_EVENT_NAME: 'note',
+    },
+    {
+      agentrixTaskId: 'task-123',
+    }
+  );
+
+  assert.equal(env.AGENTRIX_TASK_ID, 'task-123');
+
+  const buildEnv = agentrix.buildAgentrixRunEnv(
+    { envEventName: 'GITLAB_EVENT_NAME' },
+    'build',
+    {
+      GITLAB_EVENT_NAME: 'issue',
+    },
+    {
+      agentrixTaskId: 'task-123',
+    }
+  );
+
+  assert.equal(buildEnv.AGENTRIX_TASK_ID, undefined);
 });
 
 test('agentrix-run child env maps current GitLab bridge variables to Agentrix compatibility names', () => {
@@ -518,4 +609,31 @@ test('agentrix review comment resume instruction stays minimal', () => {
   assert.doesNotMatch(prompt, /src\/app\.js/);
   assert.doesNotMatch(prompt, /Please handle this edge case/);
   assert.doesNotMatch(prompt, /review-comments/);
+});
+
+test('agentrix issue comment resume instruction stays minimal', () => {
+  const prompt = agentrix.buildIssueCommentResumeInstruction(
+    {
+      number: 42,
+      htmlUrl: 'https://github.com/example/platform/issues/42',
+    },
+    {
+      id: '501',
+      htmlUrl: 'https://github.com/example/platform/issues/42#issuecomment-501',
+      body: 'Use the markdown marker path.',
+    },
+    {
+      issueTask: {
+        action: 'triage',
+        taskId: 'task-triage',
+      },
+      instruction: 'Use the markdown marker path.',
+    }
+  );
+
+  assert.equal(prompt, 'Issue 有新的 comment，请查看并继续处理。');
+  assert.doesNotMatch(prompt, /https:\/\/github\.com\/example\/platform\/issues\/42/);
+  assert.doesNotMatch(prompt, /Use the markdown marker path/);
+  assert.doesNotMatch(prompt, /triage/);
+  assert.doesNotMatch(prompt, /task-triage/);
 });

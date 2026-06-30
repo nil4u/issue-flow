@@ -30,6 +30,27 @@ test('review parser accepts PR number and body file', () => {
   });
 });
 
+test('review parser accepts normal comment mode', () => {
+  assert.deepEqual(parseArgs([
+    '--provider',
+    'github',
+    '--repo',
+    'example/platform',
+    '--pr-number',
+    '5',
+    '--body-file',
+    '/tmp/review.md',
+    '--as-comment',
+  ]), {
+    _: [],
+    provider: 'github',
+    repo: 'example/platform',
+    prNumber: '5',
+    bodyFile: '/tmp/review.md',
+    asComment: true,
+  });
+});
+
 test('review script submits through provider review API', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-review-test-'));
   const bodyFile = path.join(root, 'review.md');
@@ -94,6 +115,94 @@ test('review script submits through provider review API', async () => {
     } else {
       process.env.AGENTRIX_TASK_ID = originalAgentrixTaskId;
     }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('review script can post no-finding output as a normal PR comment', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-review-test-'));
+  const bodyFile = path.join(root, 'review.md');
+  fs.writeFileSync(bodyFile, 'No blocking issues.\n', 'utf8');
+  const originalFetch = providers.github.fetchCurrentPullRequest;
+  const originalCreate = providers.github.createPullRequestComment;
+  const originalSubmit = providers.github.submitPullRequestReview;
+  const originalSpawnSync = childProcess.spawnSync;
+  const originalAgentrixTaskId = process.env.AGENTRIX_TASK_ID;
+  let captured;
+
+  process.env.AGENTRIX_TASK_ID = 'task-review';
+  childProcess.spawnSync = () => ({ status: 0, stdout: 'abc123\n' });
+  providers.github.fetchCurrentPullRequest = async (pr) => ({
+    ...pr,
+    state: 'open',
+    headSha: 'abc123',
+  });
+  providers.github.createPullRequestComment = async (pr, body, options) => {
+    captured = { pr, body, options };
+    return { html_url: 'https://github.com/example/platform/pull/5#issuecomment-1' };
+  };
+  providers.github.submitPullRequestReview = async () => {
+    throw new Error('normal comment mode should not submit a pull request review');
+  };
+
+  try {
+    const result = await submitReview({
+      provider: 'github',
+      repo: 'example/platform',
+      prNumber: '5',
+      bodyFile,
+      asComment: true,
+    });
+
+    assert.equal(captured.pr.number, 5);
+    assert.equal(
+      captured.body,
+      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->\n<!-- issue-flow:source source_task_id=task-review -->'
+    );
+    assert.equal(captured.options.asComment, true);
+    assert.equal(result.action, 'commented');
+    assert.equal(result.commentUrl, 'https://github.com/example/platform/pull/5#issuecomment-1');
+    assert.equal(result.inlineComments, 0);
+  } finally {
+    providers.github.fetchCurrentPullRequest = originalFetch;
+    providers.github.createPullRequestComment = originalCreate;
+    providers.github.submitPullRequestReview = originalSubmit;
+    childProcess.spawnSync = originalSpawnSync;
+    if (originalAgentrixTaskId === undefined) {
+      delete process.env.AGENTRIX_TASK_ID;
+    } else {
+      process.env.AGENTRIX_TASK_ID = originalAgentrixTaskId;
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('review script rejects normal comment mode with inline review comments', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-review-test-'));
+  const bodyFile = path.join(root, 'review.md');
+  const commentsFile = path.join(root, 'comments.json');
+  fs.writeFileSync(bodyFile, 'No blocking issues.\n', 'utf8');
+  fs.writeFileSync(commentsFile, JSON.stringify([
+    {
+      path: 'src/app.js',
+      line: 42,
+      body: 'Please handle this edge case.',
+    },
+  ]), 'utf8');
+
+  try {
+    await assert.rejects(
+      () => submitReview({
+        provider: 'github',
+        repo: 'example/platform',
+        prNumber: '5',
+        bodyFile,
+        commentsFile,
+        asComment: true,
+      }),
+      /--as-comment cannot include inline review comments/
+    );
+  } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
