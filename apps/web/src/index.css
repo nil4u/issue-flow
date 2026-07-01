@@ -535,13 +535,14 @@
   .settings-content {
     min-width: 0;
     display: grid;
+    justify-items: center;
     align-content: start;
     gap: 0.875rem;
     padding: 1.15rem 1.35rem;
     overflow: auto;
   }
   .account-summary {
-    max-width: 54rem;
+    width: min(100%, var(--if-account-content-max-width));
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
@@ -576,7 +577,7 @@
     font-size: 0.8125rem;
   }
   .account-group {
-    max-width: 54rem;
+    width: min(100%, var(--if-account-content-max-width));
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--if-color-surface);
@@ -663,6 +664,10 @@
     min-height: 0;
     padding: 1.15rem 1.35rem;
     overflow: auto;
+  }
+  .workspace-tabs [data-slot="tabs-content"] > * {
+    width: min(100%, var(--if-content-max-width));
+    margin-inline: auto;
   }
   .app-alert {
     margin-bottom: 0.7rem;
