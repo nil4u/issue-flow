@@ -231,12 +231,46 @@ function expectedBranchSuffixForKind(kind) {
   return '';
 }
 
-function validateIssueFlowBranch(kind, issueNumber, headBranch, options = {}) {
+function slugifyIssueTitle(title) {
+  const slug = String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'issue';
+}
+
+function expectedIssueFlowBranch(kind, issue) {
+  const issueNumber = typeof issue === 'object' && issue ? issue.number : issue;
+  const suffix = expectedBranchSuffixForKind(kind).replace(/^\//, '');
+  if (!issueNumber || !suffix) {
+    return '';
+  }
+  if (typeof issue !== 'object' || !issue || !issue.title) {
+    return '';
+  }
+  return `${issueNumber}-${slugifyIssueTitle(issue.title)}/${suffix}`;
+}
+
+function validateIssueFlowBranch(kind, issue, headBranch, options = {}) {
   if (options.allowNonIssueFlowBranch) {
     return;
   }
 
   const branch = String(headBranch || '').trim();
+  const issueNumber = typeof issue === 'object' && issue ? issue.number : issue;
+  const expectedBranch = expectedIssueFlowBranch(kind, issue);
+  if (expectedBranch) {
+    if (branch === expectedBranch) {
+      return;
+    }
+    throw new Error(
+      [
+        `Refusing to submit ${kind} PR/MR from branch ${branch || '<empty>'}.`,
+        `Use the issue-flow branch for issue #${issueNumber}: ${expectedBranch}.`,
+      ].join(' ')
+    );
+  }
+
   const suffix = expectedBranchSuffixForKind(kind);
   if (!suffix || (branch.startsWith(`${issueNumber}-`) && branch.endsWith(suffix))) {
     return;
@@ -599,7 +633,7 @@ async function main(argv = process.argv.slice(2)) {
   assertPublishBranch(headBranch, baseBranch, options);
   const sourceIssue = await loadSourceIssueForSubmit(provider, repo, issueNumber, options);
   validateSourceIssueSize(sourceIssue, issueNumber);
-  validateIssueFlowBranch(kind, issueNumber, headBranch, options);
+  validateIssueFlowBranch(kind, sourceIssue || issueNumber, headBranch, options);
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
