@@ -87,12 +87,12 @@ function OverviewTab({
 }
 
 const issueLanes = [
+  { id: "untriaged", title: "No flow", detail: "无 flow:: 标签" },
   { id: "triage", title: "Triage", detail: "flow::triage" },
   { id: "plan", title: "Plan", detail: "flow::plan" },
   { id: "build", title: "Build", detail: "flow::build" },
   { id: "clarify", title: "Clarify", detail: "flow::clarify" },
   { id: "approve", title: "Approve", detail: "flow::approve" },
-  { id: "untriaged", title: "No flow", detail: "无 flow:: 标签" },
 ]
 
 function issueLaneId(issue: IssueRow) {
