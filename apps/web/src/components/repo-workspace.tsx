@@ -96,6 +96,7 @@ function InstallConsole({
   loadingProjectAccess,
   onCheck,
   onSetVariable,
+  onSetWebhook,
   onInstall,
 }: RepoWorkspaceProps) {
   const [installForm, setInstallForm] = useState(() => installFormFromDefaults(defaults))
@@ -152,6 +153,16 @@ function InstallConsole({
     setExpandedRowId("")
   }
 
+  async function saveWebhook(row: CheckRow) {
+    if (row.configItem?.type !== "webhook" || !canManage) return
+    setCheckingRowId(row.id)
+    try {
+      await onSetWebhook(installInput)
+    } finally {
+      setCheckingRowId("")
+    }
+  }
+
   async function runInstallPlan() {
     await onInstall(installInput)
   }
@@ -197,6 +208,7 @@ function InstallConsole({
                 setInstallForm={setInstallForm}
                 onCheck={() => checkRows(row.id)}
                 onSaveVariable={() => saveVariable(row)}
+                onSaveWebhook={() => saveWebhook(row)}
                 onInstall={runInstallPlan}
                 installing={installing}
                 readOnly={readOnly}
@@ -224,6 +236,7 @@ type CheckRow = {
   missing?: string[]
   inputRequired?: string[]
   variable?: NonNullable<InstallStep["variables"]>[number]
+  value?: string
   configItem?: InstallCheckConfigItem
   actionCount?: number
 }
@@ -298,14 +311,21 @@ function buildInstallGroups({
       }
     }
     const step = byId.get(item.id)
+    const cachedWebhook = item.type === "webhook" ? repository?.settings?.webhook : undefined
+    const cachedWebhookUrl = String(cachedWebhook?.url || "")
+    const cachedWebhookHookId = String(cachedWebhook?.hookId || "")
+    const fallbackStatus = item.type === "webhook"
+      ? cachedWebhookHookId ? "passed" : "needs_action"
+      : "unknown"
     return {
       id: item.id,
       title: item.name,
       description: item.description || "",
       kind: item.type === "permission" ? "auth" : item.type === "repo_file" ? "repo" : "api",
       checkType: "webhook",
-      status: step?.status || "unknown",
-      detail: step?.detail,
+      status: step?.status || fallbackStatus,
+      detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : undefined),
+      value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : undefined,
       files: step?.files,
       missing: step?.missing,
       inputRequired: step?.inputRequired,
@@ -394,6 +414,7 @@ function CheckTableRow({
   setInstallForm,
   onCheck,
   onSaveVariable,
+  onSaveWebhook,
   onInstall,
 }: {
   canRunInstall: boolean
@@ -407,12 +428,14 @@ function CheckTableRow({
   setInstallForm: (value: InstallForm | ((current: InstallForm) => InstallForm)) => void
   onCheck: () => Promise<void>
   onSaveVariable: () => Promise<void>
+  onSaveWebhook: () => Promise<void>
   onInstall: () => Promise<void>
 }) {
   const canEdit = Boolean(row.variable?.control)
   const needsInput = rowNeedsInput(row, installForm)
   const canRepair = row.status === "needs_action" && row.kind === "repo"
   const canSetVariable = Boolean(row.variable) && !readOnly
+  const canSetWebhook = row.configItem?.type === "webhook" && row.status === "needs_action" && !readOnly
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
     : row.status === "unknown"
@@ -427,6 +450,7 @@ function CheckTableRow({
           <small>{row.variable ? row.description : row.detail || row.description}</small>
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
+        {!row.variable && row.value && <RowValue value={row.value} />}
         <div className="check-row-actions">
           {canSetVariable && (
             <Button
@@ -436,6 +460,12 @@ function CheckTableRow({
               onClick={() => canEdit || needsInput ? setExpanded(!expanded) : onSaveVariable()}
             >
               {expanded ? "收起" : row.status === "passed" ? "重新设置" : "设置"}
+            </Button>
+          )}
+          {canSetWebhook && (
+            <Button type="button" size="sm" variant="secondary" onClick={onSaveWebhook} disabled={checking}>
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <Webhook className="size-4" />}
+              自动配置
             </Button>
           )}
           {canRepair && <Button type="button" size="sm" variant="secondary" onClick={onInstall} disabled={installing || !canRunInstall}>{row.kind === "repo" ? "创建 MR" : "自动修复"}</Button>}
@@ -525,6 +555,14 @@ function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"
     <span className={`check-row-value ${variable.exists ? "" : "muted"}`}>
       <strong>{value}</strong>
       {source && <small>{source}</small>}
+    </span>
+  )
+}
+
+function RowValue({ value }: { value: string }) {
+  return (
+    <span className="check-row-value">
+      <strong>{value}</strong>
     </span>
   )
 }

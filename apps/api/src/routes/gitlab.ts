@@ -7,6 +7,7 @@ import {
   installGitlabProject,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallVariable,
+  setGitlabProjectInstallWebhook,
 } from "../core/gitlab-projects.js"
 import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
@@ -78,6 +79,17 @@ export async function gitlabRoutes(app: FastifyInstance) {
     const input = (request.body || {}) as Record<string, unknown>
     const session = await sessionFromRequest(request, String(input.gitServerId || ""))
     const result = await setGitlabProjectInstallVariable({
+      ...contextFromRequest(request),
+      input,
+      session,
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/gitlab/install-webhook", async (request, reply) => {
+    const input = (request.body || {}) as Record<string, unknown>
+    const session = await sessionFromRequest(request, String(input.gitServerId || ""))
+    const result = await setGitlabProjectInstallWebhook({
       ...contextFromRequest(request),
       input,
       session,

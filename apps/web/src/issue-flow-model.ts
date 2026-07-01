@@ -198,6 +198,7 @@ export type RepoWorkspaceProps = {
   onLogin: () => void
   onCheck: (extra?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
+  onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onInstall: (input: Record<string, unknown>) => Promise<void>
 }
 

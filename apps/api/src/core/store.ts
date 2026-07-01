@@ -1084,17 +1084,20 @@ class IssueFlowStore {
           tx
         )
       }
-      if (patch.webhook) {
-        await this.upsertRepoSettingItem(repoId, {
-          kind: "webhook",
-          key: patch.webhook.key || "issue-flow",
-          source: patch.webhook.source || "gitlab",
-          data: {
-            ...(repo.settings && repo.settings.webhook || {}),
-            ...patch.webhook,
-          },
-          checkedAt: patch.webhook.checkedAt || updatedAt,
-        }, tx)
+      if (Object.prototype.hasOwnProperty.call(patch, "webhook")) {
+        if (patch.webhook) {
+          await this.upsertRepoSettingItem(repoId, {
+            kind: "webhook",
+            key: patch.webhook.key || "issue-flow",
+            source: patch.webhook.source || "gitlab",
+            data: patch.webhook,
+            checkedAt: patch.webhook.checkedAt || updatedAt,
+          }, tx)
+        } else {
+          await tx.repoSettingItem.deleteMany({
+            where: { repoId, kind: "webhook", key: "issue-flow" },
+          })
+        }
       }
       await tx.repo.update({
         where: { id: repoId },

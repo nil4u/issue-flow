@@ -339,6 +339,35 @@ function Dashboard() {
     }
   }
 
+  async function setInstallWebhook(input: Record<string, unknown> = {}) {
+    if (!selectedProject || !selectedGitServerId) return
+    if (projectAccess && !projectAccess.canManage) {
+      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能配置 webhook。`)
+      return
+    }
+    setChecking(true)
+    setInstallMessage("")
+    try {
+      const body = await api<InstallCheck>("/api/gitlab/install-webhook", {
+        method: "POST",
+        body: JSON.stringify({
+          gitServerId: selectedGitServerId,
+          projectId: selectedProject.id,
+          ...input,
+        }),
+      })
+      const nextCheck = mergeInstallCheck(installCheck, body)
+      setInstallCheck(nextCheck)
+      await loadRepositories(selectedGitServerId)
+      setLoadError("")
+      return nextCheck
+    } catch (error) {
+      setLoadError((error as Error).message)
+    } finally {
+      setChecking(false)
+    }
+  }
+
   async function installProject(input: Record<string, unknown>) {
     if (!selectedProject) return
     if (projectAccess && !projectAccess.canManage) {
@@ -581,6 +610,7 @@ function Dashboard() {
             onLogin={() => loginGitLab(selectedGitServerId)}
             onCheck={runInstallCheck}
             onSetVariable={setInstallVariable}
+            onSetWebhook={setInstallWebhook}
             onInstall={installProject}
           />
         )}

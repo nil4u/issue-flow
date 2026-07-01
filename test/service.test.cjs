@@ -43,6 +43,7 @@ const {
   installGitlabProject,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallVariable,
+  setGitlabProjectInstallWebhook,
 } = require('../apps/api/src/core/gitlab-projects.ts');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 
@@ -798,6 +799,216 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     });
     assert.equal(persistedAuto.data.status, undefined);
     assert.equal(persistedAuto.data.value, 'build');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab webhook check only caches hooks matched from GitLab', async () => {
+  const { dir, store } = tempStore();
+  let expectedWebhookUrl = '';
+  let hooks = [];
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/hooks' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(hooks));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{
+        id: '42',
+        name: 'App',
+        pathWithNamespace: 'team/app',
+        defaultBranch: 'main',
+      }],
+    });
+    const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    expectedWebhookUrl = `https://issue-flow.internal/webhooks/gitlab/${repo.id}`;
+    hooks = [{
+      id: 9001,
+      url: expectedWebhookUrl,
+      issues_events: true,
+      note_events: true,
+      merge_requests_events: true,
+      pipeline_events: true,
+      job_events: true,
+      enable_ssl_verification: true,
+    }];
+
+    const matched = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'webhook' },
+    });
+    assert.equal(matched.status, 200);
+    assert.equal(matched.body.steps[0].status, 'passed');
+    assert.equal(matched.body.steps[0].detail, expectedWebhookUrl);
+    const cached = await store.db.repoSettingItem.findFirst({
+      where: { repoId: repo.id, kind: 'webhook', key: 'issue-flow' },
+    });
+    assert.equal(cached.data.url, expectedWebhookUrl);
+    assert.equal(cached.data.hookId, '9001');
+
+    hooks = [];
+    const missing = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'webhook' },
+    });
+    assert.equal(missing.status, 200);
+    assert.equal(missing.body.steps[0].status, 'needs_action');
+    assert.equal(await store.db.repoSettingItem.count({
+      where: { repoId: repo.id, kind: 'webhook', key: 'issue-flow' },
+    }), 0);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab webhook auto configure creates hook and caches returned GitLab facts', async () => {
+  const { dir, store } = tempStore();
+  let expectedWebhookUrl = '';
+  const calls = [];
+  const gitlab = http.createServer((req, res) => {
+    calls.push(`${req.method} ${req.url}`);
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/hooks' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/hooks' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+        assert.equal(body.url, expectedWebhookUrl);
+        assert.equal(body.token, 'backend-webhook-secret');
+        assert.equal(body.issues_events, true);
+        assert.equal(body.note_events, true);
+        assert.equal(body.merge_requests_events, true);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 9101,
+          url: body.url,
+          issues_events: true,
+          note_events: true,
+          merge_requests_events: true,
+          pipeline_events: true,
+          job_events: true,
+          enable_ssl_verification: true,
+          created_at: '2026-07-01T00:00:00Z',
+          updated_at: '2026-07-01T00:00:00Z',
+        }));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{
+        id: '42',
+        name: 'App',
+        pathWithNamespace: 'team/app',
+        defaultBranch: 'main',
+      }],
+    });
+    const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    expectedWebhookUrl = `https://issue-flow.internal/webhooks/gitlab/${repo.id}`;
+
+    const configured = await setGitlabProjectInstallWebhook({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(configured.status, 200);
+    assert.equal(configured.body.step.status, 'passed');
+    assert.equal(configured.body.step.detail, expectedWebhookUrl);
+    assert.equal(configured.body.webhook.hookId, '9101');
+    assert.equal(configured.body.repository.webhook.hookId, '9101');
+
+    const cached = await store.db.repoSettingItem.findFirst({
+      where: { repoId: repo.id, kind: 'webhook', key: 'issue-flow' },
+    });
+    assert.equal(cached.data.url, expectedWebhookUrl);
+    assert.equal(cached.data.hookId, '9101');
+    assert.equal(cached.data.issuesEvents, true);
+    assert.equal((await store.getCredentials(repo.id)).webhookSecret, 'backend-webhook-secret');
+    assert.deepEqual(calls, [
+      'GET /api/v4/user',
+      'GET /api/v4/projects/42',
+      'GET /api/v4/projects/42/members/all/100',
+      'GET /api/v4/projects/42/hooks',
+      'POST /api/v4/projects/42/hooks',
+    ]);
   } finally {
     await close(gitlab);
     await store.close();
