@@ -29,7 +29,7 @@ export const gitlabInstallCheckConfig = {
   groups: [
     {
       id: "variables",
-      title: "运行配置",
+      title: "Variables",
       items: [
         {
           id: "variable:AGENTRIX_BASE_URL",
