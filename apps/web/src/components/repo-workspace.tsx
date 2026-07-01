@@ -66,13 +66,12 @@ function OverviewTab({
     )
   }
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
-  if (!repository || repository.install?.status === "pending_repo_change") {
-    const pendingMr = repository?.install?.bootstrapMergeRequest
+  if (!repository || !repository.webhook?.hookId) {
     return (
       <div className="install-empty">
         <div className="install-empty-icon"><Wrench className="size-7" /></div>
-        <h2>{pendingMr ? "安装 MR 正在等待合并" : "当前还未安装 issue-flow，去安装"}</h2>
-        <p>{pendingMr?.webUrl ? `已创建 MR !${pendingMr.iid || ""}，合并后重新同步即可完成仓库文件安装。` : "安装向导会先检查权限、变量、webhook 和仓库文件，再执行安装。"}</p>
+        <h2>当前还未安装 issue-flow，去安装</h2>
+        <p>安装向导会先检查权限、变量、webhook 和仓库文件，再执行安装。</p>
         <Button onClick={onOpenSettings}><Wrench className="size-4" />去安装</Button>
       </div>
     )
@@ -452,8 +451,7 @@ function CheckRowMeta({ row }: { row: CheckRow }) {
 function StatusGrid({ project, repository }: { project: GitLabProject; repository: Repository }) {
   return (
     <div className="status-grid">
-      <StatusCard icon={<CheckCircle2 className="size-4" />} label="Install" value={repository.install?.status || "installed"} />
-      <StatusCard icon={<ShieldCheck className="size-4" />} label="Permission" value={project.canInstall ? "maintainer" : "limited"} />
+      <StatusCard icon={<ShieldCheck className="size-4" />} label="Permission" value={project.canInstall === true ? "maintainer" : project.canInstall === false ? "limited" : "unknown"} />
       <StatusCard icon={<GitBranch className="size-4" />} label="Default branch" value={project.defaultBranch || repository.defaultBranch || "-"} />
       <StatusCard icon={<KeyRound className="size-4" />} label="Agentrix key" value={repository.agentrix?.apiKeyFingerprint ? `fingerprint ${repository.agentrix.apiKeyFingerprint}` : "missing"} />
       <StatusCard icon={<Webhook className="size-4" />} label="Webhook" value={repository.webhook?.secretFingerprint ? "configured" : "missing"} />

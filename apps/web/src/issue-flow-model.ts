@@ -6,18 +6,17 @@ export type Repository = {
   id: string
   provider: string
   gitServerId?: string
-  baseUrl: string
+  serverRepoId?: string
+  owner?: string
+  name?: string
+  fullName?: string
+  baseUrl?: string
   projectPath: string
   projectId?: string
   defaultBranch?: string
+  url?: string
+  webUrl?: string
   installMode?: string
-  install?: {
-    status?: string
-    mode?: string
-    bootstrapStatus?: string
-    bootstrapCommitId?: string
-    bootstrapMergeRequest?: { iid?: string; webUrl?: string }
-  }
   automation?: {
     autoDefault?: string
     reviewEnabled?: boolean
@@ -30,7 +29,13 @@ export type Repository = {
     runnerId?: string
     apiKeyFingerprint?: string
   }
-  webhook?: { secretFingerprint?: string; lastRotatedAt?: string }
+  webhook?: {
+    hookId?: string
+    secretFingerprint?: string
+    lastRotatedAt?: string
+    bootstrapCommitId?: string
+    bootstrapMergeRequest?: { iid?: string; webUrl?: string }
+  }
   webhookUrl?: string
 }
 
@@ -68,8 +73,6 @@ export type GitLabProject = {
   webUrl?: string
   defaultBranch?: string
   canInstall?: boolean
-  installed?: boolean
-  installedRepoId?: string
   permissionStatus?: string
 }
 
@@ -137,7 +140,6 @@ export type InstallStep = {
 
 export type InstallCheck = {
   installable: boolean
-  installed?: boolean
   steps: InstallStep[]
   repository?: Repository | null
 }
@@ -205,6 +207,18 @@ export function ownerOf(project?: GitLabProject) {
   return project?.pathWithNamespace.split("/")[0] || ""
 }
 
+export function repositoryToProject(repository: Repository): GitLabProject {
+  const fullName = repository.fullName || repository.projectPath || ""
+  const parts = fullName.split("/").filter(Boolean)
+  return {
+    id: repository.projectId || repository.serverRepoId || repository.id,
+    name: repository.name || parts[parts.length - 1] || fullName,
+    pathWithNamespace: fullName,
+    webUrl: repository.webUrl || repository.url,
+    defaultBranch: repository.defaultBranch,
+  }
+}
+
 export function formatWhen(value = "") {
   if (!value) return ""
   const date = new Date(value)
@@ -220,18 +234,7 @@ export function formatWhen(value = "") {
 
 export function projectStatus(project?: GitLabProject, repo?: Repository) {
   if (!project) return { label: "未选择", tone: "muted" }
-  if (repo?.install?.status === "pending_repo_change") return { label: "等待 MR", tone: "warning" }
-  if (project.installed || repo) return { label: "已安装", tone: "success" }
+  if (repo?.webhook?.hookId) return { label: "已配置", tone: "success" }
   if (project.canInstall) return { label: "可安装", tone: "info" }
   return { label: "无权限", tone: "locked" }
-}
-
-export function mergeProjectInstallStatus(projects: GitLabProject[], repositories: Repository[], gitServerId: string) {
-  return projects.map((project) => {
-    const installedRepo = repositories.find((repo) => (
-      (!gitServerId || repo.gitServerId === gitServerId)
-      && (String(repo.projectId || "") === String(project.id) || repo.projectPath === project.pathWithNamespace)
-    ))
-    return installedRepo ? { ...project, installed: true, installedRepoId: installedRepo.id } : project
-  })
 }

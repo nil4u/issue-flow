@@ -4,6 +4,7 @@ import {
   exchangeGitlabOAuthCode,
   getGitlabCurrentUser,
   gitlabOAuthAuthorizeUrl,
+  listGitlabProjects,
 } from './gitlab.js'
 import {
   publicSession,
@@ -112,6 +113,20 @@ async function finishGitlabOAuth({ store, basePublicUrl, query = {} }) {
       baseUrl: config.baseUrl,
     },
   });
+  try {
+    const projects = await listGitlabProjects({
+      apiUrl: config.apiUrl,
+      token,
+      authType: 'bearer',
+    });
+    await store.syncRepositories({
+      gitServerId: server.id,
+      userId: identity.user.id,
+      projects,
+    });
+  } catch {
+    // 登录状态优先落库；仓库列表失败后仍可由前端强制刷新。
+  }
   return {
     status: 302,
     session: publicSession(session),

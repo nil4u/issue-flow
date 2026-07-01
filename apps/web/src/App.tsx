@@ -11,8 +11,8 @@ import { parseWorkspaceRoute, sameWorkspaceRoute, workspaceRoutePath, type Works
 import {
   API_BASE_URL,
   api,
-  mergeProjectInstallStatus,
   ownerOf,
+  repositoryToProject,
   type AgentrixDefaults,
   type GitLabProject,
   type GitLabUser,
@@ -64,8 +64,12 @@ function Dashboard() {
   const currentSession = sessions[selectedGitServerId]
   const currentUser = currentSession?.authenticated ? currentSession.user : undefined
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
-  const selectedRepo = selectedProject?.installed
-    ? repositories.find((repo) => repo.id === selectedProject.installedRepoId || repo.projectPath === selectedProject.pathWithNamespace)
+  const selectedRepo = selectedProject
+    ? repositories.find((repo) => (
+      repo.id === selectedProject.id
+      || String(repo.projectId || "") === String(selectedProject.id)
+      || repo.projectPath === selectedProject.pathWithNamespace
+    ))
     : undefined
 
   const owners = useMemo(() => {
@@ -127,10 +131,26 @@ function Dashboard() {
     return body
   }
 
-  async function loadRepositories() {
-    const body = await api<{ repositories: Repository[] }>("/api/repositories")
+  async function loadRepositories(gitServerId = selectedGitServerId) {
+    if (!gitServerId) {
+      setRepositories([])
+      setProjects([])
+      return []
+    }
+    const body = await api<{ repositories: Repository[] }>(`/api/repositories?gitServerId=${encodeURIComponent(gitServerId)}`)
     const repos = body.repositories || []
     setRepositories(repos)
+    const nextProjects = repos.map(repositoryToProject)
+    setProjects(nextProjects)
+    const currentRoute = parseWorkspaceRoute()
+    setSelectedProjectId((current) => {
+      if (currentRoute.gitServerId === gitServerId && currentRoute.projectId && nextProjects.some((project) => project.id === currentRoute.projectId)) {
+        return currentRoute.projectId
+      }
+      if (current && nextProjects.some((project) => project.id === current)) return current
+      return nextProjects[0]?.id || ""
+    })
+    setLoadError("")
     return repos
   }
 
@@ -152,41 +172,45 @@ function Dashboard() {
     setAgentrixDefaults(body.config)
   }
 
-  async function loadProjects(gitServerId = selectedGitServerId, repos = repositories) {
-    if (!gitServerId) return setProjects([])
+  async function syncGitServer(gitServerId = selectedGitServerId) {
+    if (!gitServerId) return
     setLoadingProjects(true)
     try {
-      const body = await api<{ projects: GitLabProject[] }>(`/api/gitlab/projects?gitServerId=${encodeURIComponent(gitServerId)}`)
-      const nextProjects = mergeProjectInstallStatus(body.projects || [], repos, gitServerId)
-      setProjects(nextProjects)
-      const currentRoute = parseWorkspaceRoute()
-      setSelectedProjectId((current) => {
-        if (currentRoute.gitServerId === gitServerId && currentRoute.projectId && nextProjects.some((project) => project.id === currentRoute.projectId)) {
-          return currentRoute.projectId
-        }
-        if (current && nextProjects.some((project) => project.id === current)) return current
-        return nextProjects[0]?.id || ""
+      const session = await loadSession(gitServerId)
+      if (!session.authenticated) {
+        setRepositories([])
+        setProjects([])
+        setAgentrixDefaults(undefined)
+        return
+      }
+      await api<{ projects: GitLabProject[] }>("/api/gitlab/projects", {
+        method: "POST",
+        body: JSON.stringify({ gitServerId }),
       })
+      await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId)])
       setLoadError("")
     } catch (error) {
-      setProjects([])
-      setSelectedProjectId("")
       setLoadError((error as Error).message)
     } finally {
       setLoadingProjects(false)
     }
   }
 
-  async function refreshGitServer(gitServerId = selectedGitServerId) {
+  async function loadGitServerState(gitServerId = selectedGitServerId) {
     if (!gitServerId) return
     const session = await loadSession(gitServerId)
     if (!session.authenticated) {
+      setRepositories([])
       setProjects([])
       setAgentrixDefaults(undefined)
       return
     }
-    const repos = await loadRepositories()
-    await Promise.all([loadAgentrixDefaults(gitServerId), loadProjects(gitServerId, repos)])
+    setLoadingProjects(true)
+    try {
+      await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId)])
+    } finally {
+      setLoadingProjects(false)
+    }
   }
 
   async function loadActivity(repoId?: string) {
@@ -242,7 +266,7 @@ function Dashboard() {
       })
       const mr = body.pendingMergeRequest
       setInstallMessage(mr?.webUrl ? `已创建安装 MR !${mr.iid || ""}` : "安装已完成")
-      await refreshGitServer(selectedGitServerId)
+      await loadGitServerState(selectedGitServerId)
       await runInstallCheck()
     } catch (error) {
       setInstallMessage(installErrorMessage(error))
@@ -348,7 +372,7 @@ function Dashboard() {
     if (!selectedGitServerId || !userSession.authenticated) return
     setOwner("all")
     setInstallCheck(undefined)
-    void refreshGitServer(selectedGitServerId)
+    void loadGitServerState(selectedGitServerId)
   }, [selectedGitServerId, userSession.authenticated])
 
   useEffect(() => {
@@ -415,7 +439,7 @@ function Dashboard() {
         onFilter={setFilter}
         onSelectProject={selectProject}
         onLoginCurrent={() => loginGitLab(selectedGitServerId)}
-        onRefresh={refreshGitServer}
+        onRefresh={syncGitServer}
         onLogout={logoutAll}
         onOpenUserSettings={openUserSettings}
         onCollapsedChange={updateSidebarCollapsed}

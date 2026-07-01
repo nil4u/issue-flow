@@ -21,7 +21,7 @@ model GitServer {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  repositories Repository[]
+  repos        Repo[]
   userAccounts UserGitAccount[]
 
   @@index([type, createdAt])
@@ -68,24 +68,50 @@ model UserGitAccount {
   @@map("user_git_accounts")
 }
 
-model Repository {
-  id             String   @id
-  gitServerId    String?  @map("git_server_id")
-  oauthSessionId String?  @map("oauth_session_id")
-  data           Json
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+model Repo {
+  id            String   @id
+  gitServerId   String?  @map("git_server_id")
+  serverRepoId  String   @default("") @map("server_repo_id")
+  owner         String   @default("")
+  name          String   @default("")
+  fullName      String   @default("") @map("full_name")
+  defaultBranch String   @default("") @map("default_branch")
+  url           String   @default("")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  gitServer        GitServer?            @relation(fields: [gitServerId], references: [id])
-  oauthSession     OAuthSession?         @relation(fields: [oauthSessionId], references: [id], onDelete: SetNull)
-  credentials      Credential?
-  deliveries       WebhookDelivery[]
-  bridgeStateItems WebhookBridgeState[]
-  dispatchRuns     DispatchRun[]
+  gitServer GitServer?    @relation(fields: [gitServerId], references: [id], onDelete: SetNull)
+  settings  RepoSettings?
 
+  @@unique([gitServerId, serverRepoId])
   @@index([gitServerId])
-  @@index([oauthSessionId])
-  @@map("repositories")
+  @@index([fullName])
+  @@map("repos")
+}
+
+model RepoSettings {
+  repoId    String   @id @map("repo_id")
+  variables Json
+  webhook   Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  repo Repo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@map("repo_settings")
+}
+
+model UserRepoAccess {
+  userId      String   @map("user_id")
+  gitServerId String   @map("git_server_id")
+  repoId      String   @map("repo_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@id([userId, gitServerId, repoId])
+  @@index([userId, gitServerId])
+  @@index([repoId])
+  @@map("user_repo_accesses")
 }
 
 model Credential {
@@ -93,8 +119,6 @@ model Credential {
   webhookSecret  String   @default("") @map("webhook_secret")
   agentrixApiKey String   @default("") @map("agentrix_api_key")
   updatedAt      DateTime @updatedAt @map("updated_at")
-
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
 
   @@map("credentials")
 }
@@ -108,8 +132,6 @@ model WebhookDelivery {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
-
   @@index([repoId, createdAt])
   @@index([repoId, deliveryKey, consumer, createdAt])
   @@map("webhook_deliveries")
@@ -122,8 +144,6 @@ model WebhookBridgeState {
   expiresAt DateTime? @map("expires_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
-
   @@id([repoId, key])
   @@map("webhook_bridge_state")
 }
@@ -135,8 +155,6 @@ model DispatchRun {
   data       Json
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
-
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
 
   @@index([repoId, createdAt])
   @@map("dispatch_runs")
@@ -153,8 +171,6 @@ model OAuthSession {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-  repositories Repository[]
-
   @@index([userId])
   @@map("oauth_sessions")
 }

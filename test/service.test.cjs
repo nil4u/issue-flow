@@ -196,8 +196,8 @@ test('service store encrypts credentials and public repository hides secret mate
     assert.doesNotMatch(stateText, /glpat-service-token-123/);
     assert.doesNotMatch(stateText, /webhook-secret-123/);
     assert.doesNotMatch(stateText, /agentrix-secret-key/);
-    assert.equal(created.repo.credentialStatus.username, 'alice');
-    assert.equal(created.repo.credentialStatus.status, 'valid');
+    assert.equal(created.repo.credentialStatus, undefined);
+    assert.equal(created.repo.install, undefined);
     assert.equal(created.repo.webhook.secretFingerprint.length, 12);
     assert.equal(created.repo.automation.autoDefault, 'triage');
     assert.equal((await store.getCredentials(created.repo.id)).providerToken, '');
@@ -423,7 +423,7 @@ test('GitLab webhook bridge normalizes supported event classes', () => {
   assert.equal(pipeline.events[0].workflowRun.conclusion, 'failure');
 });
 
-test('GitLab webhook receiver uses bridge validation and records bridge delivery results', async () => {
+test('GitLab webhook receiver requires an explicit GitLab credential link before dispatch', async () => {
   const { dir, store } = tempStore();
   const calls = [];
   const pipelineVariables = {};
@@ -506,19 +506,6 @@ test('GitLab webhook receiver uses bridge validation and records bridge delivery
     };
 
     const createdRepo = await created;
-    const bad = await handleGitlabWebhook({
-      store,
-      repoId: createdRepo.repo.id,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gitlab-Token': 'wrong',
-        'X-Gitlab-Event': 'Merge Request Hook',
-        'X-Gitlab-Event-UUID': 'delivery-1',
-      },
-      rawBody: JSON.stringify(payload),
-    });
-    assert.equal(bad.status, 401);
-
     const first = await handleGitlabWebhook({
       store,
       repoId: createdRepo.repo.id,
@@ -530,44 +517,12 @@ test('GitLab webhook receiver uses bridge validation and records bridge delivery
       },
       rawBody: JSON.stringify(payload),
     });
-    assert.equal(first.status, 202);
-    assert.equal(first.body.status, 'delivered');
-    assert.equal(first.body.providerEventName, 'merge_request');
-    assert.equal(first.body.events[0].eventName, 'pull_request');
-    assert.equal(first.body.deliveries[0].target, 'gitlab-pipeline');
-    assert.equal(first.body.deliveries[0].status, 'delivered');
-    assert.equal(pipelineVariables.GITLAB_BRIDGE_EVENT_NAME, 'pull_request');
-    assert.equal(pipelineVariables.GITLAB_BRIDGE_EVENT_ACTION, 'opened');
-    assert.equal(pipelineVariables.GITLAB_BRIDGE_REPOSITORY, 'team/app');
-    assert.equal(pipelineVariables.GITLAB_BRIDGE_PR_NUMBER, '7');
-    assert.equal(pipelineVariables.AGENTRIX_GIT_SERVER_ID, 'gitlab-main');
-
-    const second = await handleGitlabWebhook({
-      store,
-      repoId: createdRepo.repo.id,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gitlab-Token': 'webhook-secret-123',
-        'X-Gitlab-Event': 'Merge Request Hook',
-        'X-Gitlab-Event-UUID': 'delivery-1',
-      },
-      rawBody: JSON.stringify(payload),
-    });
-    assert.equal(second.status, 202);
-    assert.equal(second.body.status, 'ignored');
-    assert.equal(second.body.deliveries[0].target, 'gitlab-pipeline');
-    assert.equal(second.body.deliveries[0].reason, 'duplicate_delivery_event');
+    assert.equal(first.status, 403);
+    assert.equal(first.body.error, 'oauth_session_required');
 
     const deliveries = await store.listDeliveries(createdRepo.repo.id);
-    assert.equal(deliveries.length, 3);
-    assert.equal(deliveries.some((delivery) => delivery.status === 'ignored'), true);
-    assert.equal(deliveries.some((delivery) => delivery.status === 'rejected'), true);
-    assert.equal(deliveries.some((delivery) => delivery.consumer === 'gitlab-webhook'), true);
-    assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), [
-      'GET /api/v4/projects/42/triggers',
-      'POST /api/v4/projects/42/triggers',
-      'POST /api/v4/projects/42/trigger/pipeline',
-    ]);
+    assert.equal(deliveries.length, 0);
+    assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), []);
   } finally {
     await close(gitlab);
     await store.close();
@@ -609,6 +564,96 @@ test('API service exposes health and repository list over HTTP', async () => {
     assert.equal(createGitServer.status, 404);
   } finally {
     await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab project sync persists repo cache and install reuses repo id', async () => {
+  const { dir, store } = tempStore();
+  let visibleProjects = [{
+    id: 42,
+    name: 'App',
+    path_with_namespace: 'team/app',
+    web_url: 'https://gitlab.example.com/team/app',
+    default_branch: 'main',
+    permissions: { project_access: { access_level: 40 } },
+  }];
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects?membership=true&per_page=100') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(visibleProjects));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({
+      id: 'user-alice',
+      displayName: 'Alice',
+      email: 'alice@example.com',
+    });
+    const synced = await listGitlabProjectsWithInstallStatus({
+      store,
+      input: {
+        gitServerId: 'gitlab-main',
+        userId: user.id,
+        token: 'gl-oauth-user-token',
+      },
+    });
+    assert.equal(synced.status, 200);
+    assert.equal(synced.body.projects[0].canInstall, true);
+
+    const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
+    assert.equal(repos.length, 1);
+    assert.equal(repos[0].projectId, '42');
+    assert.equal(repos[0].projectPath, 'team/app');
+    assert.equal(repos[0].webUrl, 'https://gitlab.example.com/team/app');
+    assert.equal(repos[0].installed, undefined);
+    assert.equal(repos[0].canInstall, undefined);
+    assert.equal(repos[0].permissionStatus, undefined);
+    assert.equal(repos[0].data, undefined);
+
+    visibleProjects = [];
+    const refreshed = await listGitlabProjectsWithInstallStatus({
+      store,
+      input: {
+        gitServerId: 'gitlab-main',
+        userId: user.id,
+        token: 'gl-oauth-user-token',
+      },
+    });
+    assert.equal(refreshed.status, 200);
+    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 0);
+    assert.ok(await store.db.repo.findUnique({ where: { id: repos[0].id } }));
+
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      baseUrl: gitlabBase,
+      apiUrl: `${gitlabBase}/api/v4`,
+      projectPath: 'team/app',
+      webhookSecret: 'webhook-secret-123',
+    }, {
+      status: 'valid',
+      projectId: '42',
+      defaultBranch: 'main',
+    });
+    assert.equal(created.repo.id, repos[0].id);
+    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 1);
+    assert.ok(await store.db.repoSettings.findUnique({ where: { repoId: repos[0].id } }));
+  } finally {
+    await close(gitlab);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -908,11 +953,11 @@ test('GitLab login flow lists all visible projects with install status and insta
       },
       env,
     });
-    assert.equal(installed.status, 201);
-    assert.equal(installed.body.repository.install.status, 'installed');
+    assert.equal(installed.status, 200);
+    assert.equal(installed.body.repository.install, undefined);
     assert.ok(installed.body.repository.gitServerId);
-    assert.equal(installed.body.repository.install.hookId, '9001');
-    assert.equal(installed.body.repository.install.bootstrapCommitId, 'bootstrap-commit-sha');
+    assert.equal(installed.body.repository.webhook.hookId, '9001');
+    assert.equal(installed.body.repository.webhook.bootstrapCommitId, 'bootstrap-commit-sha');
     assert.doesNotMatch(JSON.stringify(installed.body), /backend-webhook-secret/);
     assert.doesNotMatch(JSON.stringify(installed.body), /gl-oauth-user-token/);
     assert.doesNotMatch(JSON.stringify(installed.body), /agentrix-secret-key/);
@@ -1135,15 +1180,13 @@ test('GitLab install upgrades an already installed repository by rerunning boots
       baseUrl: gitlabBase,
       apiUrl: `${gitlabBase}/api/v4`,
       projectPath: 'team/app',
-      installMode: 'server-side',
-      installStatus: 'installed',
       agentrix: { apiKey: 'old-agentrix-key' },
     }, {
       status: 'valid',
       projectId: '42',
       defaultBranch: 'main',
     });
-    await store.updateInstallStatus(existing.repo.id, { status: 'installed', hookId: '9001' });
+    await store.updateRepositoryWebhookCache(existing.repo.id, { hookId: '9001' });
 
     const upgraded = await installGitlabProject({
       store,
@@ -1163,7 +1206,8 @@ test('GitLab install upgrades an already installed repository by rerunning boots
     assert.equal(upgraded.status, 200);
     assert.equal(upgraded.body.upgraded, true);
     assert.equal(upgraded.body.repository.id, existing.repo.id);
-    assert.equal(upgraded.body.repository.install.bootstrapCommitId, 'upgrade-commit-sha');
+    assert.equal(upgraded.body.repository.install, undefined);
+    assert.equal(upgraded.body.repository.webhook.bootstrapCommitId, 'upgrade-commit-sha');
     assert.equal(commitSeen, true);
     assert.equal(hookUpdated, true);
     assert.equal((await store.getCredentials(existing.repo.id)).webhookSecret, 'backend-webhook-secret');
@@ -1184,7 +1228,7 @@ test('GitLab install upgrades an already installed repository by rerunning boots
   }
 });
 
-test('GitLab install upgrade preserves existing repository Agentrix config without overrides', async () => {
+test('GitLab install upgrade preserves existing repository Agentrix API key without repo runtime config fields', async () => {
   const { dir, store } = tempStore();
   const variables = {};
   let hookUpdated = false;
@@ -1266,8 +1310,6 @@ test('GitLab install upgrade preserves existing repository Agentrix config witho
       baseUrl: gitlabBase,
       apiUrl: `${gitlabBase}/api/v4`,
       projectPath: 'team/app',
-      installMode: 'server-side',
-      installStatus: 'installed',
       automation: { autoDefault: 'plan', reviewEnabled: true, agent: 'claude', runnerId: 'repo-runner' },
       agentrix: { apiKey: 'repo-agentrix-key', runnerId: 'repo-runner' },
     }, {
@@ -1275,7 +1317,7 @@ test('GitLab install upgrade preserves existing repository Agentrix config witho
       projectId: '42',
       defaultBranch: 'main',
     });
-    await store.updateInstallStatus(existing.repo.id, { status: 'installed', hookId: '9001' });
+    await store.updateRepositoryWebhookCache(existing.repo.id, { hookId: '9001' });
 
     const upgraded = await installGitlabProject({
       store,
@@ -1293,16 +1335,16 @@ test('GitLab install upgrade preserves existing repository Agentrix config witho
     assert.equal(upgraded.status, 200);
     assert.equal(hookUpdated, true);
     assert.equal((await store.getCredentials(existing.repo.id)).webhookSecret, 'backend-webhook-secret');
-    assert.equal(upgraded.body.repository.automation.autoDefault, 'plan');
-    assert.equal(upgraded.body.repository.automation.reviewEnabled, true);
-    assert.equal(upgraded.body.repository.automation.agent, 'claude');
-    assert.equal(upgraded.body.repository.agentrix.runnerId, 'repo-runner');
+    assert.equal(upgraded.body.repository.automation.autoDefault, 'triage');
+    assert.equal(upgraded.body.repository.automation.reviewEnabled, false);
+    assert.equal(upgraded.body.repository.automation.agent, 'codex');
+    assert.equal(upgraded.body.repository.agentrix.runnerId, '');
     assert.equal((await store.getCredentials(existing.repo.id)).agentrixApiKey, 'repo-agentrix-key');
     assert.equal(variables.AGENTRIX_API_KEY, 'repo-agentrix-key');
-    assert.equal(variables.AGENTRIX_ISSUE_FLOW_AGENT, 'claude');
-    assert.equal(variables.AGENTRIX_RUNNER_ID, 'repo-runner');
-    assert.equal(variables.ISSUE_FLOW_AUTO_DEFAULT, 'plan');
-    assert.equal(variables.ISSUE_FLOW_REVIEW_ENABLED, 'true');
+    assert.equal(variables.AGENTRIX_ISSUE_FLOW_AGENT, 'codex');
+    assert.equal(variables.AGENTRIX_RUNNER_ID, undefined);
+    assert.equal(variables.ISSUE_FLOW_AUTO_DEFAULT, 'triage');
+    assert.equal(variables.ISSUE_FLOW_REVIEW_ENABLED, 'false');
     assert.doesNotMatch(JSON.stringify(upgraded.body), /repo-agentrix-key/);
   } finally {
     await close(gitlab);
@@ -1397,6 +1439,12 @@ test('GitLab OAuth flow stores session token server-side and project APIs use th
     assert.equal(sessionBody.user.username, 'alice');
     assert.equal(sessionBody.session.gitServerId, 'gitlab-main');
     assert.doesNotMatch(JSON.stringify(sessionBody), /gl-oauth-session-token/);
+
+    const repositories = await fetch(`${baseUrl}/api/repositories?gitServerId=gitlab-main`, { headers: { Cookie: setCookieToCookieHeader(sessionCookie) } });
+    assert.equal(repositories.status, 200);
+    const repositoriesBody = await repositories.json();
+    assert.equal(repositoriesBody.repositories[0].projectPath, 'team/app');
+    assert.doesNotMatch(JSON.stringify(repositoriesBody), /gl-oauth-session-token/);
 
     const projects = await fetch(`${baseUrl}/api/gitlab/projects?gitServerId=gitlab-main`, { headers: { Cookie: setCookieToCookieHeader(sessionCookie) } });
     assert.equal(projects.status, 200);

@@ -3,7 +3,7 @@ import {
   configureGitlabProjectVariables,
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
-  getGitlabProjectVariable,
+  getGitlabVariableForInstall,
   listGitlabProjects,
   listGitlabWebhooks,
   syncGitlabProjectLabels,
@@ -90,21 +90,17 @@ async function listGitlabProjectsWithInstallStatus({ store, input = {}, session 
     token,
     authType,
   });
+  await store.syncRepositories({
+    gitServerId: server.id,
+    userId: input.userId || session && session.userId || '',
+    projects,
+  });
   return {
     status: 200,
     body: {
-      projects: await Promise.all(projects.map(async (project) => {
-        const installed = await store.findRepositoryByProject({
-          gitServerId: server.id,
-          projectId: project.id,
-          projectPath: project.pathWithNamespace,
-        });
-        return {
-          ...project,
-          installed: Boolean(installed),
-          installedRepoId: installed && installed.id || '',
-          canInstall: Boolean(project.canInstall),
-        };
+      projects: projects.map((project) => ({
+        ...project,
+        canInstall: Boolean(project.canInstall),
       })),
     },
   };
@@ -197,6 +193,7 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     token,
     authType,
     projectIdOrPath: project.id || project.pathWithNamespace,
+    projectPath: project.pathWithNamespace,
   };
 
   try {
@@ -230,7 +227,7 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
   const variables = gitlabCiVariablesForInstall({ config, installConfig });
   const variableResults = [];
   for (const variable of variables) {
-    const existingVariable = await getGitlabProjectVariable(apiInput, variable.key);
+    const existingVariable = await getGitlabVariableForInstall(apiInput, variable.key);
     const state = variableCheckState(variable, existingVariable);
     const required = variable.required !== false;
     const writable = variable.value !== undefined && variable.value !== '';
@@ -244,6 +241,10 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
       masked: Boolean(variable.masked),
       status: state.status,
       detail: state.detail,
+      source: existingVariable && existingVariable.source || '',
+      groupPath: existingVariable && existingVariable.groupPath || '',
+      environmentScope: existingVariable && existingVariable.environmentScope || '',
+      variableType: existingVariable && existingVariable.variableType || '',
       needsInput: state.status === 'needs_input',
       control: variable.control || undefined,
     });
@@ -277,10 +278,15 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     }
   ));
 
+  let webhookCache = {};
   if (existing) {
     const publicRepo = repoWithWebhook(basePublicUrl, existing);
     const hooks = await listGitlabWebhooks(apiInput);
     const hook = hooks.find((item) => item && item.url === publicRepo.webhookUrl);
+    webhookCache = {
+      ...(existing.webhook || {}),
+      hookId: hook && hook.id ? String(hook.id) : '',
+    };
     const hookState = statusFromBoolean(Boolean(hook), '需要通过 API 配置 GitLab webhook', 'Webhook 已配置');
     steps.push(installStep('webhook', 'api', 'GitLab webhook', hookState.status, hookState.detail));
   } else {
@@ -303,13 +309,18 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
 
   const installable = steps.every((step) => step.status !== 'blocked')
     && steps.every((step) => step.status !== 'needs_input');
+  if (existing) {
+    await store.updateRepositorySettingsCache(existing.id, {
+      variables: { items: variableResults },
+      webhook: webhookCache,
+    });
+  }
   return {
     status: 200,
     body: {
       gitServer: { id: server.id, name: server.name, baseUrl: config.baseUrl },
       project,
       repository: existing || null,
-      installed: Boolean(existing && existing.install && existing.install.status === 'installed'),
       installable,
       steps,
     },
@@ -434,11 +445,10 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
 
   if (existing) {
     existing.tokenAuth = config.tokenAuth || 'bearer';
-    await store.updateRepositoryAutomation(existing.id, {
+    const configured = await store.updateRepositoryAutomation(existing.id, {
       automation: installConfig.automation,
       agentrix: installConfig.agentrix,
       tokenAuth: config.tokenAuth || 'bearer',
-      oauthSessionId: session && session.id || existing.oauthSessionId || '',
     });
     const existingWithWebhook = repoWithWebhook(basePublicUrl, existing);
     let hook;
@@ -448,39 +458,41 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
         token,
         authType,
         projectIdOrPath: project.id || project.pathWithNamespace,
-        hookId: existing.install && existing.install.hookId || '',
+        hookId: existing.webhook && existing.webhook.hookId || '',
         webhookUrl: existingWithWebhook.webhookUrl,
         webhookSecret,
       });
     } catch (error) {
-      const failed = await store.updateInstallStatus(existing.id, {
-        status: 'install_failed',
-        mode: 'server-side',
-        error: sanitizeError(error),
-      });
       return {
         status: 502,
         body: {
           error: 'gitlab_webhook_install_failed',
-          repository: repoWithWebhook(basePublicUrl, failed),
+          repository: repoWithWebhook(basePublicUrl, existing),
           detail: sanitizeError(error),
         },
       };
     }
     await store.rotateWebhookSecret(existing.id, webhookSecret);
-    const updated = await store.updateInstallStatus(existing.id, {
-      status: bootstrap && bootstrap.mergeRequest ? 'pending_repo_change' : 'installed',
-      mode: 'server-side',
-      hookId: hook && hook.id ? String(hook.id) : existing.install && existing.install.hookId || '',
-      bootstrapStatus: bootstrap && bootstrap.mergeRequest ? 'merge_request_open' : bootstrap && bootstrap.skipped ? 'skipped' : 'installed',
+    const updated = await store.updateRepositoryWebhookCache(existing.id, {
+      hookId: hook && hook.id ? String(hook.id) : existing.webhook && existing.webhook.hookId || '',
       bootstrapCommitId: bootstrap && bootstrap.commitId || '',
       bootstrapMergeRequest: bootstrap && bootstrap.mergeRequest || undefined,
     });
+    if (session && session.userId || input.userId) {
+      await store.grantUserRepoAccess({
+        userId: session && session.userId || input.userId,
+        gitServerId: server.id,
+        repoId: existing.id,
+      });
+    }
     return {
       status: 200,
       body: {
-        repository: repoWithWebhook(basePublicUrl, updated),
-        installed: !(bootstrap && bootstrap.mergeRequest),
+        repository: repoWithWebhook(basePublicUrl, {
+          ...updated,
+          automation: configured && configured.automation || updated.automation,
+          agentrix: configured && configured.agentrix || updated.agentrix,
+        }),
         pendingMergeRequest: bootstrap && bootstrap.mergeRequest || undefined,
         upgraded: true,
       },
@@ -499,20 +511,11 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
     apiUrl: config.apiUrl,
     tokenAuth: config.tokenAuth || 'bearer',
     gitServerId: server.id,
-    oauthSessionId: session && session.id || '',
+    userId: session && session.userId || input.userId || '',
     projectPath: project.pathWithNamespace,
     webhookSecret,
-    installMode: 'server-side',
-    installStatus: bootstrap && bootstrap.mergeRequest ? 'pending_repo_change' : 'installing',
     automation: installConfig.automation,
     agentrix: installConfig.agentrix,
-    bootstrap: {
-      status: bootstrap && bootstrap.mergeRequest ? 'merge_request_open' : bootstrap && bootstrap.skipped ? 'skipped' : 'installed',
-      branch: bootstrap && bootstrap.branch || project.defaultBranch || '',
-      commitId: bootstrap && bootstrap.commitId || '',
-      mergeRequest: bootstrap && bootstrap.mergeRequest || undefined,
-      actionCount: bootstrap && bootstrap.actionCount || 0,
-    },
   }, validation);
   const publicRepo = repoWithWebhook(basePublicUrl, created.repo);
 
@@ -525,33 +528,28 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
       webhookUrl: publicRepo.webhookUrl,
       webhookSecret: created.webhookSecret,
     });
-    const installed = await store.updateInstallStatus(created.repo.id, {
-      status: bootstrap && bootstrap.mergeRequest ? 'pending_repo_change' : 'installed',
-      mode: 'server-side',
+    const updated = await store.updateRepositoryWebhookCache(created.repo.id, {
       hookId: hook && hook.id ? String(hook.id) : '',
-      bootstrapStatus: bootstrap && bootstrap.mergeRequest ? 'merge_request_open' : bootstrap && bootstrap.skipped ? 'skipped' : 'installed',
       bootstrapCommitId: bootstrap && bootstrap.commitId || '',
       bootstrapMergeRequest: bootstrap && bootstrap.mergeRequest || undefined,
     });
     return {
       status: bootstrap && bootstrap.mergeRequest ? 202 : 201,
       body: {
-        repository: repoWithWebhook(basePublicUrl, installed),
-        installed: !(bootstrap && bootstrap.mergeRequest),
+        repository: repoWithWebhook(basePublicUrl, {
+          ...updated,
+          automation: created.repo.automation,
+          agentrix: created.repo.agentrix,
+        }),
         pendingMergeRequest: bootstrap && bootstrap.mergeRequest || undefined,
       },
     };
   } catch (error) {
-    const failed = await store.updateInstallStatus(created.repo.id, {
-      status: 'install_failed',
-      mode: 'server-side',
-      error: sanitizeError(error),
-    });
     return {
       status: 502,
       body: {
         error: 'gitlab_webhook_install_failed',
-        repository: repoWithWebhook(basePublicUrl, failed),
+        repository: repoWithWebhook(basePublicUrl, created.repo),
         detail: sanitizeError(error),
       },
     };

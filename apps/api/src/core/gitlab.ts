@@ -363,6 +363,66 @@ async function getGitlabProjectVariable(input = {}, key = '') {
   }
 }
 
+async function getGitlabGroupVariable(input = {}, groupPath = '', key = '') {
+  if (!groupPath) return undefined;
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `/groups/${encodeURIComponent(groupPath)}/variables/${encodeURIComponent(key)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && (error.status === 403 || error.status === 404)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function gitlabGroupPathsForProject(projectPath = '') {
+  const parts = String(projectPath || '').split('/').filter(Boolean);
+  parts.pop();
+  const paths = [];
+  while (parts.length) {
+    paths.push(parts.join('/'));
+    parts.pop();
+  }
+  return paths;
+}
+
+function publicGitlabVariable(variable = {}, source = 'project', groupPath = '') {
+  if (!variable) return undefined;
+  return {
+    key: variable.key || '',
+    source,
+    groupPath,
+    environmentScope: variable.environment_scope || variable.environmentScope || '*',
+    variableType: variable.variable_type || variable.variableType || 'env_var',
+    protected: Boolean(variable.protected),
+    masked: Boolean(variable.masked),
+    raw: variable.raw !== false,
+    hidden: Boolean(variable.hidden),
+    description: variable.description || '',
+  };
+}
+
+async function getGitlabVariableForInstall(input = {}, key = '') {
+  const projectVariable = await getGitlabProjectVariable(input, key);
+  if (projectVariable) {
+    return publicGitlabVariable(projectVariable, 'project');
+  }
+  for (const groupPath of gitlabGroupPathsForProject(input.projectPath || '')) {
+    const groupVariable = await getGitlabGroupVariable(input, groupPath, key);
+    if (groupVariable) {
+      return publicGitlabVariable(groupVariable, 'group', groupPath);
+    }
+  }
+  return undefined;
+}
+
 async function upsertGitlabProjectVariable(input = {}, variable = {}) {
   const key = variable.key;
   const body = {
@@ -564,6 +624,7 @@ export {
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
   getGitlabProjectVariable,
+  getGitlabVariableForInstall,
   getGitlabRepositoryFile,
   gitlabOAuthAuthorizeUrl,
   gitlabOAuthRedirectUri,
