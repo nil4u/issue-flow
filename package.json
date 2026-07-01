@@ -16,7 +16,7 @@
     "db:migrate:dev": "node --env-file-if-exists=.env.dev ./node_modules/prisma/build/index.js migrate dev",
     "db:migrate": "node --env-file-if-exists=.env ./node_modules/prisma/build/index.js migrate deploy",
     "api": "tsx --env-file=.env apps/api/src/main.ts",
-    "api:dev": "tsx --env-file=.env.dev apps/api/src/main.ts",
+    "api:dev": "node --env-file=.env.dev --watch --import tsx apps/api/src/main.ts",
     "api:build": "tsc -p apps/api/tsconfig.json --noEmit",
     "web": "node --env-file-if-exists=.env.dev scripts/web.cjs dev",
     "web:build": "node --env-file-if-exists=.env scripts/web.cjs build",
