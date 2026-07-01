@@ -26,6 +26,7 @@ function loadDatabaseUrl() {
 }
 
 loadDatabaseUrl();
+process.env.ISSUE_FLOW_BASE_URL ||= 'https://issue-flow.internal';
 require('tsx/cjs');
 
 const { createApp } = require('../apps/api/src/app.ts');
@@ -173,6 +174,19 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     },
   });
 }
+
+test('API service requires ISSUE_FLOW_BASE_URL at startup', async () => {
+  const previous = process.env.ISSUE_FLOW_BASE_URL;
+  delete process.env.ISSUE_FLOW_BASE_URL;
+  try {
+    await assert.rejects(
+      () => createApp({ store: { ready: Promise.resolve() } }),
+      /ISSUE_FLOW_BASE_URL is required/
+    );
+  } finally {
+    process.env.ISSUE_FLOW_BASE_URL = previous;
+  }
+});
 
 test('service store encrypts credentials and public repository hides secret material', async () => {
   const { dir, store } = tempStore();

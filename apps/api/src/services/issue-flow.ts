@@ -11,7 +11,7 @@ export type ServiceContext = {
 export function contextFromRequest(request: FastifyRequest): ServiceContext {
   return {
     store: request.server.issueFlowStore,
-    basePublicUrl: publicBaseUrl(request),
+    basePublicUrl: publicBaseUrl(),
   }
 }
 

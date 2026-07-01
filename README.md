@@ -225,13 +225,13 @@ In local development, set the redirect URI to:
 http://127.0.0.1:8788/api/auth/gitlab/callback
 ```
 
-If the saved OAuth redirect URI is empty, the API derives it from `ISSUE_FLOW_PUBLIC_URL` or the incoming request host.
+If the saved OAuth redirect URI is empty, the API derives it from the required `ISSUE_FLOW_BASE_URL` startup setting.
 
 Production `.env` uses the same variable names. The normal production command is file-based:
 
 ```bash
 cp .env.example .env
-# edit .env for the production Postgres, service key, Agentrix URL, and public URLs
+# edit .env for the production Postgres, service key, Agentrix URL, and public base URL
 npm run db:migrate
 npm run api
 ```
@@ -239,7 +239,7 @@ npm run api
 Minimal production variables:
 
 ```bash
-ISSUE_FLOW_PUBLIC_URL=https://issue-flow.internal \
+ISSUE_FLOW_BASE_URL=https://issue-flow.internal \
 DATABASE_URL=postgres://issue_flow:issue_flow@postgres.internal:5432/issue_flow \
 ISSUE_FLOW_SERVICE_KEY_FILE=/var/lib/issue-flow/key \
 ISSUE_FLOW_AGENTRIX_BASE_URL=https://agentrix.xmz.ai \

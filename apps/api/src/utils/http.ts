@@ -60,22 +60,23 @@ export function userCookieName() {
   return "issue_flow_user"
 }
 
-export function cookieSecure(request: FastifyRequest) {
-  const publicUrl = process.env.ISSUE_FLOW_PUBLIC_URL || ""
-  return publicUrl.startsWith("https://") || request.headers["x-forwarded-proto"] === "https"
+export function requiredBaseUrl(env = process.env) {
+  const baseUrl = String(env.ISSUE_FLOW_BASE_URL || "").trim().replace(/\/+$/, "")
+  if (!baseUrl) {
+    throw new Error("ISSUE_FLOW_BASE_URL is required")
+  }
+  if (!/^https?:\/\//.test(baseUrl)) {
+    throw new Error("ISSUE_FLOW_BASE_URL must start with http:// or https://")
+  }
+  return baseUrl
 }
 
-export function publicBaseUrl(request: FastifyRequest) {
-  if (process.env.ISSUE_FLOW_PUBLIC_URL) {
-    return process.env.ISSUE_FLOW_PUBLIC_URL.replace(/\/+$/, "")
-  }
-  const forwardedProto = request.headers["x-forwarded-proto"]
-  const forwardedHost = request.headers["x-forwarded-host"]
-  const protocol = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || "http"
-  const host = Array.isArray(forwardedHost)
-    ? forwardedHost[0]
-    : forwardedHost || request.headers.host || "127.0.0.1:8788"
-  return `${protocol}://${host}`.replace(/\/+$/, "")
+export function cookieSecure(_request: FastifyRequest) {
+  return requiredBaseUrl().startsWith("https://")
+}
+
+export function publicBaseUrl() {
+  return requiredBaseUrl()
 }
 
 export function setNoStore(reply: FastifyReply) {

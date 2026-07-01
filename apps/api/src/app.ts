@@ -11,7 +11,7 @@ import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
 import { errorResponse } from "./core/responses.js"
 import { createIssueFlowStore, type IssueFlowStore } from "./storage/store.js"
-import { allowedOrigin, parseCookies, setNoStore } from "./utils/http.js"
+import { allowedOrigin, parseCookies, requiredBaseUrl, setNoStore } from "./utils/http.js"
 
 export type CreateAppOptions = {
   store?: IssueFlowStore
@@ -19,6 +19,8 @@ export type CreateAppOptions = {
 }
 
 export async function createApp(options: CreateAppOptions = {}) {
+  requiredBaseUrl()
+
   const app = Fastify({
     logger: {
       level: process.env.ISSUE_FLOW_LOG_LEVEL || "info",
