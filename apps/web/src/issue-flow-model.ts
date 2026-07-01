@@ -189,17 +189,14 @@ export type RepoWorkspaceProps = {
   defaults?: AgentrixDefaults
   installCheck?: InstallCheck
   checking: boolean
-  installing: boolean
-  installMessage: string
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
   deliveries: RecordRow[]
   runs: RecordRow[]
   onLogin: () => void
-  onCheck: (extra?: Record<string, unknown>) => Promise<InstallCheck | undefined>
+  onCheck: () => Promise<InstallCheck | undefined>
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
-  onInstall: (input: Record<string, unknown>) => Promise<void>
 }
 
 export type EmptyPanelProps = {

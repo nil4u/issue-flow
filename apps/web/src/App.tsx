@@ -66,8 +66,6 @@ function Dashboard() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [installing, setInstalling] = useState(false)
-  const [installMessage, setInstallMessage] = useState("")
   const [deliveries, setDeliveries] = useState<RecordRow[]>([])
   const [runs, setRuns] = useState<RecordRow[]>([])
   const [pendingGitServerId, setPendingGitServerId] = useState("")
@@ -267,7 +265,7 @@ function Dashboard() {
     }
   }
 
-  async function runInstallCheck(extra: Record<string, unknown> = {}) {
+  async function runInstallCheck() {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
       toast.warning("权限不足", {
@@ -276,24 +274,14 @@ function Dashboard() {
       return
     }
     setChecking(true)
-    setInstallMessage("")
-    const checkTypes = Array.isArray(extra.checkTypes)
-      ? extra.checkTypes.map(String)
-      : extra.checkType
-        ? [String(extra.checkType)]
-        : ["variables", "webhook"]
-    const input = { ...extra }
-    delete input.checkTypes
-    delete input.checkType
     let nextCheck = installCheck
     try {
-      for (const checkType of checkTypes) {
+      for (const checkType of ["variables", "webhook"]) {
         const body = await api<InstallCheck>("/api/gitlab/install-check", {
           method: "POST",
           body: JSON.stringify({
             gitServerId: selectedGitServerId,
             projectId: selectedProject.id,
-            ...input,
             checkType,
           }),
         })
@@ -318,7 +306,6 @@ function Dashboard() {
       return
     }
     setChecking(true)
-    setInstallMessage("")
     try {
       const body = await api<InstallCheck>("/api/gitlab/install-variable", {
         method: "POST",
@@ -349,7 +336,6 @@ function Dashboard() {
       return
     }
     setChecking(true)
-    setInstallMessage("")
     try {
       const body = await api<InstallCheck>("/api/gitlab/install-webhook", {
         method: "POST",
@@ -367,38 +353,6 @@ function Dashboard() {
       notifyError(error, "配置 webhook 失败")
     } finally {
       setChecking(false)
-    }
-  }
-
-  async function installProject(input: Record<string, unknown>) {
-    if (!selectedProject) return
-    if (projectAccess && !projectAccess.canManage) {
-      toast.warning("权限不足", {
-        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能安装。`,
-      })
-      return
-    }
-    setInstalling(true)
-    setInstallMessage("正在配置 API 项并创建安装 MR...")
-    try {
-      const body = await api<{ pendingMergeRequest?: { iid?: string; webUrl?: string } }>("/api/gitlab/install", {
-        method: "POST",
-        body: JSON.stringify({
-          gitServerId: selectedGitServerId,
-          projectId: selectedProject.id,
-          repoChangeMode: "merge_request",
-          ...input,
-        }),
-      })
-      const mr = body.pendingMergeRequest
-      setInstallMessage(mr?.webUrl ? `已创建安装 MR !${mr.iid || ""}` : "安装已完成")
-      await loadGitServerState(selectedGitServerId)
-      await runInstallCheck()
-    } catch (error) {
-      setInstallMessage("")
-      notifyError(error, "安装失败")
-    } finally {
-      setInstalling(false)
     }
   }
 
@@ -449,7 +403,6 @@ function Dashboard() {
     setOwner("all")
     setInstallCheck(undefined)
     setProjectAccess(undefined)
-    setInstallMessage("")
     navigateWorkspace({ gitServerId, projectId: "", tab: "overview" })
   }
 
@@ -458,7 +411,6 @@ function Dashboard() {
     setActiveTab("overview")
     setInstallCheck(undefined)
     setProjectAccess(undefined)
-    setInstallMessage("")
     const nextOwner = ownerOf(projects.find((project) => project.id === projectId))
     if (nextOwner) setOwner(nextOwner)
     navigateWorkspace({ gitServerId: selectedGitServerId, projectId, tab: "overview" })
@@ -467,7 +419,6 @@ function Dashboard() {
   function selectTab(tab: WorkspaceTab) {
     setActiveTab(tab)
     setInstallCheck(undefined)
-    setInstallMessage("")
     if (selectedGitServerId && selectedProjectId) {
       navigateWorkspace({ gitServerId: selectedGitServerId, projectId: selectedProjectId, tab }, "replace")
     }
@@ -475,7 +426,6 @@ function Dashboard() {
 
   function openUserSettings() {
     setInstallCheck(undefined)
-    setInstallMessage("")
     navigateUserSettings()
   }
 
@@ -501,7 +451,6 @@ function Dashboard() {
       }
       setInstallCheck(undefined)
       setProjectAccess(undefined)
-      setInstallMessage("")
     }
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
@@ -518,7 +467,6 @@ function Dashboard() {
   useEffect(() => {
     setInstallCheck(undefined)
     setProjectAccess(undefined)
-    setInstallMessage("")
   }, [selectedProjectId])
 
   useEffect(() => {
@@ -617,8 +565,6 @@ function Dashboard() {
             defaults={agentrixDefaults}
             installCheck={installCheck}
             checking={checking}
-            installing={installing}
-            installMessage={installMessage}
             projectAccess={projectAccess}
             loadingProjectAccess={loadingProjectAccess}
             deliveries={deliveries}
@@ -627,7 +573,6 @@ function Dashboard() {
             onCheck={runInstallCheck}
             onSetVariable={setInstallVariable}
             onSetWebhook={setInstallWebhook}
-            onInstall={installProject}
           />
         )}
       </section>

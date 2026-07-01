@@ -89,17 +89,14 @@ function InstallConsole({
   defaults,
   installCheck,
   checking,
-  installing,
-  installMessage,
   projectAccess,
   loadingProjectAccess,
   onCheck,
   onSetVariable,
   onSetWebhook,
-  onInstall,
 }: RepoWorkspaceProps) {
   const [installForm, setInstallForm] = useState(() => installFormFromDefaults(defaults))
-  const [checkingRowId, setCheckingRowId] = useState("")
+  const [actionRowId, setActionRowId] = useState("")
   const [editingRow, setEditingRow] = useState<CheckRow>()
   const [editingValue, setEditingValue] = useState("")
   const installInput = useMemo(() => installForm, [installForm])
@@ -107,7 +104,6 @@ function InstallConsole({
     installCheck,
     repository,
   }), [installCheck, repository])
-  const rows = groups.flatMap((group) => group.rows)
   const canManage = Boolean(projectAccess?.canManage)
   const accessKnown = projectAccess?.accessLevelKnown === true
   const readOnly = !canManage
@@ -119,28 +115,18 @@ function InstallConsole({
       : accessKnown
         ? `当前角色 ${projectAccess?.role || "No access"}，仅可查看`
         : "权限未知"
-  const checkedRows = rows
-  const checkedCount = checkedRows.filter((row) => row.status !== "unknown").length
-  const repoChangeCount = checkedRows.filter((row) => row.kind === "repo" && row.status === "needs_action").length
-  const hasInputBlocker = checkedRows.some((row) => rowNeedsInput(row, installForm))
-  const canRunInstall = Boolean(project && installCheck && canManage) && !checking && !installing && checkedCount > 0 && !hasInputBlocker
-  const repairLabel = repoChangeCount > 0 ? "应用配置并创建 MR" : "自动修复可修复项"
 
   useEffect(() => {
     setInstallForm(installFormFromDefaults(defaults))
   }, [defaults?.agentrix?.runnerId, defaults?.automation?.agent, defaults?.automation?.autoDefault, defaults?.automation?.reviewEnabled])
 
-  async function checkRows(rowId = "all") {
+  async function checkRows() {
     if (!canManage) return
-    setCheckingRowId(rowId)
+    setActionRowId("all")
     try {
-      const row = rows.find((item) => item.id === rowId)
-      await onCheck({
-        ...installInput,
-        ...(row ? { checkType: row.checkType } : { checkTypes: ["variables", "webhook"] }),
-      })
+      await onCheck()
     } finally {
-      setCheckingRowId("")
+      setActionRowId("")
     }
   }
 
@@ -168,16 +154,12 @@ function InstallConsole({
 
   async function saveWebhook(row: CheckRow) {
     if (row.configItem?.type !== "webhook" || !canManage) return
-    setCheckingRowId(row.id)
+    setActionRowId(row.id)
     try {
       await onSetWebhook(installInput)
     } finally {
-      setCheckingRowId("")
+      setActionRowId("")
     }
-  }
-
-  async function runInstallPlan() {
-    await onInstall(installInput)
   }
 
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="先从左侧选择一个 repo。" />
@@ -191,17 +173,12 @@ function InstallConsole({
         {canManage && (
           <div className="install-console-actions">
             <Button type="button" variant="secondary" onClick={() => checkRows()} disabled={checking || loadingProjectAccess}>
-              {checkingRowId === "all" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {actionRowId === "all" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
               检查全部
-            </Button>
-            <Button type="button" onClick={runInstallPlan} disabled={!canRunInstall}>
-              {installing ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
-              {repairLabel}
             </Button>
           </div>
         )}
       </header>
-      {installMessage && <p className="install-console-message">{installMessage}</p>}
       <div className="check-table">
         {groups.map((group) => (
           <section className="check-group" key={group.title}>
@@ -211,15 +188,11 @@ function InstallConsole({
             </header>
             {group.rows.map((row) => (
               <CheckTableRow
-                checking={checking && checkingRowId === row.id}
+                checking={checking && actionRowId === row.id}
                 key={row.id}
                 row={row}
-                canRunInstall={canRunInstall}
-                onCheck={() => checkRows(row.id)}
                 onSetVariable={() => openVariableDialog(row)}
                 onSaveWebhook={() => saveWebhook(row)}
-                onInstall={runInstallPlan}
-                installing={installing}
                 readOnly={readOnly}
               />
             ))}
@@ -250,7 +223,6 @@ type CheckRow = {
   title: string
   description: string
   kind: CheckKind
-  checkType: "variables" | "webhook"
   status: CheckStatus
   detail?: string
   files?: string[]
@@ -324,7 +296,6 @@ function buildInstallGroups({
         title: variable.label || item.name,
         description: item.description,
         kind: "api",
-        checkType: "variables",
         status: variable.status || "unknown",
         detail: variableDetail(variable, item.description),
         variable,
@@ -343,7 +314,6 @@ function buildInstallGroups({
       title: item.name,
       description: item.description || "",
       kind: item.type === "permission" ? "auth" : item.type === "repo_file" ? "repo" : "api",
-      checkType: "webhook",
       status: step?.status || fallbackStatus,
       detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : undefined),
       value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : undefined,
@@ -408,14 +378,6 @@ function updateFormValue(form: InstallForm, path: string, value: string | boolea
   }
 }
 
-function rowNeedsInput(row: CheckRow, form: InstallForm) {
-  if (row.variable?.needsInput) {
-    const dialogValue = variableDialogValue(row, form)
-    return !dialogValue
-  }
-  return row.status === "needs_input"
-}
-
 function variableDialogValue(row: CheckRow, form: InstallForm) {
   const currentValue = row.variable && !row.variable.masked && !row.variable.hidden
     ? String(row.variable.value || "")
@@ -433,27 +395,18 @@ function variablePlaceholder(row?: CheckRow) {
 }
 
 function CheckTableRow({
-  canRunInstall,
   checking,
-  installing,
   readOnly,
   row,
-  onCheck,
   onSetVariable,
   onSaveWebhook,
-  onInstall,
 }: {
-  canRunInstall: boolean
   checking: boolean
-  installing: boolean
   readOnly: boolean
   row: CheckRow
-  onCheck: () => Promise<void>
   onSetVariable: () => void
   onSaveWebhook: () => Promise<void>
-  onInstall: () => Promise<void>
 }) {
-  const canRepair = row.status === "needs_action" && row.kind === "repo"
   const canSetVariable = Boolean(row.variable) && !readOnly
   const canSetWebhook = row.configItem?.type === "webhook" && row.status === "needs_action" && !readOnly
   const statusIcon = row.status === "passed"
@@ -481,11 +434,6 @@ function CheckTableRow({
               自动配置
             </Button>
           )}
-          {canRepair && <Button type="button" size="sm" variant="secondary" onClick={onInstall} disabled={installing || !canRunInstall}>{row.kind === "repo" ? "创建 MR" : "自动修复"}</Button>}
-          {!readOnly && <Button type="button" size="sm" variant="ghost" onClick={onCheck} disabled={checking}>
-            {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            检查
-          </Button>}
         </div>
       </div>
       {(row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}

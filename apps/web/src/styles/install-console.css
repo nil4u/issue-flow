@@ -22,11 +22,6 @@
     gap: 0.5rem;
     flex-wrap: wrap;
   }
-  .install-console-message {
-    margin: 0;
-    color: var(--muted-foreground);
-    font-size: 0.875rem;
-  }
   .check-table {
     display: grid;
     gap: 0.75rem;
