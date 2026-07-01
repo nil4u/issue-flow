@@ -521,28 +521,7 @@
   }
   .settings-body {
     min-height: 0;
-    display: grid;
-    grid-template-columns: 13rem minmax(0, 1fr);
     overflow: hidden;
-  }
-  .settings-nav {
-    padding: 0.75rem;
-    border-right: 1px solid var(--border);
-    background: var(--if-color-grouped-background);
-  }
-  .settings-nav-item {
-    width: 100%;
-    min-height: 2rem;
-    padding: 0 0.6rem;
-    border-radius: 8px;
-    color: var(--if-color-text-secondary);
-    text-align: left;
-    font-size: 0.875rem;
-  }
-  .settings-nav-item.active {
-    background: var(--row-active);
-    color: var(--if-color-selected-text);
-    font-weight: 650;
   }
   .settings-content {
     min-width: 0;
@@ -867,13 +846,6 @@
   .settings-panel {
     min-height: 70svh;
     height: auto;
-  }
-  .settings-body {
-    grid-template-columns: 1fr;
-  }
-  .settings-nav {
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
   .repo-switchers,
   .status-grid,

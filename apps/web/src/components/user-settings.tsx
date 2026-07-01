@@ -31,10 +31,6 @@ export function UserSettings({
       </header>
 
       <div className="settings-body">
-        <aside className="settings-nav" aria-label="设置模块">
-          <button type="button" className="settings-nav-item active">账户</button>
-        </aside>
-
         <section className="settings-content">
           <div className="account-summary">
             <span className="account-avatar">{displayName.slice(0, 1).toUpperCase() || "U"}</span>
