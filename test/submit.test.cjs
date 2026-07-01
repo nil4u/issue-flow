@@ -19,7 +19,6 @@ const {
   normalizePrTitle,
   resolveBaseBranch,
   SUBMIT_KINDS,
-  validateIssueFlowBranch,
   validateSourceIssueSize,
 } = require('../skills/issue-flow/scripts/submit.cjs');
 const { labelDefinitionFor } = require('../skills/issue-flow/scripts/labels.cjs');
@@ -215,6 +214,7 @@ test('submit kinds use catalog definitions for PR and MR labels', () => {
   assert.equal(SUBMIT_KINDS.plan.labelDefinition, labelDefinitionFor('mr-by::plan'));
   assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
 });
+
 test('submit source issue size validation blocks missing and conflicting size labels', () => {
   assert.throws(
     () => validateSourceIssueSize({ labels: ['status::active', 'flow::plan'] }, 42),
