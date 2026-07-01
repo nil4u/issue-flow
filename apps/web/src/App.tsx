@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
-import { AlertCircle } from "lucide-react"
+import { toast } from "sonner"
 
 import { LoginPage } from "@/components/login-page"
 import { RepoSidebar } from "@/components/repo-sidebar"
 import { RepoWorkspace } from "@/components/repo-workspace"
 import { UserSettings } from "@/components/user-settings"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { parseWorkspaceRoute, sameWorkspaceRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
 import {
@@ -43,6 +43,7 @@ function AppShell() {
   return (
     <TooltipProvider>
       <Dashboard />
+      <Toaster position="top-center" closeButton visibleToasts={3} />
     </TooltipProvider>
   )
 }
@@ -60,7 +61,6 @@ function Dashboard() {
   const [filter, setFilter] = useState("")
   const [owner, setOwner] = useState("all")
   const [loadingProjects, setLoadingProjects] = useState(false)
-  const [loadError, setLoadError] = useState("")
   const [agentrixDefaults, setAgentrixDefaults] = useState<AgentrixDefaults>()
   const [installCheck, setInstallCheck] = useState<InstallCheck>()
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
@@ -166,7 +166,6 @@ function Dashboard() {
       if (current && nextProjects.some((project) => project.id === current)) return current
       return nextProjects[0]?.id || ""
     })
-    setLoadError("")
     return repos
   }
 
@@ -204,9 +203,8 @@ function Dashboard() {
         body: JSON.stringify({ gitServerId }),
       })
       await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId)])
-      setLoadError("")
     } catch (error) {
-      setLoadError((error as Error).message)
+      notifyError(error, "同步仓库失败")
     } finally {
       setLoadingProjects(false)
     }
@@ -214,16 +212,18 @@ function Dashboard() {
 
   async function loadGitServerState(gitServerId = selectedGitServerId) {
     if (!gitServerId) return
-    const session = await loadSession(gitServerId)
-    if (!session.authenticated) {
-      setRepositories([])
-      setProjects([])
-      setAgentrixDefaults(undefined)
-      return
-    }
     setLoadingProjects(true)
     try {
+      const session = await loadSession(gitServerId)
+      if (!session.authenticated) {
+        setRepositories([])
+        setProjects([])
+        setAgentrixDefaults(undefined)
+        return
+      }
       await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId)])
+    } catch (error) {
+      notifyError(error, "加载仓库失败")
     } finally {
       setLoadingProjects(false)
     }
@@ -258,11 +258,10 @@ function Dashboard() {
         }),
       })
       setProjectAccess(body.access)
-      setLoadError("")
       return body.access
     } catch (error) {
       setProjectAccess(undefined)
-      setLoadError((error as Error).message)
+      notifyError(error, "读取权限失败")
     } finally {
       setLoadingProjectAccess(false)
     }
@@ -271,7 +270,9 @@ function Dashboard() {
   async function runInstallCheck(extra: Record<string, unknown> = {}) {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
-      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能执行检查。`)
+      toast.warning("权限不足", {
+        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能执行检查。`,
+      })
       return
     }
     setChecking(true)
@@ -299,11 +300,10 @@ function Dashboard() {
         nextCheck = mergeInstallCheck(nextCheck, body)
         setInstallCheck(nextCheck)
       }
-      setLoadError("")
       await loadRepositories(selectedGitServerId)
       return nextCheck
     } catch (error) {
-      setLoadError((error as Error).message)
+      notifyError(error, "检查失败")
     } finally {
       setChecking(false)
     }
@@ -312,7 +312,9 @@ function Dashboard() {
   async function setInstallVariable(key: string, input: Record<string, unknown>) {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
-      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能修改变量。`)
+      toast.warning("权限不足", {
+        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能修改变量。`,
+      })
       return
     }
     setChecking(true)
@@ -330,10 +332,9 @@ function Dashboard() {
       const nextCheck = mergeInstallCheck(installCheck, body)
       setInstallCheck(nextCheck)
       await loadRepositories(selectedGitServerId)
-      setLoadError("")
       return nextCheck
     } catch (error) {
-      setLoadError((error as Error).message)
+      notifyError(error, "设置变量失败")
     } finally {
       setChecking(false)
     }
@@ -342,7 +343,9 @@ function Dashboard() {
   async function setInstallWebhook(input: Record<string, unknown> = {}) {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
-      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能配置 webhook。`)
+      toast.warning("权限不足", {
+        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能配置 webhook。`,
+      })
       return
     }
     setChecking(true)
@@ -359,10 +362,9 @@ function Dashboard() {
       const nextCheck = mergeInstallCheck(installCheck, body)
       setInstallCheck(nextCheck)
       await loadRepositories(selectedGitServerId)
-      setLoadError("")
       return nextCheck
     } catch (error) {
-      setLoadError((error as Error).message)
+      notifyError(error, "配置 webhook 失败")
     } finally {
       setChecking(false)
     }
@@ -371,7 +373,9 @@ function Dashboard() {
   async function installProject(input: Record<string, unknown>) {
     if (!selectedProject) return
     if (projectAccess && !projectAccess.canManage) {
-      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能安装。`)
+      toast.warning("权限不足", {
+        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能安装。`,
+      })
       return
     }
     setInstalling(true)
@@ -391,14 +395,18 @@ function Dashboard() {
       await loadGitServerState(selectedGitServerId)
       await runInstallCheck()
     } catch (error) {
-      setInstallMessage(installErrorMessage(error))
+      setInstallMessage("")
+      notifyError(error, "安装失败")
     } finally {
       setInstalling(false)
     }
   }
 
   function loginGitLab(gitServerId = selectedGitServerId) {
-    if (!gitServerId) return setLoadError("请先选择 Git server")
+    if (!gitServerId) {
+      toast.warning("请先选择 Git server")
+      return
+    }
     const returnTo = `${window.location.pathname}${window.location.search}`
     window.location.href = `${API_BASE_URL}/api/auth/gitlab/start?gitServerId=${encodeURIComponent(gitServerId)}&returnTo=${encodeURIComponent(returnTo)}`
   }
@@ -407,7 +415,9 @@ function Dashboard() {
     const server = gitServers.find((item) => item.id === gitServerId)
     if (!server) return
     if (server.type !== "gitlab") {
-      setLoadError(`${server.name || server.id} 暂未支持网页 OAuth 关联`)
+      toast.warning("暂不支持关联", {
+        description: `${server.name || server.id} 暂未支持网页 OAuth 关联`,
+      })
       return
     }
     setPendingGitServerId(gitServerId)
@@ -415,12 +425,16 @@ function Dashboard() {
   }
 
   async function logoutAll() {
-    await api("/api/user/logout", { method: "POST" })
-    setUserSession({ authenticated: false })
-    setSessions({})
-    setProjects([])
-    setSelectedProjectId("")
-    setPendingGitServerId("")
+    try {
+      await api("/api/user/logout", { method: "POST" })
+      setUserSession({ authenticated: false })
+      setSessions({})
+      setProjects([])
+      setSelectedProjectId("")
+      setPendingGitServerId("")
+    } catch (error) {
+      notifyError(error, "退出失败")
+    }
   }
 
   function updateSidebarCollapsed(next: boolean) {
@@ -472,7 +486,7 @@ function Dashboard() {
       return
     }
     Promise.all([loadGitServers(), loadUserSession(), loadRepositories()]).catch((error) => {
-      setLoadError((error as Error).message)
+      notifyError(error, "加载失败")
     })
   }, [])
 
@@ -530,21 +544,30 @@ function Dashboard() {
       loadAgentrixDefaults(selectedGitServerId),
       loadProjectAccess(),
     ]).catch((error) => {
-      setLoadError((error as Error).message)
+      notifyError(error, "加载设置失败")
     })
   }, [activeTab, selectedGitServerId, selectedProjectId, userSession.authenticated])
 
   useEffect(() => {
-    void loadActivity(selectedRepo?.id)
+    void loadActivity(selectedRepo?.id).catch((error) => {
+      notifyError(error, "加载活动失败")
+    })
   }, [selectedRepo?.id])
+
+  async function reloadLoginState() {
+    try {
+      await Promise.all([loadGitServers(), loadUserSession()])
+    } catch (error) {
+      notifyError(error, "重新加载失败")
+    }
+  }
 
   if (!userSession.authenticated) {
     return (
       <LoginPage
         gitServers={gitServers}
-        loadError={loadError}
         onLogin={loginGitLab}
-        onReload={() => Promise.all([loadGitServers(), loadUserSession()])}
+        onReload={reloadLoginState}
       />
     )
   }
@@ -576,13 +599,6 @@ function Dashboard() {
       />
 
       <section className="workspace-surface">
-        {loadError && (
-          <Alert className="app-alert">
-            <AlertCircle className="size-4" />
-            <AlertTitle>无法加载</AlertTitle>
-            <AlertDescription>{loadError}</AlertDescription>
-          </Alert>
-        )}
         {route.view === "settings" ? (
           <UserSettings
             userSession={userSession}
@@ -619,12 +635,33 @@ function Dashboard() {
   )
 }
 
-function installErrorMessage(error: unknown) {
+function notifyError(error: unknown, title = "操作失败") {
+  toast.error(title, {
+    description: errorMessage(error),
+  })
+}
+
+function errorMessage(error: unknown) {
   const code = error instanceof Error ? error.message : ""
+  const body = error && typeof error === "object" && "body" in error
+    ? (error as { body?: { detail?: string; message?: string; error?: string } }).body
+    : undefined
   if (code === "git_server_webhook_secret_required") {
     return "Git server 缺少启动期 webhook secret，请在服务配置里设置后重启。"
   }
-  return code || "安装失败"
+  if (code === "gitlab_project_permission_required") {
+    return "当前账号没有维护者或所有者权限，不能执行这个操作。"
+  }
+  if (code === "gitlab_login_required") {
+    return "当前 Git server 授权已失效，请重新连接后再试。"
+  }
+  if (code === "repository_not_found") {
+    return "本地还没有这个仓库记录，请先同步仓库列表。"
+  }
+  if (code === "Not Found" && body?.message?.startsWith("Route ")) {
+    return "接口不存在，API 服务可能还没重启到最新代码。"
+  }
+  return body?.detail || body?.message || body?.error || code || "请稍后重试。"
 }
 
 export default AppShell

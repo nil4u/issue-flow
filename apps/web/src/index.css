@@ -73,6 +73,30 @@
   .issue-app.sidebar-collapsed {
     grid-template-columns: 4.375rem minmax(0, 1fr);
   }
+  .cn-toast {
+    border-color: var(--border) !important;
+    background: var(--if-color-surface) !important;
+    color: var(--if-color-text) !important;
+    box-shadow: var(--if-shadow-popover) !important;
+    font-size: 0.8125rem !important;
+  }
+  .cn-toast [data-title] {
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+  }
+  .cn-toast [data-description] {
+    color: var(--if-color-text-secondary) !important;
+    font-size: 0.8125rem !important;
+  }
+  .cn-toast[data-type="error"] [data-icon] {
+    color: var(--destructive) !important;
+  }
+  .cn-toast[data-type="warning"] [data-icon] {
+    color: var(--warning) !important;
+  }
+  .cn-toast[data-type="success"] [data-icon] {
+    color: var(--success) !important;
+  }
   .repo-sidebar {
     position: sticky;
     top: 0;

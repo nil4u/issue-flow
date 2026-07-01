@@ -1,17 +1,14 @@
-import { AlertCircle, ArrowRight, GitBranch } from "lucide-react"
+import { ArrowRight, GitBranch } from "lucide-react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import type { GitServer } from "@/issue-flow-model"
 
 export function LoginPage({
   gitServers,
-  loadError,
   onLogin,
   onReload,
 }: {
   gitServers: GitServer[]
-  loadError: string
   onLogin: (gitServerId: string) => void
   onReload: () => Promise<unknown>
 }) {
@@ -23,13 +20,6 @@ export function LoginPage({
           <strong>Issue Flow</strong>
           <small>Sign in to continue</small>
         </div>
-        {loadError && (
-          <Alert>
-            <AlertCircle className="size-4" />
-            <AlertTitle>加载失败</AlertTitle>
-            <AlertDescription>{loadError}</AlertDescription>
-          </Alert>
-        )}
         <div className="login-server-list">
           {gitServers.length === 0 && (
             <div className="empty-panel compact">
