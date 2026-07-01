@@ -297,7 +297,7 @@ function Dashboard() {
     setChecking(true)
     let nextCheck = installCheck
     try {
-      for (const checkType of ["variables", "webhook"]) {
+      for (const checkType of ["variables", "webhook", "plugins"]) {
         const body = await api<InstallCheck>("/api/gitlab/install-check", {
           method: "POST",
           body: JSON.stringify({
@@ -372,6 +372,34 @@ function Dashboard() {
       return nextCheck
     } catch (error) {
       notifyError(error, "配置 webhook 失败")
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function installPlugin() {
+    if (!selectedProject || !selectedGitServerId) return
+    if (projectAccess && !projectAccess.canManage) {
+      toast.warning("权限不足", {
+        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能安装 plugin。`,
+      })
+      return
+    }
+    setChecking(true)
+    try {
+      const body = await api<InstallCheck>("/api/gitlab/install-plugin", {
+        method: "POST",
+        body: JSON.stringify({
+          gitServerId: selectedGitServerId,
+          projectId: selectedProject.id,
+        }),
+      })
+      const nextCheck = mergeInstallCheck(installCheck, body)
+      setInstallCheck(nextCheck)
+      await loadRepositories(selectedGitServerId)
+      return nextCheck
+    } catch (error) {
+      notifyError(error, "安装 plugin 失败")
     } finally {
       setChecking(false)
     }
@@ -602,6 +630,7 @@ function Dashboard() {
             onCheck={runInstallCheck}
             onSetVariable={setInstallVariable}
             onSetWebhook={setInstallWebhook}
+            onInstallPlugin={installPlugin}
           />
         )}
       </section>

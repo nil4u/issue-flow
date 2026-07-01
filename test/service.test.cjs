@@ -1315,6 +1315,96 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
   }
 });
 
+test('GitLab plugin check reads only install manifest and caches version facts', async () => {
+  const { dir, store } = tempStore();
+  const manifest = {
+    version: 1,
+    issueFlowVersion: '0.1.0',
+    provider: 'gitlab',
+    runtime: 'agentrix',
+    files: {},
+  };
+  let manifestReads = 0;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/repository/files/')) {
+      assert.equal(req.method, 'GET');
+      assert.equal(req.url, '/api/v4/projects/42/repository/files/.issue-flow%2Finstall-manifest.json?ref=main');
+      manifestReads += 1;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        file_path: '.issue-flow/install-manifest.json',
+        encoding: 'base64',
+        content: Buffer.from(JSON.stringify(manifest)).toString('base64'),
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{
+        id: '42',
+        name: 'App',
+        pathWithNamespace: 'team/app',
+        defaultBranch: 'main',
+      }],
+    });
+
+    const checked = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'plugins' },
+    });
+    assert.equal(checked.status, 200);
+    assert.equal(manifestReads, 1);
+    assert.equal(checked.body.steps.length, 1);
+    assert.equal(checked.body.steps[0].id, 'plugins');
+    assert.equal(checked.body.steps[0].status, 'needs_action');
+    assert.equal(checked.body.steps[0].plugins[0].installedVersion, '0.1.0');
+    assert.equal(checked.body.steps[0].plugins[0].needsUpgrade, true);
+
+    const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    assert.equal(repo.settings.plugins.items.length, 1);
+    assert.equal(repo.settings.plugins.items[0].key, 'issue-flow');
+    assert.equal(repo.settings.plugins.items[0].installedVersion, '0.1.0');
+    assert.equal(repo.settings.plugins.items[0].status, undefined);
+    assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'plugin', key: 'issue-flow' } }), 1);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('GitLab token validation uses project token without exposing it in result', async () => {
   const server = http.createServer((req, res) => {
     if (req.url === '/api/v4/user') {

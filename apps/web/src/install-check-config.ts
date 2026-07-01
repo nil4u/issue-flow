@@ -1,4 +1,4 @@
-export type InstallCheckItemType = "variable" | "webhook" | "permission" | "repo_file"
+export type InstallCheckItemType = "variable" | "webhook" | "permission" | "repo_file" | "plugin"
 
 export type InstallCheckControl = {
   path: string
@@ -105,6 +105,18 @@ export const gitlabInstallCheckConfig = {
           type: "webhook",
           name: "GitLab webhook",
           description: "接收 issue、comment、MR 和 pipeline 事件的 GitLab webhook。",
+        },
+      ],
+    },
+    {
+      id: "plugins",
+      title: "Plugins",
+      items: [
+        {
+          id: "plugin:issue-flow",
+          type: "plugin",
+          name: "issue-flow",
+          description: "安装 skill、GitLab workflow、prompt 和 template。",
         },
       ],
     },

@@ -1,9 +1,13 @@
 // @ts-nocheck
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   configureGitlabProjectVariables,
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
   getGitlabProjectMember,
+  getGitlabRepositoryFile,
   getGitlabVariableForInstall,
   listGitlabProjects,
   listGitlabWebhooks,
@@ -14,6 +18,7 @@ import {
 import {
   installGitlabBootstrap,
   installGitlabBootstrapMergeRequest,
+  installGitlabPluginMergeRequest,
 } from './gitlab-bootstrap.js'
 import {
   repoWithWebhook,
@@ -25,6 +30,20 @@ import {
   savedAgentrixDefaults,
 } from './user-agentrix-config.js'
 import { sanitizeError } from './sanitize.js'
+
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
+const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
+const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
+const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'))
+    return String(pkg.version || '')
+  } catch {
+    return ''
+  }
+}
 
 function gitlabCiVariablesForInstall({ config, installConfig }) {
   const automation = installConfig.automation || {};
@@ -120,9 +139,9 @@ function normalizeCheckTypes(input = {}) {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-  const allowed = new Set(['variables', 'webhook']);
+  const allowed = new Set(['variables', 'webhook', 'plugins']);
   const values = raw.filter((item) => allowed.has(item));
-  return values.length ? Array.from(new Set(values)) : ['variables', 'webhook'];
+  return values.length ? Array.from(new Set(values)) : ['variables', 'webhook', 'plugins'];
 }
 
 function variableResult(variable, existingVariable) {
@@ -190,6 +209,92 @@ function webhookCache(hook) {
     createdAt: hook.created_at || hook.createdAt || '',
     updatedAt: hook.updated_at || hook.updatedAt || '',
   };
+}
+
+function parseVersion(value = '') {
+  return String(value || '')
+    .replace(/^v/, '')
+    .split(/[.-]/)
+    .map((part) => Number.parseInt(part, 10))
+    .map((part) => Number.isFinite(part) ? part : 0)
+}
+
+function compareVersions(left = '', right = '') {
+  const a = parseVersion(left)
+  const b = parseVersion(right)
+  const length = Math.max(a.length, b.length, 3)
+  for (let index = 0; index < length; index += 1) {
+    const diff = (a[index] || 0) - (b[index] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function decodeGitlabFile(file) {
+  if (!file || file.content === undefined || file.content === null) return ''
+  if (file.encoding === 'base64' || !file.encoding) {
+    return Buffer.from(String(file.content || ''), 'base64').toString('utf8')
+  }
+  return String(file.content || '')
+}
+
+function pluginSettingFromRepository(repository) {
+  return (repository && repository.settings && repository.settings.plugins && repository.settings.plugins.items || [])
+    .find((item) => item && item.key === ISSUE_FLOW_PLUGIN_KEY)
+}
+
+function pluginCacheFromManifest(manifest = {}, extra = {}) {
+  const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
+  const latestVersion = extra.latestVersion || LATEST_ISSUE_FLOW_VERSION
+  return {
+    key: ISSUE_FLOW_PLUGIN_KEY,
+    source: 'gitlab',
+    manifestPath: ISSUE_FLOW_MANIFEST_PATH,
+    installed: true,
+    installedVersion,
+    latestVersion,
+    manifestVersion: Number(manifest.version || 0),
+    provider: manifest.provider || 'gitlab',
+    runtime: manifest.runtime || 'agentrix',
+    needsUpgrade: Boolean(installedVersion && latestVersion && compareVersions(installedVersion, latestVersion) < 0),
+    pendingMergeRequest: extra.pendingMergeRequest || undefined,
+  }
+}
+
+function pluginStepFromCache(cache, extra = {}) {
+  if (!cache) {
+    return installStep('plugins', 'repo', 'issue-flow plugin', 'needs_action', '未安装', {
+      plugins: [{
+        key: ISSUE_FLOW_PLUGIN_KEY,
+        manifestPath: ISSUE_FLOW_MANIFEST_PATH,
+        latestVersion: LATEST_ISSUE_FLOW_VERSION,
+        installed: false,
+      }],
+    })
+  }
+  const pending = cache.pendingMergeRequest && cache.pendingMergeRequest.webUrl
+  const needsUpgrade = Boolean(cache.needsUpgrade)
+  const detail = pending
+    ? `MR !${cache.pendingMergeRequest.iid || ''} 待合并`
+    : needsUpgrade
+      ? `${cache.installedVersion || 'unknown'} -> ${cache.latestVersion || LATEST_ISSUE_FLOW_VERSION}`
+      : cache.installedVersion ? `v${cache.installedVersion.replace(/^v/, '')}` : '已安装'
+  return installStep('plugins', 'repo', 'issue-flow plugin', needsUpgrade || pending ? 'needs_action' : 'passed', detail, {
+    plugins: [cache],
+    files: extra.files || undefined,
+    actionCount: extra.actionCount || undefined,
+  })
+}
+
+async function readGitlabIssueFlowManifest(apiInput, branch) {
+  const file = await getGitlabRepositoryFile({
+    ...apiInput,
+    filePath: ISSUE_FLOW_MANIFEST_PATH,
+    ref: branch,
+  })
+  if (!file) return undefined
+  const content = decodeGitlabFile(file)
+  return JSON.parse(content)
 }
 
 function mergeVariableCache(existingItems = [], nextVariable = {}) {
@@ -455,6 +560,53 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     steps.push(webhookStep);
   }
 
+  if (checkTypes.includes('plugins')) {
+    let pluginStep = pluginStepFromCache(undefined);
+    if (existing) {
+      const checkedAt = new Date().toISOString();
+      try {
+        const manifest = await readGitlabIssueFlowManifest(apiInput, project.defaultBranch || existing.defaultBranch || 'main');
+        if (manifest) {
+          const previous = pluginSettingFromRepository(existing);
+          const next = pluginCacheFromManifest(manifest, {
+            pendingMergeRequest: previous && previous.needsUpgrade ? previous.pendingMergeRequest : undefined,
+          });
+          await store.updateRepositorySettingsCache(existing.id, {
+            plugins: { items: [next], checkedAt },
+          });
+          pluginStep = pluginStepFromCache(next);
+        } else {
+          await store.updateRepositorySettingsCache(existing.id, {
+            plugins: { items: [], checkedAt },
+          });
+        }
+      } catch (error) {
+        if (error && error.status) {
+          pluginStep = installStep('plugins', 'repo', 'issue-flow plugin', 'blocked', `读取 manifest 失败：HTTP ${error.status}`, {
+            plugins: [],
+          });
+        } else {
+          const invalid = {
+            key: ISSUE_FLOW_PLUGIN_KEY,
+            source: 'gitlab',
+            manifestPath: ISSUE_FLOW_MANIFEST_PATH,
+            installed: true,
+            manifestInvalid: true,
+            latestVersion: LATEST_ISSUE_FLOW_VERSION,
+            detail: error && error.message || 'manifest invalid',
+          };
+          await store.updateRepositorySettingsCache(existing.id, {
+            plugins: { items: [invalid], checkedAt },
+          });
+          pluginStep = installStep('plugins', 'repo', 'issue-flow plugin', 'needs_action', 'manifest 无效，需要重新安装', {
+            plugins: [invalid],
+          });
+        }
+      }
+    }
+    steps.push(pluginStep);
+  }
+
   const installable = steps.every((step) => step.status !== 'blocked')
     && steps.every((step) => step.status !== 'needs_input');
   return {
@@ -595,6 +747,148 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
       step,
       steps: [step],
       webhook: cache,
+      installable: true,
+    },
+  };
+}
+
+async function installGitlabProjectPlugin({ store, input = {}, session, env = process.env }) {
+  let context;
+  try {
+    context = await gitlabInstallContext({ store, input, session, env });
+  } catch (error) {
+    return {
+      status: error && error.status || 500,
+      body: {
+        error: error && error.code || 'gitlab_plugin_install_context_failed',
+        validation: error && error.validation || undefined,
+        detail: error && error.message || '',
+      },
+    };
+  }
+
+  const { server, config, project, existing, apiInput, user } = context;
+  const access = await resolveGitlabProjectAccess({ project, apiInput, user });
+  if (!access.canManage) {
+    return {
+      status: 403,
+      body: { error: 'gitlab_project_permission_required', access },
+    };
+  }
+  if (!existing) {
+    return {
+      status: 404,
+      body: { error: 'repository_not_found' },
+    };
+  }
+
+  const previous = pluginSettingFromRepository(existing);
+  if (previous && previous.pendingMergeRequest && previous.pendingMergeRequest.webUrl && !input.force) {
+    const step = pluginStepFromCache(previous);
+    return {
+      status: 200,
+      body: {
+        repository: existing,
+        access,
+        step,
+        steps: [step],
+        plugin: previous,
+        pendingMergeRequest: previous.pendingMergeRequest,
+        installable: true,
+      },
+    };
+  }
+
+  const operation = previous && previous.installed ? 'upgrade' : 'install';
+  let result;
+  try {
+    result = await installGitlabPluginMergeRequest({
+      apiUrl: config.apiUrl,
+      token: apiInput.token,
+      authType: apiInput.authType,
+      projectIdOrPath: apiInput.projectIdOrPath,
+      baseUrl: config.baseUrl,
+      projectPath: project.pathWithNamespace,
+      branch: project.defaultBranch || existing.defaultBranch || 'main',
+      operation,
+      commitMessage: input.commitMessage || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
+      mergeRequestTitle: input.mergeRequestTitle || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
+    });
+  } catch (error) {
+    return {
+      status: error && error.status || 502,
+      body: {
+        error: 'gitlab_plugin_install_failed',
+        detail: sanitizeError(error),
+      },
+    };
+  }
+
+  if (result.skipped) {
+    const checkedAt = new Date().toISOString();
+    let next = previous;
+    try {
+      const manifest = await readGitlabIssueFlowManifest(apiInput, project.defaultBranch || existing.defaultBranch || 'main');
+      next = manifest ? pluginCacheFromManifest(manifest) : undefined;
+    } catch {
+      next = previous;
+    }
+    await store.updateRepositorySettingsCache(existing.id, {
+      plugins: { items: next ? [next] : [], checkedAt },
+    });
+    const repository = await store.getRepository(existing.id);
+    const step = pluginStepFromCache(next);
+    return {
+      status: 200,
+      body: {
+        repository,
+        access,
+        step,
+        steps: [step],
+        plugin: next,
+        installable: true,
+      },
+    };
+  }
+
+  const pending = {
+    id: result.mergeRequest && result.mergeRequest.id || '',
+    iid: result.mergeRequest && result.mergeRequest.iid || '',
+    webUrl: result.mergeRequest && result.mergeRequest.webUrl || '',
+    sourceBranch: result.sourceBranch || '',
+    targetBranch: result.branch || '',
+  };
+  const next = {
+    ...(previous || {}),
+    key: ISSUE_FLOW_PLUGIN_KEY,
+    source: 'gitlab',
+    manifestPath: ISSUE_FLOW_MANIFEST_PATH,
+    latestVersion: LATEST_ISSUE_FLOW_VERSION,
+    targetVersion: LATEST_ISSUE_FLOW_VERSION,
+    installed: Boolean(previous && previous.installed),
+    pendingMergeRequest: pending,
+    needsUpgrade: true,
+  };
+  await store.updateRepositorySettingsCache(existing.id, {
+    plugins: {
+      items: [next],
+      checkedAt: new Date().toISOString(),
+    },
+  });
+  const repository = await store.getRepository(existing.id);
+  const step = pluginStepFromCache(next, {
+    files: result.files || [],
+    actionCount: result.actionCount || 0,
+  });
+  return {
+    status: 202,
+    body: {
+      repository,
+      access,
+      step,
+      steps: [step],
+      plugin: next,
+      pendingMergeRequest: pending,
       installable: true,
     },
   };
@@ -871,6 +1165,7 @@ export {
   checkGitlabProjectInstall,
   getGitlabProjectRole,
   installGitlabProject,
+  installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,

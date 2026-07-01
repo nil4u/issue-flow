@@ -158,6 +158,7 @@ function emptyRepoSettings() {
   return {
     variables: { items: [], checkedAt: "" },
     webhook: {},
+    plugins: { items: [], checkedAt: "" },
   }
 }
 
@@ -587,6 +588,7 @@ class IssueFlowStore {
     const settings = {
       variables: { ...empty.variables, items: [] },
       webhook: {},
+      plugins: { ...empty.plugins, items: [] },
     }
     for (const row of rows || []) {
       const data = repoSettingData(row)
@@ -602,9 +604,15 @@ class IssueFlowStore {
           ...data,
           checkedAt: latestTimestamp(settings.webhook.checkedAt || "", checkedAt),
         }
+        continue
+      }
+      if (row.kind === "plugin") {
+        settings.plugins.items.push(data)
+        settings.plugins.checkedAt = latestTimestamp(settings.plugins.checkedAt, checkedAt)
       }
     }
     settings.variables.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
+    settings.plugins.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     return settings
   }
 
@@ -1075,6 +1083,15 @@ class IssueFlowStore {
             where: { repoId, kind: "webhook", key: "issue-flow" },
           })
         }
+      }
+      if (patch.plugins) {
+        await this.replaceRepoSettingItems(
+          repoId,
+          "plugin",
+          patch.plugins.items || [],
+          patch.plugins.checkedAt || updatedAt,
+          tx
+        )
       }
       await tx.repo.update({
         where: { id: repoId },

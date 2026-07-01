@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import bootstrap from '../../../../skills/issue-flow/scripts/bootstrap.cjs'
 import {
   createGitlabMergeRequest,
@@ -13,6 +14,7 @@ import {
 
 const { installGitlab } = bootstrap
 const execFileAsync = promisify(execFile)
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 
 const ROOT_CI = '.gitlab-ci.yml';
 const ISSUE_FLOW_CI = '.gitlab/issue-flow.gitlab-ci.yml';
@@ -214,6 +216,15 @@ async function tryGit(cwd, args, token = '') {
   }
 }
 
+function gitStatusFiles(output = '') {
+  return String(output || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean)
+}
+
 function gitlabRemoteUrl(input = {}) {
   const url = new URL(input.baseUrl || '');
   const rootPath = url.pathname.replace(/\/+$/, '');
@@ -234,6 +245,107 @@ function writeActionFile(root, action = {}) {
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, action.content || '', 'utf8');
+}
+
+async function runIssueFlowInstallScript(cwd, input = {}) {
+  const script = path.join(PACKAGE_ROOT, 'install.sh')
+  try {
+    return await execFileAsync('sh', [script, input.provider || 'gitlab', '--force'], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+      },
+      maxBuffer: 1024 * 1024 * 8,
+    })
+  } catch (error) {
+    const detail = redact(error && (error.stderr || error.stdout || error.message) || '', input.token || '').trim()
+    const failure = new Error(`issue-flow install failed${detail ? `: ${detail}` : ''}`)
+    failure.status = 502
+    throw failure
+  }
+}
+
+async function installGitlabPluginMergeRequest(input = {}) {
+  const targetBranch = input.branch || input.defaultBranch || 'main'
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-gitlab-plugin-'))
+  const checkout = path.join(root, 'repo')
+  const sourceBranch = input.sourceBranch || `issue-flow/${input.operation === 'upgrade' ? 'upgrade' : 'install'}-${Date.now().toString(36)}`
+  const token = input.token || ''
+  try {
+    await runGit(root, [
+      'clone',
+      '--filter=blob:none',
+      '--no-checkout',
+      '--depth',
+      '1',
+      '--branch',
+      targetBranch,
+      gitlabRemoteUrl(input),
+      checkout,
+    ], token)
+    await tryGit(checkout, ['sparse-checkout', 'init', '--no-cone'], token)
+    await tryGit(checkout, [
+      'sparse-checkout',
+      'set',
+      '.gitlab-ci.yml',
+      '.gitlab/**',
+      '.issue-flow/**',
+      '.agentrix/plugins/issue-flow/**',
+    ], token)
+    await runGit(checkout, ['checkout', targetBranch], token)
+    await runGit(checkout, ['checkout', '-b', sourceBranch], token)
+
+    await runIssueFlowInstallScript(checkout, { provider: 'gitlab', token })
+    await runGit(checkout, ['add', '-A', '--', '.gitlab-ci.yml', '.gitlab', '.issue-flow', '.agentrix/plugins/issue-flow'], token)
+    const status = await runGit(checkout, ['status', '--porcelain'], token)
+    const files = gitStatusFiles(status.stdout)
+    if (!files.length) {
+      return {
+        skipped: true,
+        branch: targetBranch,
+        sourceBranch,
+        actions: [],
+        files: [],
+      }
+    }
+
+    await runGit(checkout, ['config', 'user.name', 'issue-flow'], token)
+    await runGit(checkout, ['config', 'user.email', 'issue-flow@localhost'], token)
+    await runGit(checkout, ['commit', '-m', input.commitMessage || 'Install issue-flow plugin'], token)
+    await runGit(checkout, ['push', 'origin', `HEAD:refs/heads/${sourceBranch}`], token)
+
+    const mergeRequest = await createGitlabMergeRequest({
+      apiUrl: input.apiUrl,
+      token,
+      authType: input.authType,
+      projectIdOrPath: input.projectIdOrPath,
+      sourceBranch,
+      targetBranch,
+      title: input.mergeRequestTitle || 'Install issue-flow plugin',
+      description: input.mergeRequestDescription || [
+        `${input.operation === 'upgrade' ? 'Upgrades' : 'Installs'} issue-flow plugin files.`,
+        '',
+        'Merge this request, then issue-flow will refresh the plugin status from .issue-flow/install-manifest.json.',
+      ].join('\n'),
+      removeSourceBranch: true,
+    })
+
+    return {
+      skipped: false,
+      branch: targetBranch,
+      sourceBranch,
+      actionCount: files.length,
+      files,
+      mergeRequest: {
+        id: mergeRequest.id ? String(mergeRequest.id) : '',
+        iid: mergeRequest.iid ? String(mergeRequest.iid) : '',
+        webUrl: mergeRequest.web_url || mergeRequest.webUrl || '',
+      },
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 }
 
 async function installGitlabBootstrapMergeRequest(input = {}) {
@@ -325,5 +437,6 @@ async function installGitlabBootstrapMergeRequest(input = {}) {
 export {
   installGitlabBootstrap,
   installGitlabBootstrapMergeRequest,
+  installGitlabPluginMergeRequest,
   planGitlabBootstrap,
 }

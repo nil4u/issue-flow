@@ -40,6 +40,7 @@ export type Repository = {
   settings?: {
     variables?: { items?: AgentrixVariable[]; checkedAt?: string }
     webhook?: Record<string, unknown>
+    plugins?: { items?: PluginInstall[]; checkedAt?: string }
   }
 }
 
@@ -110,6 +111,29 @@ export type AgentrixVariable = {
   }
 }
 
+export type PluginInstall = {
+  key: string
+  source?: string
+  manifestPath?: string
+  installed?: boolean
+  installedVersion?: string
+  latestVersion?: string
+  targetVersion?: string
+  manifestVersion?: number
+  provider?: string
+  runtime?: string
+  needsUpgrade?: boolean
+  manifestInvalid?: boolean
+  detail?: string
+  pendingMergeRequest?: {
+    id?: string
+    iid?: string
+    webUrl?: string
+    sourceBranch?: string
+    targetBranch?: string
+  }
+}
+
 export type SessionState = {
   authenticated: boolean
   user?: GitLabUser
@@ -148,6 +172,7 @@ export type InstallStep = {
   missing?: string[]
   inputRequired?: string[]
   variables?: AgentrixVariable[]
+  plugins?: PluginInstall[]
   actionCount?: number
 }
 
@@ -223,6 +248,7 @@ export type RepoWorkspaceProps = {
   onCheck: () => Promise<InstallCheck | undefined>
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
+  onInstallPlugin: () => Promise<InstallCheck | undefined>
 }
 
 export type EmptyPanelProps = {

@@ -68,7 +68,8 @@ function OverviewTab({
     )
   }
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
-  if (!repository || !repository.webhook?.hookId) {
+  const plugin = repository?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")
+  if (!repository || !plugin?.installed) {
     return (
       <div className="install-empty">
         <div className="install-empty-icon"><Wrench className="size-7" /></div>
@@ -211,6 +212,7 @@ function InstallConsole({
   projectAccess,
   loadingProjectAccess,
   onCheck,
+  onInstallPlugin,
   onSetVariable,
   onSetWebhook,
 }: RepoWorkspaceProps) {
@@ -281,6 +283,16 @@ function InstallConsole({
     }
   }
 
+  async function installPlugin(row: CheckRow) {
+    if (row.configItem?.type !== "plugin" || !canManage) return
+    setActionRowId(row.id)
+    try {
+      await onInstallPlugin()
+    } finally {
+      setActionRowId("")
+    }
+  }
+
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="先从左侧选择一个 repo。" />
 
   return (
@@ -312,6 +324,7 @@ function InstallConsole({
                 row={row}
                 onSetVariable={() => openVariableDialog(row)}
                 onSaveWebhook={() => saveWebhook(row)}
+                onInstallPlugin={() => installPlugin(row)}
                 readOnly={readOnly}
               />
             ))}
@@ -348,6 +361,7 @@ type CheckRow = {
   missing?: string[]
   inputRequired?: string[]
   variable?: NonNullable<InstallStep["variables"]>[number]
+  plugin?: NonNullable<InstallStep["plugins"]>[number]
   value?: string
   configItem?: InstallCheckConfigItem
   actionCount?: number
@@ -395,6 +409,8 @@ function buildInstallGroups({
   }
   const variables = byId.get("variables")?.variables || repository?.settings?.variables?.items || []
   const variableByKey = new Map(variables.map((variable) => [variable.key, variable]))
+  const plugins = byId.get("plugins")?.plugins || repository?.settings?.plugins?.items || []
+  const pluginByKey = new Map(plugins.map((plugin) => [plugin.key, plugin]))
   const row = (item: InstallCheckConfigItem): CheckRow => {
     if (item.type === "variable") {
       const checkedVariable = variableByKey.get(item.name)
@@ -418,6 +434,24 @@ function buildInstallGroups({
         status: variable.status || "unknown",
         detail: variableDetail(variable, item.description),
         variable,
+        configItem: item,
+      }
+    }
+    if (item.type === "plugin") {
+      const step = byId.get("plugins")
+      const plugin = pluginByKey.get(item.name)
+      const status = pluginStatus(plugin, step?.status)
+      return {
+        id: item.id,
+        title: item.name,
+        description: item.description || "",
+        kind: "repo",
+        status,
+        detail: pluginDetail(plugin),
+        value: pluginValue(plugin),
+        plugin,
+        files: step?.files,
+        actionCount: step?.actionCount,
         configItem: item,
       }
     }
@@ -447,6 +481,31 @@ function buildInstallGroups({
     title: group.title,
     rows: group.items.map(row),
   }))
+}
+
+function pluginStatus(plugin?: NonNullable<CheckRow["plugin"]>, fallback?: CheckStatus): CheckStatus {
+  if (plugin?.pendingMergeRequest?.webUrl) return "needs_action"
+  if (plugin?.manifestInvalid) return "needs_action"
+  if (plugin?.installed && plugin.needsUpgrade) return "needs_action"
+  if (plugin?.installed) return "passed"
+  return fallback || "needs_action"
+}
+
+function pluginDetail(plugin?: NonNullable<CheckRow["plugin"]>) {
+  if (!plugin) return "未安装"
+  if (plugin.manifestInvalid) return "manifest 无效"
+  if (plugin.pendingMergeRequest?.webUrl) return `MR !${plugin.pendingMergeRequest.iid || ""} 待合并`
+  if (plugin.installed && plugin.needsUpgrade) return `${plugin.installedVersion || "unknown"} -> ${plugin.latestVersion || ""}`
+  if (plugin.installed) return "已安装"
+  return "未安装"
+}
+
+function pluginValue(plugin?: NonNullable<CheckRow["plugin"]>) {
+  if (!plugin) return "未安装"
+  if (plugin.pendingMergeRequest?.webUrl) return `!${plugin.pendingMergeRequest.iid || "MR"}`
+  if (plugin.installed && plugin.needsUpgrade) return `${plugin.installedVersion || "unknown"} -> ${plugin.latestVersion || ""}`
+  if (plugin.installedVersion) return `v${String(plugin.installedVersion).replace(/^v/, "")}`
+  return plugin.installed ? "已安装" : "未安装"
 }
 
 function variableDetail(variable: NonNullable<CheckRow["variable"]>, fallback: string) {
@@ -519,15 +578,22 @@ function CheckTableRow({
   row,
   onSetVariable,
   onSaveWebhook,
+  onInstallPlugin,
 }: {
   checking: boolean
   readOnly: boolean
   row: CheckRow
   onSetVariable: () => void
   onSaveWebhook: () => Promise<void>
+  onInstallPlugin: () => Promise<void>
 }) {
   const canSetVariable = Boolean(row.variable) && !readOnly
   const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
+  const canInstallPlugin = row.configItem?.type === "plugin"
+    && !readOnly
+    && (!row.plugin?.installed || Boolean(row.plugin?.needsUpgrade) || Boolean(row.plugin?.manifestInvalid))
+    && !row.plugin?.pendingMergeRequest?.webUrl
+  const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
     : row.status === "unknown"
@@ -542,7 +608,7 @@ function CheckTableRow({
           <small>{row.variable ? row.description : row.detail || row.description}</small>
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
-        {!row.variable && row.value && <RowValue value={row.value} />}
+        {!row.variable && row.value && <RowValue value={row.value} href={row.plugin?.pendingMergeRequest?.webUrl} />}
         <div className="check-row-actions">
           {canSetVariable && (
             <Button type="button" size="sm" variant="secondary" onClick={onSetVariable}>设置</Button>
@@ -551,6 +617,12 @@ function CheckTableRow({
             <Button type="button" size="sm" variant="secondary" onClick={onSaveWebhook} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <Webhook className="size-4" />}
               自动配置
+            </Button>
+          )}
+          {canInstallPlugin && (
+            <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
+              {pluginActionLabel}
             </Button>
           )}
         </div>
@@ -624,7 +696,14 @@ function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"
   )
 }
 
-function RowValue({ value }: { value: string }) {
+function RowValue({ value, href }: { value: string; href?: string }) {
+  if (href) {
+    return (
+      <a className="check-row-value" href={href} target="_blank" rel="noreferrer">
+        <strong>{value}</strong>
+      </a>
+    )
+  }
   return (
     <span className="check-row-value">
       <strong>{value}</strong>
