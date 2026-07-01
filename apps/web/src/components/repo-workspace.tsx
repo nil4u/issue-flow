@@ -605,7 +605,7 @@ function CheckTableRow({
         <span className="check-status-icon">{statusIcon}</span>
         <span className="check-row-copy">
           <strong>{row.title}</strong>
-          <small>{row.variable ? row.description : row.detail || row.description}</small>
+          <small>{row.description}</small>
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
         {!row.variable && row.value && <RowValue value={row.value} href={row.plugin?.pendingMergeRequest?.webUrl} />}
