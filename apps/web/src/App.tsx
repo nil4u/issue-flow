@@ -18,6 +18,7 @@ import {
   type GitLabUser,
   type GitServer,
   type GitEventRow,
+  type IssueRow,
   type InstallCheck,
   type InstallStep,
   type ProjectAccess,
@@ -67,6 +68,8 @@ function Dashboard() {
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
   const [gitEvents, setGitEvents] = useState<GitEventRow[]>([])
+  const [issues, setIssues] = useState<IssueRow[]>([])
+  const [loadingIssues, setLoadingIssues] = useState(false)
   const [pendingGitServerId, setPendingGitServerId] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
@@ -233,6 +236,30 @@ function Dashboard() {
     }
     const eventBody = await api<{ gitEvents: GitEventRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/git-events`)
     setGitEvents(eventBody.gitEvents || [])
+  }
+
+  async function loadIssues(repoId?: string) {
+    if (!repoId) {
+      setIssues([])
+      return
+    }
+    const body = await api<{ issues: IssueRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/issues`)
+    setIssues(body.issues || [])
+  }
+
+  async function syncIssues() {
+    if (!selectedRepo?.id) return
+    setLoadingIssues(true)
+    try {
+      const body = await api<{ issues: IssueRow[] }>(`/api/repositories/${encodeURIComponent(selectedRepo.id)}/issues/sync`, {
+        method: "POST",
+      })
+      setIssues(body.issues || [])
+    } catch (error) {
+      notifyError(error, "同步 issues 失败")
+    } finally {
+      setLoadingIssues(false)
+    }
   }
 
   async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
@@ -496,6 +523,12 @@ function Dashboard() {
     })
   }, [selectedRepo?.id])
 
+  useEffect(() => {
+    void loadIssues(selectedRepo?.id).catch((error) => {
+      notifyError(error, "加载 issues 失败")
+    })
+  }, [selectedRepo?.id])
+
   async function reloadLoginState() {
     try {
       await Promise.all([loadGitServers(), loadUserSession()])
@@ -562,7 +595,10 @@ function Dashboard() {
             projectAccess={projectAccess}
             loadingProjectAccess={loadingProjectAccess}
             gitEvents={gitEvents}
+            issues={issues}
+            loadingIssues={loadingIssues}
             onLogin={() => loginGitLab(selectedGitServerId)}
+            onSyncIssues={syncIssues}
             onCheck={runInstallCheck}
             onSetVariable={setInstallVariable}
             onSetWebhook={setInstallWebhook}

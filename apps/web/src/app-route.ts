@@ -8,7 +8,7 @@ export type WorkspaceRoute = {
   settingsSection: "account"
 }
 
-const tabs = new Set<WorkspaceTab>(["overview", "settings"])
+const tabs = new Set<WorkspaceTab>(["overview", "issues", "settings"])
 
 export function parseWorkspaceRoute(pathname = window.location.pathname, search = window.location.search): WorkspaceRoute {
   const parts = pathname.split("/").filter(Boolean).map((part) => {
@@ -58,9 +58,9 @@ export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
   const server = encodeURIComponent(route.gitServerId)
   if (!route.projectId) return `/repos/${server}`
   const project = encodeURIComponent(route.projectId)
-  return route.tab === "settings"
-    ? `/repos/${server}/${project}/settings`
-    : `/repos/${server}/${project}`
+  if (route.tab === "settings") return `/repos/${server}/${project}/settings`
+  if (route.tab === "issues") return `/repos/${server}/${project}/issues`
+  return `/repos/${server}/${project}`
 }
 
 export function sameWorkspaceRoute(a: Partial<WorkspaceRoute>, b: Partial<WorkspaceRoute>) {

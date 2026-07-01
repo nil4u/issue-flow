@@ -181,7 +181,26 @@ export type GitEventRow = {
   normalizedEvents?: Array<Record<string, unknown>>
 }
 
-export type WorkspaceTab = "overview" | "settings"
+export type IssueRow = {
+  id: string
+  gitServerId?: string
+  repositoryId?: string
+  repositoryFullName?: string
+  issueId: string
+  issueNumber: number
+  title: string
+  type?: string
+  priority?: string
+  size?: string
+  automation?: string
+  status: "active" | "done" | "drop" | "suspend" | string
+  currentFlow?: string
+  openedAt?: string
+  closedAt?: string
+  updatedAt?: string
+}
+
+export type WorkspaceTab = "overview" | "issues" | "settings"
 
 export type RepoWorkspaceProps = {
   tab: WorkspaceTab
@@ -196,7 +215,10 @@ export type RepoWorkspaceProps = {
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
   gitEvents: GitEventRow[]
+  issues: IssueRow[]
+  loadingIssues?: boolean
   onLogin: () => void
+  onSyncIssues: () => Promise<void>
   onCheck: () => Promise<InstallCheck | undefined>
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>

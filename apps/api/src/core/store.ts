@@ -1313,7 +1313,20 @@ class IssueFlowStore {
       },
       orderBy: { issueNumber: "asc" },
     })
-    return rows.map((row) => this.issueFromRecord(row))
+    const spans = rows.length
+      ? await this.db.issueSpan.findMany({
+        where: {
+          gitServerId: repo.gitServerId,
+          repositoryId: repo.serverRepoId,
+          exitedAt: null,
+        },
+      })
+      : []
+    const flowByIssueId = new Map(spans.map((span) => [span.issueId, span.flow]))
+    return rows.map((row) => ({
+      ...this.issueFromRecord(row),
+      currentFlow: flowByIssueId.get(row.issueId) || "",
+    }))
   }
 
   async listIssueSpans(repoId, issueId = "") {

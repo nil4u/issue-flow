@@ -699,6 +699,15 @@
     width: min(100%, var(--if-content-max-width));
     margin-inline: auto;
   }
+  .workspace-tabs [data-slot="tabs-content"]:has(.issue-board) {
+    padding-inline: clamp(0.65rem, 1.2vw, 1.35rem);
+    overflow: hidden;
+  }
+  .workspace-tabs [data-slot="tabs-content"] > .issue-board {
+    width: 100%;
+    height: 100%;
+    margin-inline: 0;
+  }
   .app-alert {
     margin-bottom: 0.7rem;
   }
@@ -760,6 +769,168 @@
   .activity-row strong,
   .activity-row small {
     overflow-wrap: anywhere;
+  }
+  .issue-board {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.9rem;
+  }
+  .issue-board-toolbar {
+    min-height: 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .issue-board-toolbar > div {
+    min-width: 0;
+    display: inline-grid;
+    gap: 0.125rem;
+  }
+  .issue-board-toolbar strong,
+  .issue-lane header strong {
+    font-size: 0.9rem;
+  }
+  .issue-board-toolbar span,
+  .issue-lane header small,
+  .issue-lane-empty,
+  .issue-card small,
+  .issue-card-labels span {
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+  }
+  .issue-board-lanes {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(17rem, 1fr));
+    gap: 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.35rem;
+  }
+  .issue-lane {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--if-color-surface-high) 62%, var(--card));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
+  }
+  .issue-lane header {
+    min-height: 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .issue-lane header span {
+    min-width: 0;
+    display: grid;
+    gap: 0.08rem;
+  }
+  .issue-lane header strong,
+  .issue-lane header small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .issue-lane header b {
+    min-width: 1.5rem;
+    height: 1.5rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text-secondary);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .issue-lane-list {
+    min-height: 0;
+    display: grid;
+    align-content: start;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent;
+  }
+  .issue-board-lanes {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent;
+  }
+  .issue-lane-list::-webkit-scrollbar,
+  .issue-board-lanes::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .issue-lane-list::-webkit-scrollbar-track,
+  .issue-board-lanes::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .issue-lane-list::-webkit-scrollbar-thumb,
+  .issue-board-lanes::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
+  }
+  .issue-lane-empty {
+    min-height: 4rem;
+    display: grid;
+    place-items: center;
+    padding: 0.75rem;
+  }
+  .issue-card {
+    min-width: 0;
+    display: grid;
+    gap: 0.45rem;
+    margin: 0.45rem 0.45rem 0;
+    padding: 0.7rem 0.7rem;
+    border-radius: 7px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 72%, var(--card));
+  }
+  .issue-card:last-child {
+    margin-bottom: 0.45rem;
+  }
+  .issue-card header {
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0;
+    border: 0;
+  }
+  .issue-card header strong {
+    color: var(--if-color-text-secondary);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .issue-card p {
+    margin: 0;
+    color: var(--if-color-text);
+    font-size: 0.84rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .issue-card-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+  .issue-card-labels span {
+    min-height: 1.35rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    background: var(--if-color-surface-high);
+    white-space: nowrap;
   }
   .install-empty,
   .empty-panel {
