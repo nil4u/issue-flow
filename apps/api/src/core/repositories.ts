@@ -111,11 +111,6 @@ async function listDeliveries({ store, repoId, userId = '' }) {
   return { status: 200, body: { deliveries: await store.listDeliveries(repoId) } };
 }
 
-async function listDispatchRuns({ store, repoId, userId = '' }) {
-  await requireAccessibleRepo(store, repoId, userId);
-  return { status: 200, body: { runs: await store.listDispatchRuns(repoId) } };
-}
-
 async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '' }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
   const session = repo.oauthSessionId
@@ -155,7 +150,6 @@ export {
   createRepository,
   getRepository,
   listDeliveries,
-  listDispatchRuns,
   listRepositories,
   rotateRepositoryWebhookSecret,
   validateRepositoryToken,

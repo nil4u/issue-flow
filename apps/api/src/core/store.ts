@@ -1267,72 +1267,9 @@ class IssueFlowStore {
     await this.saveRepository(repo)
   }
 
-  async createDispatchRun(input = {}) {
-    await this.ready
-    const createdAt = nowIso()
-    const run = {
-      id: input.id || randomId("run"),
-      repoId: input.repoId,
-      deliveryId: input.deliveryId || "",
-      routeAction: input.routeAction || "",
-      status: input.status || "started",
-      resultSummary: input.resultSummary || {},
-      error: input.error ? sanitizeError(input.error) : undefined,
-      createdAt,
-      updatedAt: createdAt,
-    }
-    await this.db.dispatchRun.create({
-      data: {
-        id: run.id,
-        repoId: run.repoId,
-        deliveryId: run.deliveryId,
-        data: run,
-        createdAt: asDate(run.createdAt),
-        updatedAt: asDate(run.updatedAt),
-      },
-    })
-    return run
-  }
-
-  async updateDispatchRun(id, patch = {}) {
-    await this.ready
-    const row = await this.db.dispatchRun.findUnique({ where: { id } })
-    const run = rowData(row)
-    if (!run) return undefined
-    Object.assign(run, patch, {
-      error: patch.error ? sanitizeError(patch.error) : patch.error === null ? undefined : run.error,
-      updatedAt: nowIso(),
-    })
-    await this.db.dispatchRun.update({
-      where: { id },
-      data: {
-        data: run,
-        updatedAt: asDate(run.updatedAt),
-      },
-    })
-    const repo = await this.getRepository(run.repoId)
-    if (repo) {
-      repo.lastDispatchAt = run.updatedAt
-      repo.lastError = run.error ? run.error.message : ""
-      repo.updatedAt = run.updatedAt
-      await this.saveRepository(repo)
-    }
-    return run
-  }
-
   async listDeliveries(repoId) {
     await this.ready
     const rows = await this.db.webhookDelivery.findMany({
-      where: { repoId },
-      orderBy: { createdAt: "desc" },
-      take: 500,
-    })
-    return rows.map(rowData)
-  }
-
-  async listDispatchRuns(repoId) {
-    await this.ready
-    const rows = await this.db.dispatchRun.findMany({
       where: { repoId },
       orderBy: { createdAt: "desc" },
       take: 500,

@@ -52,7 +52,6 @@ function OverviewTab({
   project,
   repository,
   deliveries,
-  runs,
   onLogin,
   onOpenSettings,
 }: RepoWorkspaceProps & { onOpenSettings: () => void }) {
@@ -78,7 +77,7 @@ function OverviewTab({
   return (
     <div className="overview-grid">
       <StatusGrid project={project} repository={repository} />
-      <ActivityList deliveries={deliveries} runs={runs} />
+      <ActivityList deliveries={deliveries} />
     </div>
   )
 }
@@ -543,16 +542,15 @@ function StatusCard({ icon, label, value }: { icon: ReactNode; label: string; va
   return <div className="status-card"><span>{icon}{label}</span><strong>{value}</strong></div>
 }
 
-function ActivityList({ deliveries, runs }: { deliveries: RecordRow[]; runs: RecordRow[] }) {
-  const rows = [
-    ...deliveries.slice(0, 6).map((row) => ({ ...row, kind: "delivery" })),
-    ...runs.slice(0, 6).map((row) => ({ ...row, kind: "run" })),
-  ].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+function ActivityList({ deliveries }: { deliveries: RecordRow[] }) {
+  const rows = deliveries
+    .slice(0, 12)
+    .map((row) => ({ ...row, kind: "delivery" }))
   return (
     <section className="activity-section">
       <header className="section-head">
         <h2>最近活动</h2>
-        <p>Webhook delivery 与 dispatch run</p>
+        <p>Webhook delivery</p>
       </header>
       <div className="activity-list">
         {rows.length === 0 && <div className="empty-panel compact">暂无活动</div>}

@@ -67,7 +67,6 @@ function Dashboard() {
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
   const [deliveries, setDeliveries] = useState<RecordRow[]>([])
-  const [runs, setRuns] = useState<RecordRow[]>([])
   const [pendingGitServerId, setPendingGitServerId] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
@@ -230,15 +229,10 @@ function Dashboard() {
   async function loadActivity(repoId?: string) {
     if (!repoId) {
       setDeliveries([])
-      setRuns([])
       return
     }
-    const [deliveryBody, runBody] = await Promise.all([
-      api<{ deliveries: RecordRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/deliveries`),
-      api<{ runs: RecordRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/runs`),
-    ])
+    const deliveryBody = await api<{ deliveries: RecordRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/deliveries`)
     setDeliveries(deliveryBody.deliveries || [])
-    setRuns(runBody.runs || [])
   }
 
   async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
@@ -568,7 +562,6 @@ function Dashboard() {
             projectAccess={projectAccess}
             loadingProjectAccess={loadingProjectAccess}
             deliveries={deliveries}
-            runs={runs}
             onLogin={() => loginGitLab(selectedGitServerId)}
             onCheck={runInstallCheck}
             onSetVariable={setInstallVariable}

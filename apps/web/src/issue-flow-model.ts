@@ -192,7 +192,6 @@ export type RepoWorkspaceProps = {
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
   deliveries: RecordRow[]
-  runs: RecordRow[]
   onLogin: () => void
   onCheck: () => Promise<InstallCheck | undefined>
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>

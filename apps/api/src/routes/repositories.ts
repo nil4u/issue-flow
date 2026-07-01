@@ -5,7 +5,6 @@ import {
   createRepository,
   getRepository,
   listDeliveries,
-  listDispatchRuns,
   listRepositories,
   rotateRepositoryWebhookSecret,
   validateRepositoryToken,
@@ -53,16 +52,6 @@ export async function repositoryRoutes(app: FastifyInstance) {
   app.get("/api/repositories/:repoId/deliveries", async (request, reply) => {
     const { repoId } = request.params as { repoId: string }
     const result = await listDeliveries({
-      ...contextFromRequest(request),
-      repoId,
-      userId: await userIdFromRequest(request),
-    })
-    return reply.code(result.status).send(result.body)
-  })
-
-  app.get("/api/repositories/:repoId/runs", async (request, reply) => {
-    const { repoId } = request.params as { repoId: string }
-    const result = await listDispatchRuns({
       ...contextFromRequest(request),
       repoId,
       userId: await userIdFromRequest(request),
