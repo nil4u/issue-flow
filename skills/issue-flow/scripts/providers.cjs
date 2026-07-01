@@ -1924,7 +1924,17 @@ async function createOrUpdateGitlabMergeRequest({ repo, title, bodyFile, label, 
 }
 
 async function getGitlabIssueForApply(target, options = {}) {
-  return requestGitlab('GET', gitlabIssueApiPath(target), undefined, options);
+  const issue = await requestGitlab('GET', gitlabIssueApiPath(target), undefined, options);
+  return {
+    ...issue,
+    provider: 'gitlab',
+    number: issue.iid || issue.number || target.issueNumber || target.number,
+    title: issue.title || '',
+    body: issue.description || issue.body || '',
+    url: issue.web_url || issue.url || '',
+    state: issue.state || '',
+    labels: normalizeLabels(issue.labels),
+  };
 }
 
 async function applyGitlabLabels(target, labelsToAdd, labelsToRemove, options = {}) {
