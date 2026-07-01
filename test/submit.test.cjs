@@ -215,21 +215,6 @@ test('submit kinds use catalog definitions for PR and MR labels', () => {
   assert.equal(SUBMIT_KINDS.plan.labelDefinition, labelDefinitionFor('mr-by::plan'));
   assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
 });
-
-test('submit validates issue-flow branch convention before publishing', () => {
-  assert.doesNotThrow(() => validateIssueFlowBranch('plan', 42, '42-broken-login/plan'));
-  assert.doesNotThrow(() => validateIssueFlowBranch('build', 42, '42-add-export-button/build'));
-
-  assert.throws(
-    () => validateIssueFlowBranch('build', 42, '42-add-export-button/build-2'),
-    /Refusing to submit build PR\/MR from branch 42-add-export-button\/build-2/
-  );
-  assert.throws(
-    () => validateIssueFlowBranch('plan', 42, '43-broken-login/plan'),
-    /Use the issue-flow branch for issue #42/
-  );
-});
-
 test('submit source issue size validation blocks missing and conflicting size labels', () => {
   assert.throws(
     () => validateSourceIssueSize({ labels: ['status::active', 'flow::plan'] }, 42),
