@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Search,
   Settings,
-  UserRound,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -117,8 +116,6 @@ export function RepoSidebar(props: {
         <UserMenu
           compact
           user={user}
-          currentUser={currentUser}
-          selectedGitServer={selectedGitServer}
           onLogout={onLogout}
           onOpenUserSettings={onOpenUserSettings}
         />
@@ -261,8 +258,6 @@ export function RepoSidebar(props: {
 
       <UserMenu
         user={user}
-        currentUser={currentUser}
-        selectedGitServer={selectedGitServer}
         onLogout={onLogout}
         onOpenUserSettings={onOpenUserSettings}
       />
@@ -277,36 +272,36 @@ function repoInitial(name: string) {
 function UserMenu({
   compact,
   user,
-  currentUser,
-  selectedGitServer,
   onLogout,
   onOpenUserSettings,
 }: {
   compact?: boolean
   user?: GitLabUser | IssueFlowUser
-  currentUser?: GitLabUser
-  selectedGitServer?: GitServer
   onLogout: () => void
   onOpenUserSettings: () => void
 }) {
-  const name = userName(user)
+  const profile = userProfile(user)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={`user-menu ${compact ? "compact" : ""}`}>
-          <span className="avatar-dot"><UserRound className="size-4" /></span>
+        <button type="button" className={`user-menu ${compact ? "compact" : ""}`} title={profile.displayName}>
+          <span className="avatar-dot">
+            {profile.avatarUrl
+              ? <img src={profile.avatarUrl} alt={profile.displayName} />
+              : profile.initial}
+          </span>
           {!compact && (
             <>
               <span>
-                <strong>{name}</strong>
-                <small>{currentUser ? selectedGitServer?.name || selectedGitServer?.id : "未连接当前 Git server"}</small>
+                <strong>{profile.displayName}</strong>
+                <small>{profile.email || "未设置邮箱"}</small>
               </span>
             </>
           )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={compact ? "start" : "end"} side={compact ? "right" : "top"} className="user-menu-content">
-        <DropdownMenuLabel>{name}</DropdownMenuLabel>
+        <DropdownMenuLabel>{profile.displayName}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onOpenUserSettings}>
           <Settings className="size-4" />
@@ -321,8 +316,18 @@ function UserMenu({
   )
 }
 
-function userName(user?: GitLabUser | IssueFlowUser) {
-  if (!user) return "issue-flow user"
-  if ("username" in user) return user.name || user.username || "issue-flow user"
-  return user.displayName || user.email || "issue-flow user"
+function userProfile(user?: GitLabUser | IssueFlowUser) {
+  const displayName = user
+    ? "username" in user
+      ? user.name || user.username || "issue-flow user"
+      : user.displayName || user.email || "issue-flow user"
+    : "issue-flow user"
+  const email = user && "email" in user ? user.email || "" : ""
+  const avatarUrl = user?.avatarUrl || ""
+  return {
+    displayName,
+    email,
+    avatarUrl,
+    initial: (displayName.trim()[0] || "U").toUpperCase(),
+  }
 }

@@ -146,6 +146,15 @@
     border: 1px solid var(--border);
     background: var(--if-color-surface-high);
     color: var(--if-color-text);
+    overflow: hidden;
+    font-size: 0.8125rem;
+    line-height: 1;
+  }
+  .avatar-dot img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
   }
   .search-row,
   .status-card,
