@@ -91,6 +91,9 @@ async function requireRepo(store, id) {
 }
 
 function sessionUserKey(session) {
+  if (session && session.userId) {
+    return `user:${session.userId}`;
+  }
   const username = session && session.user && session.user.username || '';
   const gitServerId = session && session.gitServerId || session && session.gitServer && session.gitServer.id || '';
   return username ? `${gitServerId || session.provider || 'git'}:${username}` : '';
@@ -102,10 +105,12 @@ function publicSession(session) {
   }
   return {
     id: session.id,
+    userId: session.userId || '',
     provider: session.provider || session.gitServer && session.gitServer.type || 'gitlab',
     gitServerId: session.gitServerId || '',
     gitServer: session.gitServer || {},
     user: session.user || {},
+    account: session.account || {},
     scopes: session.scopes || [],
     expiresAt: session.expiresAt || '',
   };

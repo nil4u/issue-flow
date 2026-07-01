@@ -6,11 +6,18 @@ import {
   startGitlabOAuth,
 } from "../../core/gitlab-auth.js"
 import { contextFromRequest } from "../../services/issue-flow.js"
-import { cookie, cookieSecure, firstWebOrigin, sessionCookieName } from "../../utils/http.js"
+import { cookie, cookieSecure, firstWebOrigin, sessionCookieName, userCookieName } from "../../utils/http.js"
+
+function safeReturnTo(value: unknown) {
+  const path = String(value || "")
+  if (!path.startsWith("/") || path.startsWith("//")) return "/repos"
+  return path
+}
 
 export async function gitlabAuthRoutes(app: FastifyInstance) {
   app.get("/api/auth/gitlab/start", async (request, reply) => {
-    const gitServerId = String((request.query as Record<string, unknown>).gitServerId || "")
+    const query = request.query as Record<string, unknown>
+    const gitServerId = String(query.gitServerId || "")
     const result = await startGitlabOAuth({
       ...contextFromRequest(request),
       input: { gitServerId },
@@ -24,6 +31,10 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
           secure: cookieSecure(request),
         }),
         cookie("issue_flow_oauth_git_server_id", result.gitServerId, {
+          maxAge: 600,
+          secure: cookieSecure(request),
+        }),
+        cookie("issue_flow_oauth_return_to", safeReturnTo(query.returnTo), {
           maxAge: 600,
           secure: cookieSecure(request),
         }),
@@ -43,17 +54,25 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
       query: {
         ...((request.query || {}) as Record<string, unknown>),
         gitServerId: request.cookies.issue_flow_oauth_git_server_id || "",
+        currentUserId: request.cookies[userCookieName()] || "",
       },
     })
     if (result.status !== 302) {
       return reply.code(result.status).send(result.body)
     }
     const gitServerId = result.session.gitServerId || result.session.gitServer?.id || request.cookies.issue_flow_oauth_git_server_id || ""
+    const returnTo = safeReturnTo(request.cookies.issue_flow_oauth_return_to)
+    const redirectUrl = new URL(returnTo, firstWebOrigin())
+    redirectUrl.searchParams.set("gitlab", "connected")
 
     return reply
       .code(302)
-      .header("Location", `${firstWebOrigin()}/?gitlab=connected`)
+      .header("Location", redirectUrl.toString())
       .header("Set-Cookie", [
+        cookie(userCookieName(), result.user?.id || result.session.userId || "", {
+          maxAge: 60 * 60 * 24 * 30,
+          secure: cookieSecure(request),
+        }),
         cookie(sessionCookieName(gitServerId), result.session.id, {
           maxAge: 60 * 60 * 24 * 30,
           secure: cookieSecure(request),
@@ -63,6 +82,10 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
           secure: cookieSecure(request),
         }),
         cookie("issue_flow_oauth_git_server_id", "", {
+          maxAge: 0,
+          secure: cookieSecure(request),
+        }),
+        cookie("issue_flow_oauth_return_to", "", {
           maxAge: 0,
           secure: cookieSecure(request),
         }),

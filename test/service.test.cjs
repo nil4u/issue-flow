@@ -44,10 +44,14 @@ const {
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 
 let testSchemaCounter = 0;
-const migrationSql = fs.readFileSync(
-  path.join(__dirname, '..', 'prisma', 'migrations', '20260629000000_init_issue_flow', 'migration.sql'),
-  'utf8'
-);
+const migrationSql = fs.readdirSync(path.join(__dirname, '..', 'prisma', 'migrations'))
+  .filter((name) => /^\d+_/.test(name))
+  .sort()
+  .map((name) => fs.readFileSync(
+    path.join(__dirname, '..', 'prisma', 'migrations', name, 'migration.sql'),
+    'utf8'
+  ))
+  .join('\n');
 
 function quoteIdent(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
@@ -326,6 +330,48 @@ test('user Agentrix defaults return triage until saved', async () => {
     assert.equal(result.body.config.automation.agent, 'codex');
     assert.equal(result.body.config.agentrix.baseUrl, 'https://agentrix.xmz.ai');
     assert.equal(result.body.config.agentrix.apiKeyFingerprint, '');
+  } finally {
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('git accounts resolve to one issue-flow user across git servers', async () => {
+  const { dir, store } = tempStore();
+  try {
+    await seedGitlabServer(store, 'https://gitlab-one.example.com');
+    await store.ensureGitServer({
+      id: 'github-main',
+      type: 'github',
+      name: 'GitHub',
+      baseUrl: 'https://github.com',
+      apiUrl: 'https://api.github.com',
+    });
+
+    const first = await store.resolveUserForGitAccount({
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+    });
+    const second = await store.resolveUserForGitAccount({
+      currentUserId: first.user.id,
+      account: {
+        provider: 'github',
+        gitServerId: 'github-main',
+        providerUserId: '202',
+        username: 'alice-gh',
+        displayName: 'Alice GH',
+      },
+    });
+    const user = await store.getUser(first.user.id, { includeAccounts: true });
+
+    assert.equal(second.user.id, first.user.id);
+    assert.equal(user.accounts.length, 2);
+    assert.deepEqual(user.accounts.map((account) => account.gitServerId).sort(), ['github-main', 'gitlab-main']);
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1338,8 +1384,9 @@ test('GitLab OAuth flow stores session token server-side and project APIs use th
       headers: { Cookie: setCookieToCookieHeader(stateCookie) },
     });
     assert.equal(callback.status, 302);
-    assert.equal(callback.headers.get('location'), 'http://web.local/?gitlab=connected');
+    assert.equal(callback.headers.get('location'), 'http://web.local/repos?gitlab=connected');
     const sessionCookie = callback.headers.get('set-cookie');
+    assert.match(sessionCookie, /issue_flow_user=/);
     assert.match(sessionCookie, /issue_flow_session_gitlab-main=/);
     assert.doesNotMatch(sessionCookie, /gl-oauth-session-token/);
 

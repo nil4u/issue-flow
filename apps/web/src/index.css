@@ -487,6 +487,174 @@
     background: var(--card);
     overflow: hidden;
   }
+  .settings-panel {
+    height: 100svh;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 2.75rem minmax(0, 1fr);
+    background: var(--card);
+    overflow: hidden;
+  }
+  .settings-titlebar {
+    height: 2.75rem;
+    display: flex;
+    align-items: end;
+    padding: 0 1.35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-tabs {
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: end;
+    gap: 1rem;
+  }
+  .settings-tab {
+    height: 2.25rem;
+    border-bottom: 2px solid var(--if-color-transparent);
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .settings-tab.active {
+    border-bottom-color: var(--if-color-selected-text);
+    color: var(--if-color-text);
+  }
+  .settings-body {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .settings-nav {
+    padding: 0.75rem;
+    border-right: 1px solid var(--border);
+    background: var(--if-color-grouped-background);
+  }
+  .settings-nav-item {
+    width: 100%;
+    min-height: 2rem;
+    padding: 0 0.6rem;
+    border-radius: 8px;
+    color: var(--if-color-text-secondary);
+    text-align: left;
+    font-size: 0.875rem;
+  }
+  .settings-nav-item.active {
+    background: var(--row-active);
+    color: var(--if-color-selected-text);
+    font-weight: 650;
+  }
+  .settings-content {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 0.875rem;
+    padding: 1.15rem 1.35rem;
+    overflow: auto;
+  }
+  .account-summary {
+    max-width: 54rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3rem;
+  }
+  .account-avatar {
+    width: 2.25rem;
+    height: 2.25rem;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--if-color-surface-highest);
+    color: var(--if-color-text);
+    font-weight: 700;
+  }
+  .account-summary strong,
+  .account-summary small,
+  .account-row-copy strong,
+  .account-row-copy small {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-summary small,
+  .account-row-copy small,
+  .account-group > header span,
+  .account-empty {
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+  }
+  .account-group {
+    max-width: 54rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--if-color-surface);
+    overflow: hidden;
+  }
+  .account-group > header {
+    min-height: 2.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0 0.875rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--if-color-surface-high);
+  }
+  .account-group > header strong {
+    font-size: 0.875rem;
+  }
+  .account-list {
+    display: grid;
+  }
+  .account-row {
+    min-height: 3.5rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .account-row:last-child {
+    border-bottom: 0;
+  }
+  .account-provider-icon {
+    width: 2rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text);
+  }
+  .account-row-copy {
+    min-width: 0;
+    display: grid;
+    gap: 0.125rem;
+  }
+  .account-row-copy strong {
+    font-size: 0.875rem;
+  }
+  .account-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+  .account-status.connected {
+    color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  }
+  .account-empty {
+    min-height: 3rem;
+    display: grid;
+    place-items: center;
+  }
   .workspace-tabs {
     height: 100%;
     min-height: 0;
@@ -696,9 +864,21 @@
     height: auto;
     padding: 0.75rem;
   }
+  .settings-panel {
+    min-height: 70svh;
+    height: auto;
+  }
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+  .settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
   .repo-switchers,
   .status-grid,
   .activity-row,
+  .account-row,
   .check-row-detail.inline {
     grid-template-columns: 1fr;
   }

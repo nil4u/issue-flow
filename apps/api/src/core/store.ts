@@ -87,6 +87,30 @@ function rowData(row) {
   return row.data
 }
 
+function normalizeUser(input = {}) {
+  return {
+    displayName: input.displayName || input.name || input.username || "",
+    email: input.email || "",
+    avatarUrl: input.avatarUrl || "",
+  }
+}
+
+function normalizeGitAccount(input = {}) {
+  const provider = input.provider || input.gitServer && input.gitServer.type || "gitlab"
+  const gitServerId = input.gitServerId || input.gitServer && input.gitServer.id || ""
+  const providerUserId = String(input.providerUserId || input.id || input.username || "").trim()
+  return {
+    provider,
+    gitServerId,
+    providerUserId,
+    username: input.username || "",
+    displayName: input.displayName || input.name || input.username || "",
+    email: input.email || "",
+    avatarUrl: input.avatarUrl || "",
+    scopes: input.scopes || [],
+  }
+}
+
 class IssueFlowStore {
   constructor(options = {}) {
     const stateDir = path.resolve(process.cwd(), DEFAULT_STATE_DIR)
@@ -172,6 +196,186 @@ class IssueFlowStore {
         secret: undefined,
         secretFingerprint: server.webhook && server.webhook.secretFingerprint || "",
       },
+    }
+  }
+
+  publicUser(user, accounts = []) {
+    if (!user) return undefined
+    return {
+      id: user.id,
+      displayName: user.displayName || "",
+      email: user.email || "",
+      avatarUrl: user.avatarUrl || "",
+      createdAt: timestampValue(user.createdAt),
+      updatedAt: timestampValue(user.updatedAt),
+      accounts,
+    }
+  }
+
+  userFromRecord(row, accounts = []) {
+    if (!row) return undefined
+    return this.publicUser({
+      id: row.id,
+      displayName: row.displayName || "",
+      email: row.email || "",
+      avatarUrl: row.avatarUrl || "",
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }, accounts)
+  }
+
+  userGitAccountFromRecord(row, gitServer) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      userId: row.userId,
+      gitServerId: row.gitServerId,
+      provider: row.provider || gitServer && gitServer.type || "gitlab",
+      providerUserId: row.providerUserId || "",
+      username: row.username || "",
+      displayName: row.displayName || "",
+      email: row.email || "",
+      avatarUrl: row.avatarUrl || "",
+      scopes: row.scopes || [],
+      gitServer: gitServer ? this.publicGitServer(gitServer) : undefined,
+      createdAt: timestampValue(row.createdAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+  }
+
+  async getUser(id, options = {}) {
+    await this.ready
+    if (!id) return undefined
+    const row = await this.db.user.findUnique({ where: { id } })
+    if (!row) return undefined
+    const accounts = options.includeAccounts ? await this.listUserGitAccounts(id) : []
+    return this.userFromRecord(row, accounts)
+  }
+
+  async createUser(input = {}) {
+    await this.ready
+    const id = input.id || randomId("user")
+    const profile = normalizeUser(input)
+    const createdAt = nowIso()
+    const row = await this.db.user.create({
+      data: {
+        id,
+        displayName: profile.displayName,
+        email: profile.email,
+        avatarUrl: profile.avatarUrl,
+        data: {
+          displayName: profile.displayName,
+          email: profile.email,
+          avatarUrl: profile.avatarUrl,
+        },
+        createdAt: asDate(createdAt),
+        updatedAt: asDate(createdAt),
+      },
+    })
+    return this.userFromRecord(row)
+  }
+
+  async findUserGitAccount(input = {}) {
+    await this.ready
+    const account = normalizeGitAccount(input)
+    if (!account.provider || !account.gitServerId || !account.providerUserId) return undefined
+    const row = await this.db.userGitAccount.findUnique({
+      where: {
+        provider_gitServerId_providerUserId: {
+          provider: account.provider,
+          gitServerId: account.gitServerId,
+          providerUserId: account.providerUserId,
+        },
+      },
+    })
+    if (!row) return undefined
+    const gitServer = await this.getGitServer(row.gitServerId)
+    return this.userGitAccountFromRecord(row, gitServer)
+  }
+
+  async listUserGitAccounts(userId) {
+    await this.ready
+    if (!userId) return []
+    const rows = await this.db.userGitAccount.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+    })
+    const gitServers = await this.listGitServers()
+    const serverById = new Map(gitServers.map((server) => [server.id, server]))
+    return rows.map((row) => this.userGitAccountFromRecord(row, serverById.get(row.gitServerId)))
+  }
+
+  async upsertUserGitAccount(userId, input = {}) {
+    await this.ready
+    const account = normalizeGitAccount(input)
+    if (!userId || !account.gitServerId || !account.providerUserId) {
+      const error = new Error("git account identity is required")
+      error.status = 400
+      error.code = "git_account_identity_required"
+      throw error
+    }
+    const now = nowIso()
+    const existingForUserServer = await this.db.userGitAccount.findUnique({
+      where: {
+        userId_gitServerId: {
+          userId,
+          gitServerId: account.gitServerId,
+        },
+      },
+    })
+    const data = {
+      userId,
+      gitServerId: account.gitServerId,
+      provider: account.provider,
+      providerUserId: account.providerUserId,
+      username: account.username,
+      displayName: account.displayName,
+      email: account.email,
+      avatarUrl: account.avatarUrl,
+      scopes: account.scopes,
+      data: account,
+      updatedAt: asDate(now),
+    }
+    const row = existingForUserServer
+      ? await this.db.userGitAccount.update({
+        where: { id: existingForUserServer.id },
+        data,
+      })
+      : await this.db.userGitAccount.upsert({
+      where: {
+        provider_gitServerId_providerUserId: {
+          provider: account.provider,
+          gitServerId: account.gitServerId,
+          providerUserId: account.providerUserId,
+        },
+      },
+      create: {
+        id: input.id || randomId("gitacct"),
+        ...data,
+        createdAt: asDate(now),
+      },
+      update: data,
+    })
+    const gitServer = await this.getGitServer(account.gitServerId)
+    return this.userGitAccountFromRecord(row, gitServer)
+  }
+
+  async resolveUserForGitAccount(input = {}) {
+    await this.ready
+    const account = normalizeGitAccount(input.account || input)
+    const existingAccount = await this.findUserGitAccount(account)
+    const currentUser = input.currentUserId ? await this.getUser(input.currentUserId) : undefined
+    const user = currentUser
+      || (existingAccount && await this.getUser(existingAccount.userId))
+      || await this.createUser({
+        displayName: account.displayName || account.username,
+        email: account.email,
+        avatarUrl: account.avatarUrl,
+      })
+    const savedAccount = await this.upsertUserGitAccount(user.id, account)
+    return {
+      user: await this.getUser(user.id, { includeAccounts: true }),
+      account: savedAccount,
     }
   }
 
@@ -671,10 +875,12 @@ class IssueFlowStore {
     const createdAt = nowIso()
     const session = {
       id: input.id || randomId("session"),
+      userId: input.userId || input.user && input.user.id || "",
       provider: input.provider || input.gitServer && input.gitServer.type || "gitlab",
       gitServerId: input.gitServerId || "",
       gitServer: input.gitServer || {},
       user: input.user || {},
+      account: input.account || {},
       scopes: input.scopes || [],
       expiresAt: input.expiresAt || "",
       createdAt,
@@ -683,6 +889,7 @@ class IssueFlowStore {
     await this.db.oAuthSession.create({
       data: {
         id: session.id,
+        userId: session.userId || null,
         accessToken: this.encrypt(input.token || ""),
         refreshToken: this.encrypt(input.refreshToken || ""),
         data: session,
@@ -730,6 +937,32 @@ class IssueFlowStore {
         refreshToken: this.encrypt(input.refreshToken || ""),
         data: session,
         expiresAt: expiresAt ? asDate(expiresAt) : null,
+        updatedAt: asDate(updatedAt),
+      },
+    })
+    return this.getSession(id, { allowExpired: true })
+  }
+
+  async updateSessionIdentity(id, identity = {}) {
+    await this.ready
+    const existing = await this.getSession(id, { allowExpired: true })
+    if (!existing) return undefined
+    const updatedAt = nowIso()
+    const session = {
+      ...existing,
+      userId: identity.userId || existing.userId || "",
+      user: identity.user || existing.user || {},
+      account: identity.account || existing.account || {},
+      updatedAt,
+    }
+    delete session.token
+    delete session.accessToken
+    delete session.refreshToken
+    await this.db.oAuthSession.update({
+      where: { id },
+      data: {
+        userId: session.userId || null,
+        data: session,
         updatedAt: asDate(updatedAt),
       },
     })

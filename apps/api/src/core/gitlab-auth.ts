@@ -74,7 +74,22 @@ async function finishGitlabOAuth({ store, basePublicUrl, query = {} }) {
   const expiresAt = tokenResult.expires_in
     ? new Date(Date.now() + (Number(tokenResult.expires_in) * 1000)).toISOString()
     : '';
+  const accountInput = {
+    provider: 'gitlab',
+    gitServerId: server.id,
+    providerUserId: validation.id || validation.username,
+    username: validation.username,
+    displayName: validation.name,
+    email: validation.email || '',
+    avatarUrl: validation.avatarUrl || '',
+    scopes: validation.scopes || [],
+  };
+  const identity = await store.resolveUserForGitAccount({
+    currentUserId: query.currentUserId || '',
+    account: accountInput,
+  });
   const session = await store.createSession({
+    userId: identity.user.id,
     token,
     refreshToken: tokenResult.refresh_token || '',
     scopes: String(tokenResult.scope || config.oauthScopes || '')
@@ -85,7 +100,9 @@ async function finishGitlabOAuth({ store, basePublicUrl, query = {} }) {
     user: {
       username: validation.username,
       name: validation.name,
+      avatarUrl: validation.avatarUrl || '',
     },
+    account: identity.account,
     provider: 'gitlab',
     gitServerId: server.id,
     gitServer: {
@@ -98,6 +115,8 @@ async function finishGitlabOAuth({ store, basePublicUrl, query = {} }) {
   return {
     status: 302,
     session: publicSession(session),
+    user: identity.user,
+    account: identity.account,
   };
 }
 

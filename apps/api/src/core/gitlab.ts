@@ -208,8 +208,11 @@ async function getGitlabCurrentUser(input = {}) {
     const user = await fetchJson('GET', input.apiUrl, '/user', token, { authType: input.authType });
     return {
       status: 'valid',
+      id: user.parsed && user.parsed.id !== undefined ? String(user.parsed.id) : '',
       username: user.parsed && (user.parsed.username || user.parsed.name) || '',
       name: user.parsed && user.parsed.name || '',
+      email: user.parsed && user.parsed.email || '',
+      avatarUrl: user.parsed && user.parsed.avatar_url || '',
       scopes: parseScopes(user.headers),
       lastValidatedAt: nowIso(),
       errorCode: '',

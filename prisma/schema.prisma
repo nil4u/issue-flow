@@ -22,9 +22,50 @@ model GitServer {
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   repositories Repository[]
+  userAccounts UserGitAccount[]
 
   @@index([type, createdAt])
   @@map("git_servers")
+}
+
+model User {
+  id          String   @id
+  displayName String   @default("") @map("display_name")
+  email       String   @default("")
+  avatarUrl   String   @default("") @map("avatar_url")
+  data        Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  gitAccounts UserGitAccount[]
+  sessions    OAuthSession[]
+
+  @@map("users")
+}
+
+model UserGitAccount {
+  id             String   @id
+  userId         String   @map("user_id")
+  gitServerId    String   @map("git_server_id")
+  provider       String
+  providerUserId String   @map("provider_user_id")
+  username       String   @default("")
+  displayName    String   @default("") @map("display_name")
+  email          String   @default("")
+  avatarUrl      String   @default("") @map("avatar_url")
+  scopes         String[] @default([])
+  data           Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gitServer GitServer @relation(fields: [gitServerId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, gitServerId, providerUserId])
+  @@unique([userId, gitServerId])
+  @@index([userId])
+  @@index([gitServerId])
+  @@map("user_git_accounts")
 }
 
 model Repository {
@@ -103,6 +144,7 @@ model DispatchRun {
 
 model OAuthSession {
   id           String    @id
+  userId       String?   @map("user_id")
   accessToken  String    @default("") @map("access_token")
   refreshToken String    @default("") @map("refresh_token")
   data         Json
@@ -110,8 +152,10 @@ model OAuthSession {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   repositories Repository[]
 
+  @@index([userId])
   @@map("oauth_sessions")
 }
 

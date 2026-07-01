@@ -4,6 +4,7 @@ import { AlertCircle } from "lucide-react"
 import { LoginPage } from "@/components/login-page"
 import { RepoSidebar } from "@/components/repo-sidebar"
 import { RepoWorkspace } from "@/components/repo-workspace"
+import { UserSettings } from "@/components/user-settings"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { parseWorkspaceRoute, sameWorkspaceRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
@@ -53,6 +54,7 @@ function Dashboard() {
   const [installMessage, setInstallMessage] = useState("")
   const [deliveries, setDeliveries] = useState<RecordRow[]>([])
   const [runs, setRuns] = useState<RecordRow[]>([])
+  const [pendingGitServerId, setPendingGitServerId] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
     return window.localStorage.getItem("issue-flow.sidebarCollapsed") === "1"
@@ -78,18 +80,33 @@ function Dashboard() {
       .sort((a, b) => a.pathWithNamespace.localeCompare(b.pathWithNamespace))
   }, [filter, owner, projects])
 
-  function navigateWorkspace(next: Partial<WorkspaceRoute>, mode: "push" | "replace" = "push") {
-    const normalized: WorkspaceRoute = {
-      gitServerId: next.gitServerId || "",
-      projectId: next.projectId || "",
-      tab: next.projectId ? next.tab || "overview" : "overview",
-    }
+  function applyRoute(normalized: WorkspaceRoute, mode: "push" | "replace" = "push") {
     const path = workspaceRoutePath(normalized)
     const currentPath = `${window.location.pathname}${window.location.search}`
     if (path !== currentPath) {
       window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", path)
     }
     setRoute(normalized)
+  }
+
+  function navigateWorkspace(next: Partial<WorkspaceRoute>, mode: "push" | "replace" = "push") {
+    applyRoute({
+      view: "repos",
+      gitServerId: next.gitServerId || "",
+      projectId: next.projectId || "",
+      tab: next.projectId ? next.tab || "overview" : "overview",
+      settingsSection: "account",
+    }, mode)
+  }
+
+  function navigateUserSettings(mode: "push" | "replace" = "push") {
+    applyRoute({
+      view: "settings",
+      gitServerId: "",
+      projectId: "",
+      tab: "overview",
+      settingsSection: "account",
+    }, mode)
   }
 
   async function loadGitServers() {
@@ -236,7 +253,19 @@ function Dashboard() {
 
   function loginGitLab(gitServerId = selectedGitServerId) {
     if (!gitServerId) return setLoadError("请先选择 Git server")
-    window.location.href = `${API_BASE_URL}/api/auth/gitlab/start?gitServerId=${encodeURIComponent(gitServerId)}`
+    const returnTo = `${window.location.pathname}${window.location.search}`
+    window.location.href = `${API_BASE_URL}/api/auth/gitlab/start?gitServerId=${encodeURIComponent(gitServerId)}&returnTo=${encodeURIComponent(returnTo)}`
+  }
+
+  function connectGitServerAccount(gitServerId: string) {
+    const server = gitServers.find((item) => item.id === gitServerId)
+    if (!server) return
+    if (server.type !== "gitlab") {
+      setLoadError(`${server.name || server.id} 暂未支持网页 OAuth 关联`)
+      return
+    }
+    setPendingGitServerId(gitServerId)
+    loginGitLab(gitServerId)
   }
 
   async function logoutAll() {
@@ -245,6 +274,7 @@ function Dashboard() {
     setSessions({})
     setProjects([])
     setSelectedProjectId("")
+    setPendingGitServerId("")
   }
 
   function updateSidebarCollapsed(next: boolean) {
@@ -281,6 +311,12 @@ function Dashboard() {
     }
   }
 
+  function openUserSettings() {
+    setInstallCheck(undefined)
+    setInstallMessage("")
+    navigateUserSettings()
+  }
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get("code") && params.get("state")) {
@@ -296,9 +332,11 @@ function Dashboard() {
     function handlePopState() {
       const next = parseWorkspaceRoute()
       setRoute(next)
-      setSelectedGitServerId(next.gitServerId || gitServers[0]?.id || "")
-      setSelectedProjectId(next.projectId || "")
-      setActiveTab(next.tab)
+      if (next.view === "repos") {
+        setSelectedGitServerId(next.gitServerId || gitServers[0]?.id || "")
+        setSelectedProjectId(next.projectId || "")
+        setActiveTab(next.tab)
+      }
       setInstallCheck(undefined)
       setInstallMessage("")
     }
@@ -320,11 +358,13 @@ function Dashboard() {
 
   useEffect(() => {
     const nextRoute = {
+      view: "repos" as const,
       gitServerId: selectedGitServerId,
       projectId: selectedProjectId,
       tab: selectedProjectId ? activeTab : "overview",
+      settingsSection: "account" as const,
     }
-    if (!userSession.authenticated || !selectedGitServerId || sameWorkspaceRoute(route, nextRoute)) return
+    if (route.view !== "repos" || !userSession.authenticated || !selectedGitServerId || sameWorkspaceRoute(route, nextRoute)) return
     navigateWorkspace(nextRoute, "replace")
   }, [activeTab, route, selectedGitServerId, selectedProjectId, userSession.authenticated])
 
@@ -377,6 +417,7 @@ function Dashboard() {
         onLoginCurrent={() => loginGitLab(selectedGitServerId)}
         onRefresh={refreshGitServer}
         onLogout={logoutAll}
+        onOpenUserSettings={openUserSettings}
         onCollapsedChange={updateSidebarCollapsed}
       />
 
@@ -388,24 +429,33 @@ function Dashboard() {
             <AlertDescription>{loadError}</AlertDescription>
           </Alert>
         )}
-        <RepoWorkspace
-          tab={activeTab}
-          onTab={selectTab}
-          gitServer={selectedGitServer}
-          user={currentUser}
-          project={selectedProject}
-          repository={selectedRepo}
-          defaults={agentrixDefaults}
-          installCheck={installCheck}
-          checking={checking}
-          installing={installing}
-          installMessage={installMessage}
-          deliveries={deliveries}
-          runs={runs}
-          onLogin={() => loginGitLab(selectedGitServerId)}
-          onCheck={runInstallCheck}
-          onInstall={installProject}
-        />
+        {route.view === "settings" ? (
+          <UserSettings
+            userSession={userSession}
+            gitServers={gitServers}
+            pendingGitServerId={pendingGitServerId}
+            onConnectGitServer={connectGitServerAccount}
+          />
+        ) : (
+          <RepoWorkspace
+            tab={activeTab}
+            onTab={selectTab}
+            gitServer={selectedGitServer}
+            user={currentUser}
+            project={selectedProject}
+            repository={selectedRepo}
+            defaults={agentrixDefaults}
+            installCheck={installCheck}
+            checking={checking}
+            installing={installing}
+            installMessage={installMessage}
+            deliveries={deliveries}
+            runs={runs}
+            onLogin={() => loginGitLab(selectedGitServerId)}
+            onCheck={runInstallCheck}
+            onInstall={installProject}
+          />
+        )}
       </section>
     </main>
   )

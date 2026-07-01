@@ -56,6 +56,10 @@ export function sessionCookieName(gitServerId = "") {
   return `issue_flow_session_${safe}`
 }
 
+export function userCookieName() {
+  return "issue_flow_user"
+}
+
 export function cookieSecure(request: FastifyRequest) {
   const publicUrl = process.env.ISSUE_FLOW_PUBLIC_URL || ""
   return publicUrl.startsWith("https://") || request.headers["x-forwarded-proto"] === "https"

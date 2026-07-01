@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
+  Settings,
   UserRound,
 } from "lucide-react"
 
@@ -26,14 +27,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { GitLabProject, GitLabUser, GitServer } from "@/issue-flow-model"
+import type { GitLabProject, GitLabUser, GitServer, IssueFlowUser } from "@/issue-flow-model"
 
 export function RepoSidebar(props: {
   collapsed: boolean
   gitServers: GitServer[]
   selectedGitServerId: string
   selectedGitServer?: GitServer
-  user?: GitLabUser
+  user?: GitLabUser | IssueFlowUser
   currentUser?: GitLabUser
   projects: GitLabProject[]
   selectedProjectId: string
@@ -48,6 +49,7 @@ export function RepoSidebar(props: {
   onLoginCurrent: () => void
   onRefresh: (gitServerId?: string) => void | Promise<void>
   onLogout: () => void
+  onOpenUserSettings: () => void
   onCollapsedChange: (collapsed: boolean) => void
 }) {
   const {
@@ -70,6 +72,7 @@ export function RepoSidebar(props: {
     onLoginCurrent,
     onRefresh,
     onLogout,
+    onOpenUserSettings,
     onCollapsedChange,
   } = props
   const [pickerOpen, setPickerOpen] = useState<"server" | "owner" | null>(null)
@@ -117,6 +120,7 @@ export function RepoSidebar(props: {
           currentUser={currentUser}
           selectedGitServer={selectedGitServer}
           onLogout={onLogout}
+          onOpenUserSettings={onOpenUserSettings}
         />
       </aside>
     )
@@ -260,6 +264,7 @@ export function RepoSidebar(props: {
         currentUser={currentUser}
         selectedGitServer={selectedGitServer}
         onLogout={onLogout}
+        onOpenUserSettings={onOpenUserSettings}
       />
     </aside>
   )
@@ -275,13 +280,16 @@ function UserMenu({
   currentUser,
   selectedGitServer,
   onLogout,
+  onOpenUserSettings,
 }: {
   compact?: boolean
-  user?: GitLabUser
+  user?: GitLabUser | IssueFlowUser
   currentUser?: GitLabUser
   selectedGitServer?: GitServer
   onLogout: () => void
+  onOpenUserSettings: () => void
 }) {
+  const name = userName(user)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -290,7 +298,7 @@ function UserMenu({
           {!compact && (
             <>
               <span>
-                <strong>{user?.name || user?.username || "User"}</strong>
+                <strong>{name}</strong>
                 <small>{currentUser ? selectedGitServer?.name || selectedGitServer?.id : "未连接当前 Git server"}</small>
               </span>
             </>
@@ -298,8 +306,12 @@ function UserMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={compact ? "start" : "end"} side={compact ? "right" : "top"} className="user-menu-content">
-        <DropdownMenuLabel>{user?.username || "issue-flow user"}</DropdownMenuLabel>
+        <DropdownMenuLabel>{name}</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onOpenUserSettings}>
+          <Settings className="size-4" />
+          账户设置
+        </DropdownMenuItem>
         <DropdownMenuItem variant="destructive" onSelect={onLogout}>
           <LogOut className="size-4" />
           退出登录
@@ -307,4 +319,10 @@ function UserMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+function userName(user?: GitLabUser | IssueFlowUser) {
+  if (!user) return "issue-flow user"
+  if ("username" in user) return user.name || user.username || "issue-flow user"
+  return user.displayName || user.email || "issue-flow user"
 }

@@ -34,8 +34,32 @@ export type Repository = {
   webhookUrl?: string
 }
 
-export type GitLabUser = { username: string; name?: string }
+export type GitLabUser = { username: string; name?: string; avatarUrl?: string }
 export type GitServer = { id: string; type: string; name?: string; baseUrl?: string }
+
+export type IssueFlowUser = {
+  id: string
+  displayName?: string
+  email?: string
+  avatarUrl?: string
+  accounts?: UserGitAccount[]
+}
+
+export type UserGitAccount = {
+  id?: string
+  userId?: string
+  gitServerId: string
+  provider: string
+  providerUserId?: string
+  username?: string
+  displayName?: string
+  email?: string
+  avatarUrl?: string
+  scopes?: string[]
+  gitServer?: GitServer
+  createdAt?: string
+  updatedAt?: string
+}
 
 export type GitLabProject = {
   id: string
@@ -74,12 +98,13 @@ export type SessionState = {
   authenticated: boolean
   user?: GitLabUser
   gitServer?: { id?: string; baseUrl?: string }
+  session?: { userId?: string; gitServerId?: string }
 }
 
 export type UserSession = {
   authenticated: boolean
-  user?: GitLabUser
-  accounts?: Array<{ user?: GitLabUser; gitServer?: GitServer; session?: { gitServerId?: string } }>
+  user?: IssueFlowUser | GitLabUser
+  accounts?: Array<{ account?: UserGitAccount; user?: GitLabUser; gitServer?: GitServer; session?: { gitServerId?: string; userId?: string } }>
 }
 
 export type AgentrixDefaults = {

@@ -1,9 +1,11 @@
 import type { WorkspaceTab } from "@/issue-flow-model"
 
 export type WorkspaceRoute = {
+  view: "repos" | "settings"
   gitServerId: string
   projectId: string
   tab: WorkspaceTab
+  settingsSection: "account"
 }
 
 const tabs = new Set<WorkspaceTab>(["overview", "settings"])
@@ -23,17 +25,35 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
     : tabs.has(queryTab as WorkspaceTab)
       ? queryTab as WorkspaceTab
       : "overview"
+  if (parts[0] === "settings") {
+    return {
+      view: "settings",
+      gitServerId: "",
+      projectId: "",
+      tab: "overview",
+      settingsSection: "account",
+    }
+  }
   if (parts[0] !== "repos") {
-    return { gitServerId: "", projectId: "", tab: "overview" }
+    return {
+      view: "repos",
+      gitServerId: "",
+      projectId: "",
+      tab: "overview",
+      settingsSection: "account",
+    }
   }
   return {
+    view: "repos",
     gitServerId: parts[1] || "",
     projectId: parts[2] || "",
     tab,
+    settingsSection: "account",
   }
 }
 
 export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
+  if (route.view === "settings") return "/settings/account"
   if (!route.gitServerId) return "/repos"
   const server = encodeURIComponent(route.gitServerId)
   if (!route.projectId) return `/repos/${server}`
@@ -44,7 +64,9 @@ export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
 }
 
 export function sameWorkspaceRoute(a: Partial<WorkspaceRoute>, b: Partial<WorkspaceRoute>) {
-  return (a.gitServerId || "") === (b.gitServerId || "")
+  return (a.view || "repos") === (b.view || "repos")
+    && (a.gitServerId || "") === (b.gitServerId || "")
     && (a.projectId || "") === (b.projectId || "")
     && (a.tab || "overview") === (b.tab || "overview")
+    && (a.settingsSection || "account") === (b.settingsSection || "account")
 }
