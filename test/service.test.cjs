@@ -37,6 +37,7 @@ const { upsertGitlabWebhook, validateGitlabToken } = require('../apps/api/src/co
 const { buildDispatchOptions } = require('../apps/api/src/core/dispatcher.ts');
 const { getUserAgentrixConfig } = require('../apps/api/src/core/user-agentrix-config.ts');
 const { handleGitlabWebhook } = require('../apps/api/src/core/gitlab-webhook.ts');
+const { applyGitEventToIssueFacts } = require('../apps/api/src/core/issue-projection.ts');
 const { connectGitlabSession } = require('../apps/api/src/core/gitlab-auth.ts');
 const {
   checkGitlabProjectInstall,
@@ -46,6 +47,7 @@ const {
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 } = require('../apps/api/src/core/gitlab-projects.ts');
+const { syncIssuesSnapshot } = require('../apps/api/src/core/repositories.ts');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 
 let testSchemaCounter = 0;
@@ -456,6 +458,199 @@ test('GitLab webhook bridge normalizes supported event classes', () => {
   }, 'webhook-secret');
   assert.equal(pipeline.events[0].eventName, 'workflow_run');
   assert.equal(pipeline.events[0].workflowRun.conclusion, 'failure');
+});
+
+test('git events project issue snapshots and flow spans', async () => {
+  const { dir, store } = tempStore();
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const createdRepo = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+    const common = {
+      repoId: createdRepo.repo.id,
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      repositoryFullName: 'team/app',
+      eventName: 'issue',
+      objectType: 'issue',
+      objectId: '100',
+    };
+    const opened = await store.createGitEvent({
+      ...common,
+      deliveryId: 'issue-delivery-open',
+      action: 'opened',
+      payload: {
+        object_kind: 'issue',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        labels: [{ title: 'flow::triage' }, { title: 'type::bug' }, { title: 'priority::p1' }, { title: 'size::M' }, { title: 'automation::build' }],
+        object_attributes: {
+          id: 100,
+          iid: 7,
+          title: 'Fix import crash',
+          state: 'opened',
+          created_at: '2026-07-01T01:00:00.000Z',
+          updated_at: '2026-07-01T01:00:00.000Z',
+        },
+      },
+      normalizedEvents: [{ eventName: 'issues', eventAction: 'opened' }],
+    });
+    await applyGitEventToIssueFacts(store, opened);
+
+    let issues = await store.listIssues(createdRepo.repo.id);
+    let spans = await store.listIssueSpans(createdRepo.repo.id, '100');
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].issueId, '100');
+    assert.equal(issues[0].issueNumber, 7);
+    assert.equal(issues[0].title, 'Fix import crash');
+    assert.equal(issues[0].type, 'bug');
+    assert.equal(issues[0].priority, 'P1');
+    assert.equal(issues[0].size, 'M');
+    assert.equal(issues[0].automation, 'build');
+    assert.equal(issues[0].status, 'active');
+    assert.equal(issues[0].openedAt, '2026-07-01T01:00:00.000Z');
+    assert.equal(issues[0].closedAt, '');
+    assert.equal(spans.length, 1);
+    assert.equal(spans[0].flow, 'triage');
+    assert.equal(spans[0].enteredAt, '2026-07-01T01:00:00.000Z');
+    assert.equal(spans[0].exitedAt, '');
+
+    const planned = await store.createGitEvent({
+      ...common,
+      deliveryId: 'issue-delivery-plan',
+      action: 'labeled',
+      payload: {
+        object_kind: 'issue',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        labels: [{ title: 'flow::plan' }, { title: 'type::bug' }],
+        object_attributes: {
+          id: 100,
+          iid: 7,
+          title: 'Fix import crash',
+          state: 'opened',
+          created_at: '2026-07-01T01:00:00.000Z',
+          updated_at: '2026-07-01T02:00:00.000Z',
+        },
+      },
+      normalizedEvents: [{ eventName: 'issues', eventAction: 'labeled', label: { name: 'flow::plan' } }],
+    });
+    await applyGitEventToIssueFacts(store, planned);
+
+    spans = await store.listIssueSpans(createdRepo.repo.id, '100');
+    assert.equal(spans.length, 2);
+    assert.equal(spans[0].flow, 'triage');
+    assert.equal(spans[0].exitedAt, '2026-07-01T02:00:00.000Z');
+    assert.equal(spans[1].flow, 'plan');
+    assert.equal(spans[1].enteredAt, '2026-07-01T02:00:00.000Z');
+    assert.equal(spans[1].exitedAt, '');
+
+    const closed = await store.createGitEvent({
+      ...common,
+      deliveryId: 'issue-delivery-close',
+      action: 'closed',
+      payload: {
+        object_kind: 'issue',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        labels: [{ title: 'flow::plan' }, { title: 'type::bug' }],
+        object_attributes: {
+          id: 100,
+          iid: 7,
+          title: 'Fix import crash',
+          state: 'closed',
+          created_at: '2026-07-01T01:00:00.000Z',
+          updated_at: '2026-07-01T03:00:00.000Z',
+          closed_at: '2026-07-01T03:00:00.000Z',
+        },
+      },
+      normalizedEvents: [{ eventName: 'issues', eventAction: 'closed' }],
+    });
+    await applyGitEventToIssueFacts(store, closed);
+
+    issues = await store.listIssues(createdRepo.repo.id);
+    spans = await store.listIssueSpans(createdRepo.repo.id, '100');
+    assert.equal(issues[0].status, 'done');
+    assert.equal(issues[0].closedAt, '2026-07-01T03:00:00.000Z');
+    assert.equal(spans.length, 2);
+    assert.equal(spans[1].exitedAt, '2026-07-01T03:00:00.000Z');
+  } finally {
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab issue snapshot sync imports current issues and open flow spans', async () => {
+  const { dir, store } = tempStore();
+  const gitlab = http.createServer((req, res) => {
+    if (req.url.startsWith('/api/v4/projects/42/issues') && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-admin-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([
+        {
+          id: 101,
+          iid: 9,
+          title: 'Existing issue',
+          state: 'opened',
+          labels: ['flow::build', 'type::feature', 'priority::p2', 'size::L', 'automation::plan'],
+          created_at: '2026-07-01T04:00:00.000Z',
+          updated_at: '2026-07-01T05:00:00.000Z',
+          closed_at: null,
+        },
+        {
+          id: 102,
+          iid: 10,
+          title: 'Closed issue',
+          state: 'closed',
+          labels: ['type::bug'],
+          created_at: '2026-07-01T01:00:00.000Z',
+          updated_at: '2026-07-01T06:00:00.000Z',
+          closed_at: '2026-07-01T06:00:00.000Z',
+        },
+      ]));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  try {
+    const user = await store.createUser({ displayName: 'Alice' });
+    await seedGitlabServer(store, gitlabBase, { adminPat: 'gl-admin-pat' });
+    const createdRepo = await store.createRepository({
+      userId: user.id,
+      gitServerId: 'gitlab-main',
+      baseUrl: gitlabBase,
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+
+    const result = await syncIssuesSnapshot({
+      store,
+      repoId: createdRepo.repo.id,
+      userId: user.id,
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.count, 2);
+    const issues = await store.listIssues(createdRepo.repo.id);
+    const spans = await store.listIssueSpans(createdRepo.repo.id);
+    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:done']);
+    assert.equal(issues[0].title, 'Existing issue');
+    assert.equal(issues[0].type, 'feature');
+    assert.equal(issues[0].priority, 'P2');
+    assert.equal(issues[0].size, 'L');
+    assert.equal(issues[0].automation, 'plan');
+    assert.equal(issues[1].closedAt, '2026-07-01T06:00:00.000Z');
+    assert.equal(spans.length, 1);
+    assert.equal(spans[0].issueId, '101');
+    assert.equal(spans[0].flow, 'build');
+    assert.equal(spans[0].enteredAt, '2026-07-01T05:00:00.000Z');
+    assert.equal(spans[0].exitedAt, '');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('GitLab webhook receiver authenticates with Git server secret and dispatches with admin PAT', async () => {

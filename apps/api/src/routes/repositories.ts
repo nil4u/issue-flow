@@ -5,7 +5,9 @@ import {
   createRepository,
   getRepository,
   listGitEvents,
+  listIssues,
   listRepositories,
+  syncIssuesSnapshot,
   validateRepositoryToken,
 } from "../core/repositories.js"
 import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.js"
@@ -51,6 +53,26 @@ export async function repositoryRoutes(app: FastifyInstance) {
   app.get("/api/repositories/:repoId/git-events", async (request, reply) => {
     const { repoId } = request.params as { repoId: string }
     const result = await listGitEvents({
+      ...contextFromRequest(request),
+      repoId,
+      userId: await userIdFromRequest(request),
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.get("/api/repositories/:repoId/issues", async (request, reply) => {
+    const { repoId } = request.params as { repoId: string }
+    const result = await listIssues({
+      ...contextFromRequest(request),
+      repoId,
+      userId: await userIdFromRequest(request),
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/repositories/:repoId/issues/sync", async (request, reply) => {
+    const { repoId } = request.params as { repoId: string }
+    const result = await syncIssuesSnapshot({
       ...contextFromRequest(request),
       repoId,
       userId: await userIdFromRequest(request),

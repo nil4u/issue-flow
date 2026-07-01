@@ -122,6 +122,46 @@ model UserRepoAccess {
   @@map("user_repo_accesses")
 }
 
+model Issue {
+  id                 String    @id
+  gitServerId        String    @map("git_server_id")
+  repositoryId       String    @map("repository_id")
+  repositoryFullName String    @map("repository_full_name")
+  issueId            String    @map("issue_id")
+  issueNumber        Int       @map("issue_number")
+  title              String
+  type               String    @default("")
+  priority           String    @default("")
+  size               String    @default("")
+  automation         String    @default("off")
+  status             String    @default("active")
+  openedAt           DateTime  @map("opened_at")
+  closedAt           DateTime? @map("closed_at")
+  updatedAt          DateTime  @map("updated_at")
+
+  @@unique([gitServerId, repositoryId, issueId])
+  @@unique([gitServerId, repositoryId, issueNumber])
+  @@index([status, updatedAt])
+  @@map("issues")
+}
+
+model IssueSpan {
+  id                 String    @id
+  gitServerId        String    @map("git_server_id")
+  repositoryId       String    @map("repository_id")
+  repositoryFullName String    @map("repository_full_name")
+  issueId            String    @map("issue_id")
+  issueNumber        Int       @map("issue_number")
+  flow               String
+  enteredAt          DateTime  @map("entered_at")
+  exitedAt           DateTime? @map("exited_at")
+
+  @@index([gitServerId, repositoryId, issueId])
+  @@index([flow, enteredAt])
+  @@index([exitedAt])
+  @@map("issue_spans")
+}
+
 model GitEvent {
   id                 String   @id
   gitServerId        String   @map("git_server_id")

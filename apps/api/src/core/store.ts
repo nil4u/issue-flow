@@ -176,6 +176,10 @@ function latestTimestamp(current = "", next = "") {
   return String(next) > String(current) ? next : current
 }
 
+function nullableDate(value) {
+  return value ? new Date(value) : null
+}
+
 class IssueFlowStore {
   constructor(options = {}) {
     const stateDir = path.resolve(process.cwd(), DEFAULT_STATE_DIR)
@@ -1136,6 +1140,195 @@ class IssueFlowStore {
       createdAt: timestampValue(row.createdAt),
       updatedAt: timestampValue(row.updatedAt),
     }
+  }
+
+  issueFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId,
+      repositoryId: row.repositoryId,
+      repositoryFullName: row.repositoryFullName,
+      issueId: row.issueId,
+      issueNumber: row.issueNumber,
+      title: row.title || "",
+      type: row.type || "",
+      priority: row.priority || "",
+      size: row.size || "",
+      automation: row.automation || "off",
+      status: row.status || "active",
+      openedAt: timestampValue(row.openedAt),
+      closedAt: timestampValue(row.closedAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+  }
+
+  issueSpanFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId,
+      repositoryId: row.repositoryId,
+      repositoryFullName: row.repositoryFullName,
+      issueId: row.issueId,
+      issueNumber: row.issueNumber,
+      flow: row.flow,
+      enteredAt: timestampValue(row.enteredAt),
+      exitedAt: timestampValue(row.exitedAt),
+    }
+  }
+
+  async upsertIssueSnapshot(input = {}, client = this.db) {
+    await this.ready
+    const gitServerId = String(input.gitServerId || "").trim()
+    const repositoryId = String(input.repositoryId || "").trim()
+    const repositoryFullName = String(input.repositoryFullName || "").trim()
+    const issueNumber = Number(input.issueNumber || 0)
+    const issueId = String(input.issueId || issueNumber || "").trim()
+    if (!gitServerId || !repositoryId || !issueId || !issueNumber) {
+      return { issue: undefined, applied: false }
+    }
+
+    const incomingUpdatedAt = asDate(input.updatedAt || input.openedAt || nowIso())
+    const existing = await client.issue.findUnique({
+      where: {
+        gitServerId_repositoryId_issueId: {
+          gitServerId,
+          repositoryId,
+          issueId,
+        },
+      },
+    })
+    if (existing && existing.updatedAt > incomingUpdatedAt) {
+      return { issue: this.issueFromRecord(existing), applied: false }
+    }
+
+    const data = {
+      gitServerId,
+      repositoryId,
+      repositoryFullName,
+      issueId,
+      issueNumber,
+      title: String(input.title || existing && existing.title || ""),
+      type: String(input.type || ""),
+      priority: String(input.priority || ""),
+      size: String(input.size || ""),
+      automation: String(input.automation || "off"),
+      status: String(input.status || "active"),
+      openedAt: asDate(input.openedAt || existing && existing.openedAt || incomingUpdatedAt),
+      closedAt: nullableDate(input.closedAt),
+      updatedAt: incomingUpdatedAt,
+    }
+    const row = await client.issue.upsert({
+      where: {
+        gitServerId_repositoryId_issueId: {
+          gitServerId,
+          repositoryId,
+          issueId,
+        },
+      },
+      create: {
+        id: input.id || randomId("issue"),
+        ...data,
+      },
+      update: data,
+    })
+    return { issue: this.issueFromRecord(row), applied: true }
+  }
+
+  async setIssueFlowSpan(input = {}, client = this.db) {
+    await this.ready
+    const gitServerId = String(input.gitServerId || "").trim()
+    const repositoryId = String(input.repositoryId || "").trim()
+    const repositoryFullName = String(input.repositoryFullName || "").trim()
+    const issueNumber = Number(input.issueNumber || 0)
+    const issueId = String(input.issueId || issueNumber || "").trim()
+    const flow = String(input.flow || "").trim()
+    if (!gitServerId || !repositoryId || !issueId || !issueNumber) return undefined
+
+    const when = asDate(input.at || input.enteredAt || nowIso())
+    const whereIssue = { gitServerId, repositoryId, issueId }
+    const openRows = await client.issueSpan.findMany({
+      where: { ...whereIssue, exitedAt: null },
+      orderBy: { enteredAt: "asc" },
+    })
+    if (!flow) {
+      if (openRows.length) {
+        await client.issueSpan.updateMany({
+          where: { ...whereIssue, exitedAt: null },
+          data: { exitedAt: when },
+        })
+      }
+      return undefined
+    }
+
+    const current = openRows.find((row) => row.flow === flow)
+    const staleOpenIds = openRows
+      .filter((row) => row.id !== (current && current.id))
+      .map((row) => row.id)
+    if (staleOpenIds.length) {
+      await client.issueSpan.updateMany({
+        where: { id: { in: staleOpenIds } },
+        data: { exitedAt: when },
+      })
+    }
+    if (current) return this.issueSpanFromRecord(current)
+
+    const row = await client.issueSpan.create({
+      data: {
+        id: input.id || randomId("issue_span"),
+        gitServerId,
+        repositoryId,
+        repositoryFullName,
+        issueId,
+        issueNumber,
+        flow,
+        enteredAt: when,
+      },
+    })
+    return this.issueSpanFromRecord(row)
+  }
+
+  async closeIssueFlowSpans(input = {}, client = this.db) {
+    await this.ready
+    const gitServerId = String(input.gitServerId || "").trim()
+    const repositoryId = String(input.repositoryId || "").trim()
+    const issueId = String(input.issueId || input.issueNumber || "").trim()
+    if (!gitServerId || !repositoryId || !issueId) return { count: 0 }
+    const result = await client.issueSpan.updateMany({
+      where: { gitServerId, repositoryId, issueId, exitedAt: null },
+      data: { exitedAt: asDate(input.at || nowIso()) },
+    })
+    return { count: result.count || 0 }
+  }
+
+  async listIssues(repoId) {
+    await this.ready
+    const repo = await this.db.repo.findUnique({ where: { id: repoId } })
+    if (!repo || !repo.gitServerId || !repo.serverRepoId) return []
+    const rows = await this.db.issue.findMany({
+      where: {
+        gitServerId: repo.gitServerId,
+        repositoryId: repo.serverRepoId,
+      },
+      orderBy: { issueNumber: "asc" },
+    })
+    return rows.map((row) => this.issueFromRecord(row))
+  }
+
+  async listIssueSpans(repoId, issueId = "") {
+    await this.ready
+    const repo = await this.db.repo.findUnique({ where: { id: repoId } })
+    if (!repo || !repo.gitServerId || !repo.serverRepoId) return []
+    const rows = await this.db.issueSpan.findMany({
+      where: {
+        gitServerId: repo.gitServerId,
+        repositoryId: repo.serverRepoId,
+        ...(issueId ? { issueId: String(issueId) } : {}),
+      },
+      orderBy: { enteredAt: "asc" },
+    })
+    return rows.map((row) => this.issueSpanFromRecord(row))
   }
 
   async createGitEvent(input = {}) {

@@ -6,7 +6,8 @@ import {
   requireRepo,
   resolveGitServer,
 } from './common.js'
-import { validateGitlabToken } from './gitlab.js'
+import { listGitlabIssues, validateGitlabToken } from './gitlab.js'
+import { applyGitlabIssueSnapshotToFacts } from './issue-projection.js'
 
 async function requireAccessibleRepo(store, repoId, userId) {
   if (!userId) {
@@ -109,6 +110,31 @@ async function listGitEvents({ store, repoId, userId = '' }) {
   return { status: 200, body: { gitEvents: await store.listGitEvents(repoId) } };
 }
 
+async function listIssues({ store, repoId, userId = '' }) {
+  await requireAccessibleRepo(store, repoId, userId);
+  return { status: 200, body: { issues: await store.listIssues(repoId) } };
+}
+
+async function syncIssuesSnapshot({ store, repoId, userId = '' }) {
+  const repo = await requireAccessibleRepo(store, repoId, userId);
+  const { config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab');
+  if (!config.adminPat) {
+    return { status: 403, body: { error: 'git_server_admin_pat_required' } };
+  }
+  const issues = await listGitlabIssues({
+    apiUrl: config.apiUrl,
+    token: config.adminPat,
+    authType: config.tokenAuth,
+    projectIdOrPath: repo.projectId || repo.projectPath,
+  });
+  const projected = [];
+  for (const issue of issues) {
+    const saved = await applyGitlabIssueSnapshotToFacts(store, repo, issue);
+    if (saved) projected.push(saved);
+  }
+  return { status: 200, body: { issues: projected, count: projected.length } };
+}
+
 async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '' }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
   const session = repo.oauthSessionId
@@ -135,6 +161,8 @@ export {
   createRepository,
   getRepository,
   listGitEvents,
+  listIssues,
   listRepositories,
+  syncIssuesSnapshot,
   validateRepositoryToken,
 }

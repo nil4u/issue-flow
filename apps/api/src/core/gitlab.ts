@@ -86,6 +86,19 @@ function normalizeProject(project = {}) {
   };
 }
 
+function normalizeIssue(issue = {}) {
+  return {
+    id: issue.id !== undefined ? String(issue.id) : '',
+    iid: Number(issue.iid || issue.number || 0),
+    title: issue.title || '',
+    state: issue.state || '',
+    labels: Array.isArray(issue.labels) ? issue.labels.map((label) => String(label || '')).filter(Boolean) : [],
+    createdAt: issue.created_at || '',
+    updatedAt: issue.updated_at || '',
+    closedAt: issue.closed_at || '',
+  };
+}
+
 async function listGitlabProjectsPage(input = {}, extraParams = {}) {
   const params = new URLSearchParams({
     membership: 'true',
@@ -96,6 +109,34 @@ async function listGitlabProjectsPage(input = {}, extraParams = {}) {
     authType: input.authType,
   });
   return Array.isArray(result.parsed) ? result.parsed.map(normalizeProject) : [];
+}
+
+async function listGitlabIssues(input = {}) {
+  const issues = [];
+  let page = 1;
+  while (page <= Number(input.maxPages || 50)) {
+    const params = new URLSearchParams({
+      state: input.state || 'all',
+      scope: input.scope || 'all',
+      per_page: String(input.perPage || 100),
+      page: String(page),
+    });
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/issues?${params}`,
+      input.token,
+      { authType: input.authType }
+    );
+    if (Array.isArray(result.parsed)) {
+      issues.push(...result.parsed.map(normalizeIssue));
+    }
+    const nextPage = result.headers && result.headers.get && result.headers.get('x-next-page');
+    if (!nextPage) break;
+    page = Number(nextPage);
+    if (!page) break;
+  }
+  return issues;
 }
 
 function gitlabOAuthRedirectUri(config, basePublicUrl) {
@@ -657,6 +698,7 @@ export {
   gitlabOAuthAuthorizeUrl,
   gitlabOAuthRedirectUri,
   installGitlabWebhook,
+  listGitlabIssues,
   listGitlabWebhooks,
   listGitlabProjects,
   projectApiPath,

@@ -8,6 +8,7 @@ import {
   staticVariables,
 } from '@xmz-ai/gitlab-webhook-bridge'
 import { requireRepo, resolveGitServer } from './common.js'
+import { applyGitEventToIssueFacts } from './issue-projection.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
 
@@ -52,7 +53,7 @@ function createGitEventTarget(store, repo) {
   return deliveryTarget('issue-flow-git-event-log', async (input) => {
     const event = input.events[0] || {};
     const raw = event.raw || {};
-    await store.createGitEvent({
+    const gitEvent = await store.createGitEvent({
       repoId: repo.id,
       gitServerId: repo.gitServerId,
       repositoryId: event.project && event.project.id !== undefined ? String(event.project.id) : repo.projectId || '',
@@ -65,6 +66,7 @@ function createGitEventTarget(store, repo) {
       payload: sanitize(compactNulls(raw.body || {})),
       normalizedEvents: input.events.map(normalizedEventFact),
     });
+    await applyGitEventToIssueFacts(store, gitEvent);
     return {
       target: 'issue-flow-git-event-log',
       eventId: input.deliveryId,
