@@ -18,12 +18,26 @@ import {
   type GitLabUser,
   type GitServer,
   type InstallCheck,
+  type InstallStep,
+  type ProjectAccess,
   type RecordRow,
   type Repository,
   type SessionState,
   type UserSession,
   type WorkspaceTab,
 } from "@/issue-flow-model"
+
+function mergeInstallCheck(current: InstallCheck | undefined, next: InstallCheck): InstallCheck {
+  const byId = new Map<string, InstallStep>()
+  for (const step of current?.steps || []) byId.set(step.id, step)
+  for (const step of next.steps || []) byId.set(step.id, step)
+  return {
+    ...current,
+    ...next,
+    steps: Array.from(byId.values()),
+    installable: Array.from(byId.values()).every((step) => step.status !== "blocked" && step.status !== "needs_input"),
+  }
+}
 
 function AppShell() {
   return (
@@ -49,6 +63,8 @@ function Dashboard() {
   const [loadError, setLoadError] = useState("")
   const [agentrixDefaults, setAgentrixDefaults] = useState<AgentrixDefaults>()
   const [installCheck, setInstallCheck] = useState<InstallCheck>()
+  const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
+  const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [installMessage, setInstallMessage] = useState("")
@@ -227,22 +243,95 @@ function Dashboard() {
     setRuns(runBody.runs || [])
   }
 
-  async function runInstallCheck(extra: Record<string, unknown> = {}) {
-    if (!selectedProject || !selectedGitServerId) return
-    setChecking(true)
-    setInstallMessage("")
+  async function loadProjectAccess() {
+    if (!selectedProject || !selectedGitServerId) {
+      setProjectAccess(undefined)
+      return undefined
+    }
+    setLoadingProjectAccess(true)
     try {
-      const body = await api<InstallCheck>("/api/gitlab/install-check", {
+      const body = await api<{ access: ProjectAccess }>("/api/gitlab/project-role", {
         method: "POST",
         body: JSON.stringify({
           gitServerId: selectedGitServerId,
           projectId: selectedProject.id,
-          ...extra,
         }),
       })
-      setInstallCheck(body)
+      setProjectAccess(body.access)
       setLoadError("")
-      return body
+      return body.access
+    } catch (error) {
+      setProjectAccess(undefined)
+      setLoadError((error as Error).message)
+    } finally {
+      setLoadingProjectAccess(false)
+    }
+  }
+
+  async function runInstallCheck(extra: Record<string, unknown> = {}) {
+    if (!selectedProject || !selectedGitServerId) return
+    if (projectAccess && !projectAccess.canManage) {
+      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能执行检查。`)
+      return
+    }
+    setChecking(true)
+    setInstallMessage("")
+    const checkTypes = Array.isArray(extra.checkTypes)
+      ? extra.checkTypes.map(String)
+      : extra.checkType
+        ? [String(extra.checkType)]
+        : ["variables", "webhook"]
+    const input = { ...extra }
+    delete input.checkTypes
+    delete input.checkType
+    let nextCheck = installCheck
+    try {
+      for (const checkType of checkTypes) {
+        const body = await api<InstallCheck>("/api/gitlab/install-check", {
+          method: "POST",
+          body: JSON.stringify({
+            gitServerId: selectedGitServerId,
+            projectId: selectedProject.id,
+            ...input,
+            checkType,
+          }),
+        })
+        nextCheck = mergeInstallCheck(nextCheck, body)
+        setInstallCheck(nextCheck)
+      }
+      setLoadError("")
+      await loadRepositories(selectedGitServerId)
+      return nextCheck
+    } catch (error) {
+      setLoadError((error as Error).message)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function setInstallVariable(key: string, input: Record<string, unknown>) {
+    if (!selectedProject || !selectedGitServerId) return
+    if (projectAccess && !projectAccess.canManage) {
+      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能修改变量。`)
+      return
+    }
+    setChecking(true)
+    setInstallMessage("")
+    try {
+      const body = await api<InstallCheck>("/api/gitlab/install-variable", {
+        method: "POST",
+        body: JSON.stringify({
+          gitServerId: selectedGitServerId,
+          projectId: selectedProject.id,
+          key,
+          ...input,
+        }),
+      })
+      const nextCheck = mergeInstallCheck(installCheck, body)
+      setInstallCheck(nextCheck)
+      await loadRepositories(selectedGitServerId)
+      setLoadError("")
+      return nextCheck
     } catch (error) {
       setLoadError((error as Error).message)
     } finally {
@@ -252,6 +341,10 @@ function Dashboard() {
 
   async function installProject(input: Record<string, unknown>) {
     if (!selectedProject) return
+    if (projectAccess && !projectAccess.canManage) {
+      setInstallMessage(`当前角色 ${projectAccess.role || "-"} 仅可查看，不能安装。`)
+      return
+    }
     setInstalling(true)
     setInstallMessage("正在配置 API 项并创建安装 MR...")
     try {
@@ -312,6 +405,7 @@ function Dashboard() {
     setActiveTab("overview")
     setOwner("all")
     setInstallCheck(undefined)
+    setProjectAccess(undefined)
     setInstallMessage("")
     navigateWorkspace({ gitServerId, projectId: "", tab: "overview" })
   }
@@ -320,6 +414,7 @@ function Dashboard() {
     setSelectedProjectId(projectId)
     setActiveTab("overview")
     setInstallCheck(undefined)
+    setProjectAccess(undefined)
     setInstallMessage("")
     const nextOwner = ownerOf(projects.find((project) => project.id === projectId))
     if (nextOwner) setOwner(nextOwner)
@@ -362,6 +457,7 @@ function Dashboard() {
         setActiveTab(next.tab)
       }
       setInstallCheck(undefined)
+      setProjectAccess(undefined)
       setInstallMessage("")
     }
     window.addEventListener("popstate", handlePopState)
@@ -372,11 +468,13 @@ function Dashboard() {
     if (!selectedGitServerId || !userSession.authenticated) return
     setOwner("all")
     setInstallCheck(undefined)
+    setProjectAccess(undefined)
     void loadGitServerState(selectedGitServerId)
   }, [selectedGitServerId, userSession.authenticated])
 
   useEffect(() => {
     setInstallCheck(undefined)
+    setProjectAccess(undefined)
     setInstallMessage("")
   }, [selectedProjectId])
 
@@ -399,10 +497,13 @@ function Dashboard() {
 
   useEffect(() => {
     if (activeTab !== "settings" || !selectedGitServerId || !userSession.authenticated) return
-    void loadAgentrixDefaults(selectedGitServerId).catch((error) => {
+    void Promise.all([
+      loadAgentrixDefaults(selectedGitServerId),
+      loadProjectAccess(),
+    ]).catch((error) => {
       setLoadError((error as Error).message)
     })
-  }, [activeTab, selectedGitServerId, userSession.authenticated])
+  }, [activeTab, selectedGitServerId, selectedProjectId, userSession.authenticated])
 
   useEffect(() => {
     void loadActivity(selectedRepo?.id)
@@ -473,10 +574,13 @@ function Dashboard() {
             checking={checking}
             installing={installing}
             installMessage={installMessage}
+            projectAccess={projectAccess}
+            loadingProjectAccess={loadingProjectAccess}
             deliveries={deliveries}
             runs={runs}
             onLogin={() => loginGitLab(selectedGitServerId)}
             onCheck={runInstallCheck}
+            onSetVariable={setInstallVariable}
             onInstall={installProject}
           />
         )}

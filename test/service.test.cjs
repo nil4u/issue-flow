@@ -38,8 +38,11 @@ const { getUserAgentrixConfig } = require('../apps/api/src/core/user-agentrix-co
 const { handleGitlabWebhook } = require('../apps/api/src/core/gitlab-webhook.ts');
 const { connectGitlabSession } = require('../apps/api/src/core/gitlab-auth.ts');
 const {
+  checkGitlabProjectInstall,
+  getGitlabProjectRole,
   installGitlabProject,
   listGitlabProjectsWithInstallStatus,
+  setGitlabProjectInstallVariable,
 } = require('../apps/api/src/core/gitlab-projects.ts');
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 
@@ -652,6 +655,138 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
     assert.equal(created.repo.id, repos[0].id);
     assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 1);
     assert.ok(await store.db.repoSettings.findUnique({ where: { repoId: repos[0].id } }));
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab settings checks variables independently and caches safe metadata', async () => {
+  const { dir, store } = tempStore();
+  const variables = new Map([
+    ['AGENTRIX_BASE_URL', { key: 'AGENTRIX_BASE_URL', value: 'https://agentrix.xmz.ai', environment_scope: '*', variable_type: 'env_var' }],
+    ['AGENTRIX_API_KEY', { key: 'AGENTRIX_API_KEY', environment_scope: '*', variable_type: 'env_var', masked: true }],
+    ['AGENTRIX_ISSUE_FLOW_AGENT', { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: 'codex', environment_scope: '*', variable_type: 'env_var' }],
+    ['ISSUE_FLOW_AUTO_DEFAULT', { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: 'triage', environment_scope: '*', variable_type: 'env_var' }],
+    ['ISSUE_FLOW_REVIEW_ENABLED', { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: 'false', environment_scope: '*', variable_type: 'env_var' }],
+  ]);
+  let updatedVariable;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/variables/') && req.method === 'GET') {
+      const key = decodeURIComponent(req.url.split('/').pop());
+      const variable = variables.get(key);
+      if (!variable) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: '404 Variable Not Found' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(variable));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/groups/') && req.method === 'GET') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: '404 Variable Not Found' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/variables/ISSUE_FLOW_AUTO_DEFAULT' && req.method === 'PUT') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.equal(body.value, 'build');
+        assert.equal(body.environment_scope, '*');
+        updatedVariable = body;
+        variables.set(body.key, {
+          key: body.key,
+          value: body.value,
+          environment_scope: body.environment_scope,
+          variable_type: body.variable_type,
+          masked: body.masked,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(variables.get(body.key)));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{
+        id: '42',
+        name: 'App',
+        pathWithNamespace: 'team/app',
+        defaultBranch: 'main',
+      }],
+    });
+    const role = await getGitlabProjectRole({
+      store,
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(role.status, 200);
+    assert.equal(role.body.access.role, 'Owner');
+    assert.equal(role.body.access.canManage, true);
+
+    const checked = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'variables' },
+    });
+    assert.equal(checked.status, 200);
+    const apiKey = checked.body.steps[0].variables.find((item) => item.key === 'AGENTRIX_API_KEY');
+    assert.equal(apiKey.status, 'passed');
+    assert.equal(apiKey.detail, '已设置');
+    assert.equal(apiKey.value, '*****');
+    assert.equal(apiKey.scope, '*');
+    const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    assert.equal(repo.settings.variables.items.find((item) => item.key === 'AGENTRIX_API_KEY').value, '*****');
+
+    const saved = await setGitlabProjectInstallVariable({
+      store,
+      input: {
+        gitServerId: 'gitlab-main',
+        token: 'gl-oauth-user-token',
+        projectId: '42',
+        key: 'ISSUE_FLOW_AUTO_DEFAULT',
+        value: 'build',
+      },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(updatedVariable.key, 'ISSUE_FLOW_AUTO_DEFAULT');
+    assert.equal(saved.body.variable.value, 'build');
+    const updated = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    assert.equal(updated.settings.variables.items.find((item) => item.key === 'ISSUE_FLOW_AUTO_DEFAULT').value, 'build');
   } finally {
     await close(gitlab);
     await store.close();

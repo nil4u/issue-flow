@@ -887,6 +887,19 @@
   .check-row-detail.inline {
     grid-template-columns: 1fr;
   }
+  .check-row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .check-row-value {
+    grid-column: 2;
+    justify-items: start;
+    max-width: 100%;
+    text-align: left;
+  }
+  .check-row-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
   .repo-row {
     grid-template-columns: auto minmax(0, 1fr);
   }

@@ -256,6 +256,26 @@ async function getGitlabProjectForInstall(input = {}) {
   return normalizeProject(result.parsed || {});
 }
 
+async function getGitlabProjectMember(input = {}) {
+  const userId = String(input.userId || '').trim();
+  if (!userId) return undefined;
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/members/all/${encodeURIComponent(userId)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && (error.status === 403 || error.status === 404)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 function gitlabWebhookBody(input = {}) {
   return {
     url: input.webhookUrl,
@@ -395,16 +415,22 @@ function gitlabGroupPathsForProject(projectPath = '') {
 
 function publicGitlabVariable(variable = {}, source = 'project', groupPath = '') {
   if (!variable) return undefined;
+  const masked = Boolean(variable.masked);
+  const hidden = Boolean(variable.hidden);
+  const rawValue = variable.value !== undefined && variable.value !== null ? String(variable.value) : '';
+  const environmentScope = variable.environment_scope || variable.environmentScope || '*';
   return {
     key: variable.key || '',
+    value: masked || hidden ? '*****' : rawValue,
     source,
     groupPath,
-    environmentScope: variable.environment_scope || variable.environmentScope || '*',
+    scope: environmentScope,
+    environmentScope,
     variableType: variable.variable_type || variable.variableType || 'env_var',
     protected: Boolean(variable.protected),
-    masked: Boolean(variable.masked),
+    masked,
     raw: variable.raw !== false,
-    hidden: Boolean(variable.hidden),
+    hidden,
     description: variable.description || '',
   };
 }
@@ -429,6 +455,7 @@ async function upsertGitlabProjectVariable(input = {}, variable = {}) {
     key,
     value: variable.value,
     variable_type: variable.variableType || 'env_var',
+    environment_scope: variable.environmentScope || variable.scope || '*',
     protected: Boolean(variable.protected),
     masked: Boolean(variable.masked),
     raw: variable.raw !== false,
@@ -622,6 +649,7 @@ export {
   exchangeGitlabOAuthCode,
   refreshGitlabOAuthToken,
   getGitlabCurrentUser,
+  getGitlabProjectMember,
   getGitlabProjectForInstall,
   getGitlabProjectVariable,
   getGitlabVariableForInstall,
@@ -633,6 +661,7 @@ export {
   listGitlabProjects,
   projectApiPath,
   syncGitlabProjectLabels,
+  upsertGitlabProjectVariable,
   upsertGitlabWebhook,
   validateGitlabToken,
 }

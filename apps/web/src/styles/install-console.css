@@ -8,7 +8,12 @@
     min-height: 2.5rem;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .install-console-role {
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
   }
   .install-console-actions {
     display: flex;
@@ -51,6 +56,7 @@
     font-variant-numeric: tabular-nums;
   }
   .check-table-row {
+    position: relative;
     border-bottom: 1px solid var(--border);
   }
   .check-table-row:last-child {
@@ -67,9 +73,10 @@
     color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
   }
   .check-row-main {
+    position: relative;
     min-height: 3.5rem;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 20rem);
     align-items: center;
     gap: 0.75rem;
     padding: 0.625rem 0.875rem;
@@ -97,11 +104,53 @@
     color: var(--muted-foreground);
     font-size: 0.8125rem;
   }
+  .check-row-value {
+    grid-column: 3;
+    display: grid;
+    gap: 0.125rem;
+    min-width: 0;
+    justify-items: end;
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    text-align: right;
+  }
+  .check-row-value strong,
+  .check-row-value small {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .check-row-value strong {
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+  .check-row-value small,
+  .check-row-value.muted {
+    color: var(--muted-foreground);
+  }
   .check-row-actions {
+    position: absolute;
+    top: 50%;
+    right: 0.875rem;
+    z-index: 1;
+    padding-left: 0.75rem;
+    background: linear-gradient(90deg, transparent, var(--if-color-surface) 0.75rem);
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 0.375rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+  .check-table-row:hover .check-row-actions,
+  .check-table-row:focus-within .check-row-actions,
+  .check-table-row.expanded .check-row-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
   .check-row-detail {
     display: grid;
@@ -111,6 +160,19 @@
   .check-row-detail.inline {
     grid-template-columns: minmax(0, 1fr) 11rem auto;
     align-items: end;
+  }
+  .check-row-detail-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .check-row-detail-actions small {
+    min-width: 0;
+    color: var(--muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .inline-check {
     min-height: 2rem;

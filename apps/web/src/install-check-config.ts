@@ -96,6 +96,18 @@ export const gitlabInstallCheckConfig = {
         },
       ],
     },
+    {
+      id: "webhook",
+      title: "Webhook",
+      items: [
+        {
+          id: "webhook",
+          type: "webhook",
+          name: "GitLab webhook",
+          description: "接收 issue、comment、MR 和 pipeline 事件的 GitLab webhook。",
+        },
+      ],
+    },
   ],
 } satisfies {
   provider: "gitlab"

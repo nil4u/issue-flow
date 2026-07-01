@@ -37,6 +37,10 @@ export type Repository = {
     bootstrapMergeRequest?: { iid?: string; webUrl?: string }
   }
   webhookUrl?: string
+  settings?: {
+    variables?: { items?: AgentrixVariable[]; checkedAt?: string }
+    webhook?: Record<string, unknown>
+  }
 }
 
 export type GitLabUser = { username: string; name?: string; avatarUrl?: string }
@@ -82,10 +86,19 @@ export type AgentrixVariable = {
   key: string
   label?: string
   description?: string
+  value?: string
   exists?: boolean
   required?: boolean
   writable?: boolean
   masked?: boolean
+  source?: string
+  groupPath?: string
+  scope?: string
+  environmentScope?: string
+  variableType?: string
+  protected?: boolean
+  raw?: boolean
+  hidden?: boolean
   status?: InstallStatus
   detail?: string
   needsInput?: boolean
@@ -144,6 +157,13 @@ export type InstallCheck = {
   repository?: Repository | null
 }
 
+export type ProjectAccess = {
+  accessLevel?: number
+  accessLevelKnown?: boolean
+  role?: string
+  canManage?: boolean
+}
+
 export type RecordRow = {
   id: string
   status?: string
@@ -171,10 +191,13 @@ export type RepoWorkspaceProps = {
   checking: boolean
   installing: boolean
   installMessage: string
+  projectAccess?: ProjectAccess
+  loadingProjectAccess?: boolean
   deliveries: RecordRow[]
   runs: RecordRow[]
   onLogin: () => void
   onCheck: (extra?: Record<string, unknown>) => Promise<InstallCheck | undefined>
+  onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onInstall: (input: Record<string, unknown>) => Promise<void>
 }
 
