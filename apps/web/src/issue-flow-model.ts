@@ -38,6 +38,7 @@ export type Repository = {
   }
   webhookUrl?: string
   settings?: {
+    permissions?: { items?: AdminPermission[]; checkedAt?: string }
     variables?: { items?: AgentrixVariable[]; checkedAt?: string }
     webhook?: Record<string, unknown>
     plugins?: { items?: PluginInstall[]; checkedAt?: string }
@@ -134,6 +135,20 @@ export type PluginInstall = {
   }
 }
 
+export type AdminPermission = {
+  key: string
+  source?: string
+  userId?: string
+  username?: string
+  name?: string
+  email?: string
+  avatarUrl?: string
+  accessLevel?: number
+  role?: string
+  canManage?: boolean
+  memberUrl?: string
+}
+
 export type SessionState = {
   authenticated: boolean
   user?: GitLabUser
@@ -173,6 +188,8 @@ export type InstallStep = {
   inputRequired?: string[]
   variables?: AgentrixVariable[]
   plugins?: PluginInstall[]
+  permissions?: AdminPermission[]
+  memberUrl?: string
   actionCount?: number
 }
 

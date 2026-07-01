@@ -7,6 +7,7 @@ import {
   installGitlabProject,
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
+  setGitlabProjectInstallPermission,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 } from "../core/gitlab-projects.js"
@@ -69,6 +70,17 @@ export async function gitlabRoutes(app: FastifyInstance) {
     const input = (request.body || {}) as Record<string, unknown>
     const session = await sessionFromRequest(request, String(input.gitServerId || ""))
     const result = await getGitlabProjectRole({
+      ...contextFromRequest(request),
+      input,
+      session,
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/gitlab/install-permission", async (request, reply) => {
+    const input = (request.body || {}) as Record<string, unknown>
+    const session = await sessionFromRequest(request, String(input.gitServerId || ""))
+    const result = await setGitlabProjectInstallPermission({
       ...contextFromRequest(request),
       input,
       session,

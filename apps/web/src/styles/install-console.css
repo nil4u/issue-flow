@@ -297,6 +297,10 @@
     color: var(--muted-foreground);
     font-size: 0.8125rem;
   }
+  .check-row-meta.warning {
+    color: var(--destructive);
+    line-height: 1.25rem;
+  }
   .check-row-meta summary {
     cursor: pointer;
   }

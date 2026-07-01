@@ -12,6 +12,7 @@ import {
   listGitlabProjects,
   listGitlabWebhooks,
   syncGitlabProjectLabels,
+  upsertGitlabProjectMember,
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
 } from './gitlab.js'
@@ -32,6 +33,7 @@ import {
 import { sanitizeError } from './sanitize.js'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
+const ADMIN_PAT_PERMISSION_KEY = 'admin-pat'
 const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
 const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
 const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
@@ -139,9 +141,9 @@ function normalizeCheckTypes(input = {}) {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-  const allowed = new Set(['variables', 'webhook', 'plugins']);
+  const allowed = new Set(['permissions', 'variables', 'webhook', 'plugins']);
   const values = raw.filter((item) => allowed.has(item));
-  return values.length ? Array.from(new Set(values)) : ['variables', 'webhook', 'plugins'];
+  return values.length ? Array.from(new Set(values)) : ['permissions', 'webhook', 'variables', 'plugins'];
 }
 
 function variableResult(variable, existingVariable) {
@@ -208,6 +210,179 @@ function webhookCache(hook) {
     enableSslVerification: hook.enable_ssl_verification !== false && hook.enableSslVerification !== false,
     createdAt: hook.created_at || hook.createdAt || '',
     updatedAt: hook.updated_at || hook.updatedAt || '',
+  };
+}
+
+function projectMembersUrl(project = {}) {
+  const webUrl = String(project.webUrl || project.web_url || '').replace(/\/+$/, '')
+  return webUrl ? `${webUrl}/-/project_members` : ''
+}
+
+function adminPermissionCache(input = {}) {
+  const accessLevel = Number(input.accessLevel || 0)
+  return {
+    key: ADMIN_PAT_PERMISSION_KEY,
+    source: 'gitlab',
+    userId: input.userId || '',
+    username: input.username || '',
+    name: input.name || '',
+    email: input.email || '',
+    avatarUrl: input.avatarUrl || '',
+    accessLevel,
+    role: gitlabRoleFromAccessLevel(accessLevel),
+    canManage: accessLevel >= 40,
+    memberUrl: input.memberUrl || '',
+  }
+}
+
+function adminPermissionStep(cache) {
+  if (!cache) {
+    return installStep(
+      'permissions',
+      'auth',
+      'Admin PAT',
+      'blocked',
+      'Git server 未配置 admin PAT'
+    )
+  }
+  if (cache.canManage) {
+    return installStep('permissions', 'auth', 'Admin PAT', 'passed', cache.role, {
+      permissions: [cache],
+    })
+  }
+  const account = cache.name || cache.username || cache.email || 'admin PAT 对应账号'
+  return installStep(
+    'permissions',
+    'auth',
+    'Admin PAT',
+    'blocked',
+    `请将 ${account} 加入该 repo 或上级 group，并授予 Maintainer 权限`,
+    {
+      permissions: [cache],
+      memberUrl: cache.memberUrl || '',
+    }
+  )
+}
+
+async function checkGitlabAdminPatPermission({ store, config, project, existing, apiInput }) {
+  const memberUrl = projectMembersUrl(project)
+  if (!config.adminPat) {
+    const cache = adminPermissionCache({ memberUrl })
+    if (existing) {
+      await store.updateRepositorySettingsCache(existing.id, {
+        permissions: { items: [cache], checkedAt: new Date().toISOString() },
+      })
+    }
+    return adminPermissionStep(undefined)
+  }
+  const adminAuthType = 'private-token'
+  const adminUser = await getGitlabCurrentUser({
+    apiUrl: config.apiUrl,
+    token: config.adminPat,
+    authType: adminAuthType,
+  })
+  if (adminUser.status !== 'valid') {
+    const cache = adminPermissionCache({ memberUrl })
+    if (existing) {
+      await store.updateRepositorySettingsCache(existing.id, {
+        permissions: { items: [cache], checkedAt: new Date().toISOString() },
+      })
+    }
+    return installStep('permissions', 'auth', 'Admin PAT', 'blocked', 'admin PAT 无效或已过期', {
+      permissions: [cache],
+      memberUrl,
+    })
+  }
+  let accessLevel = 0
+  try {
+    const member = await getGitlabProjectMember({
+      ...apiInput,
+      projectIdOrPath: apiInput.projectIdOrPath,
+      userId: adminUser.id,
+    })
+    accessLevel = Math.max(accessLevel, Number(member && (member.access_level || member.accessLevel) || 0))
+  } catch {
+    accessLevel = 0
+  }
+  const cache = adminPermissionCache({
+    userId: adminUser.id,
+    username: adminUser.username,
+    name: adminUser.name,
+    email: adminUser.email,
+    avatarUrl: adminUser.avatarUrl,
+    accessLevel,
+    memberUrl,
+  })
+  if (existing) {
+    await store.updateRepositorySettingsCache(existing.id, {
+      permissions: { items: [cache], checkedAt: new Date().toISOString() },
+    })
+  }
+  return adminPermissionStep(cache)
+}
+
+async function setGitlabProjectInstallPermission({ store, input = {}, session, env = process.env }) {
+  let context;
+  try {
+    context = await gitlabInstallContext({ store, input, session, env });
+  } catch (error) {
+    return {
+      status: error && error.status || 500,
+      body: {
+        error: error && error.code || 'gitlab_permission_set_failed',
+        validation: error && error.validation || undefined,
+      },
+    };
+  }
+
+  const { config, project, existing, apiInput, user } = context;
+  const access = await resolveGitlabProjectAccess({ project, apiInput, user });
+  if (!access.canManage) {
+    return { status: 403, body: { error: 'gitlab_project_permission_required', access } };
+  }
+  if (!existing) {
+    return { status: 404, body: { error: 'repository_not_found' } };
+  }
+  if (!config.adminPat) {
+    return { status: 400, body: { error: 'git_server_admin_pat_required' } };
+  }
+
+  const adminUser = await getGitlabCurrentUser({
+    apiUrl: config.apiUrl,
+    token: config.adminPat,
+    authType: 'private-token',
+  });
+  if (adminUser.status !== 'valid' || !adminUser.id) {
+    return { status: 400, body: { error: 'git_server_admin_pat_invalid', validation: adminUser } };
+  }
+
+  try {
+    await upsertGitlabProjectMember({
+      ...apiInput,
+      userId: adminUser.id,
+      accessLevel: 40,
+    });
+  } catch (error) {
+    return {
+      status: error && error.status || 502,
+      body: {
+        error: 'gitlab_admin_member_set_failed',
+        detail: sanitizeError(error),
+      },
+    };
+  }
+
+  const step = await checkGitlabAdminPatPermission({ store, config, project, existing, apiInput });
+  return {
+    status: 200,
+    body: {
+      repository: await store.getRepository(existing.id),
+      access,
+      step,
+      steps: [step],
+      permission: step.permissions && step.permissions[0] || undefined,
+      installable: step.status !== 'blocked',
+    },
   };
 }
 
@@ -489,6 +664,47 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
   }
   const checkTypes = normalizeCheckTypes(input);
 
+  if (checkTypes.includes('permissions')) {
+    const permissionStep = await checkGitlabAdminPatPermission({ store, config, project, existing, apiInput });
+    steps.push(permissionStep);
+    if (permissionStep.status === 'blocked') {
+      return {
+        status: 200,
+        body: {
+          gitServer: { id: server.id, name: server.name, baseUrl: config.baseUrl },
+          project,
+          repository: existing || null,
+          access,
+          installable: false,
+          steps,
+        },
+      };
+    }
+  }
+
+  if (checkTypes.includes('webhook')) {
+    let webhookStep;
+    if (existing) {
+      const publicRepo = repoWithWebhook(basePublicUrl, existing);
+      const hooks = await listGitlabWebhooks(apiInput);
+      const hook = hooks.find((item) => item && item.url === publicRepo.webhookUrl);
+      const hookState = statusFromBoolean(Boolean(hook), '需要通过 API 配置 GitLab webhook', 'Webhook 已配置');
+      webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hook && hook.url || hookState.detail);
+      await store.updateRepositorySettingsCache(existing.id, {
+        webhook: hook ? webhookCache(hook) : null,
+      });
+    } else {
+      webhookStep = installStep(
+        'webhook',
+        'api',
+        'GitLab webhook',
+        'needs_action',
+        '安装时创建仓库记录后通过 API 配置 webhook'
+      );
+    }
+    steps.push(webhookStep);
+  }
+
   if (checkTypes.includes('variables')) {
     const variables = gitlabCiVariablesForInstall({ config, installConfig });
     const variableResults = [];
@@ -535,29 +751,6 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
         },
       });
     }
-  }
-
-  if (checkTypes.includes('webhook')) {
-    let webhookStep;
-    if (existing) {
-      const publicRepo = repoWithWebhook(basePublicUrl, existing);
-      const hooks = await listGitlabWebhooks(apiInput);
-      const hook = hooks.find((item) => item && item.url === publicRepo.webhookUrl);
-      const hookState = statusFromBoolean(Boolean(hook), '需要通过 API 配置 GitLab webhook', 'Webhook 已配置');
-      webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hook && hook.url || hookState.detail);
-      await store.updateRepositorySettingsCache(existing.id, {
-        webhook: hook ? webhookCache(hook) : null,
-      });
-    } else {
-      webhookStep = installStep(
-        'webhook',
-        'api',
-        'GitLab webhook',
-        'needs_action',
-        '安装时创建仓库记录后通过 API 配置 webhook'
-      );
-    }
-    steps.push(webhookStep);
   }
 
   if (checkTypes.includes('plugins')) {
@@ -1167,6 +1360,7 @@ export {
   installGitlabProject,
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
+  setGitlabProjectInstallPermission,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 }

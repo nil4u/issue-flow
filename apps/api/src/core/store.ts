@@ -156,6 +156,7 @@ function jsonValue(value, fallback) {
 
 function emptyRepoSettings() {
   return {
+    permissions: { items: [], checkedAt: "" },
     variables: { items: [], checkedAt: "" },
     webhook: {},
     plugins: { items: [], checkedAt: "" },
@@ -586,6 +587,7 @@ class IssueFlowStore {
   repoSettingsFromItems(rows = []) {
     const empty = emptyRepoSettings()
     const settings = {
+      permissions: { ...empty.permissions, items: [] },
       variables: { ...empty.variables, items: [] },
       webhook: {},
       plugins: { ...empty.plugins, items: [] },
@@ -593,6 +595,11 @@ class IssueFlowStore {
     for (const row of rows || []) {
       const data = repoSettingData(row)
       const checkedAt = timestampValue(row.checkedAt)
+      if (row.kind === "permission") {
+        settings.permissions.items.push(data)
+        settings.permissions.checkedAt = latestTimestamp(settings.permissions.checkedAt, checkedAt)
+        continue
+      }
       if (row.kind === "variable") {
         settings.variables.items.push(data)
         settings.variables.checkedAt = latestTimestamp(settings.variables.checkedAt, checkedAt)
@@ -611,6 +618,7 @@ class IssueFlowStore {
         settings.plugins.checkedAt = latestTimestamp(settings.plugins.checkedAt, checkedAt)
       }
     }
+    settings.permissions.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     settings.variables.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     settings.plugins.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     return settings
@@ -1066,6 +1074,15 @@ class IssueFlowStore {
           "variable",
           patch.variables.items || [],
           patch.variables.checkedAt || updatedAt,
+          tx
+        )
+      }
+      if (patch.permissions) {
+        await this.replaceRepoSettingItems(
+          repoId,
+          "permission",
+          patch.permissions.items || [],
+          patch.permissions.checkedAt || updatedAt,
           tx
         )
       }

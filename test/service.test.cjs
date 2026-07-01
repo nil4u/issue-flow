@@ -44,6 +44,7 @@ const {
   getGitlabProjectRole,
   installGitlabProject,
   listGitlabProjectsWithInstallStatus,
+  setGitlabProjectInstallPermission,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 } = require('../apps/api/src/core/gitlab-projects.ts');
@@ -1099,6 +1100,125 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     });
     assert.equal(persistedAuto.data.status, undefined);
     assert.equal(persistedAuto.data.value, 'build');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab install check stops when admin PAT cannot manage the repo', async () => {
+  const { dir, store } = tempStore();
+  let unexpectedFollowup = false;
+  let adminAccessLevel = 30;
+  let memberPostCount = 0;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user' && req.headers.authorization === 'Bearer gl-oauth-user-token') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/user' && req.headers['private-token'] === 'gl-admin-pat') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 200, username: 'issue-flow-bot', name: 'Issue Flow Bot', email: 'bot@example.com' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      if (req.headers.authorization === 'Bearer gl-oauth-user-token') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 42,
+          name: 'App',
+          path_with_namespace: 'team/app',
+          web_url: `${gitlabBase}/team/app`,
+          default_branch: 'main',
+        }));
+        return;
+      }
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/200' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 200, username: 'issue-flow-bot', access_level: adminAccessLevel }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members' && req.method === 'POST') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.equal(body.user_id, '200');
+        assert.equal(body.access_level, 40);
+        memberPostCount += 1;
+        adminAccessLevel = 40;
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 200, username: 'issue-flow-bot', access_level: adminAccessLevel }));
+      });
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/hooks' || req.url.startsWith('/api/v4/projects/42/variables/')) {
+      unexpectedFollowup = true;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{
+        id: '42',
+        name: 'App',
+        pathWithNamespace: 'team/app',
+        webUrl: `${gitlabBase}/team/app`,
+        defaultBranch: 'main',
+      }],
+    });
+
+    const checked = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(checked.status, 200);
+    assert.equal(checked.body.installable, false);
+    assert.equal(checked.body.steps.length, 1);
+    assert.equal(checked.body.steps[0].id, 'permissions');
+    assert.equal(checked.body.steps[0].status, 'blocked');
+    assert.match(checked.body.steps[0].detail, /Issue Flow Bot/);
+    assert.equal(checked.body.steps[0].memberUrl, `${gitlabBase}/team/app/-/project_members`);
+    assert.equal(unexpectedFollowup, false);
+
+    const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    const cached = repo.settings.permissions.items[0];
+    assert.equal(cached.username, 'issue-flow-bot');
+    assert.equal(cached.email, 'bot@example.com');
+    assert.equal(cached.role, 'Developer');
+    assert.equal(cached.canManage, false);
+    assert.equal(cached.status, undefined);
+
+    const fixed = await setGitlabProjectInstallPermission({
+      store,
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(fixed.status, 200);
+    assert.equal(memberPostCount, 1);
+    assert.equal(fixed.body.steps[0].status, 'passed');
+    assert.equal(fixed.body.permission.role, 'Maintainer');
+
+    const updated = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+    assert.equal(updated.settings.permissions.items[0].role, 'Maintainer');
+    assert.equal(updated.settings.permissions.items[0].canManage, true);
   } finally {
     await close(gitlab);
     await store.close();

@@ -30,8 +30,9 @@ import {
 } from "@/issue-flow-model"
 
 const installCheckProgressSteps: InstallCheckProgress["steps"] = [
-  { id: "variables", label: "Variables", status: "pending" },
+  { id: "permissions", label: "Permissions", status: "pending" },
   { id: "webhook", label: "Webhook", status: "pending" },
+  { id: "variables", label: "Variables", status: "pending" },
   { id: "plugins", label: "Plugins", status: "pending" },
 ]
 
@@ -314,41 +315,43 @@ function Dashboard() {
     setCheckProgress(startProgress)
     setChecking(true)
     let nextCheck = installCheck
+    let interrupted = false
     try {
-      for (const checkType of ["variables", "webhook", "plugins"]) {
-        setCheckProgress((current) => ({
-          ...current,
-          open: true,
-          title: "正在检查",
-          detail: installCheckProgressSteps.find((step) => step.id === checkType)?.label || "",
-          steps: current.steps.map((step) => ({
-            ...step,
-            status: step.id === checkType ? "running" : step.status,
-          })),
-        }))
-        const body = await api<InstallCheck>("/api/gitlab/install-check", {
-          method: "POST",
-          body: JSON.stringify({
-            gitServerId: selectedGitServerId,
-            projectId: selectedProject.id,
-            checkType,
-          }),
-        })
+      for (const checkType of ["permissions", "webhook", "variables", "plugins"]) {
+        setCheckProgressStep(checkType, "running", "正在检查")
+        let body = await checkInstallStep(checkType)
         nextCheck = mergeInstallCheck(nextCheck, body)
         setInstallCheck(nextCheck)
+        let checkedStep = body.steps.find((step) => step.id === checkType)
+        if (checkedStep && checkedStep.status !== "passed" && canAutoConfigureStep(checkType)) {
+          setCheckProgressStep(checkType, "running", "自动配置")
+          const fixed = await autoConfigureInstallStep(checkType)
+          nextCheck = mergeInstallCheck(nextCheck, fixed)
+          setInstallCheck(nextCheck)
+          body = await checkInstallStep(checkType)
+          nextCheck = mergeInstallCheck(nextCheck, body)
+          setInstallCheck(nextCheck)
+          checkedStep = body.steps.find((step) => step.id === checkType)
+        }
+        const needsManual = Boolean(checkedStep && checkedStep.status !== "passed")
         setCheckProgress((current) => ({
           ...current,
+          title: needsManual ? "需要人工处理" : current.title,
           steps: current.steps.map((step) => ({
             ...step,
-            status: step.id === checkType ? "passed" : step.status,
+            status: step.id === checkType ? needsManual ? "failed" : "passed" : step.status,
           })),
         }))
+        if (needsManual) {
+          interrupted = true
+          break
+        }
       }
       await loadRepositories(selectedGitServerId)
       setCheckProgress((current) => ({
         ...current,
         open: true,
-        title: "检查完成",
+        title: interrupted ? current.title : "检查完成",
         detail: "",
       }))
       return nextCheck
@@ -367,6 +370,52 @@ function Dashboard() {
     } finally {
       setChecking(false)
     }
+  }
+
+  async function checkInstallStep(checkType: string) {
+    if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
+    return api<InstallCheck>("/api/gitlab/install-check", {
+      method: "POST",
+      body: JSON.stringify({
+        gitServerId: selectedGitServerId,
+        projectId: selectedProject.id,
+        checkType,
+      }),
+    })
+  }
+
+  function canAutoConfigureStep(checkType: string) {
+    return checkType === "permissions" || checkType === "webhook"
+  }
+
+  async function autoConfigureInstallStep(checkType: string) {
+    if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
+    const path = checkType === "permissions"
+      ? "/api/gitlab/install-permission"
+      : checkType === "webhook"
+        ? "/api/gitlab/install-webhook"
+        : ""
+    if (!path) throw new Error("install_step_not_auto_configurable")
+    return api<InstallCheck>(path, {
+      method: "POST",
+      body: JSON.stringify({
+        gitServerId: selectedGitServerId,
+        projectId: selectedProject.id,
+      }),
+    })
+  }
+
+  function setCheckProgressStep(checkType: string, status: InstallCheckProgress["steps"][number]["status"], title: string) {
+    setCheckProgress((current) => ({
+      ...current,
+      open: true,
+      title,
+      detail: installCheckProgressSteps.find((step) => step.id === checkType)?.label || "",
+      steps: current.steps.map((step) => ({
+        ...step,
+        status: step.id === checkType ? status : step.status,
+      })),
+    }))
   }
 
   function closeCheckProgress() {

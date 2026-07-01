@@ -4,6 +4,7 @@ import {
   AlertCircle,
   CheckCircle2,
   CircleDot,
+  ExternalLink,
   GitBranch,
   GitMerge,
   KeyRound,
@@ -369,7 +370,9 @@ type CheckRow = {
   inputRequired?: string[]
   variable?: NonNullable<InstallStep["variables"]>[number]
   plugin?: NonNullable<InstallStep["plugins"]>[number]
+  permission?: NonNullable<InstallStep["permissions"]>[number]
   value?: string
+  valueHref?: string
   configItem?: InstallCheckConfigItem
   actionCount?: number
 }
@@ -418,6 +421,8 @@ function buildInstallGroups({
   const variableByKey = new Map(variables.map((variable) => [variable.key, variable]))
   const plugins = byId.get("plugins")?.plugins || repository?.settings?.plugins?.items || []
   const pluginByKey = new Map(plugins.map((plugin) => [plugin.key, plugin]))
+  const permissions = byId.get("permissions")?.permissions || repository?.settings?.permissions?.items || []
+  const permissionByKey = new Map(permissions.map((permission) => [permission.key, permission]))
   const row = (item: InstallCheckConfigItem): CheckRow => {
     if (item.type === "variable") {
       const checkedVariable = variableByKey.get(item.name)
@@ -441,6 +446,22 @@ function buildInstallGroups({
         status: variable.status || "unknown",
         detail: variableDetail(variable, item.description),
         variable,
+        configItem: item,
+      }
+    }
+    if (item.type === "permission") {
+      const step = byId.get("permissions")
+      const permission = permissionByKey.get("admin-pat")
+      return {
+        id: item.id,
+        title: item.name,
+        description: item.description || "",
+        kind: "auth",
+        status: permissionStatus(permission, step?.status),
+        detail: step?.detail || permissionDetail(permission),
+        value: permissionValue(permission),
+        valueHref: permission?.memberUrl || step?.memberUrl,
+        permission,
         configItem: item,
       }
     }
@@ -513,6 +534,24 @@ function pluginValue(plugin?: NonNullable<CheckRow["plugin"]>) {
   if (plugin.installed && plugin.needsUpgrade) return `${plugin.installedVersion || "unknown"} -> ${plugin.latestVersion || ""}`
   if (plugin.installedVersion) return `v${String(plugin.installedVersion).replace(/^v/, "")}`
   return plugin.installed ? "已安装" : "未安装"
+}
+
+function permissionStatus(permission?: NonNullable<CheckRow["permission"]>, fallback?: CheckStatus): CheckStatus {
+  if (permission?.canManage) return "passed"
+  if (permission) return "blocked"
+  return fallback || "unknown"
+}
+
+function permissionDetail(permission?: NonNullable<CheckRow["permission"]>) {
+  if (!permission) return "等待检查"
+  if (permission.canManage) return permission.role || "Maintainer"
+  const account = permission.name || permission.username || permission.email || "admin PAT 对应账号"
+  return `请将 ${account} 加入该 repo 或上级 group，并授予 Maintainer 权限`
+}
+
+function permissionValue(permission?: NonNullable<CheckRow["permission"]>) {
+  if (!permission) return "未知"
+  return permission.role || "No access"
 }
 
 function variableDetail(variable: NonNullable<CheckRow["variable"]>, fallback: string) {
@@ -600,6 +639,7 @@ function CheckTableRow({
     && !readOnly
     && (!row.plugin?.installed || Boolean(row.plugin?.needsUpgrade) || Boolean(row.plugin?.manifestInvalid))
     && !row.plugin?.pendingMergeRequest?.webUrl
+  const canOpenMembers = row.configItem?.type === "permission" && Boolean(row.valueHref) && row.status !== "passed"
   const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
@@ -615,7 +655,7 @@ function CheckTableRow({
           <small>{row.description}</small>
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
-        {!row.variable && row.value && <RowValue value={row.value} href={row.plugin?.pendingMergeRequest?.webUrl} />}
+        {!row.variable && row.value && <RowValue value={row.value} href={row.valueHref || row.plugin?.pendingMergeRequest?.webUrl} />}
         <div className="check-row-actions">
           {canSetVariable && (
             <Button type="button" size="sm" variant="secondary" onClick={onSetVariable}>设置</Button>
@@ -632,9 +672,17 @@ function CheckTableRow({
               {pluginActionLabel}
             </Button>
           )}
+          {canOpenMembers && (
+            <Button asChild size="sm" variant="secondary">
+              <a href={row.valueHref} target="_blank" rel="noreferrer">
+                <ExternalLink className="size-4" />
+                成员管理
+              </a>
+            </Button>
+          )}
         </div>
       </div>
-      {(row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
+      {(row.permission || row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
     </div>
   )
 }
@@ -768,6 +816,9 @@ function RowValue({ value, href }: { value: string; href?: string }) {
 }
 
 function CheckRowMeta({ row }: { row: CheckRow }) {
+  if (row.permission && row.status !== "passed" && row.detail) {
+    return <div className="check-row-meta warning">{row.detail}</div>
+  }
   if (row.files?.length) {
     return (
       <details className="check-row-meta">

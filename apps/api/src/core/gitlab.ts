@@ -317,6 +317,50 @@ async function getGitlabProjectMember(input = {}) {
   }
 }
 
+async function addGitlabProjectMember(input = {}) {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/members`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        user_id: input.userId,
+        access_level: Number(input.accessLevel || 40),
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
+async function updateGitlabProjectMember(input = {}) {
+  const result = await fetchJson(
+    'PUT',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/members/${encodeURIComponent(input.userId)}`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        access_level: Number(input.accessLevel || 40),
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
+async function upsertGitlabProjectMember(input = {}) {
+  try {
+    return await addGitlabProjectMember(input);
+  } catch (error) {
+    if (!error || error.status !== 409) {
+      throw error;
+    }
+    return updateGitlabProjectMember(input);
+  }
+}
+
 function gitlabWebhookBody(input = {}) {
   return {
     url: input.webhookUrl,
@@ -689,6 +733,7 @@ export {
   configureGitlabProjectVariables,
   exchangeGitlabOAuthCode,
   refreshGitlabOAuthToken,
+  addGitlabProjectMember,
   getGitlabCurrentUser,
   getGitlabProjectMember,
   getGitlabProjectForInstall,
@@ -703,6 +748,8 @@ export {
   listGitlabProjects,
   projectApiPath,
   syncGitlabProjectLabels,
+  updateGitlabProjectMember,
+  upsertGitlabProjectMember,
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
   validateGitlabToken,

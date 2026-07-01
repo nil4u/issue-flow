@@ -28,6 +28,30 @@ export const gitlabInstallCheckConfig = {
   provider: "gitlab",
   groups: [
     {
+      id: "permissions",
+      title: "Permissions",
+      items: [
+        {
+          id: "permission:admin-pat",
+          type: "permission",
+          name: "Admin PAT",
+          description: "issue-flow 后台处理 webhook、同步状态和执行 GitLab API 操作使用的服务账号权限。",
+        },
+      ],
+    },
+    {
+      id: "webhook",
+      title: "Webhook",
+      items: [
+        {
+          id: "webhook",
+          type: "webhook",
+          name: "GitLab webhook",
+          description: "接收 issue、comment、MR 和 pipeline 事件的 GitLab webhook。",
+        },
+      ],
+    },
+    {
       id: "variables",
       title: "Variables",
       items: [
@@ -93,18 +117,6 @@ export const gitlabInstallCheckConfig = {
             path: "automation.reviewEnabled",
             type: "checkbox",
           },
-        },
-      ],
-    },
-    {
-      id: "webhook",
-      title: "Webhook",
-      items: [
-        {
-          id: "webhook",
-          type: "webhook",
-          name: "GitLab webhook",
-          description: "接收 issue、comment、MR 和 pipeline 事件的 GitLab webhook。",
         },
       ],
     },
