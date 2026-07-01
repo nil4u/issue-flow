@@ -40,9 +40,12 @@ function gitlabCiVariablesForInstall({ config, installConfig }) {
   ];
 }
 
-function missingRequiredVariableKeys(variables = []) {
+function missingRequiredVariableKeys(variables = [], existingByKey = new Map()) {
   return variables
-    .filter((variable) => variable && variable.required !== false && (variable.value === undefined || variable.value === ''))
+    .filter((variable) => variable
+      && variable.required !== false
+      && !existingByKey.has(variable.key)
+      && (variable.value === undefined || variable.value === ''))
     .map((variable) => variable.key);
 }
 
@@ -200,6 +203,22 @@ function mergeVariableCache(existingItems = [], nextVariable = {}) {
   return Array.from(byKey.values()).sort((a, b) => String(a.key || '').localeCompare(String(b.key || '')));
 }
 
+async function loadExistingInstallVariables(apiInput, definitions = []) {
+  const existingByKey = new Map();
+  for (const definition of definitions) {
+    const existing = await getGitlabVariableForInstall(apiInput, definition.key);
+    if (existing) existingByKey.set(definition.key, existing);
+  }
+  return existingByKey;
+}
+
+function variableCacheItems(existingByKey = new Map()) {
+  return Array.from(existingByKey.values())
+    .map((item) => variableCache(item))
+    .filter(Boolean)
+    .sort((a, b) => String(a.key || '').localeCompare(String(b.key || '')));
+}
+
 async function gitlabInstallContext({ store, input = {}, session, env = process.env }) {
   const { server, config } = await resolveGitServer(store, input, session, 'gitlab');
   const token = sessionToken(input, session);
@@ -243,7 +262,6 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
   const defaults = await savedAgentrixDefaults(store, session, env);
   let agentrixDefaults = defaults;
   if (existing) {
-    const existingCredentials = await store.getCredentials(existing.id);
     agentrixDefaults = {
       automation: {
         ...(defaults.automation || {}),
@@ -252,7 +270,7 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
       agentrix: {
         ...(defaults.agentrix || {}),
         ...(existing.agentrix || {}),
-        apiKey: existingCredentials.agentrixApiKey || (defaults.agentrix && defaults.agentrix.apiKey) || '',
+        apiKey: defaults.agentrix && defaults.agentrix.apiKey || '',
       },
     };
   }
@@ -566,7 +584,6 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
 
   const cache = webhookCache(hook);
   await store.updateRepositorySettingsCache(existing.id, { webhook: cache });
-  await store.rotateWebhookSecret(existing.id, webhookSecret);
   const repository = await store.updateRepositoryWebhookCache(existing.id, {
     hookId: cache && cache.hookId || '',
   });
@@ -634,7 +651,6 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
   const userAgentrixDefaults = await savedAgentrixDefaults(store, session, env);
   let agentrixDefaults = userAgentrixDefaults;
   if (existing) {
-    const existingCredentials = await store.getCredentials(existing.id);
     agentrixDefaults = {
       automation: {
         ...(userAgentrixDefaults.automation || {}),
@@ -643,13 +659,16 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
       agentrix: {
         ...(userAgentrixDefaults.agentrix || {}),
         ...(existing.agentrix || {}),
-        apiKey: existingCredentials.agentrixApiKey || (userAgentrixDefaults.agentrix && userAgentrixDefaults.agentrix.apiKey) || '',
+        apiKey: userAgentrixDefaults.agentrix && userAgentrixDefaults.agentrix.apiKey || '',
       },
     };
   }
   const installConfig = mergeAgentrixInstallInput(input, agentrixDefaults, env);
   const installVariables = gitlabCiVariablesForInstall({ config, installConfig });
-  const missingRequiredVariables = missingRequiredVariableKeys(installVariables);
+  const existingVariables = existing
+    ? await loadExistingInstallVariables(apiInput, installVariables)
+    : new Map();
+  const missingRequiredVariables = missingRequiredVariableKeys(installVariables, existingVariables);
   if (missingRequiredVariables.length) {
     return {
       status: 400,
@@ -718,6 +737,15 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
       projectIdOrPath: apiInput.projectIdOrPath,
       variables: installVariables,
     });
+    if (existing) {
+      const nextVariables = await loadExistingInstallVariables(apiInput, installVariables);
+      await store.updateRepositorySettingsCache(existing.id, {
+        variables: {
+          items: variableCacheItems(nextVariables),
+          checkedAt: new Date().toISOString(),
+        },
+      });
+    }
   } catch (error) {
     return {
       status: 502,
@@ -757,7 +785,6 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
         },
       };
     }
-    await store.rotateWebhookSecret(existing.id, webhookSecret);
     const updated = await store.updateRepositoryWebhookCache(existing.id, {
       hookId: hook && hook.id ? String(hook.id) : existing.webhook && existing.webhook.hookId || '',
       bootstrapCommitId: bootstrap && bootstrap.commitId || '',
@@ -798,7 +825,6 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
     gitServerId: server.id,
     userId: session && session.userId || input.userId || '',
     projectPath: project.pathWithNamespace,
-    webhookSecret,
     automation: installConfig.automation,
     agentrix: installConfig.agentrix,
   }, validation);
@@ -811,7 +837,7 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
       authType,
       projectIdOrPath: apiInput.projectIdOrPath,
       webhookUrl: publicRepo.webhookUrl,
-      webhookSecret: created.webhookSecret,
+      webhookSecret,
     });
     const updated = await store.updateRepositoryWebhookCache(created.repo.id, {
       hookId: hook && hook.id ? String(hook.id) : '',

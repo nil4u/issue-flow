@@ -78,8 +78,6 @@ async function createRepository({ store, basePublicUrl, input = {}, userId = '',
     status: 201,
     body: {
       repository: repoWithWebhook(basePublicUrl, created.repo),
-      webhookSecret: created.webhookSecret,
-      secretShownOnce: true,
     },
   };
 }
@@ -132,25 +130,11 @@ async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = 
   };
 }
 
-async function rotateRepositoryWebhookSecret({ store, basePublicUrl, repoId, input = {}, userId = '' }) {
-  await requireAccessibleRepo(store, repoId, userId);
-  const rotated = await store.rotateWebhookSecret(repoId, input.webhookSecret || '');
-  return {
-    status: 200,
-    body: {
-      repository: repoWithWebhook(basePublicUrl, rotated.repo),
-      webhookSecret: rotated.webhookSecret,
-      secretShownOnce: true,
-    },
-  };
-}
-
 export {
   configureRepositoryAgentrix,
   createRepository,
   getRepository,
   listDeliveries,
   listRepositories,
-  rotateRepositoryWebhookSecret,
   validateRepositoryToken,
 }

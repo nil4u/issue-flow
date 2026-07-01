@@ -17,7 +17,7 @@ function writeEventTemp(payload) {
   };
 }
 
-function buildDispatchOptions(repo, credentials) {
+function buildDispatchOptions(repo, secrets) {
   const automation = repo.automation || {};
   const agentrix = repo.agentrix || {};
   return {
@@ -27,20 +27,20 @@ function buildDispatchOptions(repo, credentials) {
     gitlabProject: repo.projectId || repo.projectPath,
     gitlabUrl: repo.baseUrl,
     gitlabApiUrl: repo.apiUrl,
-    gitlabToken: credentials.providerToken,
+    gitlabToken: secrets.providerToken,
     gitlabTokenAuth: repo.tokenAuth || 'bearer',
     autoDefault: automation.autoDefault || 'triage',
     reviewEnabled: automation.reviewEnabled ? 'true' : 'false',
     runtime: 'agentrix',
     baseUrl: agentrix.baseUrl || '',
-    apiKey: credentials.agentrixApiKey || '',
+    apiKey: secrets.agentrixApiKey || '',
     agent: automation.agent || '',
     runnerId: automation.runnerId || agentrix.runnerId || '',
     responseMode: automation.responseMode || '',
   };
 }
 
-async function dispatchGitlabEvent(routeAction, repo, credentials, payload) {
+async function dispatchGitlabEvent(routeAction, repo, secrets, payload) {
   if (routeAction === 'ignored') {
     return {
       action: 'ignored',
@@ -50,7 +50,7 @@ async function dispatchGitlabEvent(routeAction, repo, credentials, payload) {
 
   const temp = writeEventTemp(payload);
   const options = {
-    ...buildDispatchOptions(repo, credentials),
+    ...buildDispatchOptions(repo, secrets),
     event: temp.eventPath,
   };
 

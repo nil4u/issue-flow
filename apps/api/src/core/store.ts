@@ -237,7 +237,6 @@ class IssueFlowStore {
     const projectId = repo.projectId || repo.serverRepoId || ""
     const webhook = repo.webhook || {}
     const {
-      credentialStatus,
       install,
       installed,
       installedRepoId,
@@ -946,16 +945,6 @@ class IssueFlowStore {
     return undefined
   }
 
-  async getCredentials(repoId) {
-    await this.ready
-    const credentials = await this.db.credential.findUnique({ where: { repoId } }) || {}
-    return {
-      providerToken: "",
-      webhookSecret: this.decrypt(credentials.webhookSecret || ""),
-      agentrixApiKey: this.decrypt(credentials.agentrixApiKey || ""),
-    }
-  }
-
   async createRepository(input = {}, validation = {}) {
     await this.ready
     const repoIdentity = normalizeRepoIdentity({
@@ -978,7 +967,6 @@ class IssueFlowStore {
       : undefined
     const id = input.id || existingRepo && existingRepo.id || randomId("repo")
     const createdAt = nowIso()
-    const webhookSecret = input.webhookSecret || crypto.randomBytes(24).toString("hex")
     const repo = {
       id,
       provider: input.provider || "",
@@ -991,10 +979,7 @@ class IssueFlowStore {
       defaultBranch: validation.defaultBranch || input.defaultBranch || "",
       automation: normalizeAutomation(input.automation || {}),
       agentrix: normalizeAgentrix(input.agentrix || {}, fingerprintSecret(input.agentrix && input.agentrix.apiKey)),
-      webhook: {
-        secretFingerprint: fingerprintSecret(webhookSecret),
-        lastRotatedAt: createdAt,
-      },
+      webhook: {},
       lastDeliveryAt: "",
       lastDispatchAt: "",
       lastError: "",
@@ -1011,23 +996,9 @@ class IssueFlowStore {
           repoId: repo.id,
         }, tx)
       }
-      await tx.credential.upsert({
-        where: { repoId: repo.id },
-        create: {
-          repoId: repo.id,
-          webhookSecret: this.encrypt(webhookSecret),
-          agentrixApiKey: this.encrypt(input.agentrix && input.agentrix.apiKey || ""),
-          updatedAt: asDate(createdAt),
-        },
-        update: {
-          webhookSecret: this.encrypt(webhookSecret),
-          agentrixApiKey: this.encrypt(input.agentrix && input.agentrix.apiKey || ""),
-          updatedAt: asDate(createdAt),
-        },
-      })
     })
 
-    return { repo: this.publicRepository(repo), webhookSecret }
+    return { repo: this.publicRepository(repo) }
   }
 
   async updateRepositoryAutomation(repoId, input = {}) {
@@ -1044,24 +1015,7 @@ class IssueFlowStore {
     repo.agentrix = normalizeAgentrix(input.agentrix || repo.agentrix || {}, fingerprintSecret(input.agentrix && input.agentrix.apiKey))
     repo.updatedAt = nowIso()
 
-    await this.db.$transaction(async (tx) => {
-      if (input.agentrix && Object.prototype.hasOwnProperty.call(input.agentrix, "apiKey")) {
-        await tx.credential.upsert({
-          where: { repoId },
-          create: {
-            repoId,
-            webhookSecret: "",
-            agentrixApiKey: this.encrypt(input.agentrix.apiKey || ""),
-            updatedAt: asDate(repo.updatedAt),
-          },
-          update: {
-            agentrixApiKey: this.encrypt(input.agentrix.apiKey || ""),
-            updatedAt: asDate(repo.updatedAt),
-          },
-        })
-      }
-      await this.saveRepository(repo, tx)
-    })
+    await this.saveRepository(repo)
     return this.publicRepository(repo)
   }
 
@@ -1124,36 +1078,6 @@ class IssueFlowStore {
       })
     })
     return this.getRepository(repoId)
-  }
-
-  async rotateWebhookSecret(repoId, explicitSecret = "") {
-    const repo = await this.getRepository(repoId)
-    if (!repo) return undefined
-    const secret = explicitSecret || crypto.randomBytes(24).toString("hex")
-    const updatedAt = nowIso()
-    await this.db.$transaction(async (tx) => {
-      await tx.credential.upsert({
-        where: { repoId },
-        create: {
-          repoId,
-          webhookSecret: this.encrypt(secret),
-          agentrixApiKey: "",
-          updatedAt: asDate(updatedAt),
-        },
-        update: {
-          webhookSecret: this.encrypt(secret),
-          updatedAt: asDate(updatedAt),
-        },
-      })
-      repo.webhook = {
-        ...(repo.webhook || {}),
-        secretFingerprint: fingerprintSecret(secret),
-        lastRotatedAt: updatedAt,
-      }
-      repo.updatedAt = updatedAt
-      await this.saveRepository(repo, tx)
-    })
-    return { repo: this.publicRepository(repo), webhookSecret: secret }
   }
 
   async findDelivery(repoId, deliveryKey, consumer = "dispatch") {

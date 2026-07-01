@@ -190,7 +190,7 @@ test('API service requires ISSUE_FLOW_BASE_URL at startup', async () => {
   }
 });
 
-test('service store encrypts credentials and public repository hides secret material', async () => {
+test('service store creates repositories without repo credential storage', async () => {
   const { dir, store } = tempStore();
   try {
     await seedGitlabServer(store, 'https://gitlab.example.com');
@@ -211,16 +211,13 @@ test('service store encrypts credentials and public repository hides secret mate
       defaultBranch: 'main',
     });
 
-    const credentials = await store.db.credential.findUnique({ where: { repoId: created.repo.id } });
-    const stateText = JSON.stringify(credentials);
+    const stateText = JSON.stringify(created);
     assert.doesNotMatch(stateText, /glpat-service-token-123/);
     assert.doesNotMatch(stateText, /webhook-secret-123/);
     assert.doesNotMatch(stateText, /agentrix-secret-key/);
-    assert.equal(created.repo.credentialStatus, undefined);
     assert.equal(created.repo.install, undefined);
-    assert.equal(created.repo.webhook.secretFingerprint.length, 12);
+    assert.equal(created.repo.webhook.secretFingerprint, '');
     assert.equal(created.repo.automation.autoDefault, 'triage');
-    assert.equal((await store.getCredentials(created.repo.id)).providerToken, '');
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -698,7 +695,6 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
       baseUrl: gitlabBase,
       apiUrl: `${gitlabBase}/api/v4`,
       projectPath: 'team/app',
-      webhookSecret: 'webhook-secret-123',
     }, {
       status: 'valid',
       projectId: '42',
@@ -706,9 +702,9 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
     });
     assert.equal(created.repo.id, repos[0].id);
     assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 1);
-    assert.ok(await store.db.repoSettingItem.findFirst({
+    assert.equal(await store.db.repoSettingItem.count({
       where: { repoId: repos[0].id, kind: 'webhook', key: 'issue-flow' },
-    }));
+    }), 0);
   } finally {
     await close(gitlab);
     await store.close();
@@ -1058,7 +1054,6 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
     assert.equal(cached.data.url, expectedWebhookUrl);
     assert.equal(cached.data.hookId, '9101');
     assert.equal(cached.data.issuesEvents, true);
-    assert.equal((await store.getCredentials(repo.id)).webhookSecret, 'backend-webhook-secret');
     assert.deepEqual(calls, [
       'GET /api/v4/user',
       'GET /api/v4/projects/42',
@@ -1376,7 +1371,6 @@ test('GitLab login flow lists all visible projects with install status and insta
     assert.doesNotMatch(JSON.stringify(installed.body), /gl-oauth-user-token/);
     assert.doesNotMatch(JSON.stringify(installed.body), /agentrix-secret-key/);
     assert.equal(installed.body.repository.agentrix.baseUrl, 'https://agentrix.xmz.ai');
-    assert.equal((await store.getCredentials(installed.body.repository.id)).webhookSecret, 'backend-webhook-secret');
     assert.ok(labelsSynced.includes('flow::build'));
     assert.ok(labelsSynced.includes('mr-by::build'));
   } finally {
@@ -1486,7 +1480,6 @@ test('GitLab install uses saved user Agentrix defaults without exposing the API 
     assert.equal(installed.body.repository.agentrix.runnerId, 'runner-default');
     assert.equal(installed.body.repository.agentrix.baseUrl, 'https://agentrix.xmz.ai');
     assert.doesNotMatch(JSON.stringify(installed.body), /agentrix-default-key/);
-    assert.equal((await store.getCredentials(installed.body.repository.id)).agentrixApiKey, 'agentrix-default-key');
     assert.ok(labelsSynced.includes('flow::build'));
   } finally {
     await close(gitlab);
@@ -1624,7 +1617,6 @@ test('GitLab install upgrades an already installed repository by rerunning boots
     assert.equal(upgraded.body.repository.webhook.bootstrapCommitId, 'upgrade-commit-sha');
     assert.equal(commitSeen, true);
     assert.equal(hookUpdated, true);
-    assert.equal((await store.getCredentials(existing.repo.id)).webhookSecret, 'backend-webhook-secret');
     assert.ok(labelsSynced.includes('flow::build'));
     assert.deepEqual(variables.sort(), [
       'AGENTRIX_API_KEY',
@@ -1642,7 +1634,7 @@ test('GitLab install upgrades an already installed repository by rerunning boots
   }
 });
 
-test('GitLab install upgrade preserves existing repository Agentrix API key without repo runtime config fields', async () => {
+test('GitLab install upgrade preserves an existing masked GitLab Agentrix API key', async () => {
   const { dir, store } = tempStore();
   const variables = {};
   let hookUpdated = false;
@@ -1683,6 +1675,17 @@ test('GitLab install upgrade preserves existing repository Agentrix API key with
       return;
     }
     if (handleGitlabLabelSync(req, res, { token: 'gl-oauth-user-token' })) {
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/variables/') && req.method === 'GET') {
+      const key = decodeURIComponent(req.url.split('/').pop());
+      if (key === 'AGENTRIX_API_KEY') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ key, value: null, masked: true }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: '404 Variable Not Found' }));
       return;
     }
     if (req.url.startsWith('/api/v4/projects/42/variables/') && req.method === 'PUT') {
@@ -1749,13 +1752,11 @@ test('GitLab install upgrade preserves existing repository Agentrix API key with
 
     assert.equal(upgraded.status, 200);
     assert.equal(hookUpdated, true);
-    assert.equal((await store.getCredentials(existing.repo.id)).webhookSecret, 'backend-webhook-secret');
     assert.equal(upgraded.body.repository.automation.autoDefault, 'triage');
     assert.equal(upgraded.body.repository.automation.reviewEnabled, false);
     assert.equal(upgraded.body.repository.automation.agent, 'codex');
     assert.equal(upgraded.body.repository.agentrix.runnerId, 'repo-runner');
-    assert.equal((await store.getCredentials(existing.repo.id)).agentrixApiKey, 'repo-agentrix-key');
-    assert.equal(variables.AGENTRIX_API_KEY, 'repo-agentrix-key');
+    assert.equal(variables.AGENTRIX_API_KEY, undefined);
     assert.equal(variables.AGENTRIX_ISSUE_FLOW_AGENT, 'codex');
     assert.equal(variables.AGENTRIX_RUNNER_ID, 'repo-runner');
     assert.equal(variables.ISSUE_FLOW_AUTO_DEFAULT, 'triage');
@@ -2023,11 +2024,11 @@ test('service dispatch options keep GitLab token out of Agentrix task env', () =
       baseUrl: 'https://agentrix.example.com',
     },
   };
-  const credentials = {
+  const secrets = {
     providerToken: 'glpat-provider-token',
     agentrixApiKey: 'agentrix-api-key',
   };
-  const options = buildDispatchOptions(repo, credentials);
+  const options = buildDispatchOptions(repo, secrets);
   assert.equal(options.gitServerId, 'gitlab-main');
   assert.equal(options.gitlabToken, 'glpat-provider-token');
   assert.equal(options.gitlabTokenAuth, 'bearer');

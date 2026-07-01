@@ -57,13 +57,13 @@ function bridgeEventSummary(event = {}) {
   };
 }
 
-function createGitLabWebhookBridge({ store, repo, credentials }) {
+function createGitLabWebhookBridge({ store, repo, secrets }) {
   return new GitLabWebhookBridge({
     gitlab: {
       baseUrl: repo.baseUrl,
       apiUrl: repo.apiUrl,
-      token: credentials.providerToken,
-      webhookSecret: credentials.webhookSecret,
+      token: secrets.providerToken,
+      webhookSecret: secrets.webhookSecret,
     },
     store: createWebhookBridgeStore(store, repo.id),
     targets: [
@@ -71,7 +71,7 @@ function createGitLabWebhookBridge({ store, repo, credentials }) {
         variables: composeVariables([
           defaultVariables(),
           staticVariables({
-            AGENTRIX_GIT_SERVER_ID: credentials.agentrixGitServerId || repo.gitServerId || '',
+            AGENTRIX_GIT_SERVER_ID: secrets.agentrixGitServerId,
           }),
         ]),
       }),
@@ -110,12 +110,12 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
     headers,
     body: payload,
   };
-  const credentials = {
+  const secrets = {
     providerToken: config.adminPat,
     webhookSecret: config.webhookSecret,
     agentrixGitServerId: config.agentrixGitServerId,
   };
-  const bridge = createGitLabWebhookBridge({ store, repo, credentials });
+  const bridge = createGitLabWebhookBridge({ store, repo, secrets });
   if (!repo.baseUrl || !repo.apiUrl) {
     return { status: 400, body: { error: 'git_server_incomplete' } };
   }

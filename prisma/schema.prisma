@@ -122,15 +122,6 @@ model UserRepoAccess {
   @@map("user_repo_accesses")
 }
 
-model Credential {
-  repoId         String   @id @map("repo_id")
-  webhookSecret  String   @default("") @map("webhook_secret")
-  agentrixApiKey String   @default("") @map("agentrix_api_key")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  @@map("credentials")
-}
-
 model WebhookDelivery {
   id          String   @id
   repoId      String   @map("repo_id")

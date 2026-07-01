@@ -6,7 +6,6 @@ import {
   getRepository,
   listDeliveries,
   listRepositories,
-  rotateRepositoryWebhookSecret,
   validateRepositoryToken,
 } from "../core/repositories.js"
 import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.js"
@@ -65,17 +64,6 @@ export async function repositoryRoutes(app: FastifyInstance) {
       ...contextFromRequest(request),
       repoId,
       userId: await userIdFromRequest(request),
-    })
-    return reply.code(result.status).send(result.body)
-  })
-
-  app.post("/api/repositories/:repoId/rotate-webhook-secret", async (request, reply) => {
-    const { repoId } = request.params as { repoId: string }
-    const result = await rotateRepositoryWebhookSecret({
-      ...contextFromRequest(request),
-      repoId,
-      userId: await userIdFromRequest(request),
-      input: request.body || {},
     })
     return reply.code(result.status).send(result.body)
   })
