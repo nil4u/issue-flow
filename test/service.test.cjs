@@ -654,7 +654,9 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
     });
     assert.equal(created.repo.id, repos[0].id);
     assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 1);
-    assert.ok(await store.db.repoSettings.findUnique({ where: { repoId: repos[0].id } }));
+    assert.ok(await store.db.repoSettingItem.findFirst({
+      where: { repoId: repos[0].id, kind: 'webhook', key: 'issue-flow' },
+    }));
   } finally {
     await close(gitlab);
     await store.close();
@@ -770,7 +772,11 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(apiKey.value, '*****');
     assert.equal(apiKey.scope, '*');
     const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
-    assert.equal(repo.settings.variables.items.find((item) => item.key === 'AGENTRIX_API_KEY').value, '*****');
+    const cachedApiKey = repo.settings.variables.items.find((item) => item.key === 'AGENTRIX_API_KEY');
+    assert.equal(cachedApiKey.value, '*****');
+    assert.equal(cachedApiKey.status, undefined);
+    assert.equal(cachedApiKey.detail, undefined);
+    assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'variable' } }), 5);
 
     const saved = await setGitlabProjectInstallVariable({
       store,
@@ -787,6 +793,11 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(saved.body.variable.value, 'build');
     const updated = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
     assert.equal(updated.settings.variables.items.find((item) => item.key === 'ISSUE_FLOW_AUTO_DEFAULT').value, 'build');
+    const persistedAuto = await store.db.repoSettingItem.findFirst({
+      where: { repoId: updated.id, kind: 'variable', key: 'ISSUE_FLOW_AUTO_DEFAULT' },
+    });
+    assert.equal(persistedAuto.data.status, undefined);
+    assert.equal(persistedAuto.data.value, 'build');
   } finally {
     await close(gitlab);
     await store.close();

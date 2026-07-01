@@ -273,12 +273,16 @@ function buildInstallGroups({
   const row = (item: InstallCheckConfigItem): CheckRow => {
     if (item.type === "variable") {
       const checkedVariable = variableByKey.get(item.name)
+      const cached = Boolean(checkedVariable)
+      const exists = checkedVariable?.exists ?? cached
+      const status = checkedVariable?.status || (cached ? "passed" : "unknown")
       const variable = {
         key: item.name,
         label: item.name,
         description: item.description,
-        status: "unknown" as CheckStatus,
         ...(checkedVariable || {}),
+        exists,
+        status: status as CheckStatus,
         control: checkedVariable?.control || item.control,
       }
       return {

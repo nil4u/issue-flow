@@ -25,13 +25,17 @@ CREATE TABLE "repos" (
 );
 
 CREATE TABLE "repo_settings" (
+    "id" TEXT NOT NULL,
     "repo_id" TEXT NOT NULL,
-    "variables" JSONB NOT NULL,
-    "webhook" JSONB NOT NULL,
+    "kind" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "source" TEXT NOT NULL DEFAULT '',
+    "data" JSONB NOT NULL,
+    "checked_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "repo_settings_pkey" PRIMARY KEY ("repo_id")
+    CONSTRAINT "repo_settings_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "user_repo_accesses" (
@@ -47,6 +51,8 @@ CREATE TABLE "user_repo_accesses" (
 CREATE UNIQUE INDEX "repos_git_server_id_server_repo_id_key" ON "repos"("git_server_id", "server_repo_id");
 CREATE INDEX "repos_git_server_id_idx" ON "repos"("git_server_id");
 CREATE INDEX "repos_full_name_idx" ON "repos"("full_name");
+CREATE UNIQUE INDEX "repo_settings_repo_id_kind_key_key" ON "repo_settings"("repo_id", "kind", "key");
+CREATE INDEX "repo_settings_repo_id_kind_idx" ON "repo_settings"("repo_id", "kind");
 CREATE INDEX "user_repo_accesses_user_id_git_server_id_idx" ON "user_repo_accesses"("user_id", "git_server_id");
 CREATE INDEX "user_repo_accesses_repo_id_idx" ON "user_repo_accesses"("repo_id");
 

@@ -81,7 +81,7 @@ model Repo {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   gitServer GitServer?    @relation(fields: [gitServerId], references: [id], onDelete: SetNull)
-  settings  RepoSettings?
+  settings  RepoSettingItem[]
 
   @@unique([gitServerId, serverRepoId])
   @@index([gitServerId])
@@ -89,15 +89,21 @@ model Repo {
   @@map("repos")
 }
 
-model RepoSettings {
-  repoId    String   @id @map("repo_id")
-  variables Json
-  webhook   Json
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model RepoSettingItem {
+  id        String    @id
+  repoId    String    @map("repo_id")
+  kind      String
+  key       String
+  source    String    @default("")
+  data      Json
+  checkedAt DateTime? @map("checked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   repo Repo @relation(fields: [repoId], references: [id], onDelete: Cascade)
 
+  @@unique([repoId, kind, key])
+  @@index([repoId, kind])
   @@map("repo_settings")
 }
 

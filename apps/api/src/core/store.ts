@@ -153,9 +153,24 @@ function jsonValue(value, fallback) {
 
 function emptyRepoSettings() {
   return {
-    variables: { items: [] },
+    variables: { items: [], checkedAt: "" },
     webhook: {},
   }
+}
+
+function repoSettingData(row) {
+  const data = rowData(row) || {}
+  return {
+    ...data,
+    key: data.key || row.key || "",
+    source: data.source || row.source || "",
+  }
+}
+
+function latestTimestamp(current = "", next = "") {
+  if (!next) return current
+  if (!current) return next
+  return String(next) > String(current) ? next : current
 }
 
 class IssueFlowStore {
@@ -545,32 +560,35 @@ class IssueFlowStore {
     return this.getGitServer(normalized.id, { includeSecret: true })
   }
 
-  repoSettingsFromRecord(row) {
+  repoSettingsFromItems(rows = []) {
     const empty = emptyRepoSettings()
-    if (!row) return empty
-    return {
-      variables: jsonValue(row.variables, empty.variables),
-      webhook: jsonValue(row.webhook, empty.webhook),
-      createdAt: timestampValue(row.createdAt),
-      updatedAt: timestampValue(row.updatedAt),
+    const settings = {
+      variables: { ...empty.variables, items: [] },
+      webhook: {},
     }
+    for (const row of rows || []) {
+      const data = repoSettingData(row)
+      const checkedAt = timestampValue(row.checkedAt)
+      if (row.kind === "variable") {
+        settings.variables.items.push(data)
+        settings.variables.checkedAt = latestTimestamp(settings.variables.checkedAt, checkedAt)
+        continue
+      }
+      if (row.kind === "webhook") {
+        settings.webhook = {
+          ...settings.webhook,
+          ...data,
+          checkedAt: latestTimestamp(settings.webhook.checkedAt || "", checkedAt),
+        }
+      }
+    }
+    settings.variables.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
+    return settings
   }
 
-  repoSettingsFields(repo = {}, timestamp = nowIso()) {
-    const current = repo.settings || {}
-    return {
-      variables: current.variables || { items: [] },
-      webhook: {
-        ...(current.webhook || {}),
-        ...(repo.webhook || {}),
-      },
-      updatedAt: asDate(timestamp),
-    }
-  }
-
-  repoFromRecord(row, settingsRow, gitServer) {
+  repoFromRecord(row, settingRows = [], gitServer) {
     if (!row) return undefined
-    const settings = this.repoSettingsFromRecord(settingsRow)
+    const settings = this.repoSettingsFromItems(settingRows)
     const identity = {
       id: row.id,
       provider: gitServer && gitServer.type || "",
@@ -599,6 +617,78 @@ class IssueFlowStore {
       updatedAt: timestampValue(row.updatedAt),
     }
     return this.publicRepository(identity)
+  }
+
+  settingItemInput(item = {}, checkedAt = nowIso()) {
+    const data = item.data || item
+    return {
+      kind: String(item.kind || "").trim(),
+      key: String(item.key || data.key || "").trim(),
+      source: String(item.source || data.source || "").trim(),
+      data: {
+        ...data,
+        key: data.key || item.key || "",
+        source: data.source || item.source || "",
+      },
+      checkedAt: checkedAt ? asDate(checkedAt) : undefined,
+    }
+  }
+
+  async upsertRepoSettingItem(repoId, item = {}, client = this.db) {
+    const normalized = this.settingItemInput(item, item.checkedAt || nowIso())
+    if (!repoId || !normalized.kind || !normalized.key) return undefined
+    const now = new Date()
+    return client.repoSettingItem.upsert({
+      where: {
+        repoId_kind_key: {
+          repoId,
+          kind: normalized.kind,
+          key: normalized.key,
+        },
+      },
+      create: {
+        id: randomId("repo_setting"),
+        repoId,
+        kind: normalized.kind,
+        key: normalized.key,
+        source: normalized.source,
+        data: normalized.data,
+        checkedAt: normalized.checkedAt,
+        createdAt: now,
+        updatedAt: now,
+      },
+      update: {
+        source: normalized.source,
+        data: normalized.data,
+        checkedAt: normalized.checkedAt,
+        updatedAt: now,
+      },
+    })
+  }
+
+  async replaceRepoSettingItems(repoId, kind, items = [], checkedAt = nowIso(), client = this.db) {
+    if (!repoId || !kind) return { count: 0 }
+    await client.repoSettingItem.deleteMany({ where: { repoId, kind } })
+    const rows = (items || [])
+      .map((item) => this.settingItemInput({ ...item, kind }, checkedAt))
+      .filter((item) => item.key)
+    if (!rows.length) return { count: 0 }
+    const now = new Date()
+    await client.repoSettingItem.createMany({
+      data: rows.map((item) => ({
+        id: randomId("repo_setting"),
+        repoId,
+        kind: item.kind,
+        key: item.key,
+        source: item.source,
+        data: item.data,
+        checkedAt: item.checkedAt,
+        createdAt: now,
+        updatedAt: now,
+      })),
+      skipDuplicates: true,
+    })
+    return { count: rows.length }
   }
 
   async upsertRepo(input = {}, client = this.db) {
@@ -725,26 +815,8 @@ class IssueFlowStore {
         defaultBranch: project.defaultBranch,
         url: project.url || project.webUrl,
       })
-      let settings = await this.db.repoSettings.findUnique({ where: { repoId: row.id } })
-      if (!settings) {
-        const now = nowIso()
-        const fields = this.repoSettingsFields({
-          id: row.id,
-          gitServerId: row.gitServerId || "",
-          projectId: row.serverRepoId || "",
-          projectPath: row.fullName || "",
-          defaultBranch: row.defaultBranch || "",
-          webUrl: row.url || "",
-        }, now)
-        settings = await this.db.repoSettings.create({
-          data: {
-            repoId: row.id,
-            ...fields,
-            createdAt: asDate(now),
-          },
-        })
-      }
-      rows.push(this.repoFromRecord(row, settings, gitServer))
+      const settingRows = await this.db.repoSettingItem.findMany({ where: { repoId: row.id } })
+      rows.push(this.repoFromRecord(row, settingRows, gitServer))
     }
     if (input.userId) {
       await this.replaceUserRepoAccesses({
@@ -759,16 +831,7 @@ class IssueFlowStore {
   async insertRepository(repo, client = this.db) {
     const identity = await this.upsertRepo(repo, client)
     repo.id = identity.id
-    const fields = this.repoSettingsFields(repo, repo.updatedAt || repo.createdAt || nowIso())
-    await client.repoSettings.upsert({
-      where: { repoId: repo.id },
-      create: {
-        repoId: repo.id,
-        ...fields,
-        createdAt: asDate(repo.createdAt),
-      },
-      update: fields,
-    })
+    await this.saveRepositorySettingItems(repo, client)
   }
 
   async saveRepository(repo, client = this.db) {
@@ -776,16 +839,28 @@ class IssueFlowStore {
     repo.updatedAt = repo.updatedAt || nowIso()
     const identity = await this.upsertRepo(repo, client)
     repo.id = identity.id
-    const fields = this.repoSettingsFields(repo, repo.updatedAt)
-    await client.repoSettings.upsert({
-      where: { repoId: repo.id },
-      create: {
-        repoId: repo.id,
-        ...fields,
-        createdAt: asDate(repo.createdAt || repo.updatedAt),
-      },
-      update: fields,
-    })
+    await this.saveRepositorySettingItems(repo, client)
+  }
+
+  async saveRepositorySettingItems(repo, client = this.db) {
+    const checkedAt = repo.updatedAt || repo.createdAt || nowIso()
+    const variables = repo.settings && repo.settings.variables && repo.settings.variables.items || []
+    if (variables.length) {
+      await this.replaceRepoSettingItems(repo.id, "variable", variables, repo.settings.variables.checkedAt || checkedAt, client)
+    }
+    const webhook = {
+      ...(repo.settings && repo.settings.webhook || {}),
+      ...(repo.webhook || {}),
+    }
+    if (Object.keys(webhook).length) {
+      await this.upsertRepoSettingItem(repo.id, {
+        kind: "webhook",
+        key: webhook.key || "issue-flow",
+        source: webhook.source || "gitlab",
+        data: webhook,
+        checkedAt,
+      }, client)
+    }
   }
 
   async listRepositories(options = {}) {
@@ -806,10 +881,14 @@ class IssueFlowStore {
       ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
     }
     const rows = await this.db.repo.findMany({ where, orderBy: { fullName: "asc" } })
-    const settingsRows = rows.length
-      ? await this.db.repoSettings.findMany({ where: { repoId: { in: rows.map((row) => row.id) } } })
+    const settingRows = rows.length
+      ? await this.db.repoSettingItem.findMany({ where: { repoId: { in: rows.map((row) => row.id) } } })
       : []
-    const settingsById = new Map(settingsRows.map((row) => [row.repoId, row]))
+    const settingsById = new Map()
+    for (const item of settingRows) {
+      if (!settingsById.has(item.repoId)) settingsById.set(item.repoId, [])
+      settingsById.get(item.repoId).push(item)
+    }
     const gitServers = await this.listGitServers()
     const serverById = new Map(gitServers.map((server) => [server.id, server]))
     return rows.map((row) => this.repoFromRecord(row, settingsById.get(row.id), serverById.get(row.gitServerId || "")))
@@ -819,7 +898,7 @@ class IssueFlowStore {
     await this.ready
     const row = await this.db.repo.findUnique({ where: { id } })
     if (!row) return undefined
-    const settings = await this.db.repoSettings.findUnique({ where: { repoId: id } })
+    const settings = await this.db.repoSettingItem.findMany({ where: { repoId: id } })
     const gitServer = row.gitServerId ? await this.getGitServer(row.gitServerId) : undefined
     return this.repoFromRecord(row, settings, gitServer)
   }
@@ -841,7 +920,7 @@ class IssueFlowStore {
       take: 10,
     })
     for (const row of rows) {
-      const settings = await this.db.repoSettings.findUnique({ where: { repoId: row.id } })
+      const settings = await this.db.repoSettingItem.findMany({ where: { repoId: row.id } })
       const gitServer = row.gitServerId ? await this.getGitServer(row.gitServerId) : undefined
       return this.repoFromRecord(row, settings, gitServer)
     }
@@ -994,16 +1073,35 @@ class IssueFlowStore {
   async updateRepositorySettingsCache(repoId, patch = {}) {
     const repo = await this.getRepository(repoId)
     if (!repo) return undefined
-    const settings = {
-      ...emptyRepoSettings(),
-      ...(repo.settings || {}),
-      variables: patch.variables || repo.settings && repo.settings.variables || emptyRepoSettings().variables,
-      webhook: patch.webhook || repo.settings && repo.settings.webhook || emptyRepoSettings().webhook,
-    }
-    repo.settings = settings
-    repo.updatedAt = nowIso()
-    await this.saveRepository(repo)
-    return this.publicRepository(repo)
+    const updatedAt = nowIso()
+    await this.db.$transaction(async (tx) => {
+      if (patch.variables) {
+        await this.replaceRepoSettingItems(
+          repoId,
+          "variable",
+          patch.variables.items || [],
+          patch.variables.checkedAt || updatedAt,
+          tx
+        )
+      }
+      if (patch.webhook) {
+        await this.upsertRepoSettingItem(repoId, {
+          kind: "webhook",
+          key: patch.webhook.key || "issue-flow",
+          source: patch.webhook.source || "gitlab",
+          data: {
+            ...(repo.settings && repo.settings.webhook || {}),
+            ...patch.webhook,
+          },
+          checkedAt: patch.webhook.checkedAt || updatedAt,
+        }, tx)
+      }
+      await tx.repo.update({
+        where: { id: repoId },
+        data: { updatedAt: asDate(updatedAt) },
+      })
+    })
+    return this.getRepository(repoId)
   }
 
   async rotateWebhookSecret(repoId, explicitSecret = "") {
