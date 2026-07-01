@@ -112,6 +112,7 @@ function InstallConsole({
   const accessKnown = projectAccess?.accessLevelKnown === true
   const readOnly = !canManage
   const roleText = loadingProjectAccess
+    || !projectAccess
     ? "正在读取权限..."
     : canManage
       ? `当前角色 ${projectAccess?.role || "Maintainer"}`

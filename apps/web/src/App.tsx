@@ -243,8 +243,8 @@ function Dashboard() {
     setRuns(runBody.runs || [])
   }
 
-  async function loadProjectAccess() {
-    if (!selectedProject || !selectedGitServerId) {
+  async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
+    if (!project || !gitServerId) {
       setProjectAccess(undefined)
       return undefined
     }
@@ -253,8 +253,8 @@ function Dashboard() {
       const body = await api<{ access: ProjectAccess }>("/api/gitlab/project-role", {
         method: "POST",
         body: JSON.stringify({
-          gitServerId: selectedGitServerId,
-          projectId: selectedProject.id,
+          gitServerId,
+          projectId: project.id,
         }),
       })
       setProjectAccess(body.access)
@@ -539,14 +539,14 @@ function Dashboard() {
   }, [selectedProject?.id])
 
   useEffect(() => {
-    if (activeTab !== "settings" || !selectedGitServerId || !userSession.authenticated) return
+    if (activeTab !== "settings" || !selectedGitServerId || !selectedProject || !userSession.authenticated) return
     void Promise.all([
       loadAgentrixDefaults(selectedGitServerId),
-      loadProjectAccess(),
+      loadProjectAccess(selectedProject, selectedGitServerId),
     ]).catch((error) => {
       notifyError(error, "加载设置失败")
     })
-  }, [activeTab, selectedGitServerId, selectedProjectId, userSession.authenticated])
+  }, [activeTab, selectedGitServerId, selectedProject?.id, userSession.authenticated])
 
   useEffect(() => {
     void loadActivity(selectedRepo?.id).catch((error) => {
