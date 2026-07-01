@@ -208,10 +208,12 @@ function InstallConsole({
   repository,
   defaults,
   installCheck,
+  checkProgress,
   checking,
   projectAccess,
   loadingProjectAccess,
   onCheck,
+  onCloseCheckProgress,
   onInstallPlugin,
   onSetVariable,
   onSetWebhook,
@@ -342,6 +344,11 @@ function InstallConsole({
         }}
         onValueChange={setEditingValue}
         onSave={saveVariable}
+      />
+      <CheckProgressDialog
+        checking={checking}
+        progress={checkProgress}
+        onClose={onCloseCheckProgress}
       />
     </div>
   )
@@ -675,6 +682,55 @@ function VariableSettingsDialog({
             保存
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function CheckProgressDialog({
+  checking,
+  onClose,
+  progress,
+}: {
+  checking: boolean
+  onClose: () => void
+  progress?: RepoWorkspaceProps["checkProgress"]
+}) {
+  const open = Boolean(progress?.open)
+  const title = progress?.title || "正在检查"
+  const detail = progress?.detail || (checking ? "按顺序检查配置项" : "检查结果已更新")
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen) onClose()
+    }}>
+      <DialogContent className="check-progress-dialog">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="check-progress-body">
+          <p>{detail}</p>
+          <div className="check-progress-list">
+            {(progress?.steps || []).map((step) => (
+              <div className={`check-progress-step ${step.status}`} key={step.id}>
+                <span className="check-progress-step-icon">
+                  {step.status === "running"
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : step.status === "passed"
+                      ? <CheckCircle2 className="size-4" />
+                      : step.status === "failed"
+                        ? <AlertCircle className="size-4" />
+                        : <CircleDot className="size-4" />}
+                </span>
+                <strong>{step.label}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+        {!checking && (
+          <div className="check-progress-actions">
+            <Button type="button" variant="secondary" onClick={onClose}>完成</Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

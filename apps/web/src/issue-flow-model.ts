@@ -182,6 +182,17 @@ export type InstallCheck = {
   repository?: Repository | null
 }
 
+export type InstallCheckProgress = {
+  open: boolean
+  title?: string
+  detail?: string
+  steps: Array<{
+    id: string
+    label: string
+    status: "pending" | "running" | "passed" | "failed"
+  }>
+}
+
 export type ProjectAccess = {
   accessLevel?: number
   accessLevelKnown?: boolean
@@ -237,6 +248,7 @@ export type RepoWorkspaceProps = {
   repository?: Repository
   defaults?: AgentrixDefaults
   installCheck?: InstallCheck
+  checkProgress?: InstallCheckProgress
   checking: boolean
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
@@ -246,6 +258,7 @@ export type RepoWorkspaceProps = {
   onLogin: () => void
   onSyncIssues: () => Promise<void>
   onCheck: () => Promise<InstallCheck | undefined>
+  onCloseCheckProgress: () => void
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onInstallPlugin: () => Promise<InstallCheck | undefined>

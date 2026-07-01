@@ -20,6 +20,7 @@ import {
   type GitEventRow,
   type IssueRow,
   type InstallCheck,
+  type InstallCheckProgress,
   type InstallStep,
   type ProjectAccess,
   type Repository,
@@ -27,6 +28,12 @@ import {
   type UserSession,
   type WorkspaceTab,
 } from "@/issue-flow-model"
+
+const installCheckProgressSteps: InstallCheckProgress["steps"] = [
+  { id: "variables", label: "Variables", status: "pending" },
+  { id: "webhook", label: "Webhook", status: "pending" },
+  { id: "plugins", label: "Plugins", status: "pending" },
+]
 
 function mergeInstallCheck(current: InstallCheck | undefined, next: InstallCheck): InstallCheck {
   const byId = new Map<string, InstallStep>()
@@ -64,6 +71,10 @@ function Dashboard() {
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [agentrixDefaults, setAgentrixDefaults] = useState<AgentrixDefaults>()
   const [installCheck, setInstallCheck] = useState<InstallCheck>()
+  const [checkProgress, setCheckProgress] = useState<InstallCheckProgress>({
+    open: false,
+    steps: installCheckProgressSteps,
+  })
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -294,10 +305,27 @@ function Dashboard() {
       })
       return
     }
+    const startProgress: InstallCheckProgress = {
+      open: true,
+      title: "正在检查",
+      detail: "",
+      steps: installCheckProgressSteps.map((step) => ({ ...step, status: "pending" })),
+    }
+    setCheckProgress(startProgress)
     setChecking(true)
     let nextCheck = installCheck
     try {
       for (const checkType of ["variables", "webhook", "plugins"]) {
+        setCheckProgress((current) => ({
+          ...current,
+          open: true,
+          title: "正在检查",
+          detail: installCheckProgressSteps.find((step) => step.id === checkType)?.label || "",
+          steps: current.steps.map((step) => ({
+            ...step,
+            status: step.id === checkType ? "running" : step.status,
+          })),
+        }))
         const body = await api<InstallCheck>("/api/gitlab/install-check", {
           method: "POST",
           body: JSON.stringify({
@@ -308,14 +336,42 @@ function Dashboard() {
         })
         nextCheck = mergeInstallCheck(nextCheck, body)
         setInstallCheck(nextCheck)
+        setCheckProgress((current) => ({
+          ...current,
+          steps: current.steps.map((step) => ({
+            ...step,
+            status: step.id === checkType ? "passed" : step.status,
+          })),
+        }))
       }
       await loadRepositories(selectedGitServerId)
+      setCheckProgress((current) => ({
+        ...current,
+        open: true,
+        title: "检查完成",
+        detail: "",
+      }))
       return nextCheck
     } catch (error) {
+      setCheckProgress((current) => ({
+        ...current,
+        open: true,
+        title: "检查失败",
+        detail: "",
+        steps: current.steps.map((step) => ({
+          ...step,
+          status: step.status === "running" ? "failed" : step.status,
+        })),
+      }))
       notifyError(error, "检查失败")
     } finally {
       setChecking(false)
     }
+  }
+
+  function closeCheckProgress() {
+    if (checking) return
+    setCheckProgress((current) => ({ ...current, open: false }))
   }
 
   async function setInstallVariable(key: string, input: Record<string, unknown>) {
@@ -619,6 +675,7 @@ function Dashboard() {
             repository={selectedRepo}
             defaults={agentrixDefaults}
             installCheck={installCheck}
+            checkProgress={checkProgress}
             checking={checking}
             projectAccess={projectAccess}
             loadingProjectAccess={loadingProjectAccess}
@@ -628,6 +685,7 @@ function Dashboard() {
             onLogin={() => loginGitLab(selectedGitServerId)}
             onSyncIssues={syncIssues}
             onCheck={runInstallCheck}
+            onCloseCheckProgress={closeCheckProgress}
             onSetVariable={setInstallVariable}
             onSetWebhook={setInstallWebhook}
             onInstallPlugin={installPlugin}
