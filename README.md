@@ -175,11 +175,11 @@ npm run web
 npm run web:build
 ```
 
-User GitLab OAuth access and refresh tokens are stored in `oauth_sessions` and AES-GCM encrypted before they are written to PostgreSQL. Installed repositories reference the session through `repositories.oauth_session_id`; GitLab OAuth tokens are not copied into repository credentials. Repository webhook secrets and Agentrix API keys are also encrypted in PostgreSQL. Git server rows are administrator-managed configuration rows; `git_servers.oauth_client_secret` and `git_servers.webhook_secret` are stored directly in PostgreSQL and are never returned by the HTTP API.
+User GitLab OAuth access and refresh tokens are stored in `oauth_sessions` and AES-GCM encrypted before they are written to PostgreSQL. OAuth sessions are used for the console user's interactive GitLab operations. Webhook dispatch uses the administrator-managed `git_servers.admin_pat` instead. Repository Agentrix API keys are encrypted in PostgreSQL. Git server rows are administrator-managed configuration rows; `git_servers.oauth_client_secret`, `git_servers.webhook_secret`, and `git_servers.admin_pat` are stored directly in PostgreSQL and are never returned by the HTTP API.
 
 The database schema is managed by Prisma, not by application startup code. Run `npm run db:migrate:dev` locally or `npm run db:migrate` in production before starting the API. The database URL is `DATABASE_URL`.
 
-Git server configuration is stored in explicit `git_servers` columns, not in `.env` and not in a JSON config blob. `git_servers.id` is the Agentrix git server id that issue-workflow needs; use the same value Agentrix expects as `AGENTRIX_GIT_SERVER_ID`.
+Git server configuration is stored in explicit `git_servers` columns, not in `.env` and not in a JSON config blob. `git_servers.agentrix_git_server_id` is passed to Agentrix as `AGENTRIX_GIT_SERVER_ID`; if it is empty, issue-flow falls back to `git_servers.id`.
 
 Insert a GitLab server before using the console:
 
@@ -196,6 +196,8 @@ INSERT INTO git_servers (
   oauth_redirect_uri,
   oauth_scopes,
   webhook_secret,
+  agentrix_git_server_id,
+  admin_pat,
   created_at,
   updated_at
 ) VALUES (
@@ -210,12 +212,14 @@ INSERT INTO git_servers (
   'http://127.0.0.1:8788/api/auth/gitlab/callback',
   'api read_repository write_repository openid profile email',
   '<backend-managed-webhook-secret>',
+  '<agentrix-git-server-id>',
+  '<gitlab-admin-pat>',
   NOW(),
   NOW()
 );
 ```
 
-There is no HTTP endpoint for creating or updating Git server rows. Insert and update them in PostgreSQL as administrator-managed service configuration. The API returns only public server fields and fingerprints. OAuth client secret and webhook secret are never returned to the browser. Repositories created by install store `gitServerId`, and server-side dispatch passes that value to Agentrix as `AGENTRIX_GIT_SERVER_ID` and in the `agentrix-run --repo` payload. GitHub is a reserved server type in this schema but is not implemented by issue-flow service yet.
+There is no HTTP endpoint for creating or updating Git server rows. Insert and update them in PostgreSQL as administrator-managed service configuration. The API returns only public server fields and fingerprints. OAuth client secret, webhook secret, and admin PAT are never returned to the browser. Repositories created by install store `gitServerId`, and server-side dispatch passes `agentrix_git_server_id` to Agentrix as `AGENTRIX_GIT_SERVER_ID`. GitHub is a reserved server type in this schema but is not implemented by issue-flow service yet.
 
 Create a GitLab OAuth application for the issue-flow console and configure the callback URL on the GitLab app. The API requests the scopes saved in the selected `git_servers` row. The recommended scopes are `api read_repository write_repository openid profile email`.
 

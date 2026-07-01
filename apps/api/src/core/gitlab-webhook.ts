@@ -6,9 +6,6 @@ import {
   gitlabPipelineTarget,
   staticVariables,
 } from '@xmz-ai/gitlab-webhook-bridge'
-import {
-  refreshGitlabOAuthToken,
-} from './gitlab.js'
 import { requireRepo, resolveGitServer } from './common.js'
 import { summarizeGitlabPayload } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
@@ -74,7 +71,7 @@ function createGitLabWebhookBridge({ store, repo, credentials }) {
         variables: composeVariables([
           defaultVariables(),
           staticVariables({
-            AGENTRIX_GIT_SERVER_ID: repo.gitServerId || '',
+            AGENTRIX_GIT_SERVER_ID: credentials.agentrixGitServerId || repo.gitServerId || '',
           }),
         ]),
       }),
@@ -82,55 +79,26 @@ function createGitLabWebhookBridge({ store, repo, credentials }) {
   });
 }
 
-function sessionExpiresSoon(session = {}) {
-  if (!session.expiresAt) {
-    return false;
-  }
-  return new Date(session.expiresAt).getTime() <= Date.now() + 60_000;
-}
-
-async function resolveRepositoryGitlabCredentials({ store, repo, credentials }) {
-  if (!repo.oauthSessionId) {
-    const error = new Error('Repository is not linked to a GitLab OAuth session');
-    error.status = 403;
-    error.code = 'oauth_session_required';
-    throw error;
-  }
-  const { config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab');
-  let session = await store.getSession(repo.oauthSessionId, { allowExpired: true });
-  if (!session) {
-    const error = new Error('Repository GitLab OAuth session was not found');
-    error.status = 403;
-    error.code = 'oauth_session_not_found';
-    throw error;
-  }
-  if (sessionExpiresSoon(session)) {
-    const refreshed = await refreshGitlabOAuthToken({
-      config,
-      refreshToken: session.refreshToken,
-    });
-    const expiresAt = refreshed.expires_in
-      ? new Date(Date.now() + (Number(refreshed.expires_in) * 1000)).toISOString()
-      : '';
-    session = await store.updateSessionTokens(session.id, {
-      token: refreshed.access_token || '',
-      refreshToken: refreshed.refresh_token || session.refreshToken || '',
-      scopes: String(refreshed.scope || (session.scopes || []).join(' '))
-        .split(/[,\s]+/)
-        .map((scope) => scope.trim())
-        .filter(Boolean),
-      expiresAt,
-    });
-  }
-  return {
-    ...credentials,
-    providerToken: session && session.token || '',
-  };
-}
-
 async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }) {
   const repo = await requireRepo(store, repoId);
-  const storedCredentials = await store.getCredentials(repoId);
+  let config;
+  try {
+    ({ config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab'));
+  } catch (error) {
+    return {
+      status: error && error.status || 500,
+      body: {
+        error: error && error.code || 'git_server_resolve_failed',
+        detail: sanitizeError(error),
+      },
+    };
+  }
+  if (!config.webhookSecret) {
+    return { status: 400, body: { error: 'git_server_webhook_secret_required' } };
+  }
+  if (!config.adminPat) {
+    return { status: 403, body: { error: 'git_server_admin_pat_required' } };
+  }
   let payload;
   try {
     payload = rawBody ? JSON.parse(rawBody) : {};
@@ -142,24 +110,14 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
     headers,
     body: payload,
   };
-  let credentials;
-  try {
-    credentials = await resolveRepositoryGitlabCredentials({ store, repo, credentials: storedCredentials });
-  } catch (error) {
-    return {
-      status: error && error.status || 500,
-      body: {
-        error: error && error.code || 'gitlab_oauth_session_failed',
-        detail: sanitizeError(error),
-      },
-    };
-  }
+  const credentials = {
+    providerToken: config.adminPat,
+    webhookSecret: config.webhookSecret,
+    agentrixGitServerId: config.agentrixGitServerId,
+  };
   const bridge = createGitLabWebhookBridge({ store, repo, credentials });
   if (!repo.baseUrl || !repo.apiUrl) {
     return { status: 400, body: { error: 'git_server_incomplete' } };
-  }
-  if (!credentials.providerToken) {
-    return { status: 403, body: { error: 'oauth_session_token_required' } };
   }
 
   let result;

@@ -23,6 +23,8 @@ function gitlabConfigFromServer(server = {}) {
     baseUrl: server.baseUrl || '',
     apiUrl: server.apiUrl || normalizeApiUrl(server.baseUrl || '', ''),
     webhookSecret: server.webhook && server.webhook.secret || '',
+    agentrixGitServerId: server.agentrixGitServerId || '',
+    adminPat: server.adminPat || '',
     tokenAuth: server.tokenAuth || 'bearer',
     oauthClientId: server.oauth && server.oauth.clientId || '',
     oauthClientSecret: server.oauth && server.oauth.clientSecret || '',

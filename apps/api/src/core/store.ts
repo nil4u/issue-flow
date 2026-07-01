@@ -54,6 +54,7 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
   const id = String(input.id || "").trim()
   const baseUrl = normalizeBaseUrl(input.baseUrl || "")
   const oauth = input.oauth || {}
+  const agentrixGitServerId = input.agentrixGitServerId || input.agentrix_git_server_id || input.agentrix && input.agentrix.gitServerId || ""
   return {
     id,
     type,
@@ -70,6 +71,8 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     webhook: {
       secretFingerprint: fingerprints.webhookSecretFingerprint || "",
     },
+    agentrixGitServerId,
+    adminPatFingerprint: fingerprints.adminPatFingerprint || "",
   }
 }
 
@@ -278,6 +281,8 @@ class IssueFlowStore {
         secret: undefined,
         secretFingerprint: server.webhook && server.webhook.secretFingerprint || "",
       },
+      adminPat: undefined,
+      adminPatFingerprint: server.adminPatFingerprint || "",
     }
   }
 
@@ -465,6 +470,7 @@ class IssueFlowStore {
     if (!row) return undefined
     const oauthClientSecret = String(row.oauthClientSecret || "")
     const webhookSecret = String(row.webhookSecret || "")
+    const adminPat = String(row.adminPat || "")
     const server = {
       id: row.id,
       type: row.type || "gitlab",
@@ -481,12 +487,15 @@ class IssueFlowStore {
       webhook: {
         secretFingerprint: fingerprintSecret(webhookSecret),
       },
+      agentrixGitServerId: row.agentrixGitServerId || row.agentrix_git_server_id || "",
+      adminPatFingerprint: fingerprintSecret(adminPat),
       createdAt: timestampValue(row.createdAt),
       updatedAt: timestampValue(row.updatedAt),
     }
     if (options.includeSecret) {
       server.oauth.clientSecret = oauthClientSecret
       server.webhook.secret = webhookSecret
+      server.adminPat = adminPat
       return server
     }
     return this.publicGitServer(server)
@@ -521,9 +530,15 @@ class IssueFlowStore {
 
     const hasOauthSecret = Boolean(input.oauth && Object.prototype.hasOwnProperty.call(input.oauth, "clientSecret"))
     const hasWebhookSecret = Boolean(input.webhook && Object.prototype.hasOwnProperty.call(input.webhook, "secret"))
+    const hasAdminPat = Object.prototype.hasOwnProperty.call(input, "adminPat") || Object.prototype.hasOwnProperty.call(input, "admin_pat")
+    const hasAgentrixGitServerId = Object.prototype.hasOwnProperty.call(input, "agentrixGitServerId")
+      || Object.prototype.hasOwnProperty.call(input, "agentrix_git_server_id")
+      || Boolean(input.agentrix && Object.prototype.hasOwnProperty.call(input.agentrix, "gitServerId"))
     const existing = await this.getGitServer(normalized.id, { includeSecret: true })
     const oauthClientSecret = hasOauthSecret ? (input.oauth && input.oauth.clientSecret || "") : (existing && existing.oauth && existing.oauth.clientSecret || "")
     const webhookSecret = hasWebhookSecret ? (input.webhook && input.webhook.secret || "") : (existing && existing.webhook && existing.webhook.secret || "")
+    const adminPat = hasAdminPat ? (input.adminPat || input.admin_pat || "") : (existing && existing.adminPat || "")
+    const agentrixGitServerId = hasAgentrixGitServerId ? normalized.agentrixGitServerId : (existing && existing.agentrixGitServerId || normalized.agentrixGitServerId)
     const now = new Date()
 
     await this.db.gitServer.upsert({
@@ -540,6 +555,8 @@ class IssueFlowStore {
         oauthRedirectUri: normalized.oauth.redirectUri,
         oauthScopes: normalized.oauth.scopes,
         webhookSecret,
+        agentrixGitServerId,
+        adminPat,
         createdAt: now,
         updatedAt: now,
       },
@@ -554,6 +571,8 @@ class IssueFlowStore {
         oauthRedirectUri: normalized.oauth.redirectUri,
         oauthScopes: normalized.oauth.scopes,
         webhookSecret,
+        agentrixGitServerId,
+        adminPat,
         updatedAt: now,
       },
     })

@@ -18,8 +18,10 @@ model GitServer {
   oauthRedirectUri  String   @default("") @map("oauth_redirect_uri")
   oauthScopes       String   @default("") @map("oauth_scopes")
   webhookSecret     String   @default("") @map("webhook_secret")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  agentrixGitServerId String   @default("") @map("agentrix_git_server_id")
+  adminPat            String   @default("") @map("admin_pat")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   repos        Repo[]
   userAccounts UserGitAccount[]

@@ -172,6 +172,8 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     webhook: {
       secret: options.webhookSecret || 'backend-webhook-secret',
     },
+    agentrixGitServerId: options.agentrixGitServerId || 'agentrix-gitlab-main',
+    adminPat: options.adminPat || 'gl-admin-pat',
   });
 }
 
@@ -244,11 +246,15 @@ test('service store keeps Git server config in columns and public reads hide sec
       webhook: {
         secret: 'webhook-secret',
       },
+      agentrixGitServerId: 'agentrix-main',
+      adminPat: 'admin-pat-secret',
     });
     assert.equal(server.id, 'gitlab-main');
     assert.equal(server.type, 'gitlab');
     assert.equal(server.oauth.clientSecret, 'oauth-secret');
     assert.equal(server.webhook.secret, 'webhook-secret');
+    assert.equal(server.agentrixGitServerId, 'agentrix-main');
+    assert.equal(server.adminPat, 'admin-pat-secret');
 
     const row = await store.db.gitServer.findUnique({ where: { id: 'gitlab-main' } });
     const raw = JSON.stringify(row);
@@ -256,14 +262,19 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(row.baseUrl, 'https://gitlab.example.com');
     assert.equal(row.apiUrl, 'https://gitlab.example.com/api/v4');
     assert.equal(row.oauthScopes, 'api read_user openid profile email');
+    assert.equal(row.agentrixGitServerId, 'agentrix-main');
+    assert.equal(row.adminPat, 'admin-pat-secret');
     assert.match(raw, /oauth-secret/);
     assert.match(raw, /webhook-secret/);
+    assert.match(raw, /admin-pat-secret/);
 
     const publicServer = await store.getGitServer('gitlab-main');
     assert.equal(publicServer.oauth.clientSecret, undefined);
     assert.equal(publicServer.webhook.secret, undefined);
+    assert.equal(publicServer.adminPat, undefined);
     assert.equal(publicServer.oauth.clientSecretFingerprint.length, 12);
     assert.equal(publicServer.webhook.secretFingerprint.length, 12);
+    assert.equal(publicServer.adminPatFingerprint.length, 12);
 
     await store.ensureGitServer({
       id: 'gitlab-main',
@@ -281,10 +292,13 @@ test('service store keeps Git server config in columns and public reads hide sec
       webhook: {
         secret: 'webhook-secret-2',
       },
+      adminPat: 'admin-pat-secret-2',
     });
     const updated = await store.getGitServer('gitlab-main', { includeSecret: true });
     assert.equal(updated.oauth.clientSecret, 'oauth-secret-2');
     assert.equal(updated.webhook.secret, 'webhook-secret-2');
+    assert.equal(updated.agentrixGitServerId, 'agentrix-main');
+    assert.equal(updated.adminPat, 'admin-pat-secret-2');
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -308,6 +322,8 @@ test('service store can read manually inserted Git server columns', async () => 
         oauthRedirectUri: 'http://127.0.0.1:8788/api/auth/gitlab/callback',
         oauthScopes: 'api read_repository write_repository openid profile email',
         webhookSecret: 'manual-webhook-secret',
+        agentrixGitServerId: 'agentrix-manual',
+        adminPat: 'manual-admin-pat',
       },
     });
 
@@ -316,11 +332,15 @@ test('service store can read manually inserted Git server columns', async () => 
     assert.equal(server.oauth.clientId, 'manual-client');
     assert.equal(server.oauth.clientSecret, 'manual-oauth-secret');
     assert.equal(server.webhook.secret, 'manual-webhook-secret');
+    assert.equal(server.agentrixGitServerId, 'agentrix-manual');
+    assert.equal(server.adminPat, 'manual-admin-pat');
 
     const publicServer = await store.getGitServer('gitlab-manual');
     assert.equal(publicServer.oauth.clientSecret, undefined);
     assert.equal(publicServer.webhook.secret, undefined);
+    assert.equal(publicServer.adminPat, undefined);
     assert.equal(publicServer.oauth.clientSecretFingerprint.length, 12);
+    assert.equal(publicServer.adminPatFingerprint.length, 12);
     assert.equal(publicServer.webhook.secretFingerprint.length, 12);
   } finally {
     await store.close();
@@ -441,26 +461,26 @@ test('GitLab webhook bridge normalizes supported event classes', () => {
   assert.equal(pipeline.events[0].workflowRun.conclusion, 'failure');
 });
 
-test('GitLab webhook receiver requires an explicit GitLab credential link before dispatch', async () => {
+test('GitLab webhook receiver authenticates with Git server secret and dispatches with admin PAT', async () => {
   const { dir, store } = tempStore();
   const calls = [];
   const pipelineVariables = {};
   const gitlab = http.createServer((req, res) => {
     calls.push({ method: req.method, url: req.url });
     if (req.url === '/api/v4/projects/42/triggers' && req.method === 'GET') {
-      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      assert.equal(req.headers.authorization, 'Bearer gl-admin-pat');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify([]));
       return;
     }
     if (req.url === '/api/v4/projects/42/triggers' && req.method === 'POST') {
-      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      assert.equal(req.headers.authorization, 'Bearer gl-admin-pat');
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ id: 501, token: 'pipeline-trigger-token-1234567890', description: 'GitLab webhook bridge' }));
       return;
     }
     if (req.url === '/api/v4/projects/42/trigger/pipeline' && req.method === 'POST') {
-      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      assert.equal(req.headers.authorization, 'Bearer gl-admin-pat');
       let raw = '';
       req.on('data', (chunk) => { raw += chunk; });
       req.on('end', () => {
@@ -494,16 +514,13 @@ test('GitLab webhook receiver requires an explicit GitLab credential link before
   });
   const gitlabBase = await listen(gitlab);
   try {
-    await seedGitlabServer(store, gitlabBase);
-    const session = await store.createSession({
-      token: 'gl-oauth-user-token',
-      gitServerId: 'gitlab-main',
-      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
-      user: { username: 'alice', name: 'Alice' },
+    await seedGitlabServer(store, gitlabBase, {
+      adminPat: 'gl-admin-pat',
+      agentrixGitServerId: 'agentrix-gitlab-main',
+      webhookSecret: 'backend-webhook-secret',
     });
     const created = store.createRepository({
       gitServerId: 'gitlab-main',
-      oauthSessionId: session.id,
       baseUrl: gitlabBase,
       projectPath: 'team/app',
       token: 'glpat-service-token-123',
@@ -524,23 +541,43 @@ test('GitLab webhook receiver requires an explicit GitLab credential link before
     };
 
     const createdRepo = await created;
-    const first = await handleGitlabWebhook({
+    const rejected = await handleGitlabWebhook({
       store,
       repoId: createdRepo.repo.id,
       headers: {
         'Content-Type': 'application/json',
-        'X-Gitlab-Token': 'webhook-secret-123',
+        'X-Gitlab-Token': 'wrong-secret',
         'X-Gitlab-Event': 'Merge Request Hook',
         'X-Gitlab-Event-UUID': 'delivery-1',
       },
       rawBody: JSON.stringify(payload),
     });
-    assert.equal(first.status, 403);
-    assert.equal(first.body.error, 'oauth_session_required');
+    assert.equal(rejected.status, 401);
+    assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), []);
+
+    const accepted = await handleGitlabWebhook({
+      store,
+      repoId: createdRepo.repo.id,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'backend-webhook-secret',
+        'X-Gitlab-Event': 'Merge Request Hook',
+        'X-Gitlab-Event-UUID': 'delivery-1',
+      },
+      rawBody: JSON.stringify(payload),
+    });
+    assert.equal(accepted.status, 202);
 
     const deliveries = await store.listDeliveries(createdRepo.repo.id);
-    assert.equal(deliveries.length, 0);
-    assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), []);
+    assert.equal(deliveries.length, 2);
+    assert.equal(deliveries.some((delivery) => delivery.status === 'rejected'), true);
+    assert.equal(deliveries.some((delivery) => delivery.status !== 'rejected'), true);
+    assert.equal(pipelineVariables.AGENTRIX_GIT_SERVER_ID, 'agentrix-gitlab-main');
+    assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), [
+      'GET /api/v4/projects/42/triggers',
+      'POST /api/v4/projects/42/triggers',
+      'POST /api/v4/projects/42/trigger/pipeline',
+    ]);
   } finally {
     await close(gitlab);
     await store.close();
