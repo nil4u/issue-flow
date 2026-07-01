@@ -17,10 +17,10 @@ import {
   type GitLabProject,
   type GitLabUser,
   type GitServer,
+  type GitEventRow,
   type InstallCheck,
   type InstallStep,
   type ProjectAccess,
-  type RecordRow,
   type Repository,
   type SessionState,
   type UserSession,
@@ -66,7 +66,7 @@ function Dashboard() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [deliveries, setDeliveries] = useState<RecordRow[]>([])
+  const [gitEvents, setGitEvents] = useState<GitEventRow[]>([])
   const [pendingGitServerId, setPendingGitServerId] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
@@ -228,11 +228,11 @@ function Dashboard() {
 
   async function loadActivity(repoId?: string) {
     if (!repoId) {
-      setDeliveries([])
+      setGitEvents([])
       return
     }
-    const deliveryBody = await api<{ deliveries: RecordRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/deliveries`)
-    setDeliveries(deliveryBody.deliveries || [])
+    const eventBody = await api<{ gitEvents: GitEventRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/git-events`)
+    setGitEvents(eventBody.gitEvents || [])
   }
 
   async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
@@ -561,7 +561,7 @@ function Dashboard() {
             checking={checking}
             projectAccess={projectAccess}
             loadingProjectAccess={loadingProjectAccess}
-            deliveries={deliveries}
+            gitEvents={gitEvents}
             onLogin={() => loginGitLab(selectedGitServerId)}
             onCheck={runInstallCheck}
             onSetVariable={setInstallVariable}

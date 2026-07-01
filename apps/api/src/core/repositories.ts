@@ -104,9 +104,9 @@ async function getRepository({ store, basePublicUrl, repoId, userId = '' }) {
   };
 }
 
-async function listDeliveries({ store, repoId, userId = '' }) {
+async function listGitEvents({ store, repoId, userId = '' }) {
   await requireAccessibleRepo(store, repoId, userId);
-  return { status: 200, body: { deliveries: await store.listDeliveries(repoId) } };
+  return { status: 200, body: { gitEvents: await store.listGitEvents(repoId) } };
 }
 
 async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '' }) {
@@ -134,7 +134,7 @@ export {
   configureRepositoryAgentrix,
   createRepository,
   getRepository,
-  listDeliveries,
+  listGitEvents,
   listRepositories,
   validateRepositoryToken,
 }

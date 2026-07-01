@@ -32,6 +32,30 @@ function sanitize(value, depth = 0) {
   return output;
 }
 
+function compactNulls(value, depth = 0) {
+  if (depth > 8) {
+    return '[truncated]';
+  }
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => compactNulls(item, depth + 1));
+  }
+
+  const output = {};
+  for (const [key, item] of Object.entries(value)) {
+    const compacted = compactNulls(item, depth + 1);
+    if (compacted !== undefined) {
+      output[key] = compacted;
+    }
+  }
+  return output;
+}
+
 function sanitizeError(error) {
   const message = error instanceof Error ? error.message : String(error || '');
   const status = error && typeof error.status === 'number' ? error.status : undefined;
@@ -67,6 +91,7 @@ function summarizeGitlabPayload(payload = {}) {
 }
 
 export {
+  compactNulls,
   fingerprintSecret,
   sanitize,
   sanitizeError,

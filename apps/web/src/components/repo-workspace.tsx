@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
-import type { EmptyPanelProps, GitLabProject, InstallStep, RecordRow, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
+import type { EmptyPanelProps, GitEventRow, GitLabProject, InstallStep, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
 import { formatWhen } from "@/issue-flow-model"
 
@@ -51,7 +51,7 @@ function OverviewTab({
   user,
   project,
   repository,
-  deliveries,
+  gitEvents,
   onLogin,
   onOpenSettings,
 }: RepoWorkspaceProps & { onOpenSettings: () => void }) {
@@ -77,7 +77,7 @@ function OverviewTab({
   return (
     <div className="overview-grid">
       <StatusGrid project={project} repository={repository} />
-      <ActivityList deliveries={deliveries} />
+      <ActivityList gitEvents={gitEvents} />
     </div>
   )
 }
@@ -542,10 +542,10 @@ function StatusCard({ icon, label, value }: { icon: ReactNode; label: string; va
   return <div className="status-card"><span>{icon}{label}</span><strong>{value}</strong></div>
 }
 
-function ActivityList({ deliveries }: { deliveries: RecordRow[] }) {
-  const rows = deliveries
+function ActivityList({ gitEvents }: { gitEvents: GitEventRow[] }) {
+  const rows = gitEvents
     .slice(0, 12)
-    .map((row) => ({ ...row, kind: "delivery" }))
+    .map((row) => ({ ...row, kind: "git_event" }))
   return (
     <section className="activity-section">
       <header className="section-head">
@@ -555,18 +555,16 @@ function ActivityList({ deliveries }: { deliveries: RecordRow[] }) {
       <div className="activity-list">
         {rows.length === 0 && <div className="empty-panel compact">暂无活动</div>}
         {rows.map((row) => {
-          const payload = row.payloadSummary || {}
-          const result = row.resultSummary || {}
-          const title = [row.event || result.providerEventName || payload.eventName || payload.objectKind || row.kind, payload.action].filter(Boolean).join(" / ")
-          const subject = payload.mergeRequestIid ? `MR !${payload.mergeRequestIid}` : payload.issueIid ? `Issue #${payload.issueIid}` : "-"
+          const title = [row.eventName || row.kind, row.action].filter(Boolean).join(" / ")
+          const subject = row.objectType && row.objectId ? `${row.objectType} ${row.objectId}` : row.repositoryFullName || "-"
           return (
             <div className="activity-row" key={`${row.kind}-${row.id}`}>
-              <Badge>{row.status || "-"}</Badge>
+              <Badge>{row.eventName || "-"}</Badge>
               <span>
                 <strong>{title || "-"}</strong>
-                <small>{subject} · {formatWhen(row.updatedAt || row.createdAt || "")}</small>
+                <small>{subject} · {formatWhen(row.receivedAt || row.createdAt || "")}</small>
               </span>
-              <small>{result.reason || row.error?.message || row.routeAction || row.consumer || ""}</small>
+              <small>{row.deliveryId || ""}</small>
             </div>
           )
         })}

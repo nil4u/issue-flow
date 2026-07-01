@@ -523,10 +523,11 @@ test('GitLab webhook receiver authenticates with Git server secret and dispatche
       token: 'glpat-service-token-123',
       webhookSecret: 'webhook-secret-123',
       automation: { reviewEnabled: false },
-    }, { status: 'unchecked' });
+    }, { status: 'unchecked', projectId: '42' });
     const payload = {
       object_kind: 'merge_request',
       project: { id: 42, path_with_namespace: 'team/app' },
+      user: null,
       object_attributes: {
         id: 1001,
         iid: 7,
@@ -534,6 +535,7 @@ test('GitLab webhook receiver authenticates with Git server secret and dispatche
         state: 'opened',
         source_branch: 'feature',
         target_branch: 'main',
+        description: null,
       },
     };
 
@@ -563,12 +565,29 @@ test('GitLab webhook receiver authenticates with Git server secret and dispatche
       },
       rawBody: JSON.stringify(payload),
     });
-    assert.equal(accepted.status, 202);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.status, 'delivered');
+    assert.equal(accepted.body.deliveryId, 'delivery-1');
+    assert.equal(accepted.body.providerEventName, 'merge_request');
+    assert.equal(accepted.body.deliveries.some((delivery) => delivery.target === 'issue-flow-git-event-log' && delivery.reason === 'git_event_stored'), true);
+    assert.equal(accepted.body.deliveries.some((delivery) => delivery.target === 'gitlab-pipeline' && delivery.status === 'delivered'), true);
 
-    const deliveries = await store.listDeliveries(createdRepo.repo.id);
-    assert.equal(deliveries.length, 2);
-    assert.equal(deliveries.some((delivery) => delivery.status === 'rejected'), true);
-    assert.equal(deliveries.some((delivery) => delivery.status !== 'rejected'), true);
+    const gitEvents = await store.listGitEvents(createdRepo.repo.id);
+    assert.equal(gitEvents.length, 1);
+    assert.equal(gitEvents[0].gitServerId, 'gitlab-main');
+    assert.equal(gitEvents[0].repositoryId, '42');
+    assert.equal(gitEvents[0].repositoryFullName, 'team/app');
+    assert.equal(gitEvents[0].deliveryId, 'delivery-1');
+    assert.equal(gitEvents[0].eventName, 'merge_request');
+    assert.equal(gitEvents[0].action, 'opened');
+    assert.equal(gitEvents[0].objectType, 'pull_request');
+    assert.equal(gitEvents[0].objectId, '1001');
+    assert.equal(gitEvents[0].payload.headers, undefined);
+    assert.equal(gitEvents[0].payload.object_kind, 'merge_request');
+    assert.equal(gitEvents[0].payload.user, undefined);
+    assert.equal(gitEvents[0].payload.object_attributes.description, undefined);
+    assert.equal(gitEvents[0].normalizedEvents.length, 1);
+    assert.equal(gitEvents[0].normalizedEvents[0].raw, undefined);
     assert.equal(pipelineVariables.AGENTRIX_GIT_SERVER_ID, 'agentrix-gitlab-main');
     assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), [
       'GET /api/v4/projects/42/triggers',

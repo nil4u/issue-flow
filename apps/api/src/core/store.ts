@@ -4,7 +4,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { db as prismaDb, prismaClient } from "../storage/db.js"
-import { fingerprintSecret, sanitizeError } from "./sanitize.js"
+import { fingerprintSecret } from "./sanitize.js"
 
 const DEFAULT_STATE_DIR = ".issue-flow-service"
 
@@ -1080,16 +1080,6 @@ class IssueFlowStore {
     return this.getRepository(repoId)
   }
 
-  async findDelivery(repoId, deliveryKey, consumer = "dispatch") {
-    await this.ready
-    const rows = await this.db.webhookDelivery.findMany({
-      where: { repoId, deliveryKey, consumer },
-      orderBy: { createdAt: "asc" },
-      take: 20,
-    })
-    return rows.map(rowData).find((delivery) => delivery.status !== "rejected" && !delivery.duplicate)
-  }
-
   async getWebhookBridgeState(repoId, key) {
     await this.ready
     const row = await this.db.webhookBridgeState.findUnique({
@@ -1128,77 +1118,82 @@ class IssueFlowStore {
     })
   }
 
-  async createDelivery(input = {}) {
+  gitEventFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId,
+      repositoryId: row.repositoryId,
+      repositoryFullName: row.repositoryFullName,
+      deliveryId: row.deliveryId,
+      eventName: row.eventName,
+      action: row.action || "",
+      objectType: row.objectType || "",
+      objectId: row.objectId || "",
+      payload: row.payload || {},
+      normalizedEvents: row.normalizedEvents || [],
+      receivedAt: timestampValue(row.receivedAt),
+      createdAt: timestampValue(row.createdAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+  }
+
+  async createGitEvent(input = {}) {
     await this.ready
     const createdAt = nowIso()
-    const delivery = {
-      id: input.id || randomId("delivery"),
-      repoId: input.repoId,
-      deliveryKey: input.deliveryKey,
-      deliveryId: input.deliveryId || input.deliveryKey,
-      consumer: input.consumer || "dispatch",
-      event: input.event || "",
-      routeAction: input.routeAction || "",
-      status: input.status || "received",
-      duplicate: Boolean(input.duplicate),
-      payloadSummary: input.payloadSummary || {},
-      resultSummary: input.resultSummary || {},
-      error: input.error ? sanitizeError(input.error) : undefined,
-      createdAt,
-      updatedAt: createdAt,
-    }
-    await this.db.webhookDelivery.create({
+    const gitServerId = String(input.gitServerId || "").trim()
+    const deliveryId = String(input.deliveryId || "").trim()
+    if (!gitServerId || !deliveryId) return undefined
+    const existing = await this.db.gitEvent.findUnique({
+      where: { gitServerId_deliveryId: { gitServerId, deliveryId } },
+    })
+    if (existing) return this.gitEventFromRecord(existing)
+    const row = await this.db.gitEvent.create({
       data: {
-        id: delivery.id,
-        repoId: delivery.repoId,
-        deliveryKey: delivery.deliveryKey,
-        consumer: delivery.consumer,
-        data: delivery,
-        createdAt: asDate(delivery.createdAt),
-        updatedAt: asDate(delivery.updatedAt),
+        id: input.id || randomId("git_event"),
+        gitServerId,
+        repositoryId: String(input.repositoryId || ""),
+        repositoryFullName: String(input.repositoryFullName || ""),
+        deliveryId,
+        eventName: String(input.eventName || ""),
+        action: String(input.action || ""),
+        objectType: String(input.objectType || ""),
+        objectId: String(input.objectId || ""),
+        payload: input.payload || {},
+        normalizedEvents: input.normalizedEvents || [],
+        receivedAt: asDate(input.receivedAt || createdAt),
+        createdAt: asDate(createdAt),
+        updatedAt: asDate(createdAt),
       },
     })
-    await this.markRepositoryDelivery(delivery.repoId, delivery.updatedAt, delivery.error)
-    return delivery
+    await this.markRepositoryGitEvent(input.repoId, createdAt)
+    return this.gitEventFromRecord(row)
   }
 
-  async updateDelivery(id, patch = {}) {
+  async markRepositoryGitEvent(repoId, timestamp) {
     await this.ready
-    const row = await this.db.webhookDelivery.findUnique({ where: { id } })
-    const delivery = rowData(row)
-    if (!delivery) return undefined
-    Object.assign(delivery, patch, {
-      error: patch.error ? sanitizeError(patch.error) : patch.error === null ? undefined : delivery.error,
-      updatedAt: nowIso(),
+    if (!repoId) return
+    await this.db.repo.update({
+      where: { id: repoId },
+      data: { updatedAt: asDate(timestamp || nowIso()) },
+    }).catch((error) => {
+      if (error && error.code !== "P2025") throw error
     })
-    await this.db.webhookDelivery.update({
-      where: { id },
-      data: {
-        data: delivery,
-        updatedAt: asDate(delivery.updatedAt),
+  }
+
+  async listGitEvents(repoId) {
+    await this.ready
+    const repo = await this.db.repo.findUnique({ where: { id: repoId } })
+    if (!repo || !repo.gitServerId || !repo.serverRepoId) return []
+    const rows = await this.db.gitEvent.findMany({
+      where: {
+        gitServerId: repo.gitServerId,
+        repositoryId: repo.serverRepoId,
       },
-    })
-    await this.markRepositoryDelivery(delivery.repoId, delivery.updatedAt, delivery.error)
-    return delivery
-  }
-
-  async markRepositoryDelivery(repoId, timestamp, error) {
-    const repo = await this.getRepository(repoId)
-    if (!repo) return
-    repo.lastDeliveryAt = timestamp
-    repo.lastError = error ? error.message : ""
-    repo.updatedAt = timestamp
-    await this.saveRepository(repo)
-  }
-
-  async listDeliveries(repoId) {
-    await this.ready
-    const rows = await this.db.webhookDelivery.findMany({
-      where: { repoId },
-      orderBy: { createdAt: "desc" },
+      orderBy: { receivedAt: "desc" },
       take: 500,
     })
-    return rows.map(rowData)
+    return rows.map((row) => this.gitEventFromRecord(row))
   }
 
   async createSession(input = {}) {

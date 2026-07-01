@@ -2,30 +2,17 @@
 import {
   composeVariables,
   defaultVariables,
+  deliveryTarget,
   GitLabWebhookBridge,
   gitlabPipelineTarget,
   staticVariables,
 } from '@xmz-ai/gitlab-webhook-bridge'
 import { requireRepo, resolveGitServer } from './common.js'
-import { summarizeGitlabPayload } from './sanitize.js'
+import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
-
-function headerValue(headers = {}, name) {
-  const lower = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (String(key).toLowerCase() === lower) {
-      return Array.isArray(value) ? value[0] : value;
-    }
-  }
-  return '';
-}
 
 function webhookUrl(basePublicUrl, repoId) {
   return `${String(basePublicUrl || '').replace(/\/+$/, '')}/webhooks/gitlab/${encodeURIComponent(repoId)}`;
-}
-
-function payloadSummary(payload) {
-  return summarizeGitlabPayload(payload);
 }
 
 function createWebhookBridgeStore(store, repoId) {
@@ -42,19 +29,49 @@ function createWebhookBridgeStore(store, repoId) {
   };
 }
 
-function bridgeEventSummary(event = {}) {
-  return {
-    providerEventName: event.providerEventName || '',
-    providerEventAction: event.providerEventAction || '',
-    eventName: event.eventName || '',
-    eventAction: event.eventAction || '',
-    compatKind: event.compatKind || '',
-    subjectKind: event.subjectKind || '',
-    project: event.project && event.project.pathWithNamespace || '',
-    issue: event.issue && event.issue.number || '',
-    pullRequest: event.pullRequest && event.pullRequest.number || '',
-    workflowRun: event.workflowRun && (event.workflowRun.id || event.workflowRun.iid) || '',
-  };
+function normalizedEventFact(event = {}) {
+  const { raw, ...fact } = event;
+  return sanitize(fact);
+}
+
+function eventObjectType(event = {}) {
+  if (event.eventName === 'issue_comment' || event.eventName === 'pull_request_review_comment') return 'comment';
+  return event.subjectKind || '';
+}
+
+function eventObjectId(event = {}) {
+  if (event.comment && event.comment.id !== undefined) return String(event.comment.id);
+  if (event.issue && event.issue.id !== undefined) return String(event.issue.id);
+  if (event.pullRequest && event.pullRequest.id !== undefined) return String(event.pullRequest.id);
+  if (event.workflowRun && event.workflowRun.id !== undefined) return String(event.workflowRun.id);
+  if (event.workflowRun && event.workflowRun.iid !== undefined) return String(event.workflowRun.iid);
+  return '';
+}
+
+function createGitEventTarget(store, repo) {
+  return deliveryTarget('issue-flow-git-event-log', async (input) => {
+    const event = input.events[0] || {};
+    const raw = event.raw || {};
+    await store.createGitEvent({
+      repoId: repo.id,
+      gitServerId: repo.gitServerId,
+      repositoryId: event.project && event.project.id !== undefined ? String(event.project.id) : repo.projectId || '',
+      repositoryFullName: event.project && event.project.pathWithNamespace || repo.projectPath || '',
+      deliveryId: input.deliveryId,
+      eventName: input.providerEventName,
+      action: event.eventAction || event.providerEventAction || '',
+      objectType: eventObjectType(event),
+      objectId: eventObjectId(event),
+      payload: sanitize(compactNulls(raw.body || {})),
+      normalizedEvents: input.events.map(normalizedEventFact),
+    });
+    return {
+      target: 'issue-flow-git-event-log',
+      eventId: input.deliveryId,
+      status: 'ignored',
+      reason: 'git_event_stored',
+    };
+  });
 }
 
 function createGitLabWebhookBridge({ store, repo, secrets }) {
@@ -67,6 +84,7 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
     },
     store: createWebhookBridgeStore(store, repo.id),
     targets: [
+      createGitEventTarget(store, repo),
       gitlabPipelineTarget({
         variables: composeVariables([
           defaultVariables(),
@@ -125,24 +143,6 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
     result = await bridge.handle(input);
   } catch (error) {
     const status = error && (error.statusCode || error.status) || 500;
-    const deliveryId = (
-      headerValue(headers, 'x-gitlab-webhook-uuid')
-      || headerValue(headers, 'x-gitlab-event-uuid')
-      || headerValue(headers, 'x-gitlab-delivery')
-      || headerValue(headers, 'x-request-id')
-      || ''
-    );
-    await store.createDelivery({
-      repoId,
-      deliveryKey: deliveryId || `error:${Date.now()}`,
-      deliveryId,
-      consumer: 'gitlab-webhook',
-      event: headerValue(headers, 'x-gitlab-event') || '',
-      routeAction: '',
-      status: 'rejected',
-      payloadSummary: payloadSummary(payload),
-      error,
-    });
     return {
       status: Number(status) >= 400 && Number(status) < 600 ? Number(status) : 500,
       body: {
@@ -152,44 +152,15 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
     };
   }
 
-  const delivery = await store.createDelivery({
-    repoId,
-    deliveryKey: result.deliveryId,
-    deliveryId: result.deliveryId,
-    consumer: 'gitlab-webhook',
-    event: result.providerEventName,
-    routeAction: 'bridge',
-    status: result.status,
-    payloadSummary: payloadSummary(payload),
-    resultSummary: {
-      providerEventName: result.providerEventName,
-      eventCount: result.events.length,
-      deliveries: result.deliveries.map((delivery) => ({
-        target: delivery.target,
-        eventId: delivery.eventId,
-        status: delivery.status,
-        reason: delivery.reason || '',
-      })),
-    },
-  });
   return {
-    status: result.status === 'failed' ? 500 : 202,
-    body: {
-      status: result.status,
-      deliveryId: delivery.id,
-      providerDeliveryId: result.deliveryId,
-      providerEventName: result.providerEventName,
-      events: result.events.map(bridgeEventSummary),
-      deliveries: result.deliveries,
-    },
+    status: 200,
+    body: result,
   };
 }
 
 export {
-  bridgeEventSummary,
+  createGitEventTarget,
   createGitLabWebhookBridge,
-  headerValue,
   handleGitlabWebhook,
-  payloadSummary,
   webhookUrl,
 }

@@ -164,17 +164,21 @@ export type ProjectAccess = {
   canManage?: boolean
 }
 
-export type RecordRow = {
+export type GitEventRow = {
   id: string
-  status?: string
-  event?: string
-  routeAction?: string
-  consumer?: string
+  gitServerId?: string
+  repositoryId?: string
+  deliveryId?: string
+  eventName?: string
+  action?: string
+  objectType?: string
+  objectId?: string
+  repositoryFullName?: string
+  receivedAt?: string
   updatedAt?: string
   createdAt?: string
-  payloadSummary?: { eventName?: string; objectKind?: string; action?: string; issueIid?: string | number; mergeRequestIid?: string | number }
-  resultSummary?: { reason?: string; providerEventName?: string; deliveries?: Array<{ target?: string; status?: string; reason?: string }> }
-  error?: { message?: string }
+  payload?: Record<string, unknown>
+  normalizedEvents?: Array<Record<string, unknown>>
 }
 
 export type WorkspaceTab = "overview" | "settings"
@@ -191,7 +195,7 @@ export type RepoWorkspaceProps = {
   checking: boolean
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
-  deliveries: RecordRow[]
+  gitEvents: GitEventRow[]
   onLogin: () => void
   onCheck: () => Promise<InstallCheck | undefined>
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>

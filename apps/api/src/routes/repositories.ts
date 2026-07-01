@@ -4,7 +4,7 @@ import {
   configureRepositoryAgentrix,
   createRepository,
   getRepository,
-  listDeliveries,
+  listGitEvents,
   listRepositories,
   validateRepositoryToken,
 } from "../core/repositories.js"
@@ -48,9 +48,9 @@ export async function repositoryRoutes(app: FastifyInstance) {
     return reply.code(result.status).send(result.body)
   })
 
-  app.get("/api/repositories/:repoId/deliveries", async (request, reply) => {
+  app.get("/api/repositories/:repoId/git-events", async (request, reply) => {
     const { repoId } = request.params as { repoId: string }
-    const result = await listDeliveries({
+    const result = await listGitEvents({
       ...contextFromRequest(request),
       repoId,
       userId: await userIdFromRequest(request),

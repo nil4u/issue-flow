@@ -122,18 +122,27 @@ model UserRepoAccess {
   @@map("user_repo_accesses")
 }
 
-model WebhookDelivery {
-  id          String   @id
-  repoId      String   @map("repo_id")
-  deliveryKey String   @map("delivery_key")
-  consumer    String
-  data        Json
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+model GitEvent {
+  id                 String   @id
+  gitServerId        String   @map("git_server_id")
+  repositoryId       String   @map("repository_id")
+  repositoryFullName String   @map("repository_full_name")
+  deliveryId         String   @map("delivery_id")
+  eventName          String   @map("event_name")
+  action             String   @default("")
+  objectType         String   @default("") @map("object_type")
+  objectId           String   @default("") @map("object_id")
+  payload            Json
+  normalizedEvents   Json     @map("normalized_events")
+  receivedAt         DateTime @map("received_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  @@index([repoId, createdAt])
-  @@index([repoId, deliveryKey, consumer, createdAt])
-  @@map("webhook_deliveries")
+  @@unique([gitServerId, deliveryId])
+  @@index([gitServerId, repositoryId, receivedAt])
+  @@index([eventName, receivedAt])
+  @@index([objectType, objectId])
+  @@map("git_events")
 }
 
 model WebhookBridgeState {
