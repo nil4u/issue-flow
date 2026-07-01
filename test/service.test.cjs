@@ -786,6 +786,12 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(apiKey.detail, '已设置');
     assert.equal(apiKey.value, '*****');
     assert.equal(apiKey.scope, '*');
+    const runnerId = checked.body.steps[0].variables.find((item) => item.key === 'AGENTRIX_RUNNER_ID');
+    assert.equal(runnerId.status, 'needs_input');
+    assert.equal(runnerId.required, true);
+    assert.equal(runnerId.needsInput, true);
+    assert.deepEqual(checked.body.steps[0].inputRequired, ['AGENTRIX_RUNNER_ID']);
+    assert.equal(checked.body.installable, false);
     const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
     const cachedApiKey = repo.settings.variables.items.find((item) => item.key === 'AGENTRIX_API_KEY');
     assert.equal(cachedApiKey.value, '*****');
@@ -1320,7 +1326,7 @@ test('GitLab login flow lists all visible projects with install status and insta
         token: 'gl-oauth-user-token',
         projectId: '42',
         automation: { autoDefault: 'build', reviewEnabled: true, agent: 'codex' },
-        agentrix: { apiKey: 'agentrix-secret-key' },
+        agentrix: { apiKey: 'agentrix-secret-key', runnerId: 'runner-1' },
       },
       env,
     });
@@ -1697,6 +1703,7 @@ test('GitLab install upgrade preserves existing repository Agentrix API key with
         gitServerId: 'gitlab-main',
         token: 'gl-oauth-user-token',
         projectId: '42',
+        agentrix: { runnerId: 'repo-runner' },
       },
       env: {
         ISSUE_FLOW_AGENTRIX_BASE_URL: 'https://agentrix.xmz.ai',
@@ -1709,11 +1716,11 @@ test('GitLab install upgrade preserves existing repository Agentrix API key with
     assert.equal(upgraded.body.repository.automation.autoDefault, 'triage');
     assert.equal(upgraded.body.repository.automation.reviewEnabled, false);
     assert.equal(upgraded.body.repository.automation.agent, 'codex');
-    assert.equal(upgraded.body.repository.agentrix.runnerId, '');
+    assert.equal(upgraded.body.repository.agentrix.runnerId, 'repo-runner');
     assert.equal((await store.getCredentials(existing.repo.id)).agentrixApiKey, 'repo-agentrix-key');
     assert.equal(variables.AGENTRIX_API_KEY, 'repo-agentrix-key');
     assert.equal(variables.AGENTRIX_ISSUE_FLOW_AGENT, 'codex');
-    assert.equal(variables.AGENTRIX_RUNNER_ID, undefined);
+    assert.equal(variables.AGENTRIX_RUNNER_ID, 'repo-runner');
     assert.equal(variables.ISSUE_FLOW_AUTO_DEFAULT, 'triage');
     assert.equal(variables.ISSUE_FLOW_REVIEW_ENABLED, 'false');
     assert.doesNotMatch(JSON.stringify(upgraded.body), /repo-agentrix-key/);

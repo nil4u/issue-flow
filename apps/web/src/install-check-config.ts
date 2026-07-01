@@ -53,11 +53,11 @@ export const gitlabInstallCheckConfig = {
           id: "variable:AGENTRIX_RUNNER_ID",
           type: "variable",
           name: "AGENTRIX_RUNNER_ID",
-          description: "指定 Agentrix runner。留空时使用默认 runner。",
+          description: "指定 Agentrix 的 Machine ID 或 Cloud ID。",
           control: {
             path: "agentrix.runnerId",
             type: "text",
-            placeholder: "默认 runner",
+            placeholder: "填写 Machine ID 或 Cloud ID",
           },
         },
         {

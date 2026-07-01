@@ -33,11 +33,17 @@ function gitlabCiVariablesForInstall({ config, installConfig }) {
   return [
     { key: 'AGENTRIX_BASE_URL', value: agentrix.baseUrl, required: true },
     { key: 'AGENTRIX_API_KEY', value: agentrix.apiKey, masked: true, required: true },
-    { key: 'AGENTRIX_RUNNER_ID', value: runnerId, required: Boolean(runnerId), emptyDetail: '未指定，使用默认 runner' },
+    { key: 'AGENTRIX_RUNNER_ID', value: runnerId, required: true },
     { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: automation.agent || 'codex', required: true },
     { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: automation.autoDefault || 'triage', required: true },
     { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: automation.reviewEnabled ? 'true' : 'false', required: true },
   ];
+}
+
+function missingRequiredVariableKeys(variables = []) {
+  return variables
+    .filter((variable) => variable && variable.required !== false && (variable.value === undefined || variable.value === ''))
+    .map((variable) => variable.key);
 }
 
 function installStep(id, kind, label, status, detail = '', extra = {}) {
@@ -642,6 +648,17 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
     };
   }
   const installConfig = mergeAgentrixInstallInput(input, agentrixDefaults, env);
+  const installVariables = gitlabCiVariablesForInstall({ config, installConfig });
+  const missingRequiredVariables = missingRequiredVariableKeys(installVariables);
+  if (missingRequiredVariables.length) {
+    return {
+      status: 400,
+      body: {
+        error: 'gitlab_required_variable_missing',
+        missing: missingRequiredVariables,
+      },
+    };
+  }
   const webhookSecret = config.webhookSecret || '';
   if (!webhookSecret) {
     return {
@@ -699,7 +716,7 @@ async function installGitlabProject({ store, basePublicUrl, input = {}, session,
       token,
       authType,
       projectIdOrPath: apiInput.projectIdOrPath,
-      variables: gitlabCiVariablesForInstall({ config, installConfig }),
+      variables: installVariables,
     });
   } catch (error) {
     return {
