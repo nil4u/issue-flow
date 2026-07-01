@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronDown, GitBranch, GitMerge } from "lucide-react"
+import { AlertCircle, ArrowRight, GitBranch } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -18,16 +18,10 @@ export function LoginPage({
   return (
     <main className="login-screen">
       <section className="login-panel">
-        <div className="brand-row">
+        <div className="login-brand">
           <span className="brand-mark">IF</span>
-          <span>
-            <strong>Issue Flow</strong>
-            <small>Repo installation console</small>
-          </span>
-        </div>
-        <div className="login-copy">
-          <h1>选择 Git server 登录</h1>
-          <p>登录态属于用户层。登录一个 Git server 后可以进入控制台，再按需连接其他 Git server。</p>
+          <strong>Issue Flow</strong>
+          <small>Sign in to continue</small>
         </div>
         {loadError && (
           <Alert>
@@ -46,12 +40,9 @@ export function LoginPage({
           )}
           {gitServers.map((server) => (
             <button type="button" className="login-server" key={server.id} onClick={() => onLogin(server.id)}>
-              <GitMerge className="size-4" />
-              <span>
-                <strong>{server.name || server.id}</strong>
-                <small>{server.baseUrl || server.type}</small>
-              </span>
-              <ChevronDown className="size-4 rotate-270" />
+              <GitBranch className="size-4" />
+              <span>{server.name || server.id}</span>
+              <ArrowRight className="size-4" />
             </button>
           ))}
         </div>
