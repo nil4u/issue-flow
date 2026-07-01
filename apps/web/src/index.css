@@ -73,6 +73,12 @@
   .issue-app.sidebar-collapsed {
     grid-template-columns: 4.375rem minmax(0, 1fr);
   }
+  .design-overlay {
+    background: rgb(0 0 0 / 0.18);
+  }
+  .dark .design-overlay {
+    background: rgb(0 0 0 / 0.36);
+  }
   .cn-toast {
     border-color: var(--border) !important;
     background: var(--if-color-surface) !important;
@@ -907,8 +913,7 @@
   .repo-switchers,
   .status-grid,
   .activity-row,
-  .account-row,
-  .check-row-detail.inline {
+  .account-row {
     grid-template-columns: 1fr;
   }
   .check-row-main {

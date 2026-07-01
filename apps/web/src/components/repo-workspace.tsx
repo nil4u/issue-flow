@@ -17,9 +17,8 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { EmptyPanelProps, GitLabProject, InstallStep, RecordRow, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
@@ -100,8 +99,9 @@ function InstallConsole({
   onInstall,
 }: RepoWorkspaceProps) {
   const [installForm, setInstallForm] = useState(() => installFormFromDefaults(defaults))
-  const [expandedRowId, setExpandedRowId] = useState("")
   const [checkingRowId, setCheckingRowId] = useState("")
+  const [editingRow, setEditingRow] = useState<CheckRow>()
+  const [editingValue, setEditingValue] = useState("")
   const installInput = useMemo(() => installForm, [installForm])
   const groups = useMemo(() => buildInstallGroups({
     installCheck,
@@ -144,14 +144,26 @@ function InstallConsole({
     }
   }
 
-  async function saveVariable(row: CheckRow) {
-    if (!row.variable?.key || !canManage) return
-    await onSetVariable(row.variable.key, {
+  function openVariableDialog(row: CheckRow) {
+    if (!row.variable || !canManage) return
+    setEditingRow(row)
+    setEditingValue(variableDialogValue(row, installForm))
+  }
+
+  async function saveVariable() {
+    const row = editingRow
+    const variable = row?.variable
+    if (!row || !variable?.key || !canManage) return
+    await onSetVariable(variable.key, {
       ...installInput,
-      value: variableSaveValue(row, installForm),
-      scope: row.variable.scope || row.variable.environmentScope || "*",
+      value: editingValue,
+      scope: variable.scope || variable.environmentScope || "*",
     })
-    setExpandedRowId("")
+    if (variable.control) {
+      setInstallForm((current) => updateFormValue(current, variable.control?.path || "", editingValue))
+    }
+    setEditingRow(undefined)
+    setEditingValue("")
   }
 
   async function saveWebhook(row: CheckRow) {
@@ -200,15 +212,11 @@ function InstallConsole({
             {group.rows.map((row) => (
               <CheckTableRow
                 checking={checking && checkingRowId === row.id}
-                expanded={expandedRowId === row.id}
-                installForm={installForm}
                 key={row.id}
                 row={row}
                 canRunInstall={canRunInstall}
-                setExpanded={(expanded) => setExpandedRowId(expanded ? row.id : "")}
-                setInstallForm={setInstallForm}
                 onCheck={() => checkRows(row.id)}
-                onSaveVariable={() => saveVariable(row)}
+                onSetVariable={() => openVariableDialog(row)}
                 onSaveWebhook={() => saveWebhook(row)}
                 onInstall={runInstallPlan}
                 installing={installing}
@@ -218,6 +226,18 @@ function InstallConsole({
           </section>
         ))}
       </div>
+      <VariableSettingsDialog
+        row={editingRow}
+        value={editingValue}
+        saving={checking}
+        onOpenChange={(open) => {
+          if (open) return
+          setEditingRow(undefined)
+          setEditingValue("")
+        }}
+        onValueChange={setEditingValue}
+        onSave={saveVariable}
+      />
     </div>
   )
 }
@@ -389,51 +409,50 @@ function updateFormValue(form: InstallForm, path: string, value: string | boolea
 }
 
 function rowNeedsInput(row: CheckRow, form: InstallForm) {
-  if (row.variable?.needsInput && row.variable.control) {
-    return !formValue(form, row.variable.control.path)
+  if (row.variable?.needsInput) {
+    const dialogValue = variableDialogValue(row, form)
+    return !dialogValue
   }
   return row.status === "needs_input"
 }
 
-function variableSaveValue(row: CheckRow, form: InstallForm) {
+function variableDialogValue(row: CheckRow, form: InstallForm) {
+  const currentValue = row.variable && !row.variable.masked && !row.variable.hidden
+    ? String(row.variable.value || "")
+    : ""
+  if (currentValue && currentValue !== "*****") return currentValue
+  if (row.configItem?.defaultValue !== undefined) return String(row.configItem.defaultValue)
   const control = row.variable?.control
-  const fallback = row.configItem?.defaultValue ?? row.variable?.value ?? ""
-  const value = control ? formValue(form, control.path) : fallback
-  if (typeof value === "boolean") return value ? "true" : "false"
-  return String(value ?? "")
+  const formFallback = control ? formValue(form, control.path) : undefined
+  return formFallback === undefined ? "" : String(formFallback)
+}
+
+function variablePlaceholder(row?: CheckRow) {
+  if (!row) return ""
+  return row.variable?.control?.placeholder || "填写变量值"
 }
 
 function CheckTableRow({
   canRunInstall,
   checking,
-  expanded,
-  installForm,
   installing,
   readOnly,
   row,
-  setExpanded,
-  setInstallForm,
   onCheck,
-  onSaveVariable,
+  onSetVariable,
   onSaveWebhook,
   onInstall,
 }: {
   canRunInstall: boolean
   checking: boolean
-  expanded: boolean
-  installForm: InstallForm
   installing: boolean
   readOnly: boolean
   row: CheckRow
-  setExpanded: (expanded: boolean) => void
-  setInstallForm: (value: InstallForm | ((current: InstallForm) => InstallForm)) => void
   onCheck: () => Promise<void>
-  onSaveVariable: () => Promise<void>
+  onSetVariable: () => void
   onSaveWebhook: () => Promise<void>
   onInstall: () => Promise<void>
 }) {
-  const canEdit = Boolean(row.variable?.control)
-  const needsInput = rowNeedsInput(row, installForm)
   const canRepair = row.status === "needs_action" && row.kind === "repo"
   const canSetVariable = Boolean(row.variable) && !readOnly
   const canSetWebhook = row.configItem?.type === "webhook" && row.status === "needs_action" && !readOnly
@@ -443,7 +462,7 @@ function CheckTableRow({
       ? <CircleDot className="size-4" />
       : <AlertCircle className="size-4" />
   return (
-    <div className={`check-table-row ${row.status} ${expanded ? "expanded" : ""}`}>
+    <div className={`check-table-row ${row.status}`}>
       <div className="check-row-main">
         <span className="check-status-icon">{statusIcon}</span>
         <span className="check-row-copy">
@@ -454,14 +473,7 @@ function CheckTableRow({
         {!row.variable && row.value && <RowValue value={row.value} />}
         <div className="check-row-actions">
           {canSetVariable && (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => canEdit || needsInput ? setExpanded(!expanded) : onSaveVariable()}
-            >
-              {expanded ? "收起" : row.status === "passed" ? "重新设置" : "设置"}
-            </Button>
+            <Button type="button" size="sm" variant="secondary" onClick={onSetVariable}>设置</Button>
           )}
           {canSetWebhook && (
             <Button type="button" size="sm" variant="secondary" onClick={onSaveWebhook} disabled={checking}>
@@ -476,72 +488,57 @@ function CheckTableRow({
           </Button>}
         </div>
       </div>
-      {expanded && (
-        <CheckRowDetail
-          installForm={installForm}
-          row={row}
-          setInstallForm={setInstallForm}
-          onSave={onSaveVariable}
-        />
-      )}
       {(row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
     </div>
   )
 }
 
-function CheckRowDetail({
-  installForm,
+function VariableSettingsDialog({
+  onOpenChange,
   onSave,
+  onValueChange,
   row,
-  setInstallForm,
+  saving,
+  value,
 }: {
-  installForm: InstallForm
+  onOpenChange: (open: boolean) => void
   onSave: () => Promise<void>
-  row: CheckRow
-  setInstallForm: (value: InstallForm | ((current: InstallForm) => InstallForm)) => void
+  onValueChange: (value: string) => void
+  row?: CheckRow
+  saving: boolean
+  value: string
 }) {
-  const control = row.variable?.control
-  if (control) {
-    const value = formValue(installForm, control.path)
-    return (
-      <div className="check-row-detail">
-        <Label>{row.variable?.label || row.title}</Label>
-        <VariableInput
-          control={control}
-          value={value}
-          onChange={(nextValue) => setInstallForm((current) => updateFormValue(current, control.path, nextValue))}
-        />
-        <div className="check-row-detail-actions">
-          <small>{variableMetaText(row)}</small>
-          <Button type="button" size="sm" onClick={onSave}>保存变量</Button>
+  return (
+    <Dialog open={Boolean(row)} onOpenChange={onOpenChange}>
+      <DialogContent className="variable-dialog">
+        <DialogHeader>
+          <DialogTitle>{row?.variable?.key || row?.title || "设置变量"}</DialogTitle>
+        </DialogHeader>
+        <div className="variable-dialog-body">
+          <Textarea
+            autoFocus
+            aria-label={row?.variable?.key || row?.title || "变量值"}
+            className="variable-dialog-input"
+            id="variable-value"
+            placeholder={variablePlaceholder(row)}
+            value={value}
+            onChange={(event) => onValueChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                void onSave()
+              }
+            }}
+          />
         </div>
-      </div>
-    )
-  }
-  if (row.variable) {
-    return (
-      <div className="check-row-detail">
-        <Label>{row.variable.label || row.title}</Label>
-        <Input value={String(row.configItem?.defaultValue ?? row.variable.value ?? "")} readOnly />
-        <div className="check-row-detail-actions">
-          <small>{variableMetaText(row)}</small>
-          <Button type="button" size="sm" onClick={onSave}>{row.status === "passed" ? "重新设置" : "设置"}</Button>
+        <div className="variable-dialog-actions">
+          <Button type="button" onClick={onSave} disabled={saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            保存
+          </Button>
         </div>
-      </div>
-    )
-  }
-  return <div className="check-row-detail muted">此项需要在 Git server 配置中维护，保存后重新检查。</div>
-}
-
-function variableMetaText(row: CheckRow) {
-  const variable = row.variable
-  if (!variable) return ""
-  const parts = [
-    variable.source ? `source: ${variable.source}` : "",
-    variable.scope || variable.environmentScope ? `scope: ${variable.scope || variable.environmentScope}` : "",
-    variable.variableType ? `type: ${variable.variableType}` : "",
-  ].filter(Boolean)
-  return parts.join(" · ") || variable.description || variable.key
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"]> }) {
@@ -565,43 +562,6 @@ function RowValue({ value }: { value: string }) {
     <span className="check-row-value">
       <strong>{value}</strong>
     </span>
-  )
-}
-
-function VariableInput({
-  control,
-  value,
-  onChange,
-}: {
-  control: NonNullable<NonNullable<InstallStep["variables"]>[number]["control"]>
-  value: unknown
-  onChange: (value: string | boolean) => void
-}) {
-  if (control.type === "checkbox") {
-    return (
-      <label className="inline-check">
-        <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.currentTarget.checked)} />
-        启用
-      </label>
-    )
-  }
-  if (control.type === "select") {
-    return (
-      <Select value={String(value || "")} onValueChange={onChange}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          {(control.options || []).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    )
-  }
-  return (
-    <Input
-      value={String(value || "")}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      type={control.type}
-      placeholder={control.placeholder}
-    />
   )
 }
 
