@@ -113,8 +113,7 @@ function IssuesBoard({
 }: RepoWorkspaceProps) {
   const openIssues = useMemo(() => {
     return (issues || []).filter((issue) => {
-      const status = String(issue.status || "").toLowerCase()
-      return status !== "done" && status !== "drop" && status !== "suspend"
+      return String(issue.state || "").toLowerCase() === "opened"
     })
   }, [issues])
   const grouped = useMemo(() => {

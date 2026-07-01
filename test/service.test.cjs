@@ -505,6 +505,7 @@ test('git events project issue snapshots and flow spans', async () => {
     assert.equal(issues[0].issueId, '100');
     assert.equal(issues[0].issueNumber, 7);
     assert.equal(issues[0].title, 'Fix import crash');
+    assert.equal(issues[0].state, 'opened');
     assert.equal(issues[0].type, 'bug');
     assert.equal(issues[0].priority, 'P1');
     assert.equal(issues[0].size, 'M');
@@ -570,10 +571,39 @@ test('git events project issue snapshots and flow spans', async () => {
 
     issues = await store.listIssues(createdRepo.repo.id);
     spans = await store.listIssueSpans(createdRepo.repo.id, '100');
+    assert.equal(issues[0].state, 'closed');
     assert.equal(issues[0].status, 'done');
     assert.equal(issues[0].closedAt, '2026-07-01T03:00:00.000Z');
     assert.equal(spans.length, 2);
     assert.equal(spans[1].exitedAt, '2026-07-01T03:00:00.000Z');
+
+    const closedWithActiveLabel = await store.createGitEvent({
+      ...common,
+      deliveryId: 'issue-delivery-close-active-label',
+      action: 'closed',
+      payload: {
+        object_kind: 'issue',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        labels: [{ title: 'status::active' }, { title: 'flow::build' }],
+        object_attributes: {
+          id: 101,
+          iid: 8,
+          title: 'Closed issue with stale active label',
+          state: 'closed',
+          created_at: '2026-07-01T01:00:00.000Z',
+          updated_at: '2026-07-01T04:00:00.000Z',
+          closed_at: '2026-07-01T04:00:00.000Z',
+        },
+      },
+      normalizedEvents: [{ eventName: 'issues', eventAction: 'closed' }],
+    });
+    await applyGitEventToIssueFacts(store, closedWithActiveLabel);
+
+    issues = await store.listIssues(createdRepo.repo.id);
+    const staleActive = issues.find((issue) => issue.issueId === '101');
+    assert.equal(staleActive.state, 'closed');
+    assert.equal(staleActive.status, 'done');
+    assert.equal(staleActive.closedAt, '2026-07-01T04:00:00.000Z');
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -632,15 +662,18 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
 
     assert.equal(result.status, 200);
     assert.equal(result.body.count, 2);
+    assert.equal(result.body.issues.find((issue) => issue.issueId === '101').currentFlow, 'build');
     const issues = await store.listIssues(createdRepo.repo.id);
     const spans = await store.listIssueSpans(createdRepo.repo.id);
     assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:done']);
     assert.equal(issues[0].title, 'Existing issue');
+    assert.equal(issues[0].state, 'opened');
     assert.equal(issues[0].type, 'feature');
     assert.equal(issues[0].priority, 'P2');
     assert.equal(issues[0].size, 'L');
     assert.equal(issues[0].automation, 'plan');
     assert.equal(issues[1].closedAt, '2026-07-01T06:00:00.000Z');
+    assert.equal(issues[1].state, 'closed');
     assert.equal(spans.length, 1);
     assert.equal(spans[0].issueId, '101');
     assert.equal(spans[0].flow, 'build');

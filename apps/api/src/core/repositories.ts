@@ -132,7 +132,7 @@ async function syncIssuesSnapshot({ store, repoId, userId = '' }) {
     const saved = await applyGitlabIssueSnapshotToFacts(store, repo, issue);
     if (saved) projected.push(saved);
   }
-  return { status: 200, body: { issues: projected, count: projected.length } };
+  return { status: 200, body: { issues: await store.listIssues(repoId), count: projected.length } };
 }
 
 async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '' }) {

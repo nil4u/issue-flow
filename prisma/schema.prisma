@@ -130,6 +130,7 @@ model Issue {
   issueId            String    @map("issue_id")
   issueNumber        Int       @map("issue_number")
   title              String
+  state              String    @default("")
   type               String    @default("")
   priority           String    @default("")
   size               String    @default("")
@@ -141,7 +142,7 @@ model Issue {
 
   @@unique([gitServerId, repositoryId, issueId])
   @@unique([gitServerId, repositoryId, issueNumber])
-  @@index([status, updatedAt])
+  @@index([gitServerId, repositoryId, state, updatedAt])
   @@map("issues")
 }
 

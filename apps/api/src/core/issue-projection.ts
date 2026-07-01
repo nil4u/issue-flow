@@ -30,11 +30,17 @@ function issueFlow(labels = []) {
   return prefixedValue(labels, "flow::", (value) => value.toLowerCase(), FLOW_VALUES)
 }
 
+function issueState(attributes = {}) {
+  return String(attributes.state || "").toLowerCase()
+}
+
 function issueStatus(attributes = {}, labels = []) {
   const explicit = prefixedValue(labels, "status::", (value) => value.toLowerCase(), STATUS_VALUES)
   const flow = issueFlow(labels)
+  if (issueState(attributes) === "closed") {
+    return explicit === "drop" ? "drop" : "done"
+  }
   if (explicit) return explicit
-  if (String(attributes.state || "").toLowerCase() === "closed") return "done"
   if (flow === "suspend") return "suspend"
   return "active"
 }
@@ -56,6 +62,7 @@ function issueSnapshot(gitEvent = {}) {
     issueId,
     issueNumber,
     title: attributes.title || "",
+    state: issueState(attributes),
     type: prefixedValue(labels, "type::", (value) => value.toLowerCase(), TYPE_VALUES),
     priority: prefixedValue(labels, "priority::", (value) => value.toUpperCase()),
     size: prefixedValue(labels, "size::", (value) => value.toUpperCase(), SIZE_VALUES),
@@ -89,6 +96,7 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     issueId: String(attributes.id || attributes.iid || ""),
     issueNumber: Number(attributes.iid || 0),
     title: attributes.title || "",
+    state: issueState(attributes),
     type: prefixedValue(labels, "type::", (value) => value.toLowerCase(), TYPE_VALUES),
     priority: prefixedValue(labels, "priority::", (value) => value.toUpperCase()),
     size: prefixedValue(labels, "size::", (value) => value.toUpperCase(), SIZE_VALUES),

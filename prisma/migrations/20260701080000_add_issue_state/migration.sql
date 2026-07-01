@@ -1,0 +1,1 @@
+ALTER TABLE "issues" ADD COLUMN "state" TEXT NOT NULL DEFAULT '';

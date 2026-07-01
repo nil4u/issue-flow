@@ -189,6 +189,7 @@ export type IssueRow = {
   issueId: string
   issueNumber: number
   title: string
+  state?: "opened" | "closed" | string
   type?: string
   priority?: string
   size?: string
