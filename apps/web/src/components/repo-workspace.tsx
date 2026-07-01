@@ -408,7 +408,7 @@ function CheckTableRow({
   onSaveWebhook: () => Promise<void>
 }) {
   const canSetVariable = Boolean(row.variable) && !readOnly
-  const canSetWebhook = row.configItem?.type === "webhook" && row.status === "needs_action" && !readOnly
+  const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
     : row.status === "unknown"
