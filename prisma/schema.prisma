@@ -15,7 +15,6 @@ model GitServer {
   tokenAuth         String   @default("bearer") @map("token_auth")
   oauthClientId     String   @default("") @map("oauth_client_id")
   oauthClientSecret String   @default("") @map("oauth_client_secret")
-  oauthRedirectUri  String   @default("") @map("oauth_redirect_uri")
   oauthScopes       String   @default("") @map("oauth_scopes")
   webhookSecret     String   @default("") @map("webhook_secret")
   agentrixGitServerId String   @default("") @map("agentrix_git_server_id")

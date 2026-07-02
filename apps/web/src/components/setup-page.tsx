@@ -8,30 +8,18 @@ import type { SetupStatus } from "@/issue-flow-model"
 
 type SetupForm = {
   setupCode: string
-  id: string
-  name: string
   baseUrl: string
-  apiUrl: string
   oauthClientId: string
   oauthClientSecret: string
-  oauthRedirectUri: string
-  oauthScopes: string
-  webhookSecret: string
   agentrixGitServerId: string
   adminPat: string
 }
 
 const defaultForm: SetupForm = {
   setupCode: "",
-  id: "gitlab-main",
-  name: "GitLab",
   baseUrl: "",
-  apiUrl: "",
   oauthClientId: "",
   oauthClientSecret: "",
-  oauthRedirectUri: "",
-  oauthScopes: "api read_user read_repository write_repository openid profile email",
-  webhookSecret: "",
   agentrixGitServerId: "",
   adminPat: "",
 }
@@ -77,17 +65,6 @@ export function SetupPage({
             />
           </label>
 
-          <div className="setup-grid">
-            <label className="setup-field">
-              <span>Server ID</span>
-              <Input value={form.id} onChange={(event) => update("id", event.target.value)} required />
-            </label>
-            <label className="setup-field">
-              <span>Name</span>
-              <Input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-            </label>
-          </div>
-
           <label className="setup-field">
             <span>Base URL</span>
             <Input
@@ -97,15 +74,6 @@ export function SetupPage({
               required
             />
           </label>
-          <label className="setup-field">
-            <span>API URL</span>
-            <Input
-              placeholder="默认使用 Base URL + /api/v4"
-              value={form.apiUrl}
-              onChange={(event) => update("apiUrl", event.target.value)}
-            />
-          </label>
-
           <div className="setup-divider" />
 
           <label className="setup-field">
@@ -118,30 +86,6 @@ export function SetupPage({
               type="password"
               value={form.oauthClientSecret}
               onChange={(event) => update("oauthClientSecret", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>OAuth Redirect URI</span>
-            <Input
-              placeholder="默认使用 ISSUE_FLOW_BASE_URL /api/auth/gitlab/callback"
-              value={form.oauthRedirectUri}
-              onChange={(event) => update("oauthRedirectUri", event.target.value)}
-            />
-          </label>
-          <label className="setup-field">
-            <span>OAuth Scopes</span>
-            <Input value={form.oauthScopes} onChange={(event) => update("oauthScopes", event.target.value)} />
-          </label>
-
-          <div className="setup-divider" />
-
-          <label className="setup-field">
-            <span>Webhook Secret</span>
-            <Input
-              type="password"
-              value={form.webhookSecret}
-              onChange={(event) => update("webhookSecret", event.target.value)}
               required
             />
           </label>

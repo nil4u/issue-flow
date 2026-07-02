@@ -29,9 +29,6 @@ export function errorMessage(error: unknown) {
   if (code === "setup_code_not_configured") {
     return "服务端缺少 ISSUE_FLOW_SETUP_CODE，请配置后重启。"
   }
-  if (code === "setup_verification_required") {
-    return "初始化登录凭证已失效，请重新提交 setup code。"
-  }
   if (code === "setup_already_initialized") {
     return "系统已经完成初始化。"
   }

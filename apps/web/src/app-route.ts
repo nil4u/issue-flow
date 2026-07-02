@@ -1,7 +1,7 @@
 import type { WorkspaceTab } from "@/issue-flow-model"
 
 export type WorkspaceRoute = {
-  view: "repos" | "settings"
+  view: "repos" | "settings" | "setup"
   gitServerId: string
   projectId: string
   tab: WorkspaceTab
@@ -9,6 +9,22 @@ export type WorkspaceRoute = {
 }
 
 const tabs = new Set<WorkspaceTab>(["overview", "issues", "settings"])
+
+export const setupRoute: WorkspaceRoute = {
+  view: "setup",
+  gitServerId: "",
+  projectId: "",
+  tab: "overview",
+  settingsSection: "account",
+}
+
+export const userSettingsRoute: WorkspaceRoute = {
+  view: "settings",
+  gitServerId: "",
+  projectId: "",
+  tab: "overview",
+  settingsSection: "account",
+}
 
 export function parseWorkspaceRoute(pathname = window.location.pathname, search = window.location.search): WorkspaceRoute {
   const parts = pathname.split("/").filter(Boolean).map((part) => {
@@ -26,13 +42,10 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
       ? queryTab as WorkspaceTab
       : "overview"
   if (parts[0] === "settings") {
-    return {
-      view: "settings",
-      gitServerId: "",
-      projectId: "",
-      tab: "overview",
-      settingsSection: "account",
-    }
+    return userSettingsRoute
+  }
+  if (parts[0] === "setup") {
+    return setupRoute
   }
   if (parts[0] !== "repos") {
     return {
@@ -53,6 +66,7 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
 }
 
 export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
+  if (route.view === "setup") return "/setup"
   if (route.view === "settings") return "/settings/account"
   if (!route.gitServerId) return "/repos"
   const server = encodeURIComponent(route.gitServerId)

@@ -170,7 +170,6 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     oauth: {
       clientId: options.oauthClientId || 'oauth-client',
       clientSecret: options.oauthClientSecret || 'oauth-secret',
-      redirectUri: options.oauthRedirectUri || '',
       scopes: options.oauthScopes || 'api read_repository write_repository openid profile email',
     },
     webhook: {
@@ -182,7 +181,7 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
 }
 
 test('API service requires ISSUE_FLOW_BASE_URL at startup', async () => {
-  const previous = process.env.ISSUE_FLOW_BASE_URL;
+  const previousBaseUrl = process.env.ISSUE_FLOW_BASE_URL;
   delete process.env.ISSUE_FLOW_BASE_URL;
   try {
     await assert.rejects(
@@ -190,7 +189,11 @@ test('API service requires ISSUE_FLOW_BASE_URL at startup', async () => {
       /ISSUE_FLOW_BASE_URL is required/
     );
   } finally {
-    process.env.ISSUE_FLOW_BASE_URL = previous;
+    if (previousBaseUrl === undefined) {
+      delete process.env.ISSUE_FLOW_BASE_URL;
+    } else {
+      process.env.ISSUE_FLOW_BASE_URL = previousBaseUrl;
+    }
   }
 });
 
@@ -241,8 +244,7 @@ test('service store keeps Git server config in columns and public reads hide sec
       oauth: {
         clientId: 'oauth-client',
         clientSecret: 'oauth-secret',
-        redirectUri: 'https://issue-flow.internal/api/auth/gitlab/callback',
-        scopes: 'api read_user openid profile email',
+        scopes: 'api read_repository write_repository openid profile email',
       },
       webhook: {
         secret: 'webhook-secret',
@@ -262,7 +264,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(row.oauthClientId, 'oauth-client');
     assert.equal(row.baseUrl, 'https://gitlab.example.com');
     assert.equal(row.apiUrl, 'https://gitlab.example.com/api/v4');
-    assert.equal(row.oauthScopes, 'api read_user openid profile email');
+    assert.equal(row.oauthScopes, 'api read_repository write_repository openid profile email');
     assert.equal(row.agentrixGitServerId, 'agentrix-main');
     assert.equal(row.adminPat, 'admin-pat-secret');
     assert.match(raw, /oauth-secret/);
@@ -287,8 +289,7 @@ test('service store keeps Git server config in columns and public reads hide sec
       oauth: {
         clientId: 'oauth-client-2',
         clientSecret: 'oauth-secret-2',
-        redirectUri: 'https://issue-flow.internal/api/auth/gitlab/callback',
-        scopes: 'api read_user openid profile email',
+        scopes: 'api read_repository write_repository openid profile email',
       },
       webhook: {
         secret: 'webhook-secret-2',
@@ -320,7 +321,6 @@ test('service store can read manually inserted Git server columns', async () => 
         tokenAuth: 'bearer',
         oauthClientId: 'manual-client',
         oauthClientSecret: 'manual-oauth-secret',
-        oauthRedirectUri: 'http://127.0.0.1:8788/api/auth/gitlab/callback',
         oauthScopes: 'api read_repository write_repository openid profile email',
         webhookSecret: 'manual-webhook-secret',
         agentrixGitServerId: 'agentrix-manual',
@@ -417,7 +417,9 @@ test('git accounts resolve to one issue-flow user across git servers', async () 
   }
 });
 
-test('setup initialize configures first git server and issues setup cookie', async () => {
+test('setup initialize configures first git server and returns OAuth authorize URL', async () => {
+  const previousAppUrl = process.env.ISSUE_FLOW_APP_URL;
+  process.env.ISSUE_FLOW_APP_URL = 'https://public.issue-flow.test';
   const { dir, store } = tempStore();
   const { app, baseUrl } = await listenApp(store);
   try {
@@ -444,42 +446,48 @@ test('setup initialize configures first git server and issues setup cookie', asy
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         setupCode: 'test-setup-code',
-        id: 'gitlab-main',
         type: 'gitlab',
-        name: 'GitLab',
         baseUrl: 'https://gitlab.example.com',
         oauth: {
           clientId: 'oauth-client',
           clientSecret: 'oauth-secret',
         },
-        webhook: { secret: 'webhook-secret' },
         agentrixGitServerId: 'agentrix-main',
         adminPat: 'admin-pat',
       }),
     });
     assert.equal(initialized.status, 201);
-    assert.match(initialized.headers.get('set-cookie') || '', /issue_flow_setup_verified=/);
+    assert.equal(initialized.headers.get('set-cookie'), null);
     const body = await initialized.json();
-    assert.equal(body.gitServer.id, 'gitlab-main');
-    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|webhook-secret|admin-pat/);
+    assert.equal(body.gitServer.id, 'gitlab-gitlab-example-com');
+    assert.equal(body.gitServer.name, 'gitlab.example.com');
+    assert.equal(body.gitServer.baseUrl, 'https://gitlab.example.com');
+    assert.equal(body.gitServer.apiUrl, 'https://gitlab.example.com/api/v4');
+    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat/);
+
+    const savedServer = await store.getGitServer('gitlab-gitlab-example-com', { includeSecret: true });
+    assert.equal(Object.hasOwn(savedServer.oauth, 'redirectUri'), false);
+    assert.equal(savedServer.oauth.scopes, 'api read_repository write_repository openid profile email');
+    assert.match(savedServer.webhook.secret, /^[a-f0-9]{64}$/);
 
     const nextStatus = await fetch(`${baseUrl}/api/setup/status`);
     const nextBody = await nextStatus.json();
     assert.equal(nextBody.initialized, true);
     assert.equal(nextBody.needsSetup, false);
     assert.equal(nextBody.state, 'configured');
-    assert.equal(nextBody.gitServers[0].id, 'gitlab-main');
-    assert.doesNotMatch(JSON.stringify(nextBody), /oauth-secret|webhook-secret|admin-pat/);
+    assert.equal(nextBody.gitServers[0].id, 'gitlab-gitlab-example-com');
+    assert.doesNotMatch(JSON.stringify(nextBody), /oauth-secret|admin-pat/);
 
-    const cookieHeader = setCookieToCookieHeader(initialized.headers.get('set-cookie') || '');
-    const start = await fetch(`${baseUrl}/api/auth/gitlab/start?gitServerId=gitlab-main&setup=1`, {
-      redirect: 'manual',
-      headers: { Cookie: cookieHeader },
-    });
-    assert.equal(start.status, 302);
-    assert.match(start.headers.get('location') || '', /^https:\/\/gitlab\.example\.com\/oauth\/authorize/);
-    assert.match(start.headers.get('set-cookie') || '', /issue_flow_oauth_setup=1/);
+    const authorizeUrl = new URL(body.authorizeUrl || '');
+    assert.equal(`${authorizeUrl.origin}${authorizeUrl.pathname}`, 'https://gitlab.example.com/oauth/authorize');
+    assert.equal(authorizeUrl.searchParams.get('redirect_uri'), 'https://issue-flow.internal/api/auth/gitlab/callback');
+    assert.match(authorizeUrl.searchParams.get('state') || '', /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   } finally {
+    if (previousAppUrl === undefined) {
+      delete process.env.ISSUE_FLOW_APP_URL;
+    } else {
+      process.env.ISSUE_FLOW_APP_URL = previousAppUrl;
+    }
     await app.close();
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -2470,7 +2478,7 @@ test('GitLab install upgrade preserves an existing masked GitLab Agentrix API ke
 test('GitLab OAuth flow stores session token server-side and project APIs use the session cookie', async () => {
   const { dir, store } = tempStore();
   const previousEnv = {
-    ISSUE_FLOW_WEB_ORIGIN: process.env.ISSUE_FLOW_WEB_ORIGIN,
+    ISSUE_FLOW_APP_URL: process.env.ISSUE_FLOW_APP_URL,
   };
   const gitlab = http.createServer((req, res) => {
     if (req.url === '/oauth/token' && req.method === 'POST') {
@@ -2520,24 +2528,27 @@ test('GitLab OAuth flow stores session token server-side and project APIs use th
     oauthClientSecret: 'oauth-secret',
     webhookSecret: 'backend-webhook-secret',
   });
-  process.env.ISSUE_FLOW_WEB_ORIGIN = 'http://web.local';
+  process.env.ISSUE_FLOW_APP_URL = 'http://web.local';
 
   const { app: apiApp, baseUrl } = await listenApp(store);
   try {
-    const start = await fetch(`${baseUrl}/api/auth/gitlab/start?gitServerId=gitlab-main`, { redirect: 'manual' });
-    assert.equal(start.status, 302);
-    const location = new URL(start.headers.get('location'));
+    const authorize = await fetch(`${baseUrl}/api/auth/gitlab/authorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gitServerId: 'gitlab-main', returnTo: '/repos' }),
+    });
+    assert.equal(authorize.status, 200);
+    assert.equal(authorize.headers.get('set-cookie'), null);
+    const authorizeBody = await authorize.json();
+    const location = new URL(authorizeBody.authorizeUrl);
     assert.equal(location.origin, gitlabBase);
     assert.equal(location.pathname, '/oauth/authorize');
     assert.equal(location.searchParams.get('client_id'), 'oauth-client');
     const state = location.searchParams.get('state');
-    const stateCookie = start.headers.get('set-cookie');
-    assert.match(stateCookie, /issue_flow_oauth_state=/);
-    assert.match(stateCookie, /issue_flow_oauth_git_server_id=/);
+    assert.match(state || '', /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
 
     const callback = await fetch(`${baseUrl}/api/auth/gitlab/callback?code=oauth-code&state=${state}`, {
       redirect: 'manual',
-      headers: { Cookie: setCookieToCookieHeader(stateCookie) },
     });
     assert.equal(callback.status, 302);
     assert.equal(callback.headers.get('location'), 'http://web.local/repos?gitlab=connected');

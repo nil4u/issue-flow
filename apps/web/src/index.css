@@ -1041,9 +1041,12 @@
     gap: 0.5rem;
   }
   .setup-screen {
+    height: 100svh;
+    min-height: 0;
     place-items: start center;
-    overflow: auto;
+    overflow-y: auto;
     padding-top: 7svh;
+    padding-bottom: max(3rem, env(safe-area-inset-bottom));
   }
   .setup-panel {
     width: min(28rem, 100%);

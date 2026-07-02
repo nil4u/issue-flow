@@ -1,17 +1,19 @@
 import type { FastifyRequest } from "fastify"
 
 import type { IssueFlowStore } from "../storage/store.js"
-import { publicBaseUrl, sessionCookieName } from "../utils/http.js"
+import { appBaseUrl, publicBaseUrl, sessionCookieName } from "../utils/http.js"
 
 export type ServiceContext = {
   store: IssueFlowStore
   basePublicUrl: string
+  appUrl: string
 }
 
 export function contextFromRequest(request: FastifyRequest): ServiceContext {
   return {
     store: request.server.issueFlowStore,
     basePublicUrl: publicBaseUrl(),
+    appUrl: appBaseUrl(),
   }
 }
 

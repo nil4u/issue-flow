@@ -1,20 +1,20 @@
 import type { FastifyReply, FastifyRequest } from "fastify"
 
-const DEFAULT_WEB_ORIGIN = "http://127.0.0.1:8787"
+const DEFAULT_APP_URL = "http://127.0.0.1:8787"
 
-export function configuredWebOrigins() {
-  return String(process.env.ISSUE_FLOW_WEB_ORIGIN || DEFAULT_WEB_ORIGIN)
+export function configuredAppOrigins(env = process.env) {
+  return String(env.ISSUE_FLOW_APP_URL || DEFAULT_APP_URL)
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean)
 }
 
-export function firstWebOrigin() {
-  return configuredWebOrigins()[0] || DEFAULT_WEB_ORIGIN
+export function firstAppOrigin(env = process.env) {
+  return configuredAppOrigins(env)[0] || DEFAULT_APP_URL
 }
 
 export function allowedOrigin(origin = "") {
-  const configured = configuredWebOrigins()
+  const configured = configuredAppOrigins()
   if (!origin) {
     return configured[0] || "*"
   }
@@ -40,12 +40,30 @@ export function parseCookies(header = "") {
   )
 }
 
-export function cookie(name: string, value: string, options: { maxAge?: number; secure?: boolean } = {}) {
-  const parts = [`${name}=${encodeURIComponent(value || "")}`, "Path=/", "HttpOnly", "SameSite=Lax"]
+type CookieSameSite = "Lax" | "None" | "Strict"
+
+function sameSiteKey(value = "") {
+  try {
+    const url = new URL(value)
+    return `${url.protocol}//${url.hostname}`
+  } catch {
+    return ""
+  }
+}
+
+export function cookieSameSite(env = process.env): CookieSameSite {
+  const apiSite = sameSiteKey(requiredBaseUrl(env))
+  const appSite = sameSiteKey(appBaseUrl(env))
+  return apiSite && appSite && apiSite !== appSite && requiredBaseUrl(env).startsWith("https://") ? "None" : "Lax"
+}
+
+export function cookie(name: string, value: string, options: { maxAge?: number; secure?: boolean; sameSite?: CookieSameSite } = {}) {
+  const sameSite = options.sameSite || cookieSameSite()
+  const parts = [`${name}=${encodeURIComponent(value || "")}`, "Path=/", "HttpOnly", `SameSite=${sameSite}`]
   if (options.maxAge !== undefined) {
     parts.push(`Max-Age=${options.maxAge}`)
   }
-  if (options.secure) {
+  if (options.secure || sameSite === "None") {
     parts.push("Secure")
   }
   return parts.join("; ")
@@ -67,6 +85,15 @@ export function requiredBaseUrl(env = process.env) {
   }
   if (!/^https?:\/\//.test(baseUrl)) {
     throw new Error("ISSUE_FLOW_BASE_URL must start with http:// or https://")
+  }
+  return baseUrl
+}
+
+export function appBaseUrl(env = process.env) {
+  const firstUrl = String(env.ISSUE_FLOW_APP_URL || firstAppOrigin(env)).split(",")[0] || firstAppOrigin(env)
+  const baseUrl = firstUrl.trim().replace(/\/+$/, "")
+  if (!/^https?:\/\//.test(baseUrl)) {
+    throw new Error("ISSUE_FLOW_APP_URL must start with http:// or https://")
   }
   return baseUrl
 }

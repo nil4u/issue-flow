@@ -28,7 +28,6 @@ function gitlabConfigFromServer(server = {}) {
     tokenAuth: server.tokenAuth || 'bearer',
     oauthClientId: server.oauth && server.oauth.clientId || '',
     oauthClientSecret: server.oauth && server.oauth.clientSecret || '',
-    oauthRedirectUri: server.oauth && server.oauth.redirectUri || '',
     oauthScopes: server.oauth && server.oauth.scopes || '',
   };
 }

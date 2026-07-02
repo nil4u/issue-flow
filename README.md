@@ -169,7 +169,7 @@ npm run api:dev
 npm run web
 ```
 
-`npm run web` loads `.env.dev`. The web console defaults to `http://127.0.0.1:8787` and points to `http://127.0.0.1:8788` unless `VITE_ISSUE_FLOW_API_BASE_URL` is set in `.env.dev`. Build the production web app with:
+`npm run web` loads `.env.dev`. The web console defaults to `http://127.0.0.1:8787` and points to the API configured by `ISSUE_FLOW_BASE_URL`. Build the production web app with:
 
 ```bash
 npm run web:build
@@ -193,7 +193,6 @@ INSERT INTO git_servers (
   token_auth,
   oauth_client_id,
   oauth_client_secret,
-  oauth_redirect_uri,
   oauth_scopes,
   webhook_secret,
   agentrix_git_server_id,
@@ -209,7 +208,6 @@ INSERT INTO git_servers (
   'bearer',
   '<gitlab-oauth-app-id>',
   '<gitlab-oauth-app-secret>',
-  'http://127.0.0.1:8788/api/auth/gitlab/callback',
   'api read_repository write_repository openid profile email',
   '<backend-managed-webhook-secret>',
   '<agentrix-git-server-id>',
@@ -221,7 +219,7 @@ INSERT INTO git_servers (
 
 There is no HTTP endpoint for creating or updating Git server rows. Insert and update them in PostgreSQL as administrator-managed service configuration. The API returns only public server fields and fingerprints. OAuth client secret, webhook secret, and admin PAT are never returned to the browser. Repositories created by install store `gitServerId`, and server-side dispatch passes `agentrix_git_server_id` to Agentrix as `AGENTRIX_GIT_SERVER_ID`. GitHub is a reserved server type in this schema but is not implemented by issue-flow service yet.
 
-Create a GitLab OAuth application for the issue-flow console and configure the callback URL on the GitLab app. The API requests the scopes saved in the selected `git_servers` row. The recommended scopes are `api read_repository write_repository openid profile email`.
+Create a GitLab OAuth application for the issue-flow console and configure the callback URL on the GitLab app. The callback URL is derived at runtime from `ISSUE_FLOW_BASE_URL` plus `/api/auth/gitlab/callback`. The API requests the scopes saved in the selected `git_servers` row. The recommended scopes are `api read_repository write_repository openid profile email`.
 
 In local development, set the redirect URI to:
 
@@ -229,13 +227,13 @@ In local development, set the redirect URI to:
 http://127.0.0.1:8788/api/auth/gitlab/callback
 ```
 
-If the saved OAuth redirect URI is empty, the API derives it from the required `ISSUE_FLOW_BASE_URL` startup setting.
+For tunneled or local testing, set `ISSUE_FLOW_BASE_URL` to the externally reachable API origin and register that callback URL in GitLab. `ISSUE_FLOW_APP_URL` is only used after callback completion to return to the web console.
 
 Production `.env` uses the same variable names. The normal production command is file-based:
 
 ```bash
 cp .env.example .env
-# edit .env for the production Postgres, service key, Agentrix URL, and public base URL
+# edit .env for the production Postgres, service key, Agentrix URL, and app URL
 npm run db:migrate
 npm run api
 ```
@@ -244,11 +242,11 @@ Minimal production variables:
 
 ```bash
 ISSUE_FLOW_BASE_URL=https://issue-flow.internal \
+ISSUE_FLOW_APP_URL=https://issue-flow-console.internal \
 DATABASE_URL=postgres://issue_flow:issue_flow@postgres.internal:5432/issue_flow \
 ISSUE_FLOW_SERVICE_KEY_FILE=/var/lib/issue-flow/key \
 ISSUE_FLOW_AGENTRIX_BASE_URL=https://agentrix.xmz.ai \
 ISSUE_FLOW_API_PORT=8788 \
-ISSUE_FLOW_WEB_ORIGIN=https://issue-flow-console.internal \
 npm run api
 ```
 

@@ -140,10 +140,10 @@ async function listGitlabIssues(input = {}) {
 }
 
 function gitlabOAuthRedirectUri(config, basePublicUrl) {
-  return config.oauthRedirectUri || `${String(basePublicUrl || '').replace(/\/+$/, '')}/api/auth/gitlab/callback`;
+  return `${String(basePublicUrl || '').replace(/\/+$/, '')}/api/auth/gitlab/callback`;
 }
 
-function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl }) {
+function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl, appUrl }) {
   if (!config.oauthClientId) {
     const error = new Error('GitLab OAuth client id is not configured');
     error.status = 400;
@@ -160,7 +160,7 @@ function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl }) {
   return url.toString();
 }
 
-async function exchangeGitlabOAuthCode({ config, code, basePublicUrl }) {
+async function exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl }) {
   if (!config.oauthClientId || !config.oauthClientSecret) {
     const error = new Error('GitLab OAuth client is not configured');
     error.status = 400;

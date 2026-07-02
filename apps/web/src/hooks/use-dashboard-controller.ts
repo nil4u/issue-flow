@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { parseWorkspaceRoute, sameWorkspaceRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
+import { parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
 import {
   api,
-  API_BASE_URL,
   ownerOf,
   repositoryToProject,
   type AgentrixDefaults,
@@ -68,7 +67,6 @@ export function useDashboardController() {
     if (typeof window === "undefined") return false
     return window.localStorage.getItem("issue-flow.sidebarCollapsed") === "1"
   })
-
   const selectedGitServer = gitServers.find((server) => server.id === selectedGitServerId)
   const currentSession = sessions[selectedGitServerId]
   const currentUser = currentSession?.authenticated ? currentSession.user : undefined
@@ -114,13 +112,7 @@ export function useDashboardController() {
   }
 
   function navigateUserSettings(mode: "push" | "replace" = "push") {
-    applyRoute({
-      view: "settings",
-      gitServerId: "",
-      projectId: "",
-      tab: "overview",
-      settingsSection: "account",
-    }, mode)
+    applyRoute(userSettingsRoute, mode)
   }
 
   async function loadGitServers() {
@@ -528,7 +520,6 @@ export function useDashboardController() {
       setChecking(false)
     }
   }
-
   async function finishPluginInstall(body: InstallCheck, operationLabel: string) {
     const nextCheck = mergeInstallCheck(installCheck, body)
     setInstallCheck(nextCheck)
@@ -536,31 +527,33 @@ export function useDashboardController() {
     setCheckProgress((current) => pluginInstallCompleteProgress(current, body, operationLabel))
     return nextCheck
   }
-
-  function loginGitLab(gitServerId = selectedGitServerId, options: { setup?: boolean; returnTo?: string } = {}) {
+  async function loginGitLab(gitServerId = selectedGitServerId, options: { returnTo?: string } = {}) {
     if (!gitServerId) {
       toast.warning("请先选择 Git server")
       return
     }
-    const returnTo = options.returnTo || `${window.location.pathname}${window.location.search}`
-    const setup = options.setup ? "&setup=1" : ""
-    window.location.href = `${API_BASE_URL}/api/auth/gitlab/start?gitServerId=${encodeURIComponent(gitServerId)}&returnTo=${encodeURIComponent(returnTo)}${setup}`
+    try {
+      const body = await api<{ authorizeUrl: string }>("/api/auth/gitlab/authorize", {
+        method: "POST",
+        body: JSON.stringify({ gitServerId, returnTo: options.returnTo || `${window.location.pathname}${window.location.search}` }),
+      })
+      window.location.href = body.authorizeUrl
+    } catch (error) {
+      notifyError(error, "登录 GitLab 失败")
+    }
   }
-
   async function initializeSetup(input: SetupInitializeInput) {
     setInitializingSetup(true)
     try {
-      const gitServer = await initializeIssueFlowSetup(input)
-      const gitServerId = gitServer.id
-      setSelectedGitServerId(gitServerId)
-      loginGitLab(gitServerId, { setup: true, returnTo: "/repos" })
+      const result = await initializeIssueFlowSetup(input)
+      setSelectedGitServerId(result.gitServer.id)
+      window.location.href = result.authorizeUrl
     } catch (error) {
       notifyError(error, "初始化失败")
     } finally {
       setInitializingSetup(false)
     }
   }
-
   function connectGitServerAccount(gitServerId: string) {
     const server = gitServers.find((item) => item.id === gitServerId)
     if (!server) return
@@ -571,7 +564,7 @@ export function useDashboardController() {
       return
     }
     setPendingGitServerId(gitServerId)
-    loginGitLab(gitServerId)
+    void loginGitLab(gitServerId)
   }
 
   async function logoutAll() {
@@ -626,15 +619,13 @@ export function useDashboardController() {
   }
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get("code") && params.get("state")) {
-      window.location.replace(`${API_BASE_URL}/api/auth/gitlab/callback?${params.toString()}`)
-      return
-    }
     ;(async () => {
       try {
         const status = await loadSetupStatus()
-        if (status.needsSetup) return
+        if (status.needsSetup) {
+          applyRoute(setupRoute, "replace")
+          return
+        }
         await Promise.all([loadGitServers(), loadUserSession()])
       } catch (error) {
         notifyError(error, "加载失败")
@@ -724,7 +715,10 @@ export function useDashboardController() {
   async function reloadLoginState() {
     try {
       const status = await loadSetupStatus()
-      if (status.needsSetup) return
+      if (status.needsSetup) {
+        applyRoute(setupRoute, "replace")
+        return
+      }
       await Promise.all([loadGitServers(), loadUserSession()])
     } catch (error) {
       notifyError(error, "重新加载失败")

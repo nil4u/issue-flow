@@ -1,17 +1,8 @@
 // @ts-nocheck
 import crypto from "node:crypto"
+import { createGitlabOAuthAuthorize } from "./gitlab-auth.js"
 
-const SETUP_COOKIE_NAME = "issue_flow_setup_verified"
-const SETUP_OAUTH_COOKIE_NAME = "issue_flow_oauth_setup"
-const SETUP_COOKIE_TTL_SECONDS = 10 * 60
-
-function setupVerifiedCookieName() {
-  return SETUP_COOKIE_NAME
-}
-
-function setupOAuthCookieName() {
-  return SETUP_OAUTH_COOKIE_NAME
-}
+const DEFAULT_GITLAB_OAUTH_SCOPES = "api read_repository write_repository openid profile email"
 
 function setupCode(env = process.env) {
   return String(env.ISSUE_FLOW_SETUP_CODE || "").trim()
@@ -34,38 +25,6 @@ function timingSafeEqualString(a = "", b = "") {
   return left.length === right.length && crypto.timingSafeEqual(left, right)
 }
 
-function setupCookieSignature(payload, env = process.env) {
-  return crypto
-    .createHmac("sha256", requiredSetupCode(env))
-    .update(payload)
-    .digest("base64url")
-}
-
-function signSetupCookie(input = {}, env = process.env) {
-  const payload = Buffer.from(JSON.stringify({
-    gitServerId: input.gitServerId || "",
-    nonce: crypto.randomBytes(12).toString("hex"),
-    exp: Date.now() + SETUP_COOKIE_TTL_SECONDS * 1000,
-  })).toString("base64url")
-  return `${payload}.${setupCookieSignature(payload, env)}`
-}
-
-function validateSetupCookie(value = "", input = {}, env = process.env) {
-  const [payload, signature] = String(value || "").split(".")
-  if (!payload || !signature) return false
-  const expected = setupCookieSignature(payload, env)
-  if (!timingSafeEqualString(signature, expected)) return false
-  let parsed
-  try {
-    parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
-  } catch {
-    return false
-  }
-  if (!parsed || Number(parsed.exp || 0) < Date.now()) return false
-  const gitServerId = String(input.gitServerId || "").trim()
-  return !gitServerId || parsed.gitServerId === gitServerId
-}
-
 function gitServerMissingFields(server = {}) {
   const missing = []
   if (!server.id) missing.push("id")
@@ -80,6 +39,28 @@ function gitServerMissingFields(server = {}) {
     if (!server.adminPat) missing.push("adminPat")
   }
   return missing
+}
+
+function normalizedUrl(value = "") {
+  return String(value || "").trim().replace(/\/+$/, "")
+}
+
+function gitlabHost(baseUrl = "") {
+  try {
+    return new URL(normalizedUrl(baseUrl)).hostname
+  } catch {
+    return ""
+  }
+}
+
+function defaultGitlabId(baseUrl = "") {
+  const host = gitlabHost(baseUrl)
+  return host ? `gitlab-${host.replace(/\./g, "-")}` : ""
+}
+
+function defaultGitlabApiUrl(baseUrl = "") {
+  const root = normalizedUrl(baseUrl)
+  return root ? `${root}/api/v4` : ""
 }
 
 async function getSetupStatus({ store, env = process.env }) {
@@ -100,7 +81,7 @@ async function getSetupStatus({ store, env = process.env }) {
   }
 }
 
-async function initializeSetup({ store, input = {}, env = process.env }) {
+async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env = process.env }) {
   const expectedCode = requiredSetupCode(env)
   if (!timingSafeEqualString(String(input.setupCode || ""), expectedCode)) {
     return { status: 401, body: { error: "setup_code_invalid" } }
@@ -111,21 +92,22 @@ async function initializeSetup({ store, input = {}, env = process.env }) {
     return { status: 409, body: { error: "setup_already_initialized" } }
   }
 
+  const baseUrl = normalizedUrl(input.baseUrl)
+  const host = gitlabHost(baseUrl)
   const gitServer = await store.ensureGitServer({
-    id: input.id,
+    id: input.id || defaultGitlabId(baseUrl),
     type: input.type || "gitlab",
-    name: input.name,
-    baseUrl: input.baseUrl,
-    apiUrl: input.apiUrl,
+    name: input.name || host,
+    baseUrl,
+    apiUrl: normalizedUrl(input.apiUrl) || defaultGitlabApiUrl(baseUrl),
     tokenAuth: input.tokenAuth || "bearer",
     oauth: {
       clientId: input.oauth?.clientId || input.oauthClientId,
       clientSecret: input.oauth?.clientSecret || input.oauthClientSecret,
-      redirectUri: input.oauth?.redirectUri || input.oauthRedirectUri || "",
-      scopes: input.oauth?.scopes || input.oauthScopes || "api read_user read_repository write_repository openid profile email",
+      scopes: input.oauth?.scopes || input.oauthScopes || DEFAULT_GITLAB_OAUTH_SCOPES,
     },
     webhook: {
-      secret: input.webhook?.secret || input.webhookSecret,
+      secret: input.webhook?.secret || input.webhookSecret || crypto.randomBytes(32).toString("hex"),
     },
     agentrixGitServerId: input.agentrixGitServerId,
     adminPat: input.adminPat,
@@ -142,23 +124,28 @@ async function initializeSetup({ store, input = {}, env = process.env }) {
     }
   }
 
+  const authorize = await createGitlabOAuthAuthorize({
+    store,
+    basePublicUrl,
+    appUrl,
+    input: {
+      gitServerId: gitServer.id,
+      returnTo: "/repos",
+      setupAdminEligible: true,
+    },
+  })
+
   return {
     status: 201,
     body: {
       ok: true,
       gitServer: store.publicGitServer(gitServer),
-      setupToken: signSetupCookie({ gitServerId: gitServer.id }, env),
-      setupTokenMaxAge: SETUP_COOKIE_TTL_SECONDS,
+      authorizeUrl: authorize.authorizeUrl,
     },
   }
 }
 
 export {
-  SETUP_COOKIE_TTL_SECONDS,
   getSetupStatus,
   initializeSetup,
-  setupOAuthCookieName,
-  setupVerifiedCookieName,
-  signSetupCookie,
-  validateSetupCookie,
 }

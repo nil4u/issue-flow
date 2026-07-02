@@ -1,3 +1,6 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateTable
 CREATE TABLE "git_servers" (
     "id" TEXT NOT NULL,
@@ -8,9 +11,10 @@ CREATE TABLE "git_servers" (
     "token_auth" TEXT NOT NULL DEFAULT 'bearer',
     "oauth_client_id" TEXT NOT NULL DEFAULT '',
     "oauth_client_secret" TEXT NOT NULL DEFAULT '',
-    "oauth_redirect_uri" TEXT NOT NULL DEFAULT '',
     "oauth_scopes" TEXT NOT NULL DEFAULT '',
     "webhook_secret" TEXT NOT NULL DEFAULT '',
+    "agentrix_git_server_id" TEXT NOT NULL DEFAULT '',
+    "admin_pat" TEXT NOT NULL DEFAULT '',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
@@ -23,6 +27,7 @@ CREATE TABLE "users" (
     "display_name" TEXT NOT NULL DEFAULT '',
     "email" TEXT NOT NULL DEFAULT '',
     "avatar_url" TEXT NOT NULL DEFAULT '',
+    "role" TEXT NOT NULL DEFAULT 'member',
     "data" JSONB NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
@@ -92,26 +97,60 @@ CREATE TABLE "user_repo_accesses" (
 );
 
 -- CreateTable
-CREATE TABLE "credentials" (
-    "repo_id" TEXT NOT NULL,
-    "webhook_secret" TEXT NOT NULL DEFAULT '',
-    "agentrix_api_key" TEXT NOT NULL DEFAULT '',
+CREATE TABLE "issues" (
+    "id" TEXT NOT NULL,
+    "git_server_id" TEXT NOT NULL,
+    "repository_id" TEXT NOT NULL,
+    "repository_full_name" TEXT NOT NULL,
+    "issue_id" TEXT NOT NULL,
+    "issue_number" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "state" TEXT NOT NULL DEFAULT '',
+    "type" TEXT NOT NULL DEFAULT '',
+    "priority" TEXT NOT NULL DEFAULT '',
+    "size" TEXT NOT NULL DEFAULT '',
+    "automation" TEXT NOT NULL DEFAULT 'off',
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "opened_at" TIMESTAMP(3) NOT NULL,
+    "closed_at" TIMESTAMP(3),
     "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "credentials_pkey" PRIMARY KEY ("repo_id")
+    CONSTRAINT "issues_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "webhook_deliveries" (
+CREATE TABLE "issue_spans" (
     "id" TEXT NOT NULL,
-    "repo_id" TEXT NOT NULL,
-    "delivery_key" TEXT NOT NULL,
-    "consumer" TEXT NOT NULL,
-    "data" JSONB NOT NULL,
+    "git_server_id" TEXT NOT NULL,
+    "repository_id" TEXT NOT NULL,
+    "repository_full_name" TEXT NOT NULL,
+    "issue_id" TEXT NOT NULL,
+    "issue_number" INTEGER NOT NULL,
+    "flow" TEXT NOT NULL,
+    "entered_at" TIMESTAMP(3) NOT NULL,
+    "exited_at" TIMESTAMP(3),
+
+    CONSTRAINT "issue_spans_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "git_events" (
+    "id" TEXT NOT NULL,
+    "git_server_id" TEXT NOT NULL,
+    "repository_id" TEXT NOT NULL,
+    "repository_full_name" TEXT NOT NULL,
+    "delivery_id" TEXT NOT NULL,
+    "event_name" TEXT NOT NULL,
+    "action" TEXT NOT NULL DEFAULT '',
+    "object_type" TEXT NOT NULL DEFAULT '',
+    "object_id" TEXT NOT NULL DEFAULT '',
+    "payload" JSONB NOT NULL,
+    "normalized_events" JSONB NOT NULL,
+    "received_at" TIMESTAMP(3) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "webhook_deliveries_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "git_events_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -123,18 +162,6 @@ CREATE TABLE "webhook_bridge_state" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "webhook_bridge_state_pkey" PRIMARY KEY ("repo_id","key")
-);
-
--- CreateTable
-CREATE TABLE "dispatch_runs" (
-    "id" TEXT NOT NULL,
-    "repo_id" TEXT NOT NULL,
-    "delivery_id" TEXT NOT NULL DEFAULT '',
-    "data" JSONB NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "dispatch_runs_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -199,13 +226,34 @@ CREATE INDEX "user_repo_accesses_user_id_git_server_id_idx" ON "user_repo_access
 CREATE INDEX "user_repo_accesses_repo_id_idx" ON "user_repo_accesses"("repo_id");
 
 -- CreateIndex
-CREATE INDEX "webhook_deliveries_repo_id_created_at_idx" ON "webhook_deliveries"("repo_id", "created_at");
+CREATE INDEX "issues_git_server_id_repository_id_state_updated_at_idx" ON "issues"("git_server_id", "repository_id", "state", "updated_at");
 
 -- CreateIndex
-CREATE INDEX "webhook_deliveries_repo_id_delivery_key_consumer_created_at_idx" ON "webhook_deliveries"("repo_id", "delivery_key", "consumer", "created_at");
+CREATE UNIQUE INDEX "issues_git_server_id_repository_id_issue_id_key" ON "issues"("git_server_id", "repository_id", "issue_id");
 
 -- CreateIndex
-CREATE INDEX "dispatch_runs_repo_id_created_at_idx" ON "dispatch_runs"("repo_id", "created_at");
+CREATE UNIQUE INDEX "issues_git_server_id_repository_id_issue_number_key" ON "issues"("git_server_id", "repository_id", "issue_number");
+
+-- CreateIndex
+CREATE INDEX "issue_spans_git_server_id_repository_id_issue_id_idx" ON "issue_spans"("git_server_id", "repository_id", "issue_id");
+
+-- CreateIndex
+CREATE INDEX "issue_spans_flow_entered_at_idx" ON "issue_spans"("flow", "entered_at");
+
+-- CreateIndex
+CREATE INDEX "issue_spans_exited_at_idx" ON "issue_spans"("exited_at");
+
+-- CreateIndex
+CREATE INDEX "git_events_git_server_id_repository_id_received_at_idx" ON "git_events"("git_server_id", "repository_id", "received_at");
+
+-- CreateIndex
+CREATE INDEX "git_events_event_name_received_at_idx" ON "git_events"("event_name", "received_at");
+
+-- CreateIndex
+CREATE INDEX "git_events_object_type_object_id_idx" ON "git_events"("object_type", "object_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "git_events_git_server_id_delivery_id_key" ON "git_events"("git_server_id", "delivery_id");
 
 -- CreateIndex
 CREATE INDEX "oauth_sessions_user_id_idx" ON "oauth_sessions"("user_id");

@@ -31,6 +31,14 @@ function normalizeApiUrl(baseUrl, apiUrl) {
   return normalizedBaseUrl ? `${normalizedBaseUrl}/api/v4` : ""
 }
 
+function normalizeOauthScopes(value) {
+  return String(value || "")
+    .split(/[,\s]+/)
+    .map((scope) => scope.trim())
+    .filter((scope) => scope && scope !== "read_user")
+    .join(" ")
+}
+
 function normalizeAutomation(input = {}) {
   return {
     autoDefault: input.autoDefault || "triage",
@@ -64,8 +72,7 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     tokenAuth: input.tokenAuth || "bearer",
     oauth: {
       clientId: oauth.clientId || "",
-      redirectUri: oauth.redirectUri || "",
-      scopes: oauth.scopes || "",
+      scopes: normalizeOauthScopes(oauth.scopes),
       clientSecretFingerprint: fingerprints.oauthClientSecretFingerprint || "",
     },
     webhook: {
@@ -571,8 +578,7 @@ class IssueFlowStore {
       tokenAuth: row.tokenAuth || "bearer",
       oauth: {
         clientId: row.oauthClientId || "",
-        redirectUri: row.oauthRedirectUri || "",
-        scopes: row.oauthScopes || "",
+        scopes: normalizeOauthScopes(row.oauthScopes),
         clientSecretFingerprint: fingerprintSecret(oauthClientSecret),
       },
       webhook: {
@@ -643,7 +649,6 @@ class IssueFlowStore {
         tokenAuth: normalized.tokenAuth,
         oauthClientId: normalized.oauth.clientId,
         oauthClientSecret,
-        oauthRedirectUri: normalized.oauth.redirectUri,
         oauthScopes: normalized.oauth.scopes,
         webhookSecret,
         agentrixGitServerId,
@@ -659,7 +664,6 @@ class IssueFlowStore {
         tokenAuth: normalized.tokenAuth,
         oauthClientId: normalized.oauth.clientId,
         oauthClientSecret,
-        oauthRedirectUri: normalized.oauth.redirectUri,
         oauthScopes: normalized.oauth.scopes,
         webhookSecret,
         agentrixGitServerId,
