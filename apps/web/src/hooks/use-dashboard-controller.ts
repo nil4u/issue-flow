@@ -7,7 +7,6 @@ import {
   ownerOf,
   repositoryToProject,
   type AgentrixDefaults,
-  type GitEventRow,
   type GitLabProject,
   type GitLabUser,
   type GitServer,
@@ -59,7 +58,6 @@ export function useDashboardController() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [gitEvents, setGitEvents] = useState<GitEventRow[]>([])
   const {
     issues,
     loadingIssues,
@@ -225,15 +223,6 @@ export function useDashboardController() {
     } finally {
       setLoadingProjects(false)
     }
-  }
-
-  async function loadActivity(repoId?: string) {
-    if (!repoId) {
-      setGitEvents([])
-      return
-    }
-    const eventBody = await api<{ gitEvents: GitEventRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/git-events`)
-    setGitEvents(eventBody.gitEvents || [])
   }
 
   async function syncIssues() {
@@ -695,12 +684,6 @@ export function useDashboardController() {
   }, [activeTab, selectedGitServerId, selectedProject?.id, pendingPluginMergeRequestHref])
 
   useEffect(() => {
-    void loadActivity(selectedRepo?.id).catch((error) => {
-      notifyError(error, "加载活动失败")
-    })
-  }, [selectedRepo?.id])
-
-  useEffect(() => {
     const repoId = selectedRepo?.id
     void loadIssues(repoId).then((nextIssues) => {
       if (!repoId || activeTab !== "issues" || nextIssues.length > 0 || hasAutoSynced(repoId)) return
@@ -775,7 +758,6 @@ export function useDashboardController() {
       checking,
       projectAccess,
       loadingProjectAccess,
-      gitEvents,
       issues,
       loadingIssues,
       onLogin: () => loginGitLab(selectedGitServerId),

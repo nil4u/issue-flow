@@ -4,7 +4,7 @@
 @import "@fontsource-variable/geist";
 @import "./styles/theme.css";
 @import "./styles/install-console.css";
-@import "./styles/overview-activity.css";
+@import "./styles/metrics.css";
 @custom-variant dark (&:is(.dark *));
 @theme inline {
   --font-sans: Geist, sans-serif;

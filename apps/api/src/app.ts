@@ -2,6 +2,7 @@ import Fastify, { type FastifyRequest } from "fastify"
 import cors from "@fastify/cors"
 
 import { gitlabAuthRoutes } from "./routes/auth/gitlab.js"
+import { dashboardRoutes } from "./routes/dashboards.js"
 import { gitServerRoutes } from "./routes/git-servers.js"
 import { gitlabRoutes } from "./routes/gitlab.js"
 import { healthRoutes } from "./routes/health.js"
@@ -88,6 +89,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(gitlabAuthRoutes)
   await app.register(userAgentrixConfigRoutes)
   await app.register(repositoryRoutes)
+  await app.register(dashboardRoutes)
   await app.register(gitlabRoutes)
   await app.register(gitlabWebhookRoutes)
 

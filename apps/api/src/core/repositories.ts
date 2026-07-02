@@ -163,6 +163,7 @@ export {
   listGitEvents,
   listIssues,
   listRepositories,
+  requireAccessibleRepo,
   syncIssuesSnapshot,
   validateRepositoryToken,
 }

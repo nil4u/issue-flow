@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   CheckCircle2,
@@ -22,7 +22,6 @@ import { AgentrixHelpDialog } from "@/components/agentrix-help-dialog"
 import { EmptyPanel } from "@/components/empty-panel"
 import { GitRunnerValue } from "@/components/git-runner-value"
 import { IssuesBoard } from "@/components/issues-board"
-import { OverviewActivity } from "@/components/overview-activity"
 import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
@@ -30,6 +29,10 @@ import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { InstallStep, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
 import type { AgentrixHelpTopicId } from "@/lib/agentrix-help"
+
+const MetricsBoard = lazy(() =>
+  import("@/components/metrics-board").then((module) => ({ default: module.MetricsBoard })),
+)
 
 export function RepoWorkspace(props: RepoWorkspaceProps) {
   return (
@@ -61,7 +64,6 @@ function OverviewTab({
   user,
   project,
   repository,
-  gitEvents,
   onLogin,
   onOpenSettings,
 }: RepoWorkspaceProps & { onOpenSettings: () => void }) {
@@ -87,7 +89,9 @@ function OverviewTab({
   }
   return (
     <div className="overview-grid">
-      <OverviewActivity gitEvents={gitEvents} repository={repository} />
+      <Suspense fallback={<div className="metrics-loading"><Loader2 className="size-4 animate-spin" /> 正在加载度量看板...</div>}>
+        <MetricsBoard repository={repository} />
+      </Suspense>
     </div>
   )
 }

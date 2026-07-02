@@ -11,10 +11,13 @@ install.test.cjs: install.sh checkout source、GitHub/GitLab 安装路径与 dry
 intake.test.cjs: issue intake 默认标签与 provider repo hint 测试。
 labels.test.cjs: managed label catalog 与 apply 规则测试。
 merged.test.cjs: merged PR/MR source issue transition 测试。
+metrics-sql.test.cjs: 只读 metrics SQL 校验、参数绑定与 MR 快照解析的纯逻辑测试。
+metrics.test.cjs: issue_stats 重建、pull_requests 投影、metric views 与 dashboard API 的 Postgres 集成测试。
 pipeline-failed.test.cjs: CI failure intake、fingerprint 与 root-cause analysis 测试。
 providers.test.cjs: GitHub/GitLab provider API、CLI fallback、review comment 与 label sync 测试。
 release-config.test.cjs: release-please config、manifest、SKILL version marker 与 workflow 入口测试。
 resolve.test.cjs: mention、automation decision 与 flow action 解析测试。
+service.test.cjs: apps/api Fastify 服务与 GitLab 控制台流程的 Postgres 集成测试。
 review.test.cjs: review CLI parser、provider review submission 与 stale-head guard 测试。
 submit.test.cjs: PR/MR submit、source marker、base branch 与 push auth 测试。
 sync-labels.test.cjs: label sync parser、dry-run 与 drift detection 测试。
@@ -24,6 +27,7 @@ CLAUDE.md: 本目录的 L2 地图，记录测试文件职责。
 
 依赖边界
 test/*.test.cjs -> skills/issue-flow/scripts/*、assets/*、package/release 配置。
+service.test.cjs、metrics.test.cjs -> apps/api/src/*、prisma/migrations/*，需要 DATABASE_URL 指向可用 Postgres。
 integration*.test.cjs -> 真实 provider/远端环境，默认由 test:integration 单独执行。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

@@ -127,16 +127,22 @@ async function applyIssueSnapshotToFacts(store, snapshot = {}) {
   const at = snapshot.closedAt || snapshot.updatedAt
   if (snapshot.status === "done" || snapshot.status === "drop") {
     await store.closeIssueFlowSpans({ ...snapshot, at })
-    return issue
+  } else {
+    await store.setIssueFlowSpan({ ...snapshot, at, flow: snapshot.flow })
   }
-  await store.setIssueFlowSpan({ ...snapshot, at, flow: snapshot.flow })
+  store.scheduleIssueStatsRebuild(snapshot)
   return issue
 }
 
 async function applyGitEventToIssueFacts(store, gitEvent = {}) {
   const snapshot = issueSnapshot(gitEvent)
-  if (!snapshot || !shouldProjectSpan(snapshot, gitEvent)) {
-    return snapshot ? store.upsertIssueSnapshot(snapshot).then((result) => result.issue) : undefined
+  if (!snapshot) return undefined
+  if (!shouldProjectSpan(snapshot, gitEvent)) {
+    const { issue, applied } = await store.upsertIssueSnapshot(snapshot)
+    if (applied && issue) {
+      store.scheduleIssueStatsRebuild(snapshot)
+    }
+    return issue
   }
   return applyIssueSnapshotToFacts(store, snapshot)
 }

@@ -13,6 +13,7 @@ import {
 import { requireRepo, resolveGitServer } from './common.js'
 import { getGitlabRepositoryFile } from './gitlab.js'
 import { applyGitEventToIssueFacts } from './issue-projection.js'
+import { applyGitEventToPullRequestFacts } from './pull-request-projection.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
 
@@ -85,6 +86,7 @@ function createGitEventTarget(store, repo) {
       normalizedEvents: input.events.map(normalizedEventFact),
     });
     await applyGitEventToIssueFacts(store, gitEvent);
+    await applyGitEventToPullRequestFacts(store, gitEvent);
     return {
       target: 'issue-flow-git-event-log',
       eventId: input.deliveryId,

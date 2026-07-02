@@ -254,23 +254,6 @@ export type ProjectAccess = {
   canManage?: boolean
 }
 
-export type GitEventRow = {
-  id: string
-  gitServerId?: string
-  repositoryId?: string
-  deliveryId?: string
-  eventName?: string
-  action?: string
-  objectType?: string
-  objectId?: string
-  repositoryFullName?: string
-  receivedAt?: string
-  updatedAt?: string
-  createdAt?: string
-  payload?: Record<string, unknown>
-  normalizedEvents?: Array<Record<string, unknown>>
-}
-
 export type IssueRow = {
   id: string
   gitServerId?: string
@@ -291,6 +274,48 @@ export type IssueRow = {
   updatedAt?: string
 }
 
+export type DashboardVariable = {
+  id: string
+  name: string
+  type: "time_range" | "select" | "multi_select" | string
+  defaultValue?: unknown
+  querySql?: string
+  position?: number
+}
+
+export type DashboardPanelPosition = { x?: number; y?: number; w?: number; h?: number }
+
+export type DashboardPanel = {
+  id: string
+  title: string
+  querySql: string
+  chartType: "stat" | "line" | "bar" | "stacked_bar" | "stacked_bar_with_lines" | "table" | string
+  xField?: string
+  yFields?: string[]
+  y2Fields?: string[]
+  seriesField?: string
+  stackField?: string
+  visualConfig?: Record<string, unknown>
+  position?: DashboardPanelPosition
+  refreshInterval?: number
+}
+
+export type DashboardView = {
+  id: string
+  name: string
+  slug: string
+  description?: string
+  isSystem?: boolean
+  variables: DashboardVariable[]
+  panels: DashboardPanel[]
+}
+
+export type MetricsQueryResult = {
+  columns: Array<{ name: string; type: string }>
+  rows: Array<Record<string, unknown>>
+  truncated?: boolean
+}
+
 export type WorkspaceTab = "overview" | "issues" | "settings"
 
 export type RepoWorkspaceProps = {
@@ -306,7 +331,6 @@ export type RepoWorkspaceProps = {
   checking: boolean
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
-  gitEvents: GitEventRow[]
   issues: IssueRow[]
   loadingIssues?: boolean
   onLogin: () => void
