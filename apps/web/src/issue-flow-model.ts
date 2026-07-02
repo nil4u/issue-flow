@@ -1,6 +1,10 @@
 import type { ReactNode } from "react"
 
-export const API_BASE_URL = (import.meta.env.ISSUE_FLOW_BASE_URL || "http://127.0.0.1:8788").replace(/\/+$/, "")
+export const API_BASE_URL = (
+  import.meta.env.ISSUE_FLOW_WEB_API_BASE_URL
+  || import.meta.env.ISSUE_FLOW_BASE_URL
+  || "http://127.0.0.1:8788"
+).replace(/\/+$/, "")
 
 export type Repository = {
   id: string

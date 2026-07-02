@@ -1133,6 +1133,12 @@
   .check-row-main {
     grid-template-columns: auto minmax(0, 1fr);
   }
+  .agentrix-help-dialog {
+    max-height: calc(100svh - 1rem);
+  }
+  .agentrix-help-gallery {
+    grid-template-columns: 1fr;
+  }
   .check-row-value {
     grid-column: 2;
     justify-items: start;

@@ -15,6 +15,7 @@ export type InstallCheckConfigItem = {
   name: string
   description: string
   defaultValue?: InstallCheckDefaultValue
+  helpTopicId?: "agentrix-api-key" | "agentrix-runner-id"
   control?: InstallCheckControl
 }
 
@@ -67,6 +68,7 @@ export const gitlabInstallCheckConfig = {
           type: "variable",
           name: "AGENTRIX_API_KEY",
           description: "GitLab CI 调用 Agentrix API 的密钥。",
+          helpTopicId: "agentrix-api-key",
           control: {
             path: "agentrix.apiKey",
             type: "password",
@@ -78,6 +80,7 @@ export const gitlabInstallCheckConfig = {
           type: "variable",
           name: "AGENTRIX_RUNNER_ID",
           description: "指定 Agentrix 的 Machine ID 或 Cloud ID。",
+          helpTopicId: "agentrix-runner-id",
           control: {
             path: "agentrix.runnerId",
             type: "text",

@@ -169,7 +169,7 @@ npm run api:dev
 npm run web
 ```
 
-`npm run web` loads `.env.dev`. The web console defaults to `http://127.0.0.1:8787` and points to the API configured by `ISSUE_FLOW_BASE_URL`. Build the production web app with:
+`npm run web` loads `.env.dev`. The web console defaults to `http://127.0.0.1:8787` and points browser requests to `ISSUE_FLOW_WEB_API_BASE_URL`. Build the production web app with:
 
 ```bash
 npm run web:build
@@ -227,7 +227,7 @@ In local development, set the redirect URI to:
 http://127.0.0.1:8788/api/auth/gitlab/callback
 ```
 
-For tunneled or local testing, set `ISSUE_FLOW_BASE_URL` to the externally reachable API origin and register that callback URL in GitLab. `ISSUE_FLOW_APP_URL` is only used after callback completion to return to the web console.
+For tunneled or local testing, set `ISSUE_FLOW_BASE_URL` to the externally reachable API origin and register that callback URL in GitLab. Set `ISSUE_FLOW_WEB_API_BASE_URL` to the API origin that the browser should call, for example `http://127.0.0.1:8788` when testing a local web console against a local API. `ISSUE_FLOW_APP_URL` is only used after callback completion to return to the web console.
 
 Production `.env` uses the same variable names. The normal production command is file-based:
 
@@ -242,6 +242,7 @@ Minimal production variables:
 
 ```bash
 ISSUE_FLOW_BASE_URL=https://issue-flow.internal \
+ISSUE_FLOW_WEB_API_BASE_URL=https://issue-flow.internal \
 ISSUE_FLOW_APP_URL=https://issue-flow-console.internal \
 DATABASE_URL=postgres://issue_flow:issue_flow@postgres.internal:5432/issue_flow \
 ISSUE_FLOW_SERVICE_KEY_FILE=/var/lib/issue-flow/key \

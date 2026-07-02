@@ -12,7 +12,7 @@ cp .env.dev.example .env.dev
 npm run dev
 ```
 
-This loads `.env.dev` and wires `ISSUE_FLOW_BASE_URL` into the web build.
+This loads `.env.dev` and wires `ISSUE_FLOW_WEB_API_BASE_URL` into the web build.
 Open `/setup` to initialize the first GitLab server.
 
 For local development, the GitLab OAuth redirect URI is:
@@ -33,7 +33,7 @@ Start the web console alone:
 npm run web
 ```
 
-The web console loads `.env.dev`, defaults to `http://127.0.0.1:8787`, and points to the API configured by `ISSUE_FLOW_BASE_URL`. Production build and preview scripts load `.env`.
+The web console loads `.env.dev`, defaults to `http://127.0.0.1:8787`, and points to the API configured by `ISSUE_FLOW_WEB_API_BASE_URL`. Production build and preview scripts load `.env`.
 
 ## Design System
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   CheckCircle2,
+  CircleHelp,
   CircleX,
   CircleDot,
   ExternalLink,
@@ -17,16 +18,18 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { AgentrixHelpDialog } from "@/components/agentrix-help-dialog"
 import { EmptyPanel } from "@/components/empty-panel"
 import { GitRunnerValue } from "@/components/git-runner-value"
 import { IssuesBoard } from "@/components/issues-board"
 import { OverviewActivity } from "@/components/overview-activity"
 import { RowValue } from "@/components/row-value"
-import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { InstallStep, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
+import type { AgentrixHelpTopicId } from "@/lib/agentrix-help"
 
 export function RepoWorkspace(props: RepoWorkspaceProps) {
   return (
@@ -109,6 +112,7 @@ function InstallConsole({
   const [actionRowId, setActionRowId] = useState("")
   const [editingRow, setEditingRow] = useState<CheckRow>()
   const [editingValue, setEditingValue] = useState("")
+  const [helpTopicId, setHelpTopicId] = useState<AgentrixHelpTopicId>()
   const installInput = useMemo(() => installForm, [installForm])
   const groups = useMemo(() => buildInstallGroups({
     installCheck,
@@ -221,6 +225,7 @@ function InstallConsole({
                 onSaveWebhook={() => saveWebhook(row)}
                 onSaveRunner={() => saveRunner(row)}
                 onInstallPlugin={() => installPlugin(row)}
+                onOpenHelp={setHelpTopicId}
                 readOnly={readOnly}
               />
             ))}
@@ -237,7 +242,14 @@ function InstallConsole({
           setEditingValue("")
         }}
         onValueChange={setEditingValue}
+        placeholder={variablePlaceholder(editingRow)}
         onSave={saveVariable}
+      />
+      <AgentrixHelpDialog
+        topicId={helpTopicId}
+        onOpenChange={(open) => {
+          if (!open) setHelpTopicId(undefined)
+        }}
       />
       <CheckProgressDialog
         checking={checking}
@@ -546,6 +558,7 @@ function CheckTableRow({
   onSaveWebhook,
   onSaveRunner,
   onInstallPlugin,
+  onOpenHelp,
 }: {
   checking: boolean
   readOnly: boolean
@@ -554,6 +567,7 @@ function CheckTableRow({
   onSaveWebhook: () => Promise<void>
   onSaveRunner: () => Promise<void>
   onInstallPlugin: () => Promise<void>
+  onOpenHelp: (topicId: AgentrixHelpTopicId) => void
 }) {
   const canSetVariable = Boolean(row.variable) && !readOnly
   const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
@@ -573,6 +587,7 @@ function CheckTableRow({
   const showPluginAction = canInstallPlugin && Boolean(row.plugin?.installed && row.plugin.needsUpgrade)
   const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
   const pluginUpgradeValue = showPluginAction && row.plugin ? pluginValue(row.plugin) : ""
+  const helpTopicId = row.configItem?.helpTopicId
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
     : row.status === "unknown"
@@ -587,6 +602,12 @@ function CheckTableRow({
         <span className="check-row-copy">
           <strong>{row.title}</strong>
           <small>{row.description}</small>
+          {helpTopicId && (
+            <button type="button" className="check-row-help" onClick={() => onOpenHelp(helpTopicId)}>
+              <CircleHelp className="size-3.5" />
+              如何获取
+            </button>
+          )}
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
         {showMergeAction ? (
@@ -648,54 +669,6 @@ function CheckTableRow({
       </div>
       {(row.detail || row.permission || row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
     </div>
-  )
-}
-
-function VariableSettingsDialog({
-  onOpenChange,
-  onSave,
-  onValueChange,
-  row,
-  saving,
-  value,
-}: {
-  onOpenChange: (open: boolean) => void
-  onSave: () => Promise<void>
-  onValueChange: (value: string) => void
-  row?: CheckRow
-  saving: boolean
-  value: string
-}) {
-  return (
-    <Dialog open={Boolean(row)} onOpenChange={onOpenChange}>
-      <DialogContent className="variable-dialog">
-        <DialogHeader>
-          <DialogTitle>{row?.variable?.key || row?.title || "设置变量"}</DialogTitle>
-        </DialogHeader>
-        <div className="variable-dialog-body">
-          <Textarea
-            autoFocus
-            aria-label={row?.variable?.key || row?.title || "变量值"}
-            className="variable-dialog-input"
-            id="variable-value"
-            placeholder={variablePlaceholder(row)}
-            value={value}
-            onChange={(event) => onValueChange(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                void onSave()
-              }
-            }}
-          />
-        </div>
-        <div className="variable-dialog-actions">
-          <Button type="button" onClick={onSave} disabled={saving}>
-            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-            保存
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
   )
 }
 
