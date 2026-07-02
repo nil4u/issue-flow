@@ -429,6 +429,26 @@ async function createGitlabMergeRequest(input = {}) {
   return result.parsed || {};
 }
 
+async function getGitlabMergeRequest(input = {}) {
+  const iid = String(input.iid || input.mergeRequestIid || '').trim();
+  if (!iid) return undefined;
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/merge_requests/${encodeURIComponent(iid)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && error.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 async function upsertGitlabWebhook(input = {}) {
   if (input.hookId) {
     try {
@@ -730,6 +750,7 @@ async function validateGitlabToken(input = {}) {
 export {
   createGitlabRepositoryCommit,
   createGitlabMergeRequest,
+  getGitlabMergeRequest,
   configureGitlabProjectVariables,
   exchangeGitlabOAuthCode,
   refreshGitlabOAuthToken,

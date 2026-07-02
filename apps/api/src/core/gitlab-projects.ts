@@ -7,6 +7,7 @@ import {
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
   getGitlabProjectMember,
+  getGitlabMergeRequest,
   getGitlabRepositoryFile,
   getGitlabVariableForInstall,
   listGitlabProjects,
@@ -444,6 +445,36 @@ function pluginState(cache) {
   return { status: 'passed', detail: `v${pluginVersionValue(cache.installedVersion)}`, needsUpgrade: false }
 }
 
+async function openPendingMergeRequest(apiInput, pending) {
+  if (!pending || !pending.iid) return false
+  const mergeRequest = await getGitlabMergeRequest({
+    ...apiInput,
+    iid: pending.iid,
+  })
+  return Boolean(mergeRequest && String(mergeRequest.state || '').toLowerCase() === 'opened')
+}
+
+async function pluginCacheWithFreshPending({ store, existing, apiInput, cache }) {
+  const pending = cache && cache.pendingMergeRequest
+  if (!pending || !pending.webUrl) return cache
+  try {
+    if (await openPendingMergeRequest(apiInput, pending)) return cache
+  } catch {
+    return cache
+  }
+  const next = {
+    ...cache,
+    pendingMergeRequest: undefined,
+  }
+  await store.updateRepositorySettingsCache(existing.id, {
+    plugins: {
+      items: [next],
+      checkedAt: new Date().toISOString(),
+    },
+  })
+  return next
+}
+
 function pluginCacheFromManifest(manifest = {}, extra = {}) {
   const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
   const latestVersion = extra.latestVersion || LATEST_ISSUE_FLOW_VERSION
@@ -794,20 +825,27 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     if (existing) {
       const checkedAt = new Date().toISOString();
       try {
-        const manifest = await readGitlabIssueFlowManifest(apiInput, project.defaultBranch || existing.defaultBranch || 'main');
-        if (manifest) {
-          const previous = pluginSettingFromRepository(existing);
-          const next = pluginCacheFromManifest(manifest, {
-            pendingMergeRequest: previous && previous.needsUpgrade ? previous.pendingMergeRequest : undefined,
-          });
-          await store.updateRepositorySettingsCache(existing.id, {
-            plugins: { items: [next], checkedAt },
-          });
-          pluginStep = pluginStepFromCache(next);
+        const previous = await pluginCacheWithFreshPending({
+          store,
+          existing,
+          apiInput,
+          cache: pluginSettingFromRepository(existing),
+        });
+        if (previous && previous.pendingMergeRequest && previous.pendingMergeRequest.webUrl) {
+          pluginStep = pluginStepFromCache(previous);
         } else {
-          await store.updateRepositorySettingsCache(existing.id, {
-            plugins: { items: [], checkedAt },
-          });
+          const manifest = await readGitlabIssueFlowManifest(apiInput, project.defaultBranch || existing.defaultBranch || 'main');
+          if (manifest) {
+            const next = pluginCacheFromManifest(manifest);
+            await store.updateRepositorySettingsCache(existing.id, {
+              plugins: { items: [next], checkedAt },
+            });
+            pluginStep = pluginStepFromCache(next);
+          } else {
+            await store.updateRepositorySettingsCache(existing.id, {
+              plugins: { items: [], checkedAt },
+            });
+          }
         }
       } catch (error) {
         if (error && error.status) {
@@ -1011,7 +1049,12 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
     };
   }
 
-  const previous = pluginSettingFromRepository(existing);
+  const previous = await pluginCacheWithFreshPending({
+    store,
+    existing,
+    apiInput,
+    cache: pluginSettingFromRepository(existing),
+  });
   if (previous && previous.pendingMergeRequest && previous.pendingMergeRequest.webUrl && !input.force) {
     const step = pluginStepFromCache(previous);
     return {

@@ -12,6 +12,7 @@ import {
   setGitlabProjectInstallWebhook,
 } from "../core/gitlab-projects.js"
 import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.js"
+import { allowedOrigin } from "../utils/http.js"
 
 export async function gitlabRoutes(app: FastifyInstance) {
   app.post("/api/gitlab/connect", async (request, reply) => {
@@ -126,10 +127,14 @@ export async function gitlabRoutes(app: FastifyInstance) {
     const session = await sessionFromRequest(request, String(input.gitServerId || ""))
 
     reply.hijack()
+    const origin = String(request.headers.origin || "")
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "Access-Control-Allow-Origin": allowedOrigin(origin),
+      "Access-Control-Allow-Credentials": "true",
+      Vary: "Origin",
     })
 
     const send = (event: string, data: unknown) => {

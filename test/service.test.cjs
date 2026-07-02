@@ -933,6 +933,93 @@ test('GitLab webhook receiver authenticates with Git server secret and dispatche
   }
 });
 
+test('GitLab merge request close webhook clears pending plugin MR', async () => {
+  const { dir, store } = tempStore();
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 501, token: 'pipeline-trigger-token-1234567890' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/trigger/pipeline' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 8001, status: 'created' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  try {
+    await seedGitlabServer(store, gitlabBase, {
+      adminPat: 'gl-admin-pat',
+      agentrixGitServerId: 'agentrix-gitlab-main',
+      webhookSecret: 'backend-webhook-secret',
+    });
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: gitlabBase,
+      projectPath: 'team/app',
+      automation: { reviewEnabled: false },
+    }, { status: 'unchecked', projectId: '42' });
+    await store.updateRepositorySettingsCache(created.repo.id, {
+      plugins: {
+        items: [{
+          key: 'issue-flow',
+          installed: true,
+          installedVersion: '0.1.0',
+          latestVersion: '0.2.0',
+          needsUpgrade: true,
+          pendingMergeRequest: {
+            iid: '9',
+            webUrl: `${gitlabBase}/team/app/-/merge_requests/9`,
+            sourceBranch: 'issue-flow/upgrade-123',
+          },
+        }],
+        checkedAt: new Date().toISOString(),
+      },
+    });
+
+    const accepted = await handleGitlabWebhook({
+      store,
+      repoId: created.repo.id,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'backend-webhook-secret',
+        'X-Gitlab-Event': 'Merge Request Hook',
+        'X-Gitlab-Event-UUID': 'delivery-close-1',
+      },
+      rawBody: JSON.stringify({
+        object_kind: 'merge_request',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        object_attributes: {
+          id: 1009,
+          iid: 9,
+          action: 'close',
+          state: 'closed',
+          source_branch: 'issue-flow/upgrade-123',
+          target_branch: 'main',
+        },
+      }),
+    });
+
+    assert.equal(accepted.status, 200);
+    const repo = await store.getRepository(created.repo.id);
+    const plugin = repo.settings.plugins.items.find((item) => item.key === 'issue-flow');
+    assert.equal(plugin.pendingMergeRequest, undefined);
+    assert.equal(plugin.needsUpgrade, true);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('API service exposes health and repository list over HTTP', async () => {
   const { dir, store } = tempStore();
   const { app, baseUrl } = await listenApp(store);
@@ -1548,6 +1635,7 @@ test('GitLab plugin check reads only install manifest and caches version facts',
     files: {},
   };
   let manifestReads = 0;
+  let mergeRequestReads = 0;
   const gitlab = http.createServer((req, res) => {
     if (req.url === '/api/v4/user') {
       assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
@@ -1570,6 +1658,13 @@ test('GitLab plugin check reads only install manifest and caches version facts',
       assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/merge_requests/9' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      mergeRequestReads += 1;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ iid: 9, state: 'closed' }));
       return;
     }
     if (req.url.startsWith('/api/v4/projects/42/repository/files/')) {
@@ -1623,6 +1718,29 @@ test('GitLab plugin check reads only install manifest and caches version facts',
     assert.equal(repo.settings.plugins.items[0].status, 'needs_action');
     assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'plugin', key: 'issue-flow' } }), 1);
 
+    await store.updateRepositorySettingsCache(repo.id, {
+      plugins: {
+        items: [{
+          ...repo.settings.plugins.items[0],
+          pendingMergeRequest: {
+            iid: '9',
+            webUrl: `${gitlabBase}/team/app/-/merge_requests/9`,
+            sourceBranch: 'issue-flow/upgrade-123',
+          },
+        }],
+        checkedAt: new Date().toISOString(),
+      },
+    });
+    const stalePending = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'plugins' },
+    });
+    assert.equal(stalePending.status, 200);
+    assert.equal(mergeRequestReads, 1);
+    assert.equal(manifestReads, 2);
+    assert.equal(stalePending.body.steps[0].plugins[0].pendingMergeRequest, undefined);
+
     delete manifest.issueFlowVersion;
     const unknown = await checkGitlabProjectInstall({
       store,
@@ -1630,7 +1748,7 @@ test('GitLab plugin check reads only install manifest and caches version facts',
       input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'plugins' },
     });
     assert.equal(unknown.status, 200);
-    assert.equal(manifestReads, 2);
+    assert.equal(manifestReads, 3);
     assert.equal(unknown.body.steps[0].status, 'needs_action');
     assert.equal(unknown.body.steps[0].detail, '未知版本 -> 0.2.0');
     assert.equal(unknown.body.steps[0].plugins[0].installedVersion, '');

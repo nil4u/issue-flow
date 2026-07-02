@@ -157,6 +157,19 @@ function mergedMergeRequest(payload = {}) {
   }
 }
 
+function closedMergeRequest(payload = {}) {
+  const attributes = payload.object_attributes || payload.objectAttributes || {}
+  const kind = payload.object_kind || payload.objectKind || payload.event_type || payload.eventType || ''
+  if (kind !== 'merge_request') return undefined
+  const state = attributes.state || ''
+  const action = attributes.action || ''
+  if (state !== 'closed' && action !== 'close') return undefined
+  return {
+    iid: attributes.iid !== undefined ? String(attributes.iid) : '',
+    sourceBranch: attributes.source_branch || attributes.sourceBranch || '',
+  }
+}
+
 function pendingPlugin(repository = {}) {
   return (repository.settings && repository.settings.plugins && repository.settings.plugins.items || [])
     .find((item) => item && item.key === ISSUE_FLOW_PLUGIN_KEY && item.pendingMergeRequest)
@@ -219,6 +232,23 @@ async function refreshPluginAfterMerge({ store, repo, config, payload }) {
   })
 }
 
+async function clearPluginAfterClose({ store, repo, payload }) {
+  const mergeRequest = closedMergeRequest(payload)
+  if (!mergeRequest) return
+  const repository = await store.getRepository(repo.id)
+  const pending = pendingPlugin(repository)
+  if (!pluginMergeMatches(pending, mergeRequest)) return
+  await store.updateRepositorySettingsCache(repo.id, {
+    plugins: {
+      items: [{
+        ...pending,
+        pendingMergeRequest: undefined,
+      }],
+      checkedAt: new Date().toISOString(),
+    },
+  })
+}
+
 async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }) {
   const repo = await requireRepo(store, repoId);
   let config;
@@ -275,6 +305,7 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
   }
   try {
     await refreshPluginAfterMerge({ store, repo, config, payload });
+    await clearPluginAfterClose({ store, repo, payload });
   } catch {
     // 状态刷新是派生缓存，不能覆盖 GitLab bridge 的真实处理结果。
   }
