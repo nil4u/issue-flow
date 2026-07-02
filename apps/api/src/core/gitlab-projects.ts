@@ -4,18 +4,23 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   configureGitlabProjectVariables,
+  enableGitlabRunnerForProject,
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
   getGitlabProjectMember,
   getGitlabMergeRequest,
+  getGitlabRunner,
   getGitlabRepositoryFile,
   getGitlabVariableForInstall,
   listGitlabProjects,
+  listGitlabProjectRunners,
+  listGitlabRunners,
   listGitlabWebhooks,
   syncGitlabProjectLabels,
   upsertGitlabProjectMember,
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
+  updateGitlabProjectRunnerSettings,
 } from './gitlab.js'
 import {
   installGitlabBootstrap,
@@ -38,6 +43,7 @@ const ADMIN_PAT_PERMISSION_KEY = 'admin-pat'
 const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
 const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
 const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
+const ISSUE_FLOW_RUNNER_TAG = 'issue-flow'
 
 function readPackageVersion() {
   try {
@@ -142,9 +148,80 @@ function normalizeCheckTypes(input = {}) {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-  const allowed = new Set(['permissions', 'variables', 'webhook', 'plugins']);
+  const allowed = new Set(['permissions', 'variables', 'runners', 'webhook', 'plugins']);
   const values = raw.filter((item) => allowed.has(item));
-  return values.length ? Array.from(new Set(values)) : ['permissions', 'webhook', 'variables', 'plugins'];
+  return values.length ? Array.from(new Set(values)) : ['permissions', 'webhook', 'variables', 'runners', 'plugins'];
+}
+
+function gitlabRunnerAvailable(runner = {}) {
+  const status = String(runner.status || '').toLowerCase();
+  return runner.active !== false
+    && runner.paused !== true
+    && status !== 'offline'
+    && status !== 'not_connected'
+    && status !== 'never_contacted';
+}
+
+function gitlabRunnerMatchesIssueFlow(runner = {}) {
+  const tags = Array.isArray(runner.tagList) ? runner.tagList : [];
+  return gitlabRunnerAvailable(runner) && tags.includes(ISSUE_FLOW_RUNNER_TAG);
+}
+
+function runnerSettingsUrl(project = {}) {
+  const webUrl = String(project.webUrl || '').replace(/\/+$/, '');
+  return webUrl ? `${webUrl}/-/settings/ci_cd#js-runners-settings` : '';
+}
+
+async function listAssignableIssueFlowRunners(apiInput) {
+  try {
+    const runners = await listGitlabRunners(apiInput, { tag_list: ISSUE_FLOW_RUNNER_TAG, type: 'project_type' });
+    return runners.filter((runner) => gitlabRunnerMatchesIssueFlow(runner) && runner.runnerType === 'project_type' && !runner.locked);
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403 || error.status === 404)) return [];
+    throw error;
+  }
+}
+
+async function runnerDetails(apiInput, runner = {}) {
+  if (!runner.id || runner.tagList && runner.tagList.length) return runner;
+  try {
+    return { ...runner, ...await getGitlabRunner(apiInput, runner.id) };
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403 || error.status === 404)) return runner;
+    throw error;
+  }
+}
+
+async function checkGitlabIssueFlowRunner({ apiInput, project }) {
+  const runners = await Promise.all((await listGitlabProjectRunners(apiInput)).map((runner) => runnerDetails(apiInput, runner)));
+  const matches = runners.filter(gitlabRunnerMatchesIssueFlow);
+  if (matches.length) {
+    return installStep(
+      'runners',
+      'api',
+      'GitLab Runner',
+      'passed',
+      `已找到 ${matches.length} 个可用 issue-flow runner`
+    );
+  }
+  const canEnableScope = project.sharedRunnersEnabled === false || project.groupRunnersEnabled === false;
+  const assignable = await listAssignableIssueFlowRunners(apiInput);
+  const detail = canEnableScope
+    ? '可自动开启当前项目的 group/instance runner 开关'
+    : assignable.length
+      ? '可自动启用匹配 issue-flow tag 的 project runner'
+      : `请在 GitLab 项目或上级 group 启用可用 runner，并添加 ${ISSUE_FLOW_RUNNER_TAG} tag`;
+  return installStep(
+    'runners',
+    'api',
+    'GitLab Runner',
+    'needs_action',
+    detail,
+    {
+      value: ISSUE_FLOW_RUNNER_TAG,
+      valueHref: runnerSettingsUrl(project),
+    }
+  );
 }
 
 function variableResult(variable, existingVariable) {
@@ -820,6 +897,10 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     }
   }
 
+  if (checkTypes.includes('runners')) {
+    steps.push(await checkGitlabIssueFlowRunner({ apiInput, project }));
+  }
+
   if (checkTypes.includes('plugins')) {
     let pluginStep = pluginStepFromCache(undefined);
     if (existing) {
@@ -1017,6 +1098,60 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
       installable: true,
     },
   };
+}
+
+async function setGitlabProjectInstallRunner({ store, input = {}, session, env = process.env }) {
+  let context;
+  try {
+    context = await gitlabInstallContext({ store, input, session, env });
+  } catch (error) {
+    return {
+      status: error && error.status || 500,
+      body: {
+        error: error && error.code || 'gitlab_runner_set_failed',
+        validation: error && error.validation || undefined,
+      },
+    };
+  }
+  const { project, apiInput, user } = context;
+  const access = await resolveGitlabProjectAccess({ project, apiInput, user });
+  if (!access.canManage) {
+    return { status: 403, body: { error: 'gitlab_project_permission_required', access } };
+  }
+
+  let currentProject = project;
+  let step = await checkGitlabIssueFlowRunner({ apiInput, project: currentProject });
+  if (step.status === 'passed') {
+    return { status: 200, body: { access, step, steps: [step], installable: true } };
+  }
+
+  const settings = {};
+  if (currentProject.sharedRunnersEnabled === false) settings.sharedRunnersEnabled = true;
+  if (currentProject.groupRunnersEnabled === false) settings.groupRunnersEnabled = true;
+  if (Object.keys(settings).length) {
+    currentProject = await updateGitlabProjectRunnerSettings(apiInput, settings);
+    step = await checkGitlabIssueFlowRunner({ apiInput, project: currentProject });
+    if (step.status === 'passed') {
+      return { status: 200, body: { access, project: currentProject, step, steps: [step], installable: true } };
+    }
+  }
+
+  const assignable = await listAssignableIssueFlowRunners(apiInput);
+  for (const runner of assignable) {
+    try {
+      await enableGitlabRunnerForProject(apiInput, runner.id);
+      step = await checkGitlabIssueFlowRunner({ apiInput, project: currentProject });
+      if (step.status === 'passed') {
+        return { status: 200, body: { access, project: currentProject, step, steps: [step], installable: true } };
+      }
+    } catch (error) {
+      if (!error || (error.status !== 400 && error.status !== 403 && error.status !== 404 && error.status !== 409)) {
+        throw error;
+      }
+    }
+  }
+
+  return { status: 200, body: { access, project: currentProject, step, steps: [step], installable: false } };
 }
 
 async function installGitlabProjectPlugin({ store, input = {}, session, env = process.env }) {
@@ -1441,6 +1576,7 @@ export {
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
+  setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 }

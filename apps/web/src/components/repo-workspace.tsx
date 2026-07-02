@@ -100,6 +100,7 @@ function InstallConsole({
   onCloseCheckProgress,
   onInstallPlugin,
   onSetVariable,
+  onSetRunner,
   onSetWebhook,
 }: RepoWorkspaceProps) {
   const [installForm, setInstallForm] = useState(() => installFormFromDefaults(defaults))
@@ -169,6 +170,12 @@ function InstallConsole({
     }
   }
 
+  async function saveRunner(row: CheckRow) {
+    if (row.configItem?.type !== "git-runner" || !canManage) return
+    setActionRowId(row.id)
+    try { await onSetRunner() } finally { setActionRowId("") }
+  }
+
   async function installPlugin(row: CheckRow) {
     if (row.configItem?.type !== "plugin" || !canManage) return
     setActionRowId(row.id)
@@ -210,6 +217,7 @@ function InstallConsole({
                 row={row}
                 onSetVariable={() => openVariableDialog(row)}
                 onSaveWebhook={() => saveWebhook(row)}
+                onSaveRunner={() => saveRunner(row)}
                 onInstallPlugin={() => installPlugin(row)}
                 readOnly={readOnly}
               />
@@ -367,6 +375,7 @@ function buildInstallGroups({
       }
     }
     const step = byId.get(item.id)
+    const runnerSettingsUrl = item.type === "git-runner" && repository?.webUrl ? `${repository.webUrl.replace(/\/+$/, "")}/-/settings/ci_cd#js-runners-settings` : undefined
     const cachedWebhook = item.type === "webhook" ? repository?.settings?.webhook : undefined
     const cachedWebhookUrl = String(cachedWebhook?.url || "")
     const cachedWebhookHookId = String(cachedWebhook?.hookId || "")
@@ -381,6 +390,7 @@ function buildInstallGroups({
       status: step?.status || fallbackStatus,
       detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : undefined),
       value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : undefined,
+      valueHref: runnerSettingsUrl,
       files: step?.files,
       missing: step?.missing,
       inputRequired: step?.inputRequired,
@@ -527,6 +537,7 @@ function CheckTableRow({
   row,
   onSetVariable,
   onSaveWebhook,
+  onSaveRunner,
   onInstallPlugin,
 }: {
   checking: boolean
@@ -534,10 +545,12 @@ function CheckTableRow({
   row: CheckRow
   onSetVariable: () => void
   onSaveWebhook: () => Promise<void>
+  onSaveRunner: () => Promise<void>
   onInstallPlugin: () => Promise<void>
 }) {
   const canSetVariable = Boolean(row.variable) && !readOnly
   const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
+  const canSetRunner = row.configItem?.type === "git-runner" && !readOnly && row.status !== "passed"
   const canInstallPlugin = row.configItem?.type === "plugin"
     && !readOnly
     && (
@@ -602,6 +615,7 @@ function CheckTableRow({
               自动配置
             </Button>
           )}
+          {canSetRunner && <Button type="button" size="sm" variant="secondary" onClick={onSaveRunner} disabled={checking}>{checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />} 自动配置</Button>}
           {canInstallPlugin && !showPluginAction && (
             <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
@@ -616,9 +630,14 @@ function CheckTableRow({
               </a>
             </Button>
           )}
+          {row.configItem?.type === "git-runner" && row.valueHref && (
+            <Button asChild size="sm" variant="secondary">
+              <a href={row.valueHref} target="_blank" rel="noreferrer"><ExternalLink className="size-4" />Runner 设置</a>
+            </Button>
+          )}
         </div>
       </div>
-      {(row.permission || row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
+      {(row.detail || row.permission || row.files?.length || row.missing?.length) ? <CheckRowMeta row={row} /> : null}
     </div>
   )
 }
@@ -760,7 +779,7 @@ function RowValue({ value, href }: { value: string; href?: string }) {
 }
 
 function CheckRowMeta({ row }: { row: CheckRow }) {
-  if (row.permission && row.status !== "passed" && row.detail) {
+  if (row.status !== "passed" && row.detail) {
     return <div className="check-row-meta warning">{row.detail}</div>
   }
   if (row.files?.length) {

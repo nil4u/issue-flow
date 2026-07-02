@@ -1,4 +1,4 @@
-export type InstallCheckItemType = "variable" | "webhook" | "permission" | "repo_file" | "plugin"
+export type InstallCheckItemType = "variable" | "webhook" | "permission" | "repo_file" | "plugin" | "git-runner"
 
 export type InstallCheckControl = {
   path: string
@@ -117,6 +117,18 @@ export const gitlabInstallCheckConfig = {
             path: "automation.reviewEnabled",
             type: "checkbox",
           },
+        },
+      ],
+    },
+    {
+      id: "runners",
+      title: "GitLab Runner",
+      items: [
+        {
+          id: "runners",
+          type: "git-runner",
+          name: "issue-flow runner",
+          description: "用于运行 issue-flow jobs 的 GitLab runner。",
         },
       ],
     },

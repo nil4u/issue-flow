@@ -297,7 +297,7 @@ export function useDashboardController() {
     let nextCheck = installCheck
     let interrupted = false
     try {
-      for (const checkType of ["permissions", "webhook", "variables", "plugins"]) {
+      for (const checkType of ["permissions", "webhook", "variables", "runners", "plugins"]) {
         setCheckProgressStep(checkType, "running", "正在检查")
         let body = await checkInstallStep(checkType)
         nextCheck = mergeInstallCheck(nextCheck, body)
@@ -365,16 +365,13 @@ export function useDashboardController() {
   }
 
   function canAutoConfigureStep(checkType: string) {
-    return checkType === "permissions" || checkType === "webhook"
+    return ["permissions", "webhook", "runners"].includes(checkType)
   }
 
   async function autoConfigureInstallStep(checkType: string) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
-    const path = checkType === "permissions"
-      ? "/api/gitlab/install-permission"
-      : checkType === "webhook"
-        ? "/api/gitlab/install-webhook"
-        : ""
+    const paths: Record<string, string> = { permissions: "/api/gitlab/install-permission", webhook: "/api/gitlab/install-webhook", runners: "/api/gitlab/install-runner" }
+    const path = paths[checkType] || ""
     if (!path) throw new Error("install_step_not_auto_configurable")
     return api<InstallCheck>(path, {
       method: "POST",
@@ -399,8 +396,7 @@ export function useDashboardController() {
   }
 
   function closeCheckProgress() {
-    if (checking) return
-    setCheckProgress((current) => ({ ...current, open: false }))
+    if (!checking) setCheckProgress((current) => ({ ...current, open: false }))
   }
 
   async function setInstallVariable(key: string, input: Record<string, unknown>) {
@@ -460,6 +456,16 @@ export function useDashboardController() {
     } finally {
       setChecking(false)
     }
+  }
+  async function setInstallRunner() {
+    if (!selectedProject || !selectedGitServerId) return
+    setChecking(true)
+    try {
+      const nextCheck = mergeInstallCheck(installCheck, await autoConfigureInstallStep("runners"))
+      setInstallCheck(nextCheck)
+      await loadRepositories(selectedGitServerId)
+      return nextCheck
+    } catch (error) { notifyError(error, "配置 GitLab Runner 失败") } finally { setChecking(false) }
   }
 
   async function installPlugin() {
@@ -787,6 +793,7 @@ export function useDashboardController() {
       onCloseCheckProgress: closeCheckProgress,
       onSetVariable: setInstallVariable,
       onSetWebhook: setInstallWebhook,
+      onSetRunner: setInstallRunner,
       onInstallPlugin: installPlugin,
     },
   }

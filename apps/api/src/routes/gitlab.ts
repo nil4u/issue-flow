@@ -8,6 +8,7 @@ import {
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
+  setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 } from "../core/gitlab-projects.js"
@@ -104,6 +105,17 @@ export async function gitlabRoutes(app: FastifyInstance) {
     const input = (request.body || {}) as Record<string, unknown>
     const session = await sessionFromRequest(request, String(input.gitServerId || ""))
     const result = await setGitlabProjectInstallWebhook({
+      ...contextFromRequest(request),
+      input,
+      session,
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/gitlab/install-runner", async (request, reply) => {
+    const input = (request.body || {}) as Record<string, unknown>
+    const session = await sessionFromRequest(request, String(input.gitServerId || ""))
+    const result = await setGitlabProjectInstallRunner({
       ...contextFromRequest(request),
       input,
       session,

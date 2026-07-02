@@ -46,6 +46,7 @@ const {
   installGitlabProject,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
+  setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
 } = require('../apps/api/src/core/gitlab-projects.ts');
@@ -1310,6 +1311,224 @@ test('GitLab settings checks variables independently and caches safe metadata', 
   }
 });
 
+test('GitLab settings checks project runners for issue-flow tag', async () => {
+  const { dir, store } = tempStore();
+  let runners = [
+    { id: 1, description: 'issue flow runner', active: true, paused: false, status: 'online' },
+  ];
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/runners' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(runners));
+      return;
+    }
+    if (req.url === '/api/v4/runners/1' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 1, active: true, paused: false, status: 'online', tag_list: ['issue-flow', 'shell'] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const matched = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'runners' },
+    });
+    assert.equal(matched.status, 200);
+    assert.equal(matched.body.steps[0].id, 'runners');
+    assert.equal(matched.body.steps[0].status, 'passed');
+
+    runners = [
+      { id: 2, description: 'generic runner', active: true, paused: false, status: 'online', tag_list: ['shell'] },
+      { id: 3, description: 'paused issue flow runner', active: true, paused: true, status: 'online', tag_list: ['issue-flow'] },
+    ];
+    const missing = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'runners' },
+    });
+    assert.equal(missing.status, 200);
+    assert.equal(missing.body.steps[0].status, 'needs_action');
+    assert.match(missing.body.steps[0].detail, /issue-flow tag/);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab runner setup enables project group and instance runner switches', async () => {
+  const { dir, store } = tempStore();
+  let sharedRunnersEnabled = false;
+  let groupRunnersEnabled = false;
+  let updateSeen = false;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+        shared_runners_enabled: sharedRunnersEnabled,
+        group_runners_enabled: groupRunnersEnabled,
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'PUT') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.equal(body.shared_runners_enabled, true);
+        assert.equal(body.group_runners_enabled, true);
+        sharedRunnersEnabled = true;
+        groupRunnersEnabled = true;
+        updateSeen = true;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 42, path_with_namespace: 'team/app', shared_runners_enabled: true, group_runners_enabled: true }));
+      });
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/runners' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sharedRunnersEnabled && groupRunnersEnabled
+        ? [{ id: 1, active: true, paused: false, status: 'online', tag_list: ['issue-flow'], runner_type: 'instance_type' }]
+        : []));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/runners?') && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const result = await setGitlabProjectInstallRunner({
+      store,
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.steps[0].status, 'passed');
+    assert.equal(updateSeen, true);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab runner setup assigns matching project runner when available', async () => {
+  const { dir, store } = tempStore();
+  let assigned = false;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+        shared_runners_enabled: true,
+        group_runners_enabled: true,
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/runners' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(assigned ? [{ id: 9, active: true, paused: false, status: 'online', tag_list: ['issue-flow'], runner_type: 'project_type' }] : []));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/runners?') && req.method === 'GET') {
+      assert.match(req.url, /tag_list=issue-flow/);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([{ id: 9, active: true, paused: false, status: 'online', tag_list: ['issue-flow'], runner_type: 'project_type', locked: false }]));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/runners' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        assert.equal(JSON.parse(raw).runner_id, '9');
+        assigned = true;
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 9 }));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const result = await setGitlabProjectInstallRunner({
+      store,
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.steps[0].status, 'passed');
+    assert.equal(assigned, true);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('GitLab install check stops when admin PAT cannot manage the repo', async () => {
   const { dir, store } = tempStore();
   let unexpectedFollowup = false;
@@ -2241,7 +2460,8 @@ test('GitLab install upgrades an already installed repository by rerunning boots
         assert.equal(body.branch, 'main');
         assert.equal(workflow.action, 'update');
         assert.doesNotMatch(workflow.content, /issue-flow-labels:/);
-        assert.match(workflow.content, /issue-flow-review-comment:\n  stage: build/);
+        assert.match(workflow.content, /\.issue-flow-runner:\n  tags:\n    - issue-flow/);
+        assert.match(workflow.content, /issue-flow-review-comment:\n  extends: \.issue-flow-runner\n  stage: build/);
         assert.doesNotMatch(raw, /gl-oauth-user-token/);
         assert.doesNotMatch(raw, /agentrix-upgrade-key/);
         commitSeen = true;

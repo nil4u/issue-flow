@@ -83,6 +83,8 @@ function normalizeProject(project = {}) {
     accessLevelKnown,
     permissionStatus: accessLevelKnown ? (accessLevel >= 40 ? 'can_install' : 'no_permission') : 'unknown',
     canInstall: accessLevelKnown ? accessLevel >= 40 : false,
+    sharedRunnersEnabled: project.shared_runners_enabled !== false && project.sharedRunnersEnabled !== false,
+    groupRunnersEnabled: project.group_runners_enabled !== false && project.groupRunnersEnabled !== false,
   };
 }
 
@@ -599,6 +601,83 @@ async function configureGitlabProjectVariables(input = {}) {
   return results;
 }
 
+function normalizeGitlabRunner(runner = {}) {
+  return {
+    id: runner.id !== undefined ? String(runner.id) : '',
+    description: runner.description || '',
+    active: runner.active !== false,
+    locked: Boolean(runner.locked),
+    paused: Boolean(runner.paused),
+    status: runner.status || '',
+    runnerType: runner.runner_type || runner.runnerType || '',
+    tagList: Array.isArray(runner.tag_list || runner.tagList)
+      ? (runner.tag_list || runner.tagList).map((tag) => String(tag || '')).filter(Boolean)
+      : [],
+  };
+}
+
+async function listGitlabProjectRunners(input = {}) {
+  const result = await fetchJson(
+    'GET',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/runners`,
+    input.token,
+    { authType: input.authType }
+  );
+  return Array.isArray(result.parsed) ? result.parsed.map(normalizeGitlabRunner) : [];
+}
+
+async function getGitlabRunner(input = {}, runnerId = '') {
+  const result = await fetchJson(
+    'GET',
+    input.apiUrl,
+    `/runners/${encodeURIComponent(runnerId)}`,
+    input.token,
+    { authType: input.authType }
+  );
+  return normalizeGitlabRunner(result.parsed || {});
+}
+
+async function listGitlabRunners(input = {}, params = {}) {
+  const query = new URLSearchParams({
+    per_page: String(input.perPage || 100),
+    ...params,
+  });
+  const result = await fetchJson(
+    'GET',
+    input.apiUrl,
+    `/runners?${query}`,
+    input.token,
+    { authType: input.authType }
+  );
+  return Array.isArray(result.parsed) ? result.parsed.map(normalizeGitlabRunner) : [];
+}
+
+async function enableGitlabRunnerForProject(input = {}, runnerId = '') {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/runners`,
+    input.token,
+    { authType: input.authType, body: { runner_id: runnerId } }
+  );
+  return result.parsed || {};
+}
+
+async function updateGitlabProjectRunnerSettings(input = {}, settings = {}) {
+  const body = {};
+  if (settings.sharedRunnersEnabled !== undefined) body.shared_runners_enabled = Boolean(settings.sharedRunnersEnabled);
+  if (settings.groupRunnersEnabled !== undefined) body.group_runners_enabled = Boolean(settings.groupRunnersEnabled);
+  const result = await fetchJson(
+    'PUT',
+    input.apiUrl,
+    projectApiPath(input.projectIdOrPath),
+    input.token,
+    { authType: input.authType, body }
+  );
+  return normalizeProject(result.parsed || {});
+}
+
 function gitlabLabelApiPath(projectIdOrPath, labelName) {
   return `${projectApiPath(projectIdOrPath)}/labels/${encodeURIComponent(labelName)}`;
 }
@@ -753,6 +832,7 @@ export {
   getGitlabMergeRequest,
   configureGitlabProjectVariables,
   exchangeGitlabOAuthCode,
+  getGitlabRunner,
   refreshGitlabOAuthToken,
   addGitlabProjectMember,
   getGitlabCurrentUser,
@@ -765,11 +845,15 @@ export {
   gitlabOAuthRedirectUri,
   installGitlabWebhook,
   listGitlabIssues,
+  enableGitlabRunnerForProject,
+  listGitlabRunners,
+  listGitlabProjectRunners,
   listGitlabWebhooks,
   listGitlabProjects,
   projectApiPath,
   syncGitlabProjectLabels,
   updateGitlabProjectMember,
+  updateGitlabProjectRunnerSettings,
   upsertGitlabProjectMember,
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
