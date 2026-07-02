@@ -1509,6 +1509,7 @@ test('GitLab plugin check reads only install manifest and caches version facts',
     assert.equal(checked.body.steps.length, 1);
     assert.equal(checked.body.steps[0].id, 'plugins');
     assert.equal(checked.body.steps[0].status, 'needs_action');
+    assert.equal(checked.body.steps[0].plugins[0].status, 'needs_action');
     assert.equal(checked.body.steps[0].plugins[0].installedVersion, '0.1.0');
     assert.equal(checked.body.steps[0].plugins[0].needsUpgrade, true);
 
@@ -1516,8 +1517,22 @@ test('GitLab plugin check reads only install manifest and caches version facts',
     assert.equal(repo.settings.plugins.items.length, 1);
     assert.equal(repo.settings.plugins.items[0].key, 'issue-flow');
     assert.equal(repo.settings.plugins.items[0].installedVersion, '0.1.0');
-    assert.equal(repo.settings.plugins.items[0].status, undefined);
+    assert.equal(repo.settings.plugins.items[0].status, 'needs_action');
     assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'plugin', key: 'issue-flow' } }), 1);
+
+    delete manifest.issueFlowVersion;
+    const unknown = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'plugins' },
+    });
+    assert.equal(unknown.status, 200);
+    assert.equal(manifestReads, 2);
+    assert.equal(unknown.body.steps[0].status, 'needs_action');
+    assert.equal(unknown.body.steps[0].detail, '未知版本 -> 0.2.0');
+    assert.equal(unknown.body.steps[0].plugins[0].installedVersion, '');
+    assert.equal(unknown.body.steps[0].plugins[0].status, 'needs_action');
+    assert.equal(unknown.body.steps[0].plugins[0].needsUpgrade, true);
   } finally {
     await close(gitlab);
     await store.close();

@@ -418,10 +418,36 @@ function pluginSettingFromRepository(repository) {
     .find((item) => item && item.key === ISSUE_FLOW_PLUGIN_KEY)
 }
 
+function pluginNeedsUpgrade(installedVersion, latestVersion) {
+  return !installedVersion || Boolean(latestVersion && compareVersions(installedVersion, latestVersion) < 0)
+}
+
+function pluginVersionValue(version) {
+  return version ? version.replace(/^v/, '') : ''
+}
+
+function pluginState(cache) {
+  if (cache && cache.pendingMergeRequest && cache.pendingMergeRequest.webUrl) {
+    return { status: 'needs_action', detail: `MR !${cache.pendingMergeRequest.iid || ''} 待合并`, needsUpgrade: Boolean(cache.needsUpgrade) }
+  }
+  if (!cache || !cache.installed) {
+    return { status: 'blocked', detail: '未安装', needsUpgrade: false }
+  }
+  if (!cache.installedVersion) {
+    const latest = pluginVersionValue(cache.latestVersion || LATEST_ISSUE_FLOW_VERSION)
+    return { status: 'needs_action', detail: `未知版本 -> ${latest}`, needsUpgrade: true }
+  }
+  if (pluginNeedsUpgrade(cache.installedVersion, cache.latestVersion || LATEST_ISSUE_FLOW_VERSION)) {
+    const latest = pluginVersionValue(cache.latestVersion || LATEST_ISSUE_FLOW_VERSION)
+    return { status: 'needs_action', detail: `${pluginVersionValue(cache.installedVersion)} -> ${latest}`, needsUpgrade: true }
+  }
+  return { status: 'passed', detail: `v${pluginVersionValue(cache.installedVersion)}`, needsUpgrade: false }
+}
+
 function pluginCacheFromManifest(manifest = {}, extra = {}) {
   const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
   const latestVersion = extra.latestVersion || LATEST_ISSUE_FLOW_VERSION
-  return {
+  const cache = {
     key: ISSUE_FLOW_PLUGIN_KEY,
     source: 'gitlab',
     manifestPath: ISSUE_FLOW_MANIFEST_PATH,
@@ -431,31 +457,41 @@ function pluginCacheFromManifest(manifest = {}, extra = {}) {
     manifestVersion: Number(manifest.version || 0),
     provider: manifest.provider || 'gitlab',
     runtime: manifest.runtime || 'agentrix',
-    needsUpgrade: Boolean(installedVersion && latestVersion && compareVersions(installedVersion, latestVersion) < 0),
     pendingMergeRequest: extra.pendingMergeRequest || undefined,
+  }
+  const state = pluginState({ ...cache, latestVersion })
+  return {
+    ...cache,
+    ...state,
   }
 }
 
 function pluginStepFromCache(cache, extra = {}) {
   if (!cache) {
+    const plugin = {
+      key: ISSUE_FLOW_PLUGIN_KEY,
+      manifestPath: ISSUE_FLOW_MANIFEST_PATH,
+      latestVersion: LATEST_ISSUE_FLOW_VERSION,
+      installed: false,
+      ...pluginState(undefined),
+    }
     return installStep('plugins', 'repo', 'issue-flow plugin', 'needs_action', '未安装', {
-      plugins: [{
-        key: ISSUE_FLOW_PLUGIN_KEY,
-        manifestPath: ISSUE_FLOW_MANIFEST_PATH,
-        latestVersion: LATEST_ISSUE_FLOW_VERSION,
-        installed: false,
-      }],
+      plugins: [plugin],
     })
   }
-  const pending = cache.pendingMergeRequest && cache.pendingMergeRequest.webUrl
-  const needsUpgrade = Boolean(cache.needsUpgrade)
-  const detail = pending
-    ? `MR !${cache.pendingMergeRequest.iid || ''} 待合并`
-    : needsUpgrade
-      ? `${cache.installedVersion || 'unknown'} -> ${cache.latestVersion || LATEST_ISSUE_FLOW_VERSION}`
-      : cache.installedVersion ? `v${cache.installedVersion.replace(/^v/, '')}` : '已安装'
-  return installStep('plugins', 'repo', 'issue-flow plugin', needsUpgrade || pending ? 'needs_action' : 'passed', detail, {
-    plugins: [cache],
+  const cacheWithLatest = {
+    ...cache,
+    latestVersion: cache.latestVersion || LATEST_ISSUE_FLOW_VERSION,
+    targetVersion: cache.targetVersion || cache.latestVersion || LATEST_ISSUE_FLOW_VERSION,
+  }
+  const state = pluginState(cacheWithLatest)
+  const plugin = {
+    ...cacheWithLatest,
+    ...state,
+  }
+  const stepStatus = state.status === 'blocked' ? 'needs_action' : state.status
+  return installStep('plugins', 'repo', 'issue-flow plugin', stepStatus, state.detail, {
+    plugins: [plugin],
     files: extra.files || undefined,
     actionCount: extra.actionCount || undefined,
   })

@@ -172,6 +172,13 @@ function pluginMergeMatches(pending, mergeRequest) {
 
 function pluginCacheFromManifest(manifest = {}) {
   const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
+  const needsUpgrade = !installedVersion
+    || Boolean(LATEST_ISSUE_FLOW_VERSION && compareVersions(installedVersion, LATEST_ISSUE_FLOW_VERSION) < 0)
+  const detail = !installedVersion
+    ? `未知版本 -> ${LATEST_ISSUE_FLOW_VERSION.replace(/^v/, '')}`
+    : needsUpgrade
+      ? `${installedVersion.replace(/^v/, '')} -> ${LATEST_ISSUE_FLOW_VERSION.replace(/^v/, '')}`
+      : `v${installedVersion.replace(/^v/, '')}`
   return {
     key: ISSUE_FLOW_PLUGIN_KEY,
     source: 'gitlab',
@@ -182,7 +189,9 @@ function pluginCacheFromManifest(manifest = {}) {
     manifestVersion: Number(manifest.version || 0),
     provider: manifest.provider || 'gitlab',
     runtime: manifest.runtime || 'agentrix',
-    needsUpgrade: Boolean(installedVersion && LATEST_ISSUE_FLOW_VERSION && compareVersions(installedVersion, LATEST_ISSUE_FLOW_VERSION) < 0),
+    needsUpgrade,
+    status: needsUpgrade ? 'needs_action' : 'passed',
+    detail,
   }
 }
 

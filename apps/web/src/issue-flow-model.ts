@@ -123,6 +123,7 @@ export type PluginInstall = {
   manifestVersion?: number
   provider?: string
   runtime?: string
+  status?: InstallStatus
   needsUpgrade?: boolean
   manifestInvalid?: boolean
   detail?: string

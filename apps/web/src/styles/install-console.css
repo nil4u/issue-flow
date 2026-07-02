@@ -125,6 +125,22 @@
   .check-row-value.muted {
     color: var(--muted-foreground);
   }
+  .check-row-upgrade {
+    grid-column: 3;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .check-row-upgrade .check-row-value {
+    grid-column: auto;
+    display: flex;
+    align-items: center;
+    justify-items: initial;
+    min-width: 0;
+    min-height: 2rem;
+  }
   .check-row-actions {
     position: absolute;
     top: 50%;
@@ -143,6 +159,7 @@
   }
   .check-table-row:hover .check-row-actions,
   .check-table-row:focus-within .check-row-actions,
+  .check-table-row.action-visible .check-row-actions,
   .check-table-row.expanded .check-row-actions {
     opacity: 1;
     pointer-events: auto;

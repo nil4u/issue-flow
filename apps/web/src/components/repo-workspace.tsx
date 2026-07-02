@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import {
   AlertCircle,
   CheckCircle2,
+  CircleX,
   CircleDot,
   ExternalLink,
   GitBranch,
@@ -98,7 +99,6 @@ const issueLanes = [
 ]
 
 function issueLaneId(issue: IssueRow) {
-  const status = String(issue.status || "").toLowerCase()
   const flow = String(issue.currentFlow || "").toLowerCase()
   return issueLanes.some((lane) => lane.id === flow) ? flow : "untriaged"
 }
@@ -494,7 +494,7 @@ function buildInstallGroups({
       id: item.id,
       title: item.name,
       description: item.description || "",
-      kind: item.type === "permission" ? "auth" : item.type === "repo_file" ? "repo" : "api",
+      kind: item.type === "repo_file" ? "repo" : "api",
       status: step?.status || fallbackStatus,
       detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : undefined),
       value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : undefined,
@@ -512,28 +512,48 @@ function buildInstallGroups({
 }
 
 function pluginStatus(plugin?: NonNullable<CheckRow["plugin"]>, fallback?: CheckStatus): CheckStatus {
+  if (plugin?.status) return plugin.status
   if (plugin?.pendingMergeRequest?.webUrl) return "needs_action"
   if (plugin?.manifestInvalid) return "needs_action"
+  if (plugin?.installed && !plugin.installedVersion) return "needs_action"
   if (plugin?.installed && plugin.needsUpgrade) return "needs_action"
   if (plugin?.installed) return "passed"
   return fallback || "needs_action"
 }
 
+function pluginVersionLabel(version?: string) {
+  return version ? `v${String(version).replace(/^v/, "")}` : "未知版本"
+}
+
+function pluginUpgradeLabel(plugin: NonNullable<CheckRow["plugin"]>) {
+  const installed = plugin.installedVersion
+    ? String(plugin.installedVersion).replace(/^v/, "")
+    : "未知版本"
+  const latestVersion = plugin.latestVersion || plugin.targetVersion
+  const latest = latestVersion
+    ? String(latestVersion).replace(/^v/, "")
+    : ""
+  return latest ? `${installed} -> ${latest}` : installed
+}
+
 function pluginDetail(plugin?: NonNullable<CheckRow["plugin"]>) {
   if (!plugin) return "未安装"
+  if (plugin.detail) return plugin.detail
   if (plugin.manifestInvalid) return "manifest 无效"
   if (plugin.pendingMergeRequest?.webUrl) return `MR !${plugin.pendingMergeRequest.iid || ""} 待合并`
-  if (plugin.installed && plugin.needsUpgrade) return `${plugin.installedVersion || "unknown"} -> ${plugin.latestVersion || ""}`
-  if (plugin.installed) return "已安装"
+  if (plugin.installed && !plugin.installedVersion) return "版本未知，建议升级"
+  if (plugin.installed && plugin.needsUpgrade) return pluginUpgradeLabel(plugin)
+  if (plugin.installed) return pluginVersionLabel(plugin.installedVersion)
   return "未安装"
 }
 
 function pluginValue(plugin?: NonNullable<CheckRow["plugin"]>) {
   if (!plugin) return "未安装"
   if (plugin.pendingMergeRequest?.webUrl) return `!${plugin.pendingMergeRequest.iid || "MR"}`
-  if (plugin.installed && plugin.needsUpgrade) return `${plugin.installedVersion || "unknown"} -> ${plugin.latestVersion || ""}`
-  if (plugin.installedVersion) return `v${String(plugin.installedVersion).replace(/^v/, "")}`
-  return plugin.installed ? "已安装" : "未安装"
+  if (plugin.installed && plugin.needsUpgrade) return pluginUpgradeLabel(plugin)
+  if (plugin.installed && !plugin.installedVersion) return "未知版本"
+  if (plugin.installed) return pluginVersionLabel(plugin.installedVersion)
+  return "未安装"
 }
 
 function permissionStatus(permission?: NonNullable<CheckRow["permission"]>, fallback?: CheckStatus): CheckStatus {
@@ -637,17 +657,26 @@ function CheckTableRow({
   const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
   const canInstallPlugin = row.configItem?.type === "plugin"
     && !readOnly
-    && (!row.plugin?.installed || Boolean(row.plugin?.needsUpgrade) || Boolean(row.plugin?.manifestInvalid))
+    && (
+      !row.plugin?.installed
+      || !row.plugin?.installedVersion
+      || Boolean(row.plugin?.needsUpgrade)
+      || Boolean(row.plugin?.manifestInvalid)
+    )
     && !row.plugin?.pendingMergeRequest?.webUrl
   const canOpenMembers = row.configItem?.type === "permission" && Boolean(row.valueHref) && row.status !== "passed"
+  const showPluginAction = canInstallPlugin && Boolean(row.plugin?.installed && row.plugin.needsUpgrade)
   const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
+  const pluginUpgradeValue = showPluginAction && row.plugin ? pluginValue(row.plugin) : ""
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
     : row.status === "unknown"
       ? <CircleDot className="size-4" />
-      : <AlertCircle className="size-4" />
+      : row.status === "blocked" || row.status === "needs_input"
+        ? <CircleX className="size-4" />
+        : <AlertCircle className="size-4" />
   return (
-    <div className={`check-table-row ${row.status}`}>
+    <div className={`check-table-row ${row.status}${showPluginAction ? " action-visible" : ""}`}>
       <div className="check-row-main">
         <span className="check-status-icon">{statusIcon}</span>
         <span className="check-row-copy">
@@ -655,7 +684,20 @@ function CheckTableRow({
           <small>{row.description}</small>
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
-        {!row.variable && row.value && <RowValue value={row.value} href={row.valueHref || row.plugin?.pendingMergeRequest?.webUrl} />}
+        {showPluginAction ? (
+          <div className="check-row-upgrade">
+            <RowValue value={pluginUpgradeValue} />
+            <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
+              {pluginActionLabel}
+            </Button>
+          </div>
+        ) : !row.variable && row.value && (
+          <RowValue
+            value={row.value}
+            href={row.valueHref || row.plugin?.pendingMergeRequest?.webUrl}
+          />
+        )}
         <div className="check-row-actions">
           {canSetVariable && (
             <Button type="button" size="sm" variant="secondary" onClick={onSetVariable}>设置</Button>
@@ -666,7 +708,7 @@ function CheckTableRow({
               自动配置
             </Button>
           )}
-          {canInstallPlugin && (
+          {canInstallPlugin && !showPluginAction && (
             <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
               {pluginActionLabel}
