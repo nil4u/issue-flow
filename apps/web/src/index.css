@@ -1139,6 +1139,14 @@
     max-width: 100%;
     text-align: left;
   }
+  .runner-value {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
+  }
+  .runner-value-tags {
+    justify-content: flex-start;
+  }
   .check-row-actions {
     grid-column: 2;
     justify-content: flex-start;

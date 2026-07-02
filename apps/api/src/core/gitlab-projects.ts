@@ -167,6 +167,38 @@ function gitlabRunnerMatchesIssueFlow(runner = {}) {
   return gitlabRunnerAvailable(runner) && tags.includes(ISSUE_FLOW_RUNNER_TAG);
 }
 
+function gitlabRunnerName(runner = {}) {
+  return String(runner.description || runner.name || (runner.id ? `#${runner.id}` : '')).trim();
+}
+
+function gitlabRunnerCache(runner = {}, status = 'needs_action', detail = '') {
+  return {
+    key: ISSUE_FLOW_RUNNER_TAG,
+    source: 'gitlab',
+    runnerId: runner.id || '',
+    name: gitlabRunnerName(runner),
+    description: runner.description || '',
+    shortToken: runner.shortToken || '',
+    runnerType: runner.runnerType || '',
+    gitlabStatus: runner.status || '',
+    active: runner.active !== false,
+    paused: runner.paused === true,
+    tagList: Array.isArray(runner.tagList) ? runner.tagList : [],
+    status,
+    detail,
+  };
+}
+
+async function cacheGitlabRunnerCheck(store, existing, step) {
+  if (!existing) return;
+  await store.updateRepositorySettingsCache(existing.id, {
+    runners: {
+      items: step.runners || [],
+      checkedAt: new Date().toISOString(),
+    },
+  });
+}
+
 function runnerSettingsUrl(project = {}) {
   const webUrl = String(project.webUrl || '').replace(/\/+$/, '');
   return webUrl ? `${webUrl}/-/settings/ci_cd#js-runners-settings` : '';
@@ -185,7 +217,8 @@ async function listAssignableIssueFlowRunners(apiInput) {
 async function runnerDetails(apiInput, runner = {}) {
   if (!runner.id || runner.tagList && runner.tagList.length) return runner;
   try {
-    return { ...runner, ...await getGitlabRunner(apiInput, runner.id) };
+    const detail = await getGitlabRunner(apiInput, runner.id);
+    return { ...runner, ...detail, description: detail.description || runner.description || '' };
   } catch (error) {
     if (error && (error.status === 401 || error.status === 403 || error.status === 404)) return runner;
     throw error;
@@ -196,12 +229,19 @@ async function checkGitlabIssueFlowRunner({ apiInput, project }) {
   const runners = await Promise.all((await listGitlabProjectRunners(apiInput)).map((runner) => runnerDetails(apiInput, runner)));
   const matches = runners.filter(gitlabRunnerMatchesIssueFlow);
   if (matches.length) {
+    const matched = matches[0];
+    const names = matches.map(gitlabRunnerName).filter(Boolean).join(', ');
+    const detail = names ? `已找到可用 issue-flow runner：${names}` : `已找到 ${matches.length} 个可用 issue-flow runner`;
     return installStep(
       'runners',
       'api',
       'GitLab Runner',
       'passed',
-      `已找到 ${matches.length} 个可用 issue-flow runner`
+      detail,
+      {
+        runners: matches.map((runner) => gitlabRunnerCache(runner, 'passed', detail)),
+        value: gitlabRunnerName(matched),
+      }
     );
   }
   const canEnableScope = project.sharedRunnersEnabled === false || project.groupRunnersEnabled === false;
@@ -220,6 +260,7 @@ async function checkGitlabIssueFlowRunner({ apiInput, project }) {
     {
       value: ISSUE_FLOW_RUNNER_TAG,
       valueHref: runnerSettingsUrl(project),
+      runners: [gitlabRunnerCache({ tagList: [ISSUE_FLOW_RUNNER_TAG] }, 'needs_action', detail)],
     }
   );
 }
@@ -898,7 +939,9 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
   }
 
   if (checkTypes.includes('runners')) {
-    steps.push(await checkGitlabIssueFlowRunner({ apiInput, project }));
+    const runnerStep = await checkGitlabIssueFlowRunner({ apiInput, project });
+    steps.push(runnerStep);
+    await cacheGitlabRunnerCheck(store, existing, runnerStep);
   }
 
   if (checkTypes.includes('plugins')) {
@@ -962,7 +1005,7 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     body: {
       gitServer: { id: server.id, name: server.name, baseUrl: config.baseUrl },
       project,
-      repository: existing || null,
+      repository: existing ? await store.getRepository(existing.id) : null,
       access,
       installable,
       steps,
@@ -1113,7 +1156,7 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
       },
     };
   }
-  const { project, apiInput, user } = context;
+  const { project, existing, apiInput, user } = context;
   const access = await resolveGitlabProjectAccess({ project, apiInput, user });
   if (!access.canManage) {
     return { status: 403, body: { error: 'gitlab_project_permission_required', access } };
@@ -1122,7 +1165,8 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
   let currentProject = project;
   let step = await checkGitlabIssueFlowRunner({ apiInput, project: currentProject });
   if (step.status === 'passed') {
-    return { status: 200, body: { access, step, steps: [step], installable: true } };
+    await cacheGitlabRunnerCheck(store, existing, step);
+    return { status: 200, body: { repository: existing ? await store.getRepository(existing.id) : null, access, step, steps: [step], installable: true } };
   }
 
   const settings = {};
@@ -1132,7 +1176,8 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
     currentProject = await updateGitlabProjectRunnerSettings(apiInput, settings);
     step = await checkGitlabIssueFlowRunner({ apiInput, project: currentProject });
     if (step.status === 'passed') {
-      return { status: 200, body: { access, project: currentProject, step, steps: [step], installable: true } };
+      await cacheGitlabRunnerCheck(store, existing, step);
+      return { status: 200, body: { repository: existing ? await store.getRepository(existing.id) : null, access, project: currentProject, step, steps: [step], installable: true } };
     }
   }
 
@@ -1142,7 +1187,8 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
       await enableGitlabRunnerForProject(apiInput, runner.id);
       step = await checkGitlabIssueFlowRunner({ apiInput, project: currentProject });
       if (step.status === 'passed') {
-        return { status: 200, body: { access, project: currentProject, step, steps: [step], installable: true } };
+        await cacheGitlabRunnerCheck(store, existing, step);
+        return { status: 200, body: { repository: existing ? await store.getRepository(existing.id) : null, access, project: currentProject, step, steps: [step], installable: true } };
       }
     } catch (error) {
       if (!error || (error.status !== 400 && error.status !== 403 && error.status !== 404 && error.status !== 409)) {
@@ -1151,7 +1197,8 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
     }
   }
 
-  return { status: 200, body: { access, project: currentProject, step, steps: [step], installable: false } };
+  await cacheGitlabRunnerCheck(store, existing, step);
+  return { status: 200, body: { repository: existing ? await store.getRepository(existing.id) : null, access, project: currentProject, step, steps: [step], installable: false } };
 }
 
 async function installGitlabProjectPlugin({ store, input = {}, session, env = process.env }) {

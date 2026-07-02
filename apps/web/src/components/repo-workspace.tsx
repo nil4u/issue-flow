@@ -18,8 +18,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyPanel } from "@/components/empty-panel"
+import { GitRunnerValue } from "@/components/git-runner-value"
 import { IssuesBoard } from "@/components/issues-board"
 import { OverviewActivity } from "@/components/overview-activity"
+import { RowValue } from "@/components/row-value"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
@@ -262,6 +264,7 @@ type CheckRow = {
   variable?: NonNullable<InstallStep["variables"]>[number]
   plugin?: NonNullable<InstallStep["plugins"]>[number]
   permission?: NonNullable<InstallStep["permissions"]>[number]
+  runner?: NonNullable<InstallStep["runners"]>[number]
   value?: string
   valueHref?: string
   configItem?: InstallCheckConfigItem
@@ -314,6 +317,7 @@ function buildInstallGroups({
   const pluginByKey = new Map(plugins.map((plugin) => [plugin.key, plugin]))
   const permissions = byId.get("permissions")?.permissions || repository?.settings?.permissions?.items || []
   const permissionByKey = new Map(permissions.map((permission) => [permission.key, permission]))
+  const runner = byId.get("runners")?.runners?.[0] || repository?.settings?.runners?.items?.[0]
   const row = (item: InstallCheckConfigItem): CheckRow => {
     if (item.type === "variable") {
       const checkedVariable = variableByKey.get(item.name)
@@ -379,18 +383,21 @@ function buildInstallGroups({
     const cachedWebhook = item.type === "webhook" ? repository?.settings?.webhook : undefined
     const cachedWebhookUrl = String(cachedWebhook?.url || "")
     const cachedWebhookHookId = String(cachedWebhook?.hookId || "")
+    const runnerStatus = item.type === "git-runner" ? runner?.status as CheckStatus | undefined : undefined
+    const runnerValue = item.type === "git-runner" && (step?.status === "passed" || runnerStatus === "passed") ? step?.value || runner?.name || runner?.runnerId : undefined
     const fallbackStatus = item.type === "webhook"
       ? cachedWebhookHookId ? "passed" : "needs_action"
-      : "unknown"
+      : runnerStatus || "unknown"
     return {
       id: item.id,
       title: item.name,
       description: item.description || "",
       kind: item.type === "repo_file" ? "repo" : "api",
       status: step?.status || fallbackStatus,
-      detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : undefined),
-      value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : undefined,
+      detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : runner?.detail),
+      value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : runnerValue,
       valueHref: runnerSettingsUrl,
+      runner: item.type === "git-runner" ? runner : undefined,
       files: step?.files,
       missing: step?.missing,
       inputRequired: step?.inputRequired,
@@ -599,6 +606,8 @@ function CheckTableRow({
               {pluginActionLabel}
             </Button>
           </div>
+        ) : row.runner && row.status === "passed" ? (
+          <GitRunnerValue runner={row.runner} href={row.valueHref} />
         ) : !row.variable && row.value && (
           <RowValue
             value={row.value}
@@ -759,21 +768,6 @@ function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"
     <span className={`check-row-value ${variable.exists ? "" : "muted"}`}>
       <strong>{value}</strong>
       {source && <small>{source}</small>}
-    </span>
-  )
-}
-
-function RowValue({ value, href }: { value: string; href?: string }) {
-  if (href) {
-    return (
-      <a className="check-row-value" href={href} target="_blank" rel="noreferrer">
-        <strong>{value}</strong>
-      </a>
-    )
-  }
-  return (
-    <span className="check-row-value">
-      <strong>{value}</strong>
     </span>
   )
 }

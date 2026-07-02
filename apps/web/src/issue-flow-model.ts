@@ -42,6 +42,7 @@ export type Repository = {
     variables?: { items?: AgentrixVariable[]; checkedAt?: string }
     webhook?: Record<string, unknown>
     plugins?: { items?: PluginInstall[]; checkedAt?: string }
+    runners?: { items?: GitRunnerSetting[]; checkedAt?: string }
   }
 }
 
@@ -160,6 +161,22 @@ export type AdminPermission = {
   memberUrl?: string
 }
 
+export type GitRunnerSetting = {
+  key: string
+  source?: string
+  runnerId?: string
+  name?: string
+  description?: string
+  shortToken?: string
+  runnerType?: string
+  gitlabStatus?: string
+  active?: boolean
+  paused?: boolean
+  tagList?: string[]
+  status?: InstallStatus
+  detail?: string
+}
+
 export type SessionState = {
   authenticated: boolean
   user?: GitLabUser
@@ -200,8 +217,11 @@ export type InstallStep = {
   variables?: AgentrixVariable[]
   plugins?: PluginInstall[]
   permissions?: AdminPermission[]
+  runners?: GitRunnerSetting[]
   memberUrl?: string
   actionCount?: number
+  value?: string
+  valueHref?: string
 }
 
 export type InstallCheck = {

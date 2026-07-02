@@ -168,6 +168,7 @@ function emptyRepoSettings() {
     variables: { items: [], checkedAt: "" },
     webhook: {},
     plugins: { items: [], checkedAt: "" },
+    runners: { items: [], checkedAt: "" },
   }
 }
 
@@ -681,6 +682,7 @@ class IssueFlowStore {
       variables: { ...empty.variables, items: [] },
       webhook: {},
       plugins: { ...empty.plugins, items: [] },
+      runners: { ...empty.runners, items: [] },
     }
     for (const row of rows || []) {
       const data = repoSettingData(row)
@@ -706,11 +708,17 @@ class IssueFlowStore {
       if (row.kind === "plugin") {
         settings.plugins.items.push(data)
         settings.plugins.checkedAt = latestTimestamp(settings.plugins.checkedAt, checkedAt)
+        continue
+      }
+      if (row.kind === "runner") {
+        settings.runners.items.push(data)
+        settings.runners.checkedAt = latestTimestamp(settings.runners.checkedAt, checkedAt)
       }
     }
     settings.permissions.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     settings.variables.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     settings.plugins.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
+    settings.runners.items.sort((a, b) => String(a.key || "").localeCompare(String(b.key || "")))
     return settings
   }
 
@@ -1197,6 +1205,15 @@ class IssueFlowStore {
           "plugin",
           patch.plugins.items || [],
           patch.plugins.checkedAt || updatedAt,
+          tx
+        )
+      }
+      if (patch.runners) {
+        await this.replaceRepoSettingItems(
+          repoId,
+          "runner",
+          patch.runners.items || [],
+          patch.runners.checkedAt || updatedAt,
           tx
         )
       }

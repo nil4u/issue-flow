@@ -609,6 +609,7 @@ function normalizeGitlabRunner(runner = {}) {
     locked: Boolean(runner.locked),
     paused: Boolean(runner.paused),
     status: runner.status || '',
+    shortToken: runner.short_sha || runner.shortSha || runner.short_token || runner.shortToken || runner.token_short || runner.tokenShort || '',
     runnerType: runner.runner_type || runner.runnerType || '',
     tagList: Array.isArray(runner.tag_list || runner.tagList)
       ? (runner.tag_list || runner.tagList).map((tag) => String(tag || '')).filter(Boolean)

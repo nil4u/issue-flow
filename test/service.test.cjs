@@ -1349,7 +1349,7 @@ test('GitLab settings checks project runners for issue-flow tag', async () => {
     if (req.url === '/api/v4/runners/1' && req.method === 'GET') {
       assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ id: 1, active: true, paused: false, status: 'online', tag_list: ['issue-flow', 'shell'] }));
+      res.end(JSON.stringify({ id: 1, active: true, paused: false, status: 'online', short_sha: 'bXP7WASs', tag_list: ['issue-flow', 'shell'] }));
       return;
     }
     res.writeHead(404);
@@ -1358,6 +1358,13 @@ test('GitLab settings checks project runners for issue-flow tag', async () => {
   const gitlabBase = await listen(gitlab);
   await seedGitlabServer(store, gitlabBase);
   try {
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      projectPath: 'team/app',
+      defaultBranch: 'main',
+      webUrl: `${gitlabBase}/team/app`,
+    });
     const matched = await checkGitlabProjectInstall({
       store,
       basePublicUrl: 'https://issue-flow.internal',
@@ -1366,6 +1373,12 @@ test('GitLab settings checks project runners for issue-flow tag', async () => {
     assert.equal(matched.status, 200);
     assert.equal(matched.body.steps[0].id, 'runners');
     assert.equal(matched.body.steps[0].status, 'passed');
+    assert.equal(matched.body.repository.settings.runners.items[0].name, 'issue flow runner');
+    assert.equal(matched.body.repository.settings.runners.items[0].shortToken, 'bXP7WASs');
+    let cached = await store.getRepository(created.repo.id);
+    assert.equal(cached.settings.runners.items[0].name, 'issue flow runner');
+    assert.equal(cached.settings.runners.items[0].shortToken, 'bXP7WASs');
+    assert.equal(cached.settings.runners.items[0].status, 'passed');
 
     runners = [
       { id: 2, description: 'generic runner', active: true, paused: false, status: 'online', tag_list: ['shell'] },
@@ -1379,6 +1392,9 @@ test('GitLab settings checks project runners for issue-flow tag', async () => {
     assert.equal(missing.status, 200);
     assert.equal(missing.body.steps[0].status, 'needs_action');
     assert.match(missing.body.steps[0].detail, /issue-flow tag/);
+    cached = await store.getRepository(created.repo.id);
+    assert.equal(cached.settings.runners.items[0].status, 'needs_action');
+    assert.equal(cached.settings.runners.items[0].name, '');
   } finally {
     await close(gitlab);
     await store.close();
