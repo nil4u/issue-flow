@@ -13,7 +13,6 @@ import {
   type GitServer,
   type InstallCheck,
   type InstallCheckProgress,
-  type IssueRow,
   type ProjectAccess,
   type Repository,
   type SessionState,
@@ -21,6 +20,7 @@ import {
   type UserSession,
   type WorkspaceTab,
 } from "@/issue-flow-model"
+import { useIssuesState } from "@/hooks/use-issues-state"
 import { notifyError } from "@/lib/errors"
 import {
   installCheckProgressSteps,
@@ -60,8 +60,14 @@ export function useDashboardController() {
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
   const [gitEvents, setGitEvents] = useState<GitEventRow[]>([])
-  const [issues, setIssues] = useState<IssueRow[]>([])
-  const [loadingIssues, setLoadingIssues] = useState(false)
+  const {
+    issues,
+    loadingIssues,
+    loadIssues,
+    syncIssues: syncRepoIssues,
+    hasAutoSynced,
+    markAutoSynced,
+  } = useIssuesState()
   const [pendingGitServerId, setPendingGitServerId] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
@@ -230,28 +236,8 @@ export function useDashboardController() {
     setGitEvents(eventBody.gitEvents || [])
   }
 
-  async function loadIssues(repoId?: string) {
-    if (!repoId) {
-      setIssues([])
-      return
-    }
-    const body = await api<{ issues: IssueRow[] }>(`/api/repositories/${encodeURIComponent(repoId)}/issues`)
-    setIssues(body.issues || [])
-  }
-
   async function syncIssues() {
-    if (!selectedRepo?.id) return
-    setLoadingIssues(true)
-    try {
-      const body = await api<{ issues: IssueRow[] }>(`/api/repositories/${encodeURIComponent(selectedRepo.id)}/issues/sync`, {
-        method: "POST",
-      })
-      setIssues(body.issues || [])
-    } catch (error) {
-      notifyError(error, "同步 issues 失败")
-    } finally {
-      setLoadingIssues(false)
-    }
+    await syncRepoIssues(selectedRepo?.id)
   }
 
   async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
@@ -715,10 +701,15 @@ export function useDashboardController() {
   }, [selectedRepo?.id])
 
   useEffect(() => {
-    void loadIssues(selectedRepo?.id).catch((error) => {
+    const repoId = selectedRepo?.id
+    void loadIssues(repoId).then((nextIssues) => {
+      if (!repoId || activeTab !== "issues" || nextIssues.length > 0 || hasAutoSynced(repoId)) return
+      markAutoSynced(repoId)
+      return syncRepoIssues(repoId)
+    }).catch((error) => {
       notifyError(error, "加载 issues 失败")
     })
-  }, [selectedRepo?.id])
+  }, [activeTab, selectedRepo?.id, loadIssues, syncRepoIssues, hasAutoSynced, markAutoSynced])
 
   async function reloadLoginState() {
     try {
