@@ -1042,6 +1042,7 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
       operation,
       commitMessage: input.commitMessage || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
       mergeRequestTitle: input.mergeRequestTitle || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
+      onProgress: input.onProgress,
     });
   } catch (error) {
     return {

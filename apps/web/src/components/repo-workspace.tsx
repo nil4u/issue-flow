@@ -665,6 +665,8 @@ function CheckTableRow({
     )
     && !row.plugin?.pendingMergeRequest?.webUrl
   const canOpenMembers = row.configItem?.type === "permission" && Boolean(row.valueHref) && row.status !== "passed"
+  const pendingMergeHref = row.plugin?.pendingMergeRequest?.webUrl || ""
+  const showMergeAction = Boolean(pendingMergeHref)
   const showPluginAction = canInstallPlugin && Boolean(row.plugin?.installed && row.plugin.needsUpgrade)
   const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
   const pluginUpgradeValue = showPluginAction && row.plugin ? pluginValue(row.plugin) : ""
@@ -684,7 +686,16 @@ function CheckTableRow({
           <small>{row.description}</small>
         </span>
         {row.variable && <VariableValue variable={row.variable} />}
-        {showPluginAction ? (
+        {showMergeAction ? (
+          <div className="check-row-upgrade">
+            <Button asChild size="sm" variant="secondary">
+              <a href={pendingMergeHref} target="_blank" rel="noreferrer">
+                <ExternalLink className="size-4" />
+                去合并
+              </a>
+            </Button>
+          </div>
+        ) : showPluginAction ? (
           <div className="check-row-upgrade">
             <RowValue value={pluginUpgradeValue} />
             <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
@@ -818,6 +829,14 @@ function CheckProgressDialog({
         </div>
         {!checking && (
           <div className="check-progress-actions">
+            {progress?.actionHref && (
+              <Button asChild>
+                <a href={progress.actionHref} target="_blank" rel="noreferrer">
+                  <ExternalLink className="size-4" />
+                  {progress.actionLabel || "打开"}
+                </a>
+              </Button>
+            )}
             <Button type="button" variant="secondary" onClick={onClose}>完成</Button>
           </div>
         )}

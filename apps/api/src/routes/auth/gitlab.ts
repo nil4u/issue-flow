@@ -6,6 +6,7 @@ import {
   startGitlabOAuth,
 } from "../../core/gitlab-auth.js"
 import { contextFromRequest } from "../../services/issue-flow.js"
+import { setupOAuthCookieName, setupVerifiedCookieName, validateSetupCookie } from "../../core/setup.js"
 import { cookie, cookieSecure, firstWebOrigin, sessionCookieName, userCookieName } from "../../utils/http.js"
 
 function safeReturnTo(value: unknown) {
@@ -18,6 +19,10 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
   app.get("/api/auth/gitlab/start", async (request, reply) => {
     const query = request.query as Record<string, unknown>
     const gitServerId = String(query.gitServerId || "")
+    const setupOAuth = String(query.setup || "") === "1"
+    if (setupOAuth && !validateSetupCookie(request.cookies[setupVerifiedCookieName()] || "", { gitServerId })) {
+      return reply.code(401).send({ error: "setup_verification_required" })
+    }
     const result = await startGitlabOAuth({
       ...contextFromRequest(request),
       input: { gitServerId },
@@ -38,6 +43,10 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
           maxAge: 600,
           secure: cookieSecure(request),
         }),
+        cookie(setupOAuthCookieName(), setupOAuth ? "1" : "", {
+          maxAge: setupOAuth ? 600 : 0,
+          secure: cookieSecure(request),
+        }),
       ])
       .send()
   })
@@ -48,13 +57,19 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
     if (!expectedState || expectedState !== actualState) {
       return reply.code(401).send({ error: "gitlab_oauth_state_invalid" })
     }
+    const gitServerIdFromCookie = request.cookies.issue_flow_oauth_git_server_id || ""
+    const setupOAuth = request.cookies[setupOAuthCookieName()] === "1"
+    if (setupOAuth && !validateSetupCookie(request.cookies[setupVerifiedCookieName()] || "", { gitServerId: gitServerIdFromCookie })) {
+      return reply.code(401).send({ error: "setup_verification_required" })
+    }
 
     const result = await finishGitlabOAuth({
       ...contextFromRequest(request),
       query: {
         ...((request.query || {}) as Record<string, unknown>),
-        gitServerId: request.cookies.issue_flow_oauth_git_server_id || "",
+        gitServerId: gitServerIdFromCookie,
         currentUserId: request.cookies[userCookieName()] || "",
+        setupAdminEligible: setupOAuth,
       },
     })
     if (result.status !== 302) {
@@ -86,6 +101,14 @@ export async function gitlabAuthRoutes(app: FastifyInstance) {
           secure: cookieSecure(request),
         }),
         cookie("issue_flow_oauth_return_to", "", {
+          maxAge: 0,
+          secure: cookieSecure(request),
+        }),
+        cookie(setupOAuthCookieName(), "", {
+          maxAge: 0,
+          secure: cookieSecure(request),
+        }),
+        cookie(setupVerifiedCookieName(), "", {
           maxAge: 0,
           secure: cookieSecure(request),
         }),

@@ -272,7 +272,9 @@ async function installGitlabPluginMergeRequest(input = {}) {
   const checkout = path.join(root, 'repo')
   const sourceBranch = input.sourceBranch || `issue-flow/${input.operation === 'upgrade' ? 'upgrade' : 'install'}-${Date.now().toString(36)}`
   const token = input.token || ''
+  const progress = typeof input.onProgress === 'function' ? input.onProgress : () => {}
   try {
+    progress({ id: 'clone', status: 'running', label: '克隆仓库', detail: `正在克隆 ${targetBranch}` })
     await runGit(root, [
       'clone',
       '--filter=blob:none',
@@ -295,12 +297,19 @@ async function installGitlabPluginMergeRequest(input = {}) {
     ], token)
     await runGit(checkout, ['checkout', targetBranch], token)
     await runGit(checkout, ['checkout', '-b', sourceBranch], token)
+    progress({ id: 'clone', status: 'passed', label: '克隆仓库', detail: `已创建分支 ${sourceBranch}` })
 
+    progress({ id: 'install', status: 'running', label: '安装文件', detail: '正在写入 issue-flow 文件' })
     await runIssueFlowInstallScript(checkout, { provider: 'gitlab', token })
+    progress({ id: 'install', status: 'passed', label: '安装文件', detail: '安装文件已生成' })
+
+    progress({ id: 'commit', status: 'running', label: '提交变更', detail: '正在提交并推送分支' })
     await runGit(checkout, ['add', '-A', '--', '.gitlab-ci.yml', '.gitlab', '.issue-flow', '.agentrix/plugins/issue-flow'], token)
     const status = await runGit(checkout, ['status', '--porcelain'], token)
     const files = gitStatusFiles(status.stdout)
     if (!files.length) {
+      progress({ id: 'commit', status: 'passed', label: '提交变更', detail: '没有新的文件变更' })
+      progress({ id: 'mr', status: 'passed', label: '发起 MR', detail: '无需创建 MR' })
       return {
         skipped: true,
         branch: targetBranch,
@@ -314,7 +323,9 @@ async function installGitlabPluginMergeRequest(input = {}) {
     await runGit(checkout, ['config', 'user.email', 'issue-flow@localhost'], token)
     await runGit(checkout, ['commit', '-m', input.commitMessage || 'Install issue-flow plugin'], token)
     await runGit(checkout, ['push', 'origin', `HEAD:refs/heads/${sourceBranch}`], token)
+    progress({ id: 'commit', status: 'passed', label: '提交变更', detail: `${files.length} 个文件变更已推送` })
 
+    progress({ id: 'mr', status: 'running', label: '发起 MR', detail: '正在创建 Merge Request' })
     const mergeRequest = await createGitlabMergeRequest({
       apiUrl: input.apiUrl,
       token,
@@ -329,6 +340,17 @@ async function installGitlabPluginMergeRequest(input = {}) {
         'Merge this request, then issue-flow will refresh the plugin status from .issue-flow/install-manifest.json.',
       ].join('\n'),
       removeSourceBranch: true,
+    })
+    progress({
+      id: 'mr',
+      status: 'passed',
+      label: '发起 MR',
+      detail: mergeRequest.iid ? `MR !${mergeRequest.iid} 已创建` : 'Merge Request 已创建',
+      mergeRequest: {
+        id: mergeRequest.id ? String(mergeRequest.id) : '',
+        iid: mergeRequest.iid ? String(mergeRequest.iid) : '',
+        webUrl: mergeRequest.web_url || mergeRequest.webUrl || '',
+      },
     })
 
     return {

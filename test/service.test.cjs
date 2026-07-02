@@ -27,6 +27,7 @@ function loadDatabaseUrl() {
 
 loadDatabaseUrl();
 process.env.ISSUE_FLOW_BASE_URL ||= 'https://issue-flow.internal';
+process.env.ISSUE_FLOW_SETUP_CODE ||= 'test-setup-code';
 require('tsx/cjs');
 
 const { createApp } = require('../apps/api/src/app.ts');
@@ -410,6 +411,108 @@ test('git accounts resolve to one issue-flow user across git servers', async () 
     assert.equal(second.user.id, first.user.id);
     assert.equal(user.accounts.length, 2);
     assert.deepEqual(user.accounts.map((account) => account.gitServerId).sort(), ['github-main', 'gitlab-main']);
+  } finally {
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setup initialize configures first git server and issues setup cookie', async () => {
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    const status = await fetch(`${baseUrl}/api/setup/status`);
+    assert.equal(status.status, 200);
+    assert.deepEqual(await status.json(), {
+      initialized: false,
+      needsSetup: true,
+      state: 'uninitialized',
+      setupCodeConfigured: true,
+      missing: [],
+      gitServers: [],
+    });
+
+    const rejected = await fetch(`${baseUrl}/api/setup/initialize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setupCode: 'wrong-code' }),
+    });
+    assert.equal(rejected.status, 401);
+
+    const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        setupCode: 'test-setup-code',
+        id: 'gitlab-main',
+        type: 'gitlab',
+        name: 'GitLab',
+        baseUrl: 'https://gitlab.example.com',
+        oauth: {
+          clientId: 'oauth-client',
+          clientSecret: 'oauth-secret',
+        },
+        webhook: { secret: 'webhook-secret' },
+        agentrixGitServerId: 'agentrix-main',
+        adminPat: 'admin-pat',
+      }),
+    });
+    assert.equal(initialized.status, 201);
+    assert.match(initialized.headers.get('set-cookie') || '', /issue_flow_setup_verified=/);
+    const body = await initialized.json();
+    assert.equal(body.gitServer.id, 'gitlab-main');
+    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|webhook-secret|admin-pat/);
+
+    const nextStatus = await fetch(`${baseUrl}/api/setup/status`);
+    const nextBody = await nextStatus.json();
+    assert.equal(nextBody.initialized, true);
+    assert.equal(nextBody.needsSetup, false);
+    assert.equal(nextBody.state, 'configured');
+    assert.equal(nextBody.gitServers[0].id, 'gitlab-main');
+    assert.doesNotMatch(JSON.stringify(nextBody), /oauth-secret|webhook-secret|admin-pat/);
+
+    const cookieHeader = setCookieToCookieHeader(initialized.headers.get('set-cookie') || '');
+    const start = await fetch(`${baseUrl}/api/auth/gitlab/start?gitServerId=gitlab-main&setup=1`, {
+      redirect: 'manual',
+      headers: { Cookie: cookieHeader },
+    });
+    assert.equal(start.status, 302);
+    assert.match(start.headers.get('location') || '', /^https:\/\/gitlab\.example\.com\/oauth\/authorize/);
+    assert.match(start.headers.get('set-cookie') || '', /issue_flow_oauth_setup=1/);
+  } finally {
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setup OAuth creates exactly one default admin user', async () => {
+  const { dir, store } = tempStore();
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const first = await store.resolveUserForGitAccount({
+      setupAdminEligible: true,
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+    });
+    const second = await store.resolveUserForGitAccount({
+      setupAdminEligible: true,
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '202',
+        username: 'bob',
+        displayName: 'Bob',
+      },
+    });
+
+    assert.equal(first.user.role, 'admin');
+    assert.equal(second.user.role, 'member');
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });

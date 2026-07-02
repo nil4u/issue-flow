@@ -7,6 +7,7 @@ import { gitlabRoutes } from "./routes/gitlab.js"
 import { healthRoutes } from "./routes/health.js"
 import { repositoryRoutes } from "./routes/repositories.js"
 import { sessionRoutes } from "./routes/session.js"
+import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
 import { errorResponse } from "./core/responses.js"
@@ -81,6 +82,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   })
 
   await app.register(healthRoutes)
+  await app.register(setupRoutes)
   await app.register(sessionRoutes)
   await app.register(gitServerRoutes)
   await app.register(gitlabAuthRoutes)

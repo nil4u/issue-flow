@@ -87,6 +87,7 @@ async function finishGitlabOAuth({ store, basePublicUrl, query = {} }) {
   };
   const identity = await store.resolveUserForGitAccount({
     currentUserId: query.currentUserId || '',
+    setupAdminEligible: Boolean(query.setupAdminEligible),
     account: accountInput,
   });
   const session = await store.createSession({

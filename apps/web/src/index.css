@@ -1040,6 +1040,66 @@
     width: 100%;
     gap: 0.5rem;
   }
+  .setup-screen {
+    place-items: start center;
+    overflow: auto;
+    padding-top: 7svh;
+  }
+  .setup-panel {
+    width: min(28rem, 100%);
+    padding-bottom: 3rem;
+  }
+  .setup-form {
+    width: 100%;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .setup-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .setup-field {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+  .setup-field span {
+    color: var(--if-color-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .setup-field input {
+    height: 2.25rem;
+    border-radius: 8px;
+    border-color: var(--border);
+    background: var(--if-color-surface);
+    font-size: 0.875rem;
+    box-shadow: none;
+  }
+  .setup-field input:focus-visible {
+    border-color: var(--if-color-focus-border);
+    box-shadow: none;
+    outline: 0;
+    --tw-ring-shadow: 0 0 #0000;
+  }
+  .setup-divider {
+    height: 1px;
+    margin: 0.25rem 0;
+    background: var(--border);
+  }
+  .setup-note {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2rem;
+    color: var(--if-color-text-secondary);
+    font-size: 0.8125rem;
+  }
+  .setup-submit {
+    margin-top: 0.25rem;
+    width: 100%;
+  }
   .rotate-270 {
     transform: rotate(-90deg);
   }
@@ -1076,6 +1136,9 @@
     min-height: 70svh;
     height: auto;
     padding: 0.75rem;
+  }
+  .setup-grid {
+    grid-template-columns: 1fr;
   }
   .settings-panel {
     min-height: 70svh;

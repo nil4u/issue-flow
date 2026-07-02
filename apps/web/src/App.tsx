@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { LoginPage } from "@/components/login-page"
 import { RepoSidebar } from "@/components/repo-sidebar"
 import { RepoWorkspace } from "@/components/repo-workspace"
+import { SetupPage } from "@/components/setup-page"
 import { UserSettings } from "@/components/user-settings"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -25,6 +26,7 @@ import {
   type ProjectAccess,
   type Repository,
   type SessionState,
+  type SetupStatus,
   type UserSession,
   type WorkspaceTab,
 } from "@/issue-flow-model"
@@ -34,6 +36,13 @@ const installCheckProgressSteps: InstallCheckProgress["steps"] = [
   { id: "webhook", label: "Webhook", status: "pending" },
   { id: "variables", label: "Variables", status: "pending" },
   { id: "plugins", label: "Plugins", status: "pending" },
+]
+
+const pluginInstallProgressSteps: InstallCheckProgress["steps"] = [
+  { id: "clone", label: "克隆仓库", status: "pending" },
+  { id: "install", label: "安装文件", status: "pending" },
+  { id: "commit", label: "提交变更", status: "pending" },
+  { id: "mr", label: "发起 MR", status: "pending" },
 ]
 
 function mergeInstallCheck(current: InstallCheck | undefined, next: InstallCheck): InstallCheck {
@@ -48,6 +57,66 @@ function mergeInstallCheck(current: InstallCheck | undefined, next: InstallCheck
   }
 }
 
+async function streamInstallPlugin(
+  input: { gitServerId: string; projectId: string },
+  onEvent: (event: string, data: unknown) => void
+): Promise<InstallCheck> {
+  const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin/stream`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok || !response.body) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const decoder = new TextDecoder()
+  const reader = response.body.getReader()
+  let buffer = ""
+  let complete: InstallCheck | undefined
+
+  function handleChunk(chunk: string) {
+    buffer += chunk
+    let boundary = buffer.indexOf("\n\n")
+    while (boundary >= 0) {
+      const raw = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      const event = raw.match(/^event:\s*(.+)$/m)?.[1] || "message"
+      const dataText = raw.match(/^data:\s*(.+)$/m)?.[1] || "{}"
+      const data = JSON.parse(dataText)
+      if (event === "complete") complete = data as InstallCheck
+      if (event === "error") {
+        const error = new Error(String(data?.error || "install_plugin_failed"))
+        ;(error as Error & { body?: unknown }).body = data
+        throw error
+      }
+      onEvent(event, data)
+      boundary = buffer.indexOf("\n\n")
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    handleChunk(decoder.decode(value, { stream: true }))
+  }
+  handleChunk(decoder.decode())
+  if (!complete) throw new Error("install_plugin_stream_incomplete")
+  return complete
+}
+
+function streamPendingMergeRequest(body: InstallCheck) {
+  const payload = body as InstallCheck & {
+    pendingMergeRequest?: { webUrl?: string }
+    plugin?: { pendingMergeRequest?: { webUrl?: string } }
+  }
+  return payload.pendingMergeRequest || payload.plugin?.pendingMergeRequest
+}
+
 function AppShell() {
   return (
     <TooltipProvider>
@@ -59,6 +128,9 @@ function AppShell() {
 
 function Dashboard() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
+  const [booting, setBooting] = useState(true)
+  const [setupStatus, setSetupStatus] = useState<SetupStatus>()
+  const [initializingSetup, setInitializingSetup] = useState(false)
   const [gitServers, setGitServers] = useState<GitServer[]>([])
   const [selectedGitServerId, setSelectedGitServerId] = useState(() => route.gitServerId)
   const [userSession, setUserSession] = useState<UserSession>({ authenticated: false })
@@ -156,6 +228,12 @@ function Dashboard() {
   async function loadUserSession() {
     const body = await api<UserSession>("/api/user/session")
     setUserSession(body)
+    return body
+  }
+
+  async function loadSetupStatus() {
+    const body = await api<SetupStatus>("/api/setup/status")
+    setSetupStatus(body)
     return body
   }
 
@@ -490,33 +568,132 @@ function Dashboard() {
       })
       return
     }
+    const plugin = selectedRepo?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")
+    const operationLabel = plugin?.installed ? "升级" : "安装"
     setChecking(true)
+    setCheckProgress({
+      open: true,
+      title: `正在${operationLabel} issue-flow`,
+      detail: "",
+      steps: pluginInstallProgressSteps.map((step) => ({ ...step })),
+    })
     try {
-      const body = await api<InstallCheck>("/api/gitlab/install-plugin", {
-        method: "POST",
-        body: JSON.stringify({
-          gitServerId: selectedGitServerId,
-          projectId: selectedProject.id,
-        }),
+      const body = await streamInstallPlugin({
+        gitServerId: selectedGitServerId,
+        projectId: selectedProject.id,
+      }, (event, data) => {
+        if (event === "progress") {
+          const step = data as {
+            id?: string
+            label?: string
+            status?: InstallCheckProgress["steps"][number]["status"]
+            detail?: string
+            mergeRequest?: { webUrl?: string }
+          }
+          setCheckProgress((current) => ({
+            ...current,
+            open: true,
+            title: `正在${operationLabel} issue-flow`,
+            detail: step.detail || current.detail,
+            actionHref: step.mergeRequest?.webUrl || current.actionHref,
+            actionLabel: step.mergeRequest?.webUrl ? "去合并" : current.actionLabel,
+            steps: current.steps.map((item) => item.id === step.id ? {
+              ...item,
+              label: step.label || item.label,
+              status: step.status || item.status,
+            } : item),
+          }))
+        }
       })
       const nextCheck = mergeInstallCheck(installCheck, body)
       setInstallCheck(nextCheck)
       await loadRepositories(selectedGitServerId)
+      const pendingMergeRequest = streamPendingMergeRequest(body)
+      setCheckProgress((current) => ({
+        ...current,
+        open: true,
+        title: pendingMergeRequest?.webUrl ? "MR 已创建" : `${operationLabel}完成`,
+        detail: pendingMergeRequest?.webUrl ? "合并 MR 后，issue-flow 会刷新安装状态。" : "没有需要提交的变更。",
+        actionHref: pendingMergeRequest?.webUrl || current.actionHref,
+        actionLabel: pendingMergeRequest?.webUrl ? "去合并" : current.actionLabel,
+        steps: current.steps.map((step) => ({
+          ...step,
+          status: step.status === "running" || pendingMergeRequest?.webUrl ? "passed" : step.status,
+        })),
+      }))
       return nextCheck
     } catch (error) {
+      setCheckProgress((current) => ({
+        ...current,
+        open: true,
+        title: `${operationLabel}失败`,
+        steps: current.steps.map((step) => ({
+          ...step,
+          status: step.status === "running" ? "failed" : step.status,
+        })),
+      }))
       notifyError(error, "安装 plugin 失败")
     } finally {
       setChecking(false)
     }
   }
 
-  function loginGitLab(gitServerId = selectedGitServerId) {
+  function loginGitLab(gitServerId = selectedGitServerId, options: { setup?: boolean; returnTo?: string } = {}) {
     if (!gitServerId) {
       toast.warning("请先选择 Git server")
       return
     }
-    const returnTo = `${window.location.pathname}${window.location.search}`
-    window.location.href = `${API_BASE_URL}/api/auth/gitlab/start?gitServerId=${encodeURIComponent(gitServerId)}&returnTo=${encodeURIComponent(returnTo)}`
+    const returnTo = options.returnTo || `${window.location.pathname}${window.location.search}`
+    const setup = options.setup ? "&setup=1" : ""
+    window.location.href = `${API_BASE_URL}/api/auth/gitlab/start?gitServerId=${encodeURIComponent(gitServerId)}&returnTo=${encodeURIComponent(returnTo)}${setup}`
+  }
+
+  async function initializeSetup(input: {
+    setupCode: string
+    id: string
+    name: string
+    baseUrl: string
+    apiUrl: string
+    oauthClientId: string
+    oauthClientSecret: string
+    oauthRedirectUri: string
+    oauthScopes: string
+    webhookSecret: string
+    agentrixGitServerId: string
+    adminPat: string
+  }) {
+    setInitializingSetup(true)
+    try {
+      const body = await api<{ gitServer: GitServer }>("/api/setup/initialize", {
+        method: "POST",
+        body: JSON.stringify({
+          setupCode: input.setupCode,
+          id: input.id,
+          type: "gitlab",
+          name: input.name,
+          baseUrl: input.baseUrl,
+          apiUrl: input.apiUrl,
+          oauth: {
+            clientId: input.oauthClientId,
+            clientSecret: input.oauthClientSecret,
+            redirectUri: input.oauthRedirectUri,
+            scopes: input.oauthScopes,
+          },
+          webhook: {
+            secret: input.webhookSecret,
+          },
+          agentrixGitServerId: input.agentrixGitServerId,
+          adminPat: input.adminPat,
+        }),
+      })
+      const gitServerId = body.gitServer.id
+      setSelectedGitServerId(gitServerId)
+      loginGitLab(gitServerId, { setup: true, returnTo: "/repos" })
+    } catch (error) {
+      notifyError(error, "初始化失败")
+    } finally {
+      setInitializingSetup(false)
+    }
   }
 
   function connectGitServerAccount(gitServerId: string) {
@@ -589,9 +766,17 @@ function Dashboard() {
       window.location.replace(`${API_BASE_URL}/api/auth/gitlab/callback?${params.toString()}`)
       return
     }
-    Promise.all([loadGitServers(), loadUserSession(), loadRepositories()]).catch((error) => {
-      notifyError(error, "加载失败")
-    })
+    ;(async () => {
+      try {
+        const status = await loadSetupStatus()
+        if (status.needsSetup) return
+        await Promise.all([loadGitServers(), loadUserSession()])
+      } catch (error) {
+        notifyError(error, "加载失败")
+      } finally {
+        setBooting(false)
+      }
+    })()
   }, [])
 
   useEffect(() => {
@@ -664,10 +849,26 @@ function Dashboard() {
 
   async function reloadLoginState() {
     try {
+      const status = await loadSetupStatus()
+      if (status.needsSetup) return
       await Promise.all([loadGitServers(), loadUserSession()])
     } catch (error) {
       notifyError(error, "重新加载失败")
     }
+  }
+
+  if (booting) {
+    return <main className="login-screen"><div className="shell-loading">正在检查初始化状态...</div></main>
+  }
+
+  if (setupStatus?.needsSetup) {
+    return (
+      <SetupPage
+        status={setupStatus}
+        loading={initializingSetup}
+        onInitialize={initializeSetup}
+      />
+    )
   }
 
   if (!userSession.authenticated) {
@@ -754,7 +955,7 @@ function notifyError(error: unknown, title = "操作失败") {
 function errorMessage(error: unknown) {
   const code = error instanceof Error ? error.message : ""
   const body = error && typeof error === "object" && "body" in error
-    ? (error as { body?: { detail?: string; message?: string; error?: string } }).body
+    ? (error as { body?: { detail?: unknown; message?: unknown; error?: unknown } }).body
     : undefined
   if (code === "git_server_webhook_secret_required") {
     return "Git server 缺少启动期 webhook secret，请在服务配置里设置后重启。"
@@ -768,10 +969,46 @@ function errorMessage(error: unknown) {
   if (code === "repository_not_found") {
     return "本地还没有这个仓库记录，请先同步仓库列表。"
   }
-  if (code === "Not Found" && body?.message?.startsWith("Route ")) {
+  if (code === "setup_code_invalid") {
+    return "Setup code 不正确。"
+  }
+  if (code === "setup_code_not_configured") {
+    return "服务端缺少 ISSUE_FLOW_SETUP_CODE，请配置后重启。"
+  }
+  if (code === "setup_verification_required") {
+    return "初始化登录凭证已失效，请重新提交 setup code。"
+  }
+  if (code === "setup_already_initialized") {
+    return "系统已经完成初始化。"
+  }
+  if (code === "Not Found" && typeof body?.message === "string" && body.message.startsWith("Route ")) {
     return "接口不存在，API 服务可能还没重启到最新代码。"
   }
-  return body?.detail || body?.message || body?.error || code || "请稍后重试。"
+  return firstErrorText(body?.detail, body?.message, body?.error, code) || "请稍后重试。"
+}
+
+function firstErrorText(...values: unknown[]) {
+  for (const value of values) {
+    const text = errorText(value)
+    if (text) return text
+  }
+  return ""
+}
+
+function errorText(value: unknown): string {
+  if (value === undefined || value === null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (value instanceof Error) return value.message
+  if (Array.isArray(value)) return value.map(errorText).filter(Boolean).join(", ")
+  if (typeof value === "object") {
+    const item = value as { message?: unknown; code?: unknown; error?: unknown; detail?: unknown }
+    const message = firstErrorText(item.message, item.detail, item.error)
+    const code = errorText(item.code)
+    if (code && message) return `${code}: ${message}`
+    return message || code || JSON.stringify(value)
+  }
+  return String(value)
 }
 
 export default AppShell

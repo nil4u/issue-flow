@@ -95,6 +95,7 @@ function normalizeUser(input = {}) {
     displayName: input.displayName || input.name || input.username || "",
     email: input.email || "",
     avatarUrl: input.avatarUrl || "",
+    role: input.role || "member",
   }
 }
 
@@ -298,6 +299,7 @@ class IssueFlowStore {
       displayName: user.displayName || "",
       email: user.email || "",
       avatarUrl: user.avatarUrl || "",
+      role: user.role || "member",
       createdAt: timestampValue(user.createdAt),
       updatedAt: timestampValue(user.updatedAt),
       accounts,
@@ -311,6 +313,7 @@ class IssueFlowStore {
       displayName: row.displayName || "",
       email: row.email || "",
       avatarUrl: row.avatarUrl || "",
+      role: row.role || "member",
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }, accounts)
@@ -355,6 +358,7 @@ class IssueFlowStore {
         displayName: profile.displayName,
         email: profile.email,
         avatarUrl: profile.avatarUrl,
+        role: profile.role,
         data: {
           displayName: profile.displayName,
           email: profile.email,
@@ -455,18 +459,100 @@ class IssueFlowStore {
   async resolveUserForGitAccount(input = {}) {
     await this.ready
     const account = normalizeGitAccount(input.account || input)
-    const existingAccount = await this.findUserGitAccount(account)
-    const currentUser = input.currentUserId ? await this.getUser(input.currentUserId) : undefined
-    const user = currentUser
-      || (existingAccount && await this.getUser(existingAccount.userId))
-      || await this.createUser({
-        displayName: account.displayName || account.username,
+    const result = await this.db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext('issue_flow_first_admin'))")
+      const existingAccount = account.provider && account.gitServerId && account.providerUserId
+        ? await tx.userGitAccount.findUnique({
+          where: {
+            provider_gitServerId_providerUserId: {
+              provider: account.provider,
+              gitServerId: account.gitServerId,
+              providerUserId: account.providerUserId,
+            },
+          },
+        })
+        : undefined
+      const currentUser = input.currentUserId
+        ? await tx.user.findUnique({ where: { id: input.currentUserId } })
+        : undefined
+      let user = currentUser
+        || (existingAccount ? await tx.user.findUnique({ where: { id: existingAccount.userId } }) : undefined)
+      if (!user) {
+        const userCount = await tx.user.count()
+        const role = input.setupAdminEligible && userCount === 0 ? "admin" : "member"
+        const id = input.id || randomId("user")
+        const profile = normalizeUser({
+          displayName: account.displayName || account.username,
+          email: account.email,
+          avatarUrl: account.avatarUrl,
+          role,
+        })
+        const createdAt = asDate(nowIso())
+        user = await tx.user.create({
+          data: {
+            id,
+            displayName: profile.displayName,
+            email: profile.email,
+            avatarUrl: profile.avatarUrl,
+            role: profile.role,
+            data: {
+              displayName: profile.displayName,
+              email: profile.email,
+              avatarUrl: profile.avatarUrl,
+            },
+            createdAt,
+            updatedAt: createdAt,
+          },
+        })
+      }
+
+      const now = asDate(nowIso())
+      const existingForUserServer = await tx.userGitAccount.findUnique({
+        where: {
+          userId_gitServerId: {
+            userId: user.id,
+            gitServerId: account.gitServerId,
+          },
+        },
+      })
+      const data = {
+        userId: user.id,
+        gitServerId: account.gitServerId,
+        provider: account.provider,
+        providerUserId: account.providerUserId,
+        username: account.username,
+        displayName: account.displayName,
         email: account.email,
         avatarUrl: account.avatarUrl,
-      })
-    const savedAccount = await this.upsertUserGitAccount(user.id, account)
+        scopes: account.scopes,
+        data: account,
+        updatedAt: now,
+      }
+      const savedAccount = existingForUserServer
+        ? await tx.userGitAccount.update({
+          where: { id: existingForUserServer.id },
+          data,
+        })
+        : await tx.userGitAccount.upsert({
+          where: {
+            provider_gitServerId_providerUserId: {
+              provider: account.provider,
+              gitServerId: account.gitServerId,
+              providerUserId: account.providerUserId,
+            },
+          },
+          create: {
+            id: input.account?.id || randomId("gitacct"),
+            ...data,
+            createdAt: now,
+          },
+          update: data,
+        })
+      return { userId: user.id, accountId: savedAccount.id }
+    })
+    const savedAccount = await this.findUserGitAccount(account)
     return {
-      user: await this.getUser(user.id, { includeAccounts: true }),
+      user: await this.getUser(result.userId, { includeAccounts: true }),
       account: savedAccount,
     }
   }

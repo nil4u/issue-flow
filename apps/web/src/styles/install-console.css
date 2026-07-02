@@ -308,6 +308,7 @@
   .check-progress-actions {
     display: flex;
     justify-content: flex-end;
+    gap: 0.5rem;
   }
   .check-row-meta {
     margin: 0 0.875rem 0.875rem 2.875rem;

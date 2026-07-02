@@ -48,11 +48,21 @@ export type Repository = {
 export type GitLabUser = { username: string; name?: string; avatarUrl?: string }
 export type GitServer = { id: string; type: string; name?: string; baseUrl?: string }
 
+export type SetupStatus = {
+  initialized: boolean
+  needsSetup: boolean
+  state: "uninitialized" | "configured" | "broken"
+  setupCodeConfigured?: boolean
+  missing?: string[]
+  gitServers?: GitServer[]
+}
+
 export type IssueFlowUser = {
   id: string
   displayName?: string
   email?: string
   avatarUrl?: string
+  role?: string
   accounts?: UserGitAccount[]
 }
 
@@ -204,6 +214,8 @@ export type InstallCheckProgress = {
   open: boolean
   title?: string
   detail?: string
+  actionHref?: string
+  actionLabel?: string
   steps: Array<{
     id: string
     label: string
