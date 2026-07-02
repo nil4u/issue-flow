@@ -79,7 +79,7 @@ export const gitlabInstallCheckConfig = {
           id: "variable:AGENTRIX_RUNNER_ID",
           type: "variable",
           name: "AGENTRIX_RUNNER_ID",
-          description: "指定 Agentrix 的 Machine ID 或 Cloud ID。",
+          description: "指定 Agentrix 的 Local Machine ID 或 Cloud ID。",
           helpTopicId: "agentrix-runner-id",
           control: {
             path: "agentrix.runnerId",
