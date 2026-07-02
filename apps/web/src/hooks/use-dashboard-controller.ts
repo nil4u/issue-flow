@@ -33,11 +33,11 @@ import {
   streamInstallPlugin,
 } from "@/lib/install-flow"
 import { initializeIssueFlowSetup, type SetupInitializeInput } from "@/lib/setup-flow"
-
 export function useDashboardController() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
   const [booting, setBooting] = useState(true)
   const [setupStatus, setSetupStatus] = useState<SetupStatus>()
+  const [loadingLoginState, setLoadingLoginState] = useState(true)
   const [initializingSetup, setInitializingSetup] = useState(false)
   const [gitServers, setGitServers] = useState<GitServer[]>([])
   const [selectedGitServerId, setSelectedGitServerId] = useState(() => route.gitServerId)
@@ -79,11 +79,9 @@ export function useDashboardController() {
     ))
     : undefined
   const pendingPluginMergeRequestHref = selectedRepo?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")?.pendingMergeRequest?.webUrl || ""
-
   const owners = useMemo(() => {
     return Array.from(new Set(projects.map(ownerOf).filter(Boolean))).sort((a, b) => a.localeCompare(b))
   }, [projects])
-
   const filteredProjects = useMemo(() => {
     const q = filter.trim().toLowerCase()
     return projects
@@ -100,7 +98,6 @@ export function useDashboardController() {
     }
     setRoute(normalized)
   }
-
   function navigateWorkspace(next: Partial<WorkspaceRoute>, mode: "push" | "replace" = "push") {
     applyRoute({
       view: "repos",
@@ -110,7 +107,6 @@ export function useDashboardController() {
       settingsSection: "account",
     }, mode)
   }
-
   function navigateUserSettings(mode: "push" | "replace" = "push") {
     applyRoute(userSettingsRoute, mode)
   }
@@ -132,11 +128,15 @@ export function useDashboardController() {
     setUserSession(body)
     return body
   }
-
   async function loadSetupStatus() {
     const body = await api<SetupStatus>("/api/setup/status")
     setSetupStatus(body)
     return body
+  }
+
+  async function loadLoginState() {
+    setLoadingLoginState(true)
+    return Promise.all([loadGitServers(), loadUserSession()]).finally(() => setLoadingLoginState(false))
   }
 
   async function loadRepositories(gitServerId = selectedGitServerId) {
@@ -628,12 +628,9 @@ export function useDashboardController() {
     ;(async () => {
       try {
         const status = await loadSetupStatus()
-        if (status.needsSetup) {
-          applyRoute(setupRoute, "replace")
-          return
-        }
-        await Promise.all([loadGitServers(), loadUserSession()])
+        if (status.needsSetup) return applyRoute(setupRoute, "replace")
       } catch (error) {
+        setLoadingLoginState(false)
         notifyError(error, "加载失败")
       } finally {
         setBooting(false)
@@ -656,6 +653,11 @@ export function useDashboardController() {
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
   }, [gitServers])
+
+  useEffect(() => {
+    if (booting || !setupStatus || setupStatus.needsSetup) return
+    void loadLoginState().catch((error) => notifyError(error, "加载登录状态失败"))
+  }, [booting, setupStatus?.needsSetup])
 
   useEffect(() => {
     if (!selectedGitServerId || !userSession.authenticated) return
@@ -721,11 +723,8 @@ export function useDashboardController() {
   async function reloadLoginState() {
     try {
       const status = await loadSetupStatus()
-      if (status.needsSetup) {
-        applyRoute(setupRoute, "replace")
-        return
-      }
-      await Promise.all([loadGitServers(), loadUserSession()])
+      if (status.needsSetup) return applyRoute(setupRoute, "replace")
+      await loadLoginState()
     } catch (error) {
       notifyError(error, "重新加载失败")
     }
@@ -737,6 +736,7 @@ export function useDashboardController() {
     initializingSetup,
     initializeSetup,
     userSession,
+    loadingLoginState,
     gitServers,
     loginGitLab,
     reloadLoginState,

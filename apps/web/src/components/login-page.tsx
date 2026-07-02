@@ -1,14 +1,16 @@
-import { ArrowRight, GitBranch } from "lucide-react"
+import { ArrowRight, GitBranch, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { GitServer } from "@/issue-flow-model"
 
 export function LoginPage({
   gitServers,
+  loading,
   onLogin,
   onReload,
 }: {
   gitServers: GitServer[]
+  loading?: boolean
   onLogin: (gitServerId: string) => void
   onReload: () => Promise<unknown>
 }) {
@@ -21,7 +23,12 @@ export function LoginPage({
           <small>Sign in to continue</small>
         </div>
         <div className="login-server-list">
-          {gitServers.length === 0 && (
+          {loading ? (
+            <div className="empty-panel compact">
+              <Loader2 className="size-5 animate-spin" />
+              <span>正在加载登录状态...</span>
+            </div>
+          ) : gitServers.length === 0 && (
             <div className="empty-panel compact">
               <GitBranch className="size-5" />
               <span>还没有配置 Git server。</span>

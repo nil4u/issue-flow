@@ -20,7 +20,7 @@ function Dashboard() {
   const dashboard = useDashboardController()
 
   if (dashboard.booting) {
-    return <main className="login-screen"><div className="shell-loading">正在检查初始化状态...</div></main>
+    return <main className="login-screen"><div className="shell-loading">正在检查控制台配置...</div></main>
   }
 
   if (dashboard.setupStatus?.needsSetup) {
@@ -37,6 +37,7 @@ function Dashboard() {
     return (
       <LoginPage
         gitServers={dashboard.gitServers}
+        loading={dashboard.loadingLoginState}
         onLogin={dashboard.loginGitLab}
         onReload={dashboard.reloadLoginState}
       />
