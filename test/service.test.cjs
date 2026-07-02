@@ -376,6 +376,39 @@ test('user Agentrix defaults return triage until saved', async () => {
   }
 });
 
+test('OAuth session upsert keeps one current session per user and Git server', async () => {
+  const { dir, store } = tempStore();
+  try {
+    const user = await store.createUser({ displayName: 'Alice' });
+    const first = await store.createSession({
+      userId: user.id,
+      token: 'old-token',
+      refreshToken: 'old-refresh',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: 'https://gitlab.example.com' },
+      user: { username: 'alice', name: 'Alice' },
+    });
+    const second = await store.createSession({
+      userId: user.id,
+      token: 'new-token',
+      refreshToken: 'new-refresh',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: 'https://gitlab.example.com' },
+      user: { username: 'alice', name: 'Alice Updated' },
+    });
+
+    assert.equal(second.id, first.id);
+    assert.equal(await store.db.oAuthSession.count(), 1);
+    const saved = await store.getSession(first.id);
+    assert.equal(saved.token, 'new-token');
+    assert.equal(saved.refreshToken, 'new-refresh');
+    assert.equal(saved.user.name, 'Alice Updated');
+  } finally {
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('git accounts resolve to one issue-flow user across git servers', async () => {
   const { dir, store } = tempStore();
   try {
@@ -2825,6 +2858,84 @@ test('GitLab OAuth flow stores session token server-side and project APIs use th
         process.env[key] = value;
       }
     }
+  }
+});
+
+test('GitLab API routes refresh expired OAuth session before using it', async () => {
+  const { dir, store } = tempStore();
+  let refreshCalled = false;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/oauth/token' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = new URLSearchParams(raw);
+        assert.equal(body.get('grant_type'), 'refresh_token');
+        assert.equal(body.get('refresh_token'), 'expired-refresh');
+        refreshCalled = true;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          access_token: 'fresh-oauth-token',
+          refresh_token: 'fresh-refresh-token',
+          scope: 'api',
+          expires_in: 3600,
+        }));
+      });
+      return;
+    }
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer fresh-oauth-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects?membership=true&per_page=100') {
+      assert.equal(req.headers.authorization, 'Bearer fresh-oauth-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([{
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+        permissions: { project_access: { access_level: 40 } },
+      }]));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase, {
+    oauthClientId: 'oauth-client',
+    oauthClientSecret: 'oauth-secret',
+  });
+  const user = await store.createUser({ displayName: 'Alice' });
+  const session = await store.createSession({
+    userId: user.id,
+    token: 'expired-oauth-token',
+    refreshToken: 'expired-refresh',
+    gitServerId: 'gitlab-main',
+    gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+    user: { username: 'alice', name: 'Alice' },
+    expiresAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  const { app: apiApp, baseUrl } = await listenApp(store);
+  try {
+    const response = await fetch(`${baseUrl}/api/gitlab/projects?gitServerId=gitlab-main`, {
+      headers: { Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.projects[0].pathWithNamespace, 'team/app');
+    assert.equal(refreshCalled, true);
+    const saved = await store.getSession(session.id);
+    assert.equal(saved.token, 'fresh-oauth-token');
+    assert.equal(saved.refreshToken, 'fresh-refresh-token');
+  } finally {
+    await apiApp.close();
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

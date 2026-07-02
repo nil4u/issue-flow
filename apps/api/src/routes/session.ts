@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { getSession } from "../core/session.js"
+import { getSession, resolveFreshSession } from "../core/session.js"
 import { publicSession } from "../core/common.js"
 import { contextFromRequest } from "../services/issue-flow.js"
 import { cookie, cookieSecure, sessionCookieName, userCookieName } from "../utils/http.js"
@@ -12,7 +12,7 @@ async function userSessionsFromRequest(request: FastifyRequest) {
   let currentUserId = request.cookies[userCookieName()] || ""
   for (const server of gitServers) {
     const sessionId = request.cookies[sessionCookieName(server.id)] || ""
-    let session = await store.getSession(sessionId)
+    let session = await resolveFreshSession({ store, sessionId, gitServerId: server.id })
     if (session && (!session.userId || !session.account?.gitServerId)) {
       const identity = await store.resolveUserForGitAccount({
         currentUserId,
@@ -81,6 +81,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     const result = await getSession({
       ...contextFromRequest(request),
       sessionId: request.cookies[sessionCookieName(gitServerId)] || "",
+      gitServerId,
     })
     return reply.code(result.status).send(result.body)
   })

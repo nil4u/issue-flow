@@ -200,6 +200,8 @@ model WebhookBridgeState {
 model OAuthSession {
   id           String    @id
   userId       String?   @map("user_id")
+  provider     String    @default("")
+  gitServerId  String    @default("") @map("git_server_id")
   accessToken  String    @default("") @map("access_token")
   refreshToken String    @default("") @map("refresh_token")
   data         Json
@@ -208,7 +210,9 @@ model OAuthSession {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@unique([userId, gitServerId])
   @@index([userId])
+  @@index([gitServerId])
   @@map("oauth_sessions")
 }
 

@@ -1547,7 +1547,7 @@ class IssueFlowStore {
 
   async createSession(input = {}) {
     await this.ready
-    const createdAt = nowIso()
+    const now = nowIso()
     const session = {
       id: input.id || randomId("session"),
       userId: input.userId || input.user && input.user.id || "",
@@ -1558,22 +1558,60 @@ class IssueFlowStore {
       account: input.account || {},
       scopes: input.scopes || [],
       expiresAt: input.expiresAt || "",
-      createdAt,
-      updatedAt: createdAt,
+      createdAt: now,
+      updatedAt: now,
     }
-    await this.db.oAuthSession.create({
-      data: {
-        id: session.id,
-        userId: session.userId || null,
-        accessToken: this.encrypt(input.token || ""),
-        refreshToken: this.encrypt(input.refreshToken || ""),
-        data: session,
-        expiresAt: session.expiresAt ? asDate(session.expiresAt) : null,
-        createdAt: asDate(session.createdAt),
-        updatedAt: asDate(session.updatedAt),
-      },
-    })
-    return session
+    const tokenData = {
+      userId: session.userId || null,
+      provider: session.provider,
+      gitServerId: session.gitServerId,
+      accessToken: this.encrypt(input.token || ""),
+      refreshToken: this.encrypt(input.refreshToken || ""),
+      expiresAt: session.expiresAt ? asDate(session.expiresAt) : null,
+      updatedAt: asDate(now),
+    }
+    let row
+    if (session.userId && session.gitServerId) {
+      const existing = await this.db.oAuthSession.findUnique({
+        where: {
+          userId_gitServerId: {
+            userId: session.userId,
+            gitServerId: session.gitServerId,
+          },
+        },
+      })
+      const nextSession = {
+        ...session,
+        id: existing ? existing.id : session.id,
+        createdAt: existing ? timestampValue(existing.createdAt) : session.createdAt,
+      }
+      row = existing
+        ? await this.db.oAuthSession.update({
+          where: { id: existing.id },
+          data: {
+            ...tokenData,
+            data: nextSession,
+          },
+        })
+        : await this.db.oAuthSession.create({
+          data: {
+            id: nextSession.id,
+            ...tokenData,
+            data: nextSession,
+            createdAt: asDate(nextSession.createdAt),
+          },
+        })
+    } else {
+      row = await this.db.oAuthSession.create({
+        data: {
+          id: session.id,
+          ...tokenData,
+          data: session,
+          createdAt: asDate(session.createdAt),
+        },
+      })
+    }
+    return this.getSession(row.id, { allowExpired: true })
   }
 
   async getSession(id, options = {}) {
@@ -1583,6 +1621,9 @@ class IssueFlowStore {
     if (!row) return undefined
     if (!options.allowExpired && row.expiresAt && row.expiresAt <= new Date()) return undefined
     return {
+      provider: row.provider || "gitlab",
+      gitServerId: row.gitServerId || "",
+      userId: row.userId || "",
       ...rowData(row),
       token: this.decrypt(row.accessToken || ""),
       accessToken: this.decrypt(row.accessToken || ""),
@@ -1594,7 +1635,7 @@ class IssueFlowStore {
     await this.ready
     const existing = await this.getSession(id, { allowExpired: true })
     if (!existing) return undefined
-    const expiresAt = input.expiresAt || ""
+    const expiresAt = input.expiresAt !== undefined ? input.expiresAt || "" : existing.expiresAt || ""
     const updatedAt = nowIso()
     const session = {
       ...existing,
@@ -1608,8 +1649,8 @@ class IssueFlowStore {
     await this.db.oAuthSession.update({
       where: { id },
       data: {
-        accessToken: this.encrypt(input.token || ""),
-        refreshToken: this.encrypt(input.refreshToken || ""),
+        accessToken: this.encrypt(input.token || existing.token || ""),
+        refreshToken: this.encrypt(input.refreshToken || existing.refreshToken || ""),
         data: session,
         expiresAt: expiresAt ? asDate(expiresAt) : null,
         updatedAt: asDate(updatedAt),
@@ -1626,6 +1667,8 @@ class IssueFlowStore {
     const session = {
       ...existing,
       userId: identity.userId || existing.userId || "",
+      provider: identity.provider || existing.provider || "gitlab",
+      gitServerId: identity.gitServerId || existing.gitServerId || "",
       user: identity.user || existing.user || {},
       account: identity.account || existing.account || {},
       updatedAt,
@@ -1637,6 +1680,8 @@ class IssueFlowStore {
       where: { id },
       data: {
         userId: session.userId || null,
+        provider: session.provider,
+        gitServerId: session.gitServerId,
         data: session,
         updatedAt: asDate(updatedAt),
       },
