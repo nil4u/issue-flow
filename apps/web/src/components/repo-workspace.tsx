@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react"
-import type { ReactNode } from "react"
 import {
   AlertCircle,
   CheckCircle2,
@@ -8,7 +7,6 @@ import {
   ExternalLink,
   GitBranch,
   GitMerge,
-  KeyRound,
   Loader2,
   RefreshCw,
   Search,
@@ -17,15 +15,16 @@ import {
   Wrench,
 } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { EmptyPanel } from "@/components/empty-panel"
+import { IssuesBoard } from "@/components/issues-board"
+import { OverviewActivity } from "@/components/overview-activity"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
-import type { EmptyPanelProps, GitEventRow, GitLabProject, InstallStep, IssueRow, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
+import type { InstallStep, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
-import { formatWhen } from "@/issue-flow-model"
 
 export function RepoWorkspace(props: RepoWorkspaceProps) {
   return (
@@ -83,124 +82,8 @@ function OverviewTab({
   }
   return (
     <div className="overview-grid">
-      <StatusGrid project={project} repository={repository} />
-      <ActivityList gitEvents={gitEvents} />
+      <OverviewActivity gitEvents={gitEvents} repository={repository} />
     </div>
-  )
-}
-
-const issueLanes = [
-  { id: "untriaged", title: "No flow", detail: "无 flow:: 标签" },
-  { id: "triage", title: "Triage", detail: "flow::triage" },
-  { id: "plan", title: "Plan", detail: "flow::plan" },
-  { id: "build", title: "Build", detail: "flow::build" },
-  { id: "clarify", title: "Clarify", detail: "flow::clarify" },
-  { id: "approve", title: "Approve", detail: "flow::approve" },
-]
-
-function issueLaneId(issue: IssueRow) {
-  const flow = String(issue.currentFlow || "").toLowerCase()
-  return issueLanes.some((lane) => lane.id === flow) ? flow : "untriaged"
-}
-
-function IssuesBoard({
-  gitServer,
-  user,
-  project,
-  repository,
-  issues,
-  loadingIssues,
-  onLogin,
-  onSyncIssues,
-}: RepoWorkspaceProps) {
-  const openIssues = useMemo(() => {
-    return (issues || []).filter((issue) => {
-      return String(issue.state || "").toLowerCase() === "opened"
-    })
-  }, [issues])
-  const grouped = useMemo(() => {
-    const map = new Map(issueLanes.map((lane) => [lane.id, [] as IssueRow[]]))
-    for (const issue of openIssues) {
-      const lane = issueLaneId(issue)
-      map.get(lane)?.push(issue)
-    }
-    for (const rows of map.values()) {
-      rows.sort((a, b) => Number(b.updatedAt ? new Date(b.updatedAt).getTime() : 0) - Number(a.updatedAt ? new Date(a.updatedAt).getTime() : 0))
-    }
-    return map
-  }, [openIssues])
-
-  if (!gitServer) return <EmptyPanel icon={<GitBranch className="size-6" />} title="没有 Git server" detail="请先在后台配置 Git server。" />
-  if (!user) {
-    return (
-      <EmptyPanel icon={<AlertCircle className="size-6" />} title="当前 Git server 未连接" detail="连接当前 Git server 后查看 issue 看板。">
-        <Button onClick={onLogin}><GitMerge className="size-4" />连接 Git server</Button>
-      </EmptyPanel>
-    )
-  }
-  if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
-  if (!repository) return <EmptyPanel icon={<CircleDot className="size-6" />} title="还没有仓库记录" detail="先同步仓库列表后再查看 issue 看板。" />
-
-  return (
-    <div className="issue-board">
-      <header className="issue-board-toolbar">
-        <span aria-hidden="true" />
-        <Button type="button" variant="secondary" onClick={() => void onSyncIssues()} disabled={loadingIssues}>
-          {loadingIssues ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-          同步
-        </Button>
-      </header>
-      <div className="issue-board-lanes">
-        {issueLanes.map((lane) => (
-          <IssueLane
-            key={lane.id}
-            title={lane.title}
-            detail={lane.detail}
-            issues={grouped.get(lane.id) || []}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function IssueLane({ title, detail, issues }: { title: string; detail: string; issues: IssueRow[] }) {
-  return (
-    <section className="issue-lane">
-      <header>
-        <span>
-          <strong>{title}</strong>
-          <small>{detail}</small>
-        </span>
-        <b>{issues.length}</b>
-      </header>
-      <div className="issue-lane-list">
-        {issues.length === 0 && <div className="issue-lane-empty">暂无 issue</div>}
-        {issues.map((issue) => <IssueCard key={issue.id} issue={issue} />)}
-      </div>
-    </section>
-  )
-}
-
-function IssueCard({ issue }: { issue: IssueRow }) {
-  const meta = [
-    issue.type ? `type::${issue.type}` : "",
-    issue.priority ? `priority::${issue.priority}` : "",
-    issue.size ? `size::${issue.size}` : "",
-  ].filter(Boolean)
-  return (
-    <article className="issue-card">
-      <header>
-        <strong>#{issue.issueNumber}</strong>
-        <small>{formatWhen(issue.updatedAt || issue.openedAt || "")}</small>
-      </header>
-      <p>{issue.title || "-"}</p>
-      {meta.length > 0 && (
-        <div className="issue-card-labels">
-          {meta.map((item) => <span key={item}>{item}</span>)}
-        </div>
-      )}
-    </article>
   )
 }
 
@@ -892,61 +775,4 @@ function CheckRowMeta({ row }: { row: CheckRow }) {
     return <div className="check-row-meta chips">{row.missing.map((item) => <code key={item}>{item}</code>)}</div>
   }
   return null
-}
-
-function StatusGrid({ project, repository }: { project: GitLabProject; repository: Repository }) {
-  return (
-    <div className="status-grid">
-      <StatusCard icon={<ShieldCheck className="size-4" />} label="Permission" value={project.canInstall === true ? "maintainer" : project.canInstall === false ? "limited" : "unknown"} />
-      <StatusCard icon={<GitBranch className="size-4" />} label="Default branch" value={project.defaultBranch || repository.defaultBranch || "-"} />
-      <StatusCard icon={<KeyRound className="size-4" />} label="Agentrix key" value={repository.agentrix?.apiKeyFingerprint ? `fingerprint ${repository.agentrix.apiKeyFingerprint}` : "missing"} />
-      <StatusCard icon={<Webhook className="size-4" />} label="Webhook" value={repository.webhook?.secretFingerprint ? "configured" : "missing"} />
-    </div>
-  )
-}
-
-function StatusCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return <div className="status-card"><span>{icon}{label}</span><strong>{value}</strong></div>
-}
-
-function ActivityList({ gitEvents }: { gitEvents: GitEventRow[] }) {
-  const rows = gitEvents
-    .slice(0, 12)
-    .map((row) => ({ ...row, kind: "git_event" }))
-  return (
-    <section className="activity-section">
-      <header className="section-head">
-        <h2>最近活动</h2>
-        <p>Webhook delivery</p>
-      </header>
-      <div className="activity-list">
-        {rows.length === 0 && <div className="empty-panel compact">暂无活动</div>}
-        {rows.map((row) => {
-          const title = [row.eventName || row.kind, row.action].filter(Boolean).join(" / ")
-          const subject = row.objectType && row.objectId ? `${row.objectType} ${row.objectId}` : row.repositoryFullName || "-"
-          return (
-            <div className="activity-row" key={`${row.kind}-${row.id}`}>
-              <Badge>{row.eventName || "-"}</Badge>
-              <span>
-                <strong>{title || "-"}</strong>
-                <small>{subject} · {formatWhen(row.receivedAt || row.createdAt || "")}</small>
-              </span>
-              <small>{row.deliveryId || ""}</small>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-function EmptyPanel({ icon, title, detail, children }: EmptyPanelProps) {
-  return (
-    <div className="empty-panel">
-      {icon}
-      <strong>{title}</strong>
-      <span>{detail}</span>
-      {children}
-    </div>
-  )
 }

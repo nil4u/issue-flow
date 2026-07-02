@@ -4,6 +4,7 @@
 @import "@fontsource-variable/geist";
 @import "./styles/theme.css";
 @import "./styles/install-console.css";
+@import "./styles/overview-activity.css";
 @custom-variant dark (&:is(.dark *));
 @theme inline {
   --font-sans: Geist, sans-serif;
@@ -713,32 +714,8 @@
   }
   .overview-grid {
     display: grid;
-    grid-template-columns: minmax(0, 0.9fr) minmax(22rem, 0.55fr);
-    gap: 0.8rem;
-    align-items: start;
-  }
-  .status-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
-  }
-  .status-card {
-    min-height: 5.6rem;
-    display: grid;
-    align-content: start;
-    gap: 0.35rem;
-    padding: 0.85rem;
-    border-radius: 8px;
-  }
-  .status-card span {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.84rem;
-  }
-  .status-card strong {
-    overflow-wrap: anywhere;
-    font-variant-numeric: tabular-nums;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
   }
   .section-head {
     display: grid;
