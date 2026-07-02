@@ -94,6 +94,24 @@ function createGitEventTarget(store, repo) {
   });
 }
 
+function createIssueFlowBusinessTarget(store, repo, secrets) {
+  return deliveryTarget('issue-flow-business', async (input) => {
+    const handled = (await Promise.all((input.events || []).map((event) => handleIssueFlowBusinessEvent({
+      store,
+      repo,
+      secrets,
+      event,
+    })))).flat().filter(Boolean);
+    return {
+      target: 'issue-flow-business',
+      eventId: input.deliveryId,
+      status: handled.length ? 'delivered' : 'ignored',
+      reason: handled.length ? 'issue_flow_business_handled' : 'no_issue_flow_business_handler',
+      handled,
+    };
+  }, { onError: 'ignore' });
+}
+
 function createGitLabWebhookBridge({ store, repo, secrets }) {
   return new GitLabWebhookBridge({
     gitlab: {
@@ -105,6 +123,7 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
     store: createWebhookBridgeStore(store, repo.id),
     targets: [
       createGitEventTarget(store, repo),
+      createIssueFlowBusinessTarget(store, repo, secrets),
       gitlabPipelineTarget({
         variables: composeVariables([
           defaultVariables(),
@@ -208,17 +227,25 @@ function pluginCacheFromManifest(manifest = {}) {
   }
 }
 
-async function refreshPluginAfterMerge({ store, repo, config, payload }) {
+async function handleIssueFlowBusinessEvent({ store, repo, secrets, event }) {
+  const payload = event && event.raw && event.raw.body || {}
+  return Promise.all([
+    refreshPluginAfterMerge({ store, repo, secrets, payload }),
+    clearPluginAfterClose({ store, repo, payload }),
+  ])
+}
+
+async function refreshPluginAfterMerge({ store, repo, secrets, payload }) {
   const mergeRequest = mergedMergeRequest(payload)
-  if (!mergeRequest) return
+  if (!mergeRequest) return undefined
   const repository = await store.getRepository(repo.id)
   const pending = pendingPlugin(repository)
-  if (!pluginMergeMatches(pending, mergeRequest)) return
+  if (!pluginMergeMatches(pending, mergeRequest)) return undefined
   const checkedAt = new Date().toISOString()
   const file = await getGitlabRepositoryFile({
-    apiUrl: config.apiUrl,
-    token: config.adminPat,
-    authType: config.tokenAuth || 'private-token',
+    apiUrl: repo.apiUrl,
+    token: secrets.providerToken,
+    authType: secrets.providerAuthType || 'private-token',
     projectIdOrPath: repo.projectId || repo.serverRepoId || repo.projectPath,
     filePath: ISSUE_FLOW_MANIFEST_PATH,
     ref: repo.defaultBranch || 'main',
@@ -230,14 +257,15 @@ async function refreshPluginAfterMerge({ store, repo, config, payload }) {
       checkedAt,
     },
   })
+  return 'plugin_merge_refreshed'
 }
 
 async function clearPluginAfterClose({ store, repo, payload }) {
   const mergeRequest = closedMergeRequest(payload)
-  if (!mergeRequest) return
+  if (!mergeRequest) return undefined
   const repository = await store.getRepository(repo.id)
   const pending = pendingPlugin(repository)
-  if (!pluginMergeMatches(pending, mergeRequest)) return
+  if (!pluginMergeMatches(pending, mergeRequest)) return undefined
   await store.updateRepositorySettingsCache(repo.id, {
     plugins: {
       items: [{
@@ -247,6 +275,7 @@ async function clearPluginAfterClose({ store, repo, payload }) {
       checkedAt: new Date().toISOString(),
     },
   })
+  return 'plugin_pending_merge_cleared'
 }
 
 async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }) {
@@ -282,6 +311,7 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
   };
   const secrets = {
     providerToken: config.adminPat,
+    providerAuthType: config.tokenAuth || 'private-token',
     webhookSecret: config.webhookSecret,
     agentrixGitServerId: config.agentrixGitServerId,
   };
@@ -302,12 +332,6 @@ async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }
         detail: sanitizeError(error),
       },
     };
-  }
-  try {
-    await refreshPluginAfterMerge({ store, repo, config, payload });
-    await clearPluginAfterClose({ store, repo, payload });
-  } catch {
-    // 状态刷新是派生缓存，不能覆盖 GitLab bridge 的真实处理结果。
   }
 
   return {

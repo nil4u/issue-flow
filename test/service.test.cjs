@@ -1009,6 +1009,11 @@ test('GitLab merge request close webhook clears pending plugin MR', async () => 
     });
 
     assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.deliveries.some((delivery) => {
+      return delivery.target === 'issue-flow-business'
+        && delivery.status === 'delivered'
+        && delivery.handled.includes('plugin_pending_merge_cleared');
+    }), true);
     const repo = await store.getRepository(created.repo.id);
     const plugin = repo.settings.plugins.items.find((item) => item.key === 'issue-flow');
     assert.equal(plugin.pendingMergeRequest, undefined);
