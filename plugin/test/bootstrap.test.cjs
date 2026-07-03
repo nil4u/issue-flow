@@ -384,6 +384,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ].sort());
     assert.match(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
+    assert.match(gitlabWorkflow, /\.issue-flow-runner:\n  tags:\n    - issue-flow/);
     for (const job of [
       'issue-flow-auto',
       'issue-flow-comment',
@@ -392,7 +393,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
       'issue-flow-review-comment',
       'issue-flow-failure-intake',
     ]) {
-      assert.match(gitlabWorkflow, new RegExp(`${job}:\\n  stage: build`));
+      assert.match(gitlabWorkflow, new RegExp(`${job}:\\n  extends: \\.issue-flow-runner\\n  stage: build`));
     }
     assert.doesNotMatch(gitlabWorkflow, /issue-flow-labels:/);
     assert.doesNotMatch(gitlabWorkflow, /sync-labels\.cjs/);
