@@ -4,7 +4,6 @@ import { connectGitlabSession } from "../core/gitlab-auth.js"
 import {
   checkGitlabProjectInstall,
   getGitlabProjectRole,
-  installGitlabProject,
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
@@ -177,14 +176,4 @@ export async function gitlabRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post("/api/gitlab/install", async (request, reply) => {
-    const input = (request.body || {}) as Record<string, unknown>
-    const session = await sessionFromRequest(request, String(input.gitServerId || ""))
-    const result = await installGitlabProject({
-      ...contextFromRequest(request),
-      input,
-      session,
-    })
-    return reply.code(result.status).send(result.body)
-  })
 }

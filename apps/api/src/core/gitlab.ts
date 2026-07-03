@@ -1,10 +1,5 @@
 // @ts-nocheck
-import labels from '../../../../skills/issue-flow/scripts/labels.cjs'
-import providers from '../../../../skills/issue-flow/scripts/providers.cjs'
 import { nowIso } from './store.js'
-
-const { labelsForScope } = labels
-const { labelMatchesDefinition, providerLabelDefinition, requestGitlab } = providers
 
 function projectApiPath(projectPath) {
   return `/projects/${encodeURIComponent(projectPath)}`;
@@ -591,16 +586,6 @@ async function upsertGitlabProjectVariable(input = {}, variable = {}) {
   }
 }
 
-async function configureGitlabProjectVariables(input = {}) {
-  const variables = (input.variables || [])
-    .filter((variable) => variable && variable.key && variable.value !== undefined && variable.value !== '');
-  const results = [];
-  for (const variable of variables) {
-    results.push(await upsertGitlabProjectVariable(input, variable));
-  }
-  return results;
-}
-
 function normalizeGitlabRunner(runner = {}) {
   return {
     id: runner.id !== undefined ? String(runner.id) : '',
@@ -677,78 +662,6 @@ async function updateGitlabProjectRunnerSettings(input = {}, settings = {}) {
     { authType: input.authType, body }
   );
   return normalizeProject(result.parsed || {});
-}
-
-function gitlabLabelApiPath(projectIdOrPath, labelName) {
-  return `${projectApiPath(projectIdOrPath)}/labels/${encodeURIComponent(labelName)}`;
-}
-
-async function getGitlabProjectLabel(input = {}, labelName = '') {
-  try {
-    const result = await fetchJson(
-      'GET',
-      input.apiUrl,
-      gitlabLabelApiPath(input.projectIdOrPath, labelName),
-      input.token,
-      { authType: input.authType }
-    );
-    return result.parsed || {};
-  } catch (error) {
-    if (error && error.status === 404) {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-async function createGitlabProjectLabel(input = {}, definition = {}) {
-  const result = await fetchJson(
-    'POST',
-    input.apiUrl,
-    `${projectApiPath(input.projectIdOrPath)}/labels`,
-    input.token,
-    { authType: input.authType, body: providerLabelDefinition('gitlab', definition) }
-  );
-  return result.parsed || {};
-}
-
-async function updateGitlabProjectLabel(input = {}, definition = {}) {
-  const payload = providerLabelDefinition('gitlab', definition);
-  const result = await fetchJson(
-    'PUT',
-    input.apiUrl,
-    gitlabLabelApiPath(input.projectIdOrPath, definition.name),
-    input.token,
-    {
-      authType: input.authType,
-      body: {
-        new_name: payload.name,
-        color: payload.color,
-        description: payload.description,
-      },
-    }
-  );
-  return result.parsed || {};
-}
-
-async function syncGitlabProjectLabels(input = {}) {
-  const definitions = input.definitions || labelsForScope('all');
-  const results = [];
-  for (const definition of definitions) {
-    const existing = await getGitlabProjectLabel(input, definition.name);
-    if (!existing) {
-      await createGitlabProjectLabel(input, definition);
-      results.push({ name: definition.name, action: 'created' });
-      continue;
-    }
-    if (!labelMatchesDefinition('gitlab', existing, definition)) {
-      await updateGitlabProjectLabel(input, definition);
-      results.push({ name: definition.name, action: 'updated' });
-      continue;
-    }
-    results.push({ name: definition.name, action: 'skipped' });
-  }
-  return results;
 }
 
 async function getGitlabRepositoryFile(input = {}) {
@@ -831,7 +744,6 @@ export {
   createGitlabRepositoryCommit,
   createGitlabMergeRequest,
   getGitlabMergeRequest,
-  configureGitlabProjectVariables,
   exchangeGitlabOAuthCode,
   getGitlabRunner,
   refreshGitlabOAuthToken,
@@ -852,7 +764,6 @@ export {
   listGitlabWebhooks,
   listGitlabProjects,
   projectApiPath,
-  syncGitlabProjectLabels,
   updateGitlabProjectMember,
   updateGitlabProjectRunnerSettings,
   upsertGitlabProjectMember,
