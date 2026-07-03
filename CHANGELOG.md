@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/nil4u/issue-flow/compare/v0.2.1...v0.3.0) (2026-07-03)
+
+
+### Features
+
+* add release-please version management ([3675726](https://github.com/nil4u/issue-flow/commit/36757264c224b7a9be08ada2c91eca167b30b052))
+* **console:** add console module ([165b5d7](https://github.com/nil4u/issue-flow/commit/165b5d74609c3bb7deba154ee05a35b412468259))
+
+
+### Bug Fixes
+
+* allow no-finding reviews as comments ([d094730](https://github.com/nil4u/issue-flow/commit/d0947304726063c4e20906e813eafc5d63e19d64))
+* Deduplicate review comment resumes ([#32](https://github.com/nil4u/issue-flow/issues/32)) ([e6ca406](https://github.com/nil4u/issue-flow/commit/e6ca40613fae659d8ee344453214ae9ac96517cd))
+* default agentrix-run to latest ([8cab743](https://github.com/nil4u/issue-flow/commit/8cab743301164b8b053995001ae90347c25c3a50))
+* move required skill injection to prompt footer ([a2fd499](https://github.com/nil4u/issue-flow/commit/a2fd4995c38786f5520f00dfe7276ba5d74865cd))
+* pin release workflow to main ([827f704](https://github.com/nil4u/issue-flow/commit/827f70415cae3784a902f5671cc1877163215b89))
+* propagate task id on Agentrix resume ([6ea1c14](https://github.com/nil4u/issue-flow/commit/6ea1c14a41d512e9fb742de81ab2a8bf913a24b1))
+* resume CI failure intake directly ([4c030b6](https://github.com/nil4u/issue-flow/commit/4c030b6cf5624802bf7dc23833f02ff09585373b))
+* resume clarify comments on issue tasks ([7092890](https://github.com/nil4u/issue-flow/commit/7092890ddf7d63c55dc78cf0091cb08715c2b542))
+* streamline Agentrix review comment resumes ([0cf204f](https://github.com/nil4u/issue-flow/commit/0cf204f9b795ec1fd14a2727a2f1df055ed41d7d))
+
 ## [0.2.1](https://github.com/nil4u/issue-flow/compare/v0.2.0...v0.2.1) (2026-06-30)
 
 
