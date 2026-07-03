@@ -24,7 +24,7 @@ const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
 
 function readPackageVersion() {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'))
+    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'plugin', 'package.json'), 'utf8'))
     return String(pkg.version || '')
   } catch {
     return ''

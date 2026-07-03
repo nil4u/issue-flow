@@ -28,6 +28,6 @@ Thumbs.db
 *.swo
 *~
 
-# Console (planned module)
+# Console
 console/*/node_modules/
 console/web/dist/

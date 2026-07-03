@@ -7,13 +7,13 @@ const test = require('node:test');
 const { Pool } = require('pg');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
-const packageVersion = require('../package.json').version;
+const packageVersion = require('../../../plugin/package.json').version;
 
 function loadDatabaseUrl() {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL;
   }
-  const envPath = path.join(__dirname, '..', '.env.dev');
+  const envPath = path.join(__dirname, '..', '..', '..', '.env.dev');
   if (fs.existsSync(envPath)) {
     const line = fs.readFileSync(envPath, 'utf8')
       .split(/\r?\n/)
@@ -31,14 +31,14 @@ process.env.ISSUE_FLOW_BASE_URL ||= 'https://issue-flow.internal';
 process.env.ISSUE_FLOW_SETUP_CODE ||= 'test-setup-code';
 require('tsx/cjs');
 
-const { createApp } = require('../apps/api/src/app.ts');
-const { IssueFlowStore } = require('../apps/api/src/core/store.ts');
+const { createApp } = require('../src/app.ts');
+const { IssueFlowStore } = require('../src/core/store.ts');
 const { normalizeGitLabWebhook } = require('@xmz-ai/gitlab-webhook-bridge');
-const { upsertGitlabWebhook, validateGitlabToken } = require('../apps/api/src/core/gitlab.ts');
-const { getUserAgentrixConfig } = require('../apps/api/src/core/user-agentrix-config.ts');
-const { handleGitlabWebhook } = require('../apps/api/src/core/gitlab-webhook.ts');
-const { applyGitEventToIssueFacts } = require('../apps/api/src/core/issue-projection.ts');
-const { connectGitlabSession } = require('../apps/api/src/core/gitlab-auth.ts');
+const { upsertGitlabWebhook, validateGitlabToken } = require('../src/core/gitlab.ts');
+const { getUserAgentrixConfig } = require('../src/core/user-agentrix-config.ts');
+const { handleGitlabWebhook } = require('../src/core/gitlab-webhook.ts');
+const { applyGitEventToIssueFacts } = require('../src/core/issue-projection.ts');
+const { connectGitlabSession } = require('../src/core/gitlab-auth.ts');
 const {
   checkGitlabProjectInstall,
   getGitlabProjectRole,
@@ -47,8 +47,8 @@ const {
   setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
-} = require('../apps/api/src/core/gitlab-projects.ts');
-const { syncIssuesSnapshot } = require('../apps/api/src/core/repositories.ts');
+} = require('../src/core/gitlab-projects.ts');
+const { syncIssuesSnapshot } = require('../src/core/repositories.ts');
 
 let testSchemaCounter = 0;
 const migrationSql = fs.readdirSync(path.join(__dirname, '..', 'prisma', 'migrations'))

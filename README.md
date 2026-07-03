@@ -2,18 +2,26 @@
 
 Label-based issue state machine and deterministic GitHub/GitLab issue automation for Agentrix.
 
+## Repository Layout
+
+This repository is an npm-workspaces monorepo with two independently versioned products:
+
+- `plugin/` - the issue-flow plugin/CLI: installer, skill, deterministic scripts, docs, and tests. Zero runtime dependencies beyond Node.js built-ins.
+- `console/` - the management console: `console/api` (Fastify + Prisma API service) and `console/web` (Vite/React web console).
+- Root-level `.agentrix/`, `.issue-flow/`, and `.github/workflows/issue-flow-*.yml` are this repository's own installed copy of the plugin (dogfooding), managed by the installer rather than edited by hand.
+
 ## Install
 
 Run this from the project you want to enable:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github
 ```
 
 For GitLab:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh gitlab
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh gitlab
 ```
 
 Downloading the installer before running it keeps stdin attached to your terminal, so reinstall conflicts can prompt for `skip`, `overwrite`, `skip all`, or `overwrite all`. The `curl | bash` form is fine for one-off non-interactive installs, but it cannot show conflict prompts because stdin is already occupied by the pipe.
@@ -21,13 +29,13 @@ Downloading the installer before running it keeps stdin attached to your termina
 Preview without writing files:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --dry-run
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --dry-run
 ```
 
 Overwrite generated files:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --force
+curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --force
 ```
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.
@@ -57,16 +65,12 @@ Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to disc
 
 ## Release Management
 
-`main` is the release branch. Pushes to `main` run Release Please, which opens or updates a release PR from Conventional Commit history.
+`main` is the release branch. Pushes to `main` run Release Please, which opens or updates release PRs from Conventional Commit history. The plugin and the console are released independently:
 
-The release PR updates:
+- Commits touching `plugin/` release the `issue-flow` package with the historical `vX.Y.Z` tag format. The release PR updates `plugin/package.json`, `plugin/skills/issue-flow/SKILL.md`, `plugin/.claude-plugin/plugin.json`, `plugin/CHANGELOG.md`, and `.release-please-manifest.json`.
+- Commits touching `console/api/` release the `issue-flow-console` package with a `console-vX.Y.Z` tag. The release PR updates `console/api/package.json`, `console/api/CHANGELOG.md`, and `.release-please-manifest.json`. `console/web` is not versioned separately; it ships with the console.
 
-- `package.json`
-- `skills/issue-flow/SKILL.md`
-- `.release-please-manifest.json`
-- `CHANGELOG.md`
-
-Merge the release PR to create the GitHub release and `vX.Y.Z` tag. The release workflow does not publish to npm.
+Merge a release PR to create the GitHub release and tag. The release workflow does not publish to npm.
 
 Write merge commits and direct commits with Conventional Commit prefixes:
 
@@ -78,7 +82,7 @@ Pinned installs can use a tag:
 
 ```bash
 ISSUE_FLOW_REF=v0.1.1 \
-  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh | bash -s -- github
 ```
 
 ## Reinstall and Upgrade
@@ -154,7 +158,7 @@ npm run db:migrate:dev
 npm run dev
 ```
 
-This starts PostgreSQL through Docker Compose, applies the Prisma migrations from `prisma/migrations`, loads `.env.dev`, starts the Fastify API service at `http://127.0.0.1:8788`, and starts the web console at `http://127.0.0.1:8787`.
+This starts PostgreSQL through Docker Compose, applies the Prisma migrations from `console/api/prisma/migrations`, loads `.env.dev`, starts the Fastify API service at `http://127.0.0.1:8788`, and starts the web console at `http://127.0.0.1:8787`.
 
 Start the API service alone:
 
@@ -163,7 +167,7 @@ npm run db:migrate:dev
 npm run api:dev
 ```
 
-`npm run api:dev` runs `apps/api/src/main.ts` and loads `.env.dev`. Production `npm run api` loads `.env`. Start the web management console alone:
+`npm run api:dev` runs `console/api/src/main.ts` and loads `.env.dev`. Production `npm run api` loads `.env`. Start the web management console alone:
 
 ```bash
 npm run web
@@ -251,7 +255,7 @@ ISSUE_FLOW_API_PORT=8788 \
 npm run api
 ```
 
-`npm run api` runs `tsx --env-file=.env apps/api/src/main.ts`, and `apps/api/src/main.ts` also calls `dotenv.config()` for the selected env file. For container or Kubernetes deployments, mount the production `.env` file into the working directory before running `npm run api`, or inject the same variables through the platform's Secret/ConfigMap mechanism. Existing platform environment variables take precedence over values in `.env`.
+`npm run api` runs `console/api/src/main.ts` through tsx with `.env` loaded, and `console/api/src/main.ts` also calls `dotenv.config()` for the selected env file. For container or Kubernetes deployments, mount the production `.env` file into the working directory before running `npm run api`, or inject the same variables through the platform's Secret/ConfigMap mechanism. Existing platform environment variables take precedence over values in `.env`.
 
 Open the management page, select a Git server, and click **登录 GitLab**. The browser redirects to the selected Git server through OAuth. The API service stores the GitLab access token encrypted in PostgreSQL and returns only an httpOnly issue-flow session cookie to the browser. The console lists all projects visible to the logged-in GitLab user for that server and shows install/permission status. Projects with sufficient known access show Install immediately; projects with unknown access are allowed to attempt install and GitLab API errors are handled by the backend.
 
@@ -295,12 +299,12 @@ GitLab review comment resume is handled by the `issue-flow-review-comment` job f
 From this repository checkout, run the installer in a target project:
 
 ```bash
-/path/to/issue-flow/install.sh github --dry-run
+/path/to/issue-flow/plugin/install.sh github --dry-run
 ```
 
 When `install.sh` is executed from a checkout, it uses that checkout instead of cloning. When it is piped through `curl | bash`, it clones `ISSUE_FLOW_REPO` at `ISSUE_FLOW_REF`.
 
 ```bash
 ISSUE_FLOW_REPO=https://github.com/nil4u/issue-flow.git ISSUE_FLOW_REF=main \
-  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh | bash -s -- github
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh | bash -s -- github
 ```

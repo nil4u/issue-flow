@@ -11,7 +11,7 @@ function loadDatabaseUrl() {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL;
   }
-  const envPath = path.join(__dirname, '..', '.env.dev');
+  const envPath = path.join(__dirname, '..', '..', '..', '.env.dev');
   if (fs.existsSync(envPath)) {
     const line = fs.readFileSync(envPath, 'utf8')
       .split(/\r?\n/)
@@ -29,10 +29,10 @@ process.env.ISSUE_FLOW_BASE_URL ||= 'https://issue-flow.internal';
 process.env.ISSUE_FLOW_SETUP_CODE ||= 'test-setup-code';
 require('tsx/cjs');
 
-const { createApp } = require('../apps/api/src/app.ts');
-const { IssueFlowStore } = require('../apps/api/src/core/store.ts');
-const { applyIssueSnapshotToFacts } = require('../apps/api/src/core/issue-projection.ts');
-const { applyGitEventToPullRequestFacts } = require('../apps/api/src/core/pull-request-projection.ts');
+const { createApp } = require('../src/app.ts');
+const { IssueFlowStore } = require('../src/core/store.ts');
+const { applyIssueSnapshotToFacts } = require('../src/core/issue-projection.ts');
+const { applyGitEventToPullRequestFacts } = require('../src/core/pull-request-projection.ts');
 
 let testSchemaCounter = 0;
 const migrationSql = fs.readdirSync(path.join(__dirname, '..', 'prisma', 'migrations'))

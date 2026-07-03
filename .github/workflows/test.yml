@@ -1,0 +1,84 @@
+# [INPUT]: 依赖 PR/push 事件、npm workspaces(plugin、console/api、console/web)与 Postgres service 容器
+# [OUTPUT]: 运行根发布配置测试、plugin 单元测试、console API 构建/测试与 web 构建
+# [POS]: workflows 的测试门禁入口,plugin 与 console 各自独立 job 验证
+# [PROTOCOL]: 变更时更新此头部,然后检查 CLAUDE.md
+
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Root release config tests
+        run: node --test "test/*.test.cjs"
+
+      - name: Plugin tests
+        run: npm test -w issue-flow
+
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: issue_flow
+          POSTGRES_PASSWORD: issue_flow
+          POSTGRES_DB: issue_flow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U issue_flow -d issue_flow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://issue_flow:issue_flow@127.0.0.1:5432/issue_flow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply database migrations
+        run: npm run db:migrate -w issue-flow-console
+
+      - name: Console API typecheck
+        run: npm run build -w issue-flow-console
+
+      - name: Console API tests
+        run: npm test -w issue-flow-console
+
+      - name: Console web build
+        run: npm run build -w issue-flow-web

@@ -7,13 +7,13 @@ const {
   assertReadOnlyMetricsSql,
   bindMetricsParams,
   metricsResultFromRows,
-} = require('../apps/api/src/core/metrics-sql.ts');
+} = require('../src/core/metrics-sql.ts');
 const {
   openedByTaskId,
   pullRequestKind,
   pullRequestSnapshot,
   sourceIssueNumber,
-} = require('../apps/api/src/core/pull-request-projection.ts');
+} = require('../src/core/pull-request-projection.ts');
 
 const STARTED_ISSUE_DISTRIBUTION_SQL = `select
   week,

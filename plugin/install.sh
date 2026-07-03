@@ -12,8 +12,8 @@ Installs issue-flow into the current project.
 After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github
-  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh gitlab --dry-run
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github
+  curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh gitlab --dry-run
 
 Download before running when reinstall conflicts may need a prompt.
 The curl | bash form cannot prompt because stdin is occupied by the pipe.
@@ -76,7 +76,13 @@ clone_source() {
   else
     git clone --quiet --depth 1 "$repo" "$temp_root/issue-flow"
   fi
-  source_dir="$temp_root/issue-flow"
+  # Monorepo layout keeps the plugin under plugin/; fall back to the repo root
+  # for refs pinned to pre-monorepo tags.
+  if [ -f "$temp_root/issue-flow/plugin/skills/issue-flow/scripts/bootstrap.cjs" ]; then
+    source_dir="$temp_root/issue-flow/plugin"
+  else
+    source_dir="$temp_root/issue-flow"
+  fi
 }
 
 resolve_source_dir() {

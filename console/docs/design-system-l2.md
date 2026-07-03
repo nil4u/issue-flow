@@ -7,7 +7,7 @@ The management console uses shadcn/ui with the `amethyst-haze` theme installed t
 Component rules:
 
 - Header, overview band, repository rows, detail cards, dialogs, inputs, badges, and status panels must use shadcn components first.
-- Reusable visual effects live in `apps/web/src/index.css` as `neumo-*` classes.
+- Reusable visual effects live in `console/web/src/index.css` as `neumo-*` classes.
 - The micro-neumorphic layer uses CSS variables, `color-mix()`, large radii, three-part shadows, and `0.2s ease` interactions.
 - Inputs use an inset treatment; buttons and cards use raised treatment.
 - Avoid `backdrop-blur` and glow-style `0 0 Npx` shadows.

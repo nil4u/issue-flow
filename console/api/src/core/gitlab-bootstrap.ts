@@ -62,7 +62,7 @@ function gitlabRemoteUrl(input = {}) {
 }
 
 async function runIssueFlowInstallScript(cwd, input = {}) {
-  const script = path.join(PACKAGE_ROOT, 'install.sh')
+  const script = path.join(PACKAGE_ROOT, 'plugin', 'install.sh')
   try {
     return await execFileAsync('sh', [script, input.provider || 'gitlab', '--force'], {
       cwd,
