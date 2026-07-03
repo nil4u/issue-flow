@@ -783,6 +783,16 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
           updated_at: '2026-07-01T06:00:00.000Z',
           closed_at: '2026-07-01T06:00:00.000Z',
         },
+        {
+          id: 103,
+          iid: 11,
+          title: 'Opened issue with done label',
+          state: 'opened',
+          labels: ['flow::build', 'status::done'],
+          created_at: '2026-07-01T07:00:00.000Z',
+          updated_at: '2026-07-01T08:00:00.000Z',
+          closed_at: null,
+        },
       ]));
       return;
     }
@@ -807,11 +817,12 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
     });
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.count, 2);
+    assert.equal(result.body.count, 3);
     assert.equal(result.body.issues.find((issue) => issue.issueId === '101').currentFlow, 'build');
+    assert.equal(result.body.issues.find((issue) => issue.issueId === '103').currentFlow, 'build');
     const issues = await store.listIssues(createdRepo.repo.id);
     const spans = await store.listIssueSpans(createdRepo.repo.id);
-    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:done']);
+    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:done', '11:done']);
     assert.equal(issues[0].title, 'Existing issue');
     assert.equal(issues[0].state, 'opened');
     assert.equal(issues[0].type, 'feature');
@@ -820,6 +831,9 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
     assert.equal(issues[0].automation, 'plan');
     assert.equal(issues[1].closedAt, '2026-07-01T06:00:00.000Z');
     assert.equal(issues[1].state, 'closed');
+    assert.equal(issues[2].state, 'opened');
+    assert.equal(issues[2].flow, 'build');
+    assert.equal(issues[2].currentFlow, 'build');
     assert.equal(spans.length, 1);
     assert.equal(spans[0].issueId, '101');
     assert.equal(spans[0].flow, 'build');

@@ -1,0 +1,1 @@
+ALTER TABLE "issues" ADD COLUMN "flow" TEXT NOT NULL DEFAULT '';

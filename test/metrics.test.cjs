@@ -276,6 +276,23 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       updatedAt: at(HOUR_MS),
     });
     await applyIssueSnapshotToFacts(store, openIssue);
+    // dropped issue: opened, then dropped — must not appear in the weekly distribution
+    const droppedIssue = issueSnapshot({
+      issueId: '4209',
+      issueNumber: 9,
+      title: 'Dropped metrics issue',
+      openedAt: at(2 * HOUR_MS),
+      updatedAt: at(2 * HOUR_MS),
+    });
+    await applyIssueSnapshotToFacts(store, droppedIssue);
+    await applyIssueSnapshotToFacts(store, {
+      ...droppedIssue,
+      state: 'closed',
+      status: 'drop',
+      flow: '',
+      closedAt: at(4 * HOUR_MS),
+      updatedAt: at(4 * HOUR_MS),
+    });
     await store.flushIssueStatsRebuilds();
 
     const weekly = await store.runMetricsQuery(
@@ -287,7 +304,13 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(buckets.get('1d').issue_count, 1);
     assert.equal(Number(buckets.get('1d').weighted_count), 2);
     assert.ok(buckets.has('open'), 'open issues use the open bucket');
+    assert.equal(buckets.get('open').issue_count, 1, 'dropped issues do not count as open');
     assert.equal(Number(buckets.get('open').weighted_count), 1);
+    assert.equal(
+      weekly.rows.reduce((sum, row) => sum + Number(row.issue_count), 0),
+      2,
+      'dropped issues are excluded from the weekly distribution',
+    );
 
     const wip = await store.runMetricsQuery('select * from wip_aging_metrics', {});
     assert.equal(wip.rows.length, 1);

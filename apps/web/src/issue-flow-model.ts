@@ -268,6 +268,7 @@ export type IssueRow = {
   size?: string
   automation?: string
   status: "active" | "done" | "drop" | "suspend" | string
+  flow?: string
   currentFlow?: string
   openedAt?: string
   closedAt?: string

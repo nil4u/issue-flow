@@ -136,6 +136,7 @@ model Issue {
   size               String    @default("")
   automation         String    @default("off")
   status             String    @default("active")
+  flow               String    @default("")
   openedAt           DateTime  @map("opened_at")
   closedAt           DateTime? @map("closed_at")
   updatedAt          DateTime  @map("updated_at")

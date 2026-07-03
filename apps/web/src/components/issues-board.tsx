@@ -31,7 +31,7 @@ export function IssuesBoard({
   onSyncIssues,
 }: RepoWorkspaceProps) {
   const openIssues = useMemo(() => (issues || []).filter((issue) => {
-    return String(issue.state || "").toLowerCase() === "opened"
+    return String(issue.state || "").toLowerCase() === "opened" && String(issue.status || "").toLowerCase() === "active"
   }), [issues])
   const grouped = useMemo(() => {
     const map = new Map(issueLanes.map((lane) => [lane.id, [] as IssueRow[]]))

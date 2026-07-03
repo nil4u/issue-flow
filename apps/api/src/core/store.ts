@@ -1312,6 +1312,7 @@ class IssueFlowStore {
       size: row.size || "",
       automation: row.automation || "off",
       status: row.status || "active",
+      flow: row.flow || "",
       openedAt: timestampValue(row.openedAt),
       closedAt: timestampValue(row.closedAt),
       updatedAt: timestampValue(row.updatedAt),
@@ -1371,6 +1372,7 @@ class IssueFlowStore {
       size: String(input.size || ""),
       automation: String(input.automation || "off"),
       status: String(input.status || "active"),
+      flow: String(input.flow || ""),
       openedAt: asDate(input.openedAt || existing && existing.openedAt || incomingUpdatedAt),
       closedAt: nullableDate(input.closedAt),
       updatedAt: incomingUpdatedAt,
@@ -1788,19 +1790,9 @@ class IssueFlowStore {
       },
       orderBy: { issueNumber: "asc" },
     })
-    const spans = rows.length
-      ? await this.db.issueSpan.findMany({
-        where: {
-          gitServerId: repo.gitServerId,
-          repositoryId: repo.serverRepoId,
-          exitedAt: null,
-        },
-      })
-      : []
-    const flowByIssueId = new Map(spans.map((span) => [span.issueId, span.flow]))
     return rows.map((row) => ({
       ...this.issueFromRecord(row),
-      currentFlow: flowByIssueId.get(row.issueId) || "",
+      currentFlow: row.flow || "",
     }))
   }
 
