@@ -1,7 +1,5 @@
 // @ts-nocheck
 import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   composeVariables,
   defaultVariables,
@@ -14,17 +12,17 @@ import { requireRepo, resolveGitServer } from './common.js'
 import { getGitlabRepositoryFile } from './gitlab.js'
 import { applyGitEventToIssueFacts } from './issue-projection.js'
 import { applyGitEventToPullRequestFacts } from './pull-request-projection.js'
+import { issueFlowPackageJsonPath } from './plugin-paths.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
 
-const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
 const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
 const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
 
 function readPackageVersion() {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'plugin', 'package.json'), 'utf8'))
+    const pkg = JSON.parse(fs.readFileSync(issueFlowPackageJsonPath(), 'utf8'))
     return String(pkg.version || '')
   } catch {
     return ''

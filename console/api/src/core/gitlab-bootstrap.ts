@@ -4,13 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { fileURLToPath } from 'node:url'
 import {
   createGitlabMergeRequest,
 } from './gitlab.js'
+import { issueFlowInstallScriptPath } from './plugin-paths.js'
 
 const execFileAsync = promisify(execFile)
-const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 
 function redact(value = '', token = '') {
   return token ? String(value || '').replaceAll(token, '[redacted]') : String(value || '');
@@ -62,7 +61,12 @@ function gitlabRemoteUrl(input = {}) {
 }
 
 async function runIssueFlowInstallScript(cwd, input = {}) {
-  const script = path.join(PACKAGE_ROOT, 'plugin', 'install.sh')
+  const script = issueFlowInstallScriptPath()
+  if (!fs.existsSync(script)) {
+    const failure = new Error(`issue-flow install script not found: ${script}`)
+    failure.status = 502
+    throw failure
+  }
   try {
     return await execFileAsync('sh', [script, input.provider || 'gitlab', '--force'], {
       cwd,

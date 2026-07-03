@@ -1,7 +1,5 @@
 // @ts-nocheck
 import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   enableGitlabRunnerForProject,
   getGitlabCurrentUser,
@@ -23,6 +21,7 @@ import {
 import {
   installGitlabPluginMergeRequest,
 } from './gitlab-bootstrap.js'
+import { issueFlowPackageJsonPath } from './plugin-paths.js'
 import {
   repoWithWebhook,
   resolveGitServer,
@@ -34,7 +33,6 @@ import {
 } from './user-agentrix-config.js'
 import { sanitizeError } from './sanitize.js'
 
-const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const ADMIN_PAT_PERMISSION_KEY = 'admin-pat'
 const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
 const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
@@ -43,7 +41,7 @@ const ISSUE_FLOW_RUNNER_TAG = 'issue-flow'
 
 function readPackageVersion() {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'plugin', 'package.json'), 'utf8'))
+    const pkg = JSON.parse(fs.readFileSync(issueFlowPackageJsonPath(), 'utf8'))
     return String(pkg.version || '')
   } catch {
     return ''
