@@ -12,11 +12,17 @@ const path = require('node:path');
 const test = require('node:test');
 
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
-const REQUIRED_SKILL_BLOCK = '## Required Skill\n\nRead this project-level skill file before acting: `skills/issue-flow/SKILL.md`';
+const PROVIDER_CLI_RULE = 'Provider actions covered by issue-flow must go through its unified CLI; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-write provider API requests for those actions.';
+const REQUIRED_SKILL_BLOCK = `## Required Skill\n\nRead this project-level skill file before acting: \`skills/issue-flow/SKILL.md\`\n${PROVIDER_CLI_RULE}`;
 
 function assertRequiredSkillAtEnd(prompt) {
   assert.equal(prompt.trimEnd().endsWith(REQUIRED_SKILL_BLOCK), true);
-  assert.doesNotMatch(prompt, /Provider operations covered by issue-flow/);
+  assert.equal(
+    prompt.indexOf(PROVIDER_CLI_RULE),
+    prompt.lastIndexOf(PROVIDER_CLI_RULE),
+    'provider CLI rule must only be injected once, not duplicated in prompt bodies'
+  );
+  assert.doesNotMatch(prompt, /不得直接调用/);
 }
 
 function withTemporaryEnv(values, fn) {
@@ -261,6 +267,8 @@ test('agentrix review prompt uses target URL and review submission script', () =
   });
 
   assert.match(prompt, /## Review Target/);
+  assert.match(prompt, /^Number: #9$/m);
+  assert.match(prompt, /^Source issue: #42$/m);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.match(prompt, /## Review Submission/);
   assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\] \[--as-comment\]/);

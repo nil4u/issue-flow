@@ -13,7 +13,6 @@
 - 只有确认需要代码或配置修改时才改文件并提交 build PR/MR。
 - 如果根因是 provider 权限、secret/variable、runner/environment、瞬时基础设施或误报，不要硬改业务代码；改合适标签、留下说明 comment，或只做最小必要配置修复。
 - 提交前先创建或切换到下面指定的非 base 分支。
-- 按仓库规则修改、验证、提交，然后使用 `issue-flow` 统一 CLI 提交 build PR/MR。
-- issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。
+- 按仓库规则修改、验证、提交，然后使用统一 CLI 提交 build PR/MR。
 
 PR body 写清 Source issue、Root cause、Fix、Validation。

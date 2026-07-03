@@ -1,7 +1,5 @@
 给当前 issue 进行分类打标签，判断是否可执行，选择下一步 flow，并在需要时规范化 issue 正文。
 
-先读取 `issue-flow` skill，按其中的 label 体系与统一 CLI 用法操作。issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。
-
 ## 关键行为
 
 1. **主动调查** — 在判定"信息不足"之前，先从仓库代码、配置、文档、commit 历史中查证。如果 issue 是一个疑问，尝试从仓库中找到答案。
@@ -11,6 +9,23 @@
    - 给出选择项或推荐默认方案
    - 附上你的判断依据（查了什么、排除了什么）
    - 按照具体 agent runtime 的说明在指定位置发出提问
+
+## 必打标签
+
+一次 `issue apply` 同时应用以下判断结果（语义与取值见 skill 的 label 体系）：
+
+- `type::` — 需求类型。
+- `priority::` — 处理优先级；无明显信号时用 `priority::p2`。
+- `size::` — 工作量规模。进入 `flow::plan` 或 `flow::build` 前必须有且仅有一个 `size::`；无法判断时用 `size::M` 并留下低置信度说明。
+- `flow::` 与 `automation::` — 判定方法见下两节。
+
+## 规范化正文
+
+确定 `type::` 后，按对应模版 `.issue-flow/templates/type-<type>.md` 重写 issue 正文：
+
+- 模版字段优先取自 issue 本身，其次取自仓库代码、文档、配置和已有约定。
+- 改写后的正文写到 repo 外临时文件（如 `mktemp`），随标签一起通过 `issue apply` 的 `--normalized-body-file` 应用；不要把正文文件提交到 git。
+- 标 `flow::clarify` 时不需要提供规范化正文（会被忽略），把缺口写进提问即可。
 
 ## 选择下一步 flow
 
