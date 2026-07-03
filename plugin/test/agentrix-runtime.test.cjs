@@ -490,6 +490,51 @@ test('agentrix run args pass git server repo context to agentrix-run', () => {
   assert.equal(repo.name, 'app');
 });
 
+test('agentrix run args keep GitLab subgroup namespace as repo owner', () => {
+  const args = agentrix.buildRunArgs(
+    'build',
+    {
+      number: 42,
+      repoFullName: 'ai-arch/test/test1',
+      title: 'Fix subgroup repo injection',
+    },
+    {
+      gitServerId: 'gitlab-git-lianjia-com',
+      responseMode: 'async',
+    },
+    {},
+    'prompt',
+    '/tmp/result.json'
+  );
+  const repo = JSON.parse(args[args.indexOf('--repo') + 1]);
+  assert.equal(repo.gitServerId, 'gitlab-git-lianjia-com');
+  assert.equal(repo.owner, 'ai-arch/test');
+  assert.equal(repo.name, 'test1');
+});
+
+test('agentrix run args prefer parsed repo owner and name when available', () => {
+  const args = agentrix.buildRunArgs(
+    'build',
+    {
+      number: 42,
+      owner: 'ai-arch/test',
+      repo: 'test1',
+      repoFullName: 'wrong/split/value',
+      title: 'Fix parsed repo identity',
+    },
+    {
+      gitServerId: 'gitlab-git-lianjia-com',
+      responseMode: 'async',
+    },
+    {},
+    'prompt',
+    '/tmp/result.json'
+  );
+  const repo = JSON.parse(args[args.indexOf('--repo') + 1]);
+  assert.equal(repo.owner, 'ai-arch/test');
+  assert.equal(repo.name, 'test1');
+});
+
 test('agentrix-run child env does not forward provider tokens', () => {
   const env = agentrix.buildAgentrixRunEnv(
     { envEventName: 'GITHUB_EVENT_NAME' },
