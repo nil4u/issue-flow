@@ -258,12 +258,18 @@ function formatIssueForPrompt(issue) {
   ].join('\n');
 }
 
-function formatPullRequestForPrompt(pr) {
-  return [
+function formatPullRequestForPrompt(pr, data = {}) {
+  const sourceIssueNumber = data.sourceIssueNumber || extractSourceIssueNumberFromPullRequest(pr);
+  const lines = [
     '## Review Target',
     '',
+    `Number: #${pr.number}`,
     `URL: ${pr.htmlUrl || '(unknown)'}`,
-  ].join('\n');
+  ];
+  if (sourceIssueNumber) {
+    lines.push(`Source issue: #${sourceIssueNumber}`);
+  }
+  return lines.join('\n');
 }
 
 function formatRequiredSkill() {
@@ -271,6 +277,7 @@ function formatRequiredSkill() {
     '## Required Skill',
     '',
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
+    'Provider actions covered by issue-flow must go through its unified CLI; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-write provider API requests for those actions.',
   ].join('\n');
 }
 
@@ -441,7 +448,7 @@ function buildReviewResumeInstruction() {
 
 function buildPullRequestPrompt(pr, data = {}, options = {}) {
   const prompt = readPrompt('review', pr, options);
-  const blocks = [prompt.body, '', formatPullRequestForPrompt(pr), '', formatReviewSubmission(pr)];
+  const blocks = [prompt.body, '', formatPullRequestForPrompt(pr, data), '', formatReviewSubmission(pr)];
   if (data.instruction) {
     blocks.push('', '## Instruction', '', data.instruction);
   }

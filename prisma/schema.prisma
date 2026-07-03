@@ -15,63 +15,289 @@ model GitServer {
   tokenAuth         String   @default("bearer") @map("token_auth")
   oauthClientId     String   @default("") @map("oauth_client_id")
   oauthClientSecret String   @default("") @map("oauth_client_secret")
-  oauthRedirectUri  String   @default("") @map("oauth_redirect_uri")
   oauthScopes       String   @default("") @map("oauth_scopes")
   webhookSecret     String   @default("") @map("webhook_secret")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  agentrixGitServerId String   @default("") @map("agentrix_git_server_id")
+  adminPat            String   @default("") @map("admin_pat")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
-  repositories Repository[]
+  repos        Repo[]
+  userAccounts UserGitAccount[]
 
   @@index([type, createdAt])
   @@map("git_servers")
 }
 
-model Repository {
-  id             String   @id
-  gitServerId    String?  @map("git_server_id")
-  oauthSessionId String?  @map("oauth_session_id")
-  data           Json
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  gitServer        GitServer?            @relation(fields: [gitServerId], references: [id])
-  oauthSession     OAuthSession?         @relation(fields: [oauthSessionId], references: [id], onDelete: SetNull)
-  credentials      Credential?
-  deliveries       WebhookDelivery[]
-  bridgeStateItems WebhookBridgeState[]
-  dispatchRuns     DispatchRun[]
-
-  @@index([gitServerId])
-  @@index([oauthSessionId])
-  @@map("repositories")
-}
-
-model Credential {
-  repoId         String   @id @map("repo_id")
-  webhookSecret  String   @default("") @map("webhook_secret")
-  agentrixApiKey String   @default("") @map("agentrix_api_key")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
-
-  @@map("credentials")
-}
-
-model WebhookDelivery {
+model User {
   id          String   @id
-  repoId      String   @map("repo_id")
-  deliveryKey String   @map("delivery_key")
-  consumer    String
+  displayName String   @default("") @map("display_name")
+  email       String   @default("")
+  avatarUrl   String   @default("") @map("avatar_url")
+  role        String   @default("member")
   data        Json
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  gitAccounts UserGitAccount[]
+  sessions    OAuthSession[]
 
-  @@index([repoId, createdAt])
-  @@index([repoId, deliveryKey, consumer, createdAt])
-  @@map("webhook_deliveries")
+  @@map("users")
+}
+
+model UserGitAccount {
+  id             String   @id
+  userId         String   @map("user_id")
+  gitServerId    String   @map("git_server_id")
+  provider       String
+  providerUserId String   @map("provider_user_id")
+  username       String   @default("")
+  displayName    String   @default("") @map("display_name")
+  email          String   @default("")
+  avatarUrl      String   @default("") @map("avatar_url")
+  scopes         String[] @default([])
+  data           Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gitServer GitServer @relation(fields: [gitServerId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, gitServerId, providerUserId])
+  @@unique([userId, gitServerId])
+  @@index([userId])
+  @@index([gitServerId])
+  @@map("user_git_accounts")
+}
+
+model Repo {
+  id            String   @id
+  gitServerId   String?  @map("git_server_id")
+  serverRepoId  String   @default("") @map("server_repo_id")
+  owner         String   @default("")
+  name          String   @default("")
+  fullName      String   @default("") @map("full_name")
+  defaultBranch String   @default("") @map("default_branch")
+  url           String   @default("")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  gitServer GitServer?    @relation(fields: [gitServerId], references: [id], onDelete: SetNull)
+  settings  RepoSettingItem[]
+
+  @@unique([gitServerId, serverRepoId])
+  @@index([gitServerId])
+  @@index([fullName])
+  @@map("repos")
+}
+
+model RepoSettingItem {
+  id        String    @id
+  repoId    String    @map("repo_id")
+  kind      String
+  key       String
+  source    String    @default("")
+  data      Json
+  checkedAt DateTime? @map("checked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  repo Repo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@unique([repoId, kind, key])
+  @@index([repoId, kind])
+  @@map("repo_settings")
+}
+
+model UserRepoAccess {
+  userId      String   @map("user_id")
+  gitServerId String   @map("git_server_id")
+  repoId      String   @map("repo_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@id([userId, gitServerId, repoId])
+  @@index([userId, gitServerId])
+  @@index([repoId])
+  @@map("user_repo_accesses")
+}
+
+model Issue {
+  id                 String    @id
+  gitServerId        String    @map("git_server_id")
+  repositoryId       String    @map("repository_id")
+  repositoryFullName String    @map("repository_full_name")
+  issueId            String    @map("issue_id")
+  issueNumber        Int       @map("issue_number")
+  title              String
+  state              String    @default("")
+  type               String    @default("")
+  priority           String    @default("")
+  size               String    @default("")
+  automation         String    @default("off")
+  status             String    @default("active")
+  flow               String    @default("")
+  openedAt           DateTime  @map("opened_at")
+  closedAt           DateTime? @map("closed_at")
+  updatedAt          DateTime  @map("updated_at")
+
+  @@unique([gitServerId, repositoryId, issueId])
+  @@unique([gitServerId, repositoryId, issueNumber])
+  @@index([gitServerId, repositoryId, state, updatedAt])
+  @@map("issues")
+}
+
+model IssueSpan {
+  id                 String    @id
+  gitServerId        String    @map("git_server_id")
+  repositoryId       String    @map("repository_id")
+  repositoryFullName String    @map("repository_full_name")
+  issueId            String    @map("issue_id")
+  issueNumber        Int       @map("issue_number")
+  flow               String
+  enteredAt          DateTime  @map("entered_at")
+  exitedAt           DateTime? @map("exited_at")
+
+  @@index([gitServerId, repositoryId, issueId])
+  @@index([flow, enteredAt])
+  @@index([exitedAt])
+  @@map("issue_spans")
+}
+
+model PullRequest {
+  id                 String    @id
+  gitServerId        String    @map("git_server_id")
+  repositoryId       String    @map("repository_id")
+  repositoryFullName String    @map("repository_full_name")
+  issueId            String    @default("") @map("issue_id")
+  issueNumber        Int       @default(0) @map("issue_number")
+  openedByTaskId     String    @default("") @map("opened_by_task_id")
+  pullRequestId      String    @map("pull_request_id")
+  prNumber           Int       @map("pr_number")
+  kind               String    @default("")
+  state              String    @default("open")
+  htmlUrl            String    @default("") @map("html_url")
+  openedAt           DateTime  @map("opened_at")
+  mergedAt           DateTime? @map("merged_at")
+  closedAt           DateTime? @map("closed_at")
+  updatedAt          DateTime  @map("updated_at")
+
+  @@unique([gitServerId, repositoryId, pullRequestId])
+  @@unique([gitServerId, repositoryId, prNumber])
+  @@index([gitServerId, repositoryId, issueId])
+  @@map("pull_requests")
+}
+
+model IssueStat {
+  id                 String    @id
+  openedAt           DateTime  @map("opened_at")
+  cycleStartedAt     DateTime? @map("cycle_started_at")
+  closedAt           DateTime? @map("closed_at")
+  doneAt             DateTime? @map("done_at")
+  dropAt             DateTime? @map("drop_at")
+  triageSpanSeconds  Int       @default(0) @map("triage_span_seconds")
+  planSpanSeconds    Int       @default(0) @map("plan_span_seconds")
+  buildSpanSeconds   Int       @default(0) @map("build_span_seconds")
+  clarifySpanSeconds Int       @default(0) @map("clarify_span_seconds")
+  approveSpanSeconds Int       @default(0) @map("approve_span_seconds")
+  suspendSpanSeconds Int       @default(0) @map("suspend_span_seconds")
+  triageTaskSeconds  Int       @default(0) @map("triage_task_seconds")
+  planTaskSeconds    Int       @default(0) @map("plan_task_seconds")
+  buildTaskSeconds   Int       @default(0) @map("build_task_seconds")
+  reviewTaskSeconds  Int       @default(0) @map("review_task_seconds")
+  triageTaskTurns    Int       @default(0) @map("triage_task_turns")
+  planTaskTurns      Int       @default(0) @map("plan_task_turns")
+  buildTaskTurns     Int       @default(0) @map("build_task_turns")
+  reviewTaskTurns    Int       @default(0) @map("review_task_turns")
+  pullRequestCount   Int       @default(0) @map("pull_request_count")
+  updatedAt          DateTime  @map("updated_at")
+
+  @@index([openedAt])
+  @@index([doneAt])
+  @@map("issue_stats")
+}
+
+model MetricSizeWeight {
+  size   String  @id
+  weight Decimal @db.Decimal(8, 2)
+
+  @@map("metric_size_weights")
+}
+
+model Dashboard {
+  id          String   @id
+  name        String
+  slug        String   @unique
+  description String   @default("")
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  variables DashboardVariable[]
+  panels    DashboardPanel[]
+
+  @@map("dashboards")
+}
+
+model DashboardVariable {
+  id           String @id
+  dashboardId  String @map("dashboard_id")
+  name         String
+  type         String
+  defaultValue Json?  @map("default_value")
+  querySql     String @default("") @map("query_sql")
+  position     Int    @default(0)
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@unique([dashboardId, name])
+  @@map("dashboard_variables")
+}
+
+model DashboardPanel {
+  id              String   @id
+  dashboardId     String   @map("dashboard_id")
+  title           String
+  querySql        String   @map("query_sql")
+  chartType       String   @map("chart_type")
+  xField          String   @default("") @map("x_field")
+  yFields         Json?    @map("y_fields")
+  y2Fields        Json?    @map("y2_fields")
+  seriesField     String   @default("") @map("series_field")
+  stackField      String   @default("") @map("stack_field")
+  visualConfig    Json     @map("visual_config")
+  position        Json
+  refreshInterval Int?     @map("refresh_interval")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId])
+  @@map("dashboard_panels")
+}
+
+model GitEvent {
+  id                 String   @id
+  gitServerId        String   @map("git_server_id")
+  repositoryId       String   @map("repository_id")
+  repositoryFullName String   @map("repository_full_name")
+  deliveryId         String   @map("delivery_id")
+  eventName          String   @map("event_name")
+  action             String   @default("")
+  objectType         String   @default("") @map("object_type")
+  objectId           String   @default("") @map("object_id")
+  payload            Json
+  normalizedEvents   Json     @map("normalized_events")
+  receivedAt         DateTime @map("received_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([gitServerId, deliveryId])
+  @@index([gitServerId, repositoryId, receivedAt])
+  @@index([eventName, receivedAt])
+  @@index([objectType, objectId])
+  @@map("git_events")
 }
 
 model WebhookBridgeState {
@@ -81,28 +307,15 @@ model WebhookBridgeState {
   expiresAt DateTime? @map("expires_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
-
   @@id([repoId, key])
   @@map("webhook_bridge_state")
 }
 
-model DispatchRun {
-  id         String   @id
-  repoId     String   @map("repo_id")
-  deliveryId String   @default("") @map("delivery_id")
-  data       Json
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  repository Repository @relation(fields: [repoId], references: [id], onDelete: Cascade)
-
-  @@index([repoId, createdAt])
-  @@map("dispatch_runs")
-}
-
 model OAuthSession {
   id           String    @id
+  userId       String?   @map("user_id")
+  provider     String    @default("")
+  gitServerId  String    @default("") @map("git_server_id")
   accessToken  String    @default("") @map("access_token")
   refreshToken String    @default("") @map("refresh_token")
   data         Json
@@ -110,8 +323,10 @@ model OAuthSession {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  repositories Repository[]
-
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@unique([userId, gitServerId])
+  @@index([userId])
+  @@index([gitServerId])
   @@map("oauth_sessions")
 }
 

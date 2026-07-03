@@ -24,7 +24,7 @@ function mergeAgentrixInstallInput(input = {}, defaults = {}, env = process.env)
       runnerId: input.agentrix && input.agentrix.runnerId !== undefined
         ? input.agentrix.runnerId || ''
         : defaults.agentrix && defaults.agentrix.runnerId || '',
-      baseUrl: agentrixServiceConfig(env).baseUrl,
+      baseUrl: input.agentrix && input.agentrix.baseUrl || agentrixServiceConfig(env).baseUrl,
     },
   };
 }

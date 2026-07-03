@@ -1,0 +1,151 @@
+// @ts-nocheck
+import crypto from "node:crypto"
+import { createGitlabOAuthAuthorize } from "./gitlab-auth.js"
+
+const DEFAULT_GITLAB_OAUTH_SCOPES = "api read_repository write_repository openid profile email"
+
+function setupCode(env = process.env) {
+  return String(env.ISSUE_FLOW_SETUP_CODE || "").trim()
+}
+
+function requiredSetupCode(env = process.env) {
+  const code = setupCode(env)
+  if (!code) {
+    const error = new Error("ISSUE_FLOW_SETUP_CODE is required")
+    error.status = 500
+    error.code = "setup_code_not_configured"
+    throw error
+  }
+  return code
+}
+
+function timingSafeEqualString(a = "", b = "") {
+  const left = Buffer.from(String(a))
+  const right = Buffer.from(String(b))
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
+function gitServerMissingFields(server = {}) {
+  const missing = []
+  if (!server.id) missing.push("id")
+  if (!server.type) missing.push("type")
+  if (!server.baseUrl) missing.push("baseUrl")
+  if (!server.apiUrl) missing.push("apiUrl")
+  if (server.type === "gitlab") {
+    if (!server.oauth?.clientId) missing.push("oauth.clientId")
+    if (!server.oauth?.clientSecret) missing.push("oauth.clientSecret")
+    if (!server.webhook?.secret) missing.push("webhook.secret")
+    if (!server.agentrixGitServerId) missing.push("agentrixGitServerId")
+    if (!server.adminPat) missing.push("adminPat")
+  }
+  return missing
+}
+
+function normalizedUrl(value = "") {
+  return String(value || "").trim().replace(/\/+$/, "")
+}
+
+function gitlabHost(baseUrl = "") {
+  try {
+    return new URL(normalizedUrl(baseUrl)).hostname
+  } catch {
+    return ""
+  }
+}
+
+function defaultGitlabId(baseUrl = "") {
+  const host = gitlabHost(baseUrl)
+  return host ? `gitlab-${host.replace(/\./g, "-")}` : ""
+}
+
+function defaultGitlabApiUrl(baseUrl = "") {
+  const root = normalizedUrl(baseUrl)
+  return root ? `${root}/api/v4` : ""
+}
+
+async function getSetupStatus({ store, env = process.env }) {
+  const gitServers = await store.listGitServers({ includeSecret: true })
+  const serverStates = gitServers.map((server) => ({ server, missing: gitServerMissingFields(server) }))
+  const configured = serverStates.some((item) => item.missing.length === 0)
+  const firstIncomplete = serverStates.find((item) => item.missing.length)
+  return {
+    status: 200,
+    body: {
+      initialized: configured,
+      needsSetup: !configured,
+      state: gitServers.length === 0 ? "uninitialized" : configured ? "configured" : "broken",
+      setupCodeConfigured: Boolean(setupCode(env)),
+      missing: firstIncomplete?.missing || [],
+      gitServers: gitServers.map((server) => store.publicGitServer(server)),
+    },
+  }
+}
+
+async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env = process.env }) {
+  const expectedCode = requiredSetupCode(env)
+  if (!timingSafeEqualString(String(input.setupCode || ""), expectedCode)) {
+    return { status: 401, body: { error: "setup_code_invalid" } }
+  }
+
+  const current = await getSetupStatus({ store, env })
+  if (current.body.initialized) {
+    return { status: 409, body: { error: "setup_already_initialized" } }
+  }
+
+  const baseUrl = normalizedUrl(input.baseUrl)
+  const host = gitlabHost(baseUrl)
+  const gitServer = await store.ensureGitServer({
+    id: input.id || defaultGitlabId(baseUrl),
+    type: input.type || "gitlab",
+    name: input.name || host,
+    baseUrl,
+    apiUrl: normalizedUrl(input.apiUrl) || defaultGitlabApiUrl(baseUrl),
+    tokenAuth: input.tokenAuth || "bearer",
+    oauth: {
+      clientId: input.oauth?.clientId || input.oauthClientId,
+      clientSecret: input.oauth?.clientSecret || input.oauthClientSecret,
+      scopes: input.oauth?.scopes || input.oauthScopes || DEFAULT_GITLAB_OAUTH_SCOPES,
+    },
+    webhook: {
+      secret: input.webhook?.secret || input.webhookSecret || crypto.randomBytes(32).toString("hex"),
+    },
+    agentrixGitServerId: input.agentrixGitServerId,
+    adminPat: input.adminPat,
+  })
+
+  const missing = gitServerMissingFields(gitServer)
+  if (missing.length) {
+    return {
+      status: 400,
+      body: {
+        error: "git_server_incomplete",
+        missing,
+      },
+    }
+  }
+
+  const authorize = await createGitlabOAuthAuthorize({
+    store,
+    basePublicUrl,
+    appUrl,
+    input: {
+      gitServerId: gitServer.id,
+      returnTo: "/repos",
+      setupAdminEligible: true,
+    },
+  })
+
+  return {
+    status: 201,
+    body: {
+      ok: true,
+      gitServer: store.publicGitServer(gitServer),
+      authorizeUrl: authorize.authorizeUrl,
+    },
+  }
+}
+
+export {
+  getSetupStatus,
+  initializeSetup,
+}

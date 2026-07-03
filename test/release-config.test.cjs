@@ -34,6 +34,7 @@ test('release manifest matches package and skill versions', () => {
   assert.equal(manifest['.'], pkg.version);
   assert.match(versionLine, new RegExp(`^version: ${pkg.version.replaceAll('.', '\\.')}`));
   assert.match(versionLine, /x-release-please-version/);
+  assert.equal(readJson('.claude-plugin/plugin.json').version, pkg.version);
 });
 
 test('release-please config updates the project package and skill file', () => {
@@ -49,6 +50,11 @@ test('release-please config updates the project package and skill file', () => {
     {
       type: 'generic',
       path: 'skills/issue-flow/SKILL.md',
+    },
+    {
+      type: 'json',
+      path: '.claude-plugin/plugin.json',
+      jsonpath: '$.version',
     },
   ]);
 });

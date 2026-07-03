@@ -6,10 +6,31 @@ import {
   requireRepo,
   resolveGitServer,
 } from './common.js'
-import { validateGitlabToken } from './gitlab.js'
+import { listGitlabIssues, validateGitlabToken } from './gitlab.js'
+import { applyGitlabIssueSnapshotToFacts } from './issue-projection.js'
 
-async function listRepositories({ store, basePublicUrl }) {
-  const repositories = await store.listRepositories();
+async function requireAccessibleRepo(store, repoId, userId) {
+  if (!userId) {
+    const error = new Error('login required');
+    error.status = 401;
+    error.code = 'login_required';
+    throw error;
+  }
+  const repo = await requireRepo(store, repoId);
+  if (!await store.userCanAccessRepo(userId, repoId)) {
+    const error = new Error('repository not found');
+    error.status = 404;
+    error.code = 'repository_not_found';
+    throw error;
+  }
+  return repo;
+}
+
+async function listRepositories({ store, basePublicUrl, input = {}, userId = '' }) {
+  const repositories = await store.listRepositories({
+    gitServerId: input.gitServerId || '',
+    userId,
+  });
   return {
     status: 200,
     body: {
@@ -18,7 +39,7 @@ async function listRepositories({ store, basePublicUrl }) {
   };
 }
 
-async function createRepository({ store, basePublicUrl, input = {}, env = process.env }) {
+async function createRepository({ store, basePublicUrl, input = {}, userId = '', env = process.env }) {
   const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab');
   const baseUrl = normalizeBaseUrl(input.baseUrl || config.baseUrl);
   const apiUrl = normalizeApiUrl(baseUrl, input.apiUrl || config.apiUrl);
@@ -46,6 +67,7 @@ async function createRepository({ store, basePublicUrl, input = {}, env = proces
 
   const created = await store.createRepository({
     ...input,
+    userId,
     provider: server.type,
     gitServerId: input.gitServerId || server.id,
     baseUrl,
@@ -57,14 +79,12 @@ async function createRepository({ store, basePublicUrl, input = {}, env = proces
     status: 201,
     body: {
       repository: repoWithWebhook(basePublicUrl, created.repo),
-      webhookSecret: created.webhookSecret,
-      secretShownOnce: true,
     },
   };
 }
 
-async function configureRepositoryAgentrix({ store, basePublicUrl, repoId, input = {}, env = process.env }) {
-  await requireRepo(store, repoId);
+async function configureRepositoryAgentrix({ store, basePublicUrl, repoId, input = {}, userId = '', env = process.env }) {
+  await requireAccessibleRepo(store, repoId, userId);
   const updated = await store.updateRepositoryAutomation(repoId, {
     automation: input.automation || {},
     agentrix: agentrixConfigFromEnv(input.agentrix || {}, env),
@@ -77,26 +97,46 @@ async function configureRepositoryAgentrix({ store, basePublicUrl, repoId, input
   };
 }
 
-async function getRepository({ store, basePublicUrl, repoId }) {
-  const repo = await requireRepo(store, repoId);
+async function getRepository({ store, basePublicUrl, repoId, userId = '' }) {
+  const repo = await requireAccessibleRepo(store, repoId, userId);
   return {
     status: 200,
     body: { repository: repoWithWebhook(basePublicUrl, store.publicRepository(repo)) },
   };
 }
 
-async function listDeliveries({ store, repoId }) {
-  await requireRepo(store, repoId);
-  return { status: 200, body: { deliveries: await store.listDeliveries(repoId) } };
+async function listGitEvents({ store, repoId, userId = '' }) {
+  await requireAccessibleRepo(store, repoId, userId);
+  return { status: 200, body: { gitEvents: await store.listGitEvents(repoId) } };
 }
 
-async function listDispatchRuns({ store, repoId }) {
-  await requireRepo(store, repoId);
-  return { status: 200, body: { runs: await store.listDispatchRuns(repoId) } };
+async function listIssues({ store, repoId, userId = '' }) {
+  await requireAccessibleRepo(store, repoId, userId);
+  return { status: 200, body: { issues: await store.listIssues(repoId) } };
 }
 
-async function validateRepositoryToken({ store, basePublicUrl, repoId }) {
-  const repo = await requireRepo(store, repoId);
+async function syncIssuesSnapshot({ store, repoId, userId = '' }) {
+  const repo = await requireAccessibleRepo(store, repoId, userId);
+  const { config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab');
+  if (!config.adminPat) {
+    return { status: 403, body: { error: 'git_server_admin_pat_required' } };
+  }
+  const issues = await listGitlabIssues({
+    apiUrl: config.apiUrl,
+    token: config.adminPat,
+    authType: config.tokenAuth,
+    projectIdOrPath: repo.projectId || repo.projectPath,
+  });
+  const projected = [];
+  for (const issue of issues) {
+    const saved = await applyGitlabIssueSnapshotToFacts(store, repo, issue);
+    if (saved) projected.push(saved);
+  }
+  return { status: 200, body: { issues: await store.listIssues(repoId), count: projected.length } };
+}
+
+async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '' }) {
+  const repo = await requireAccessibleRepo(store, repoId, userId);
   const session = repo.oauthSessionId
     ? await store.getSession(repo.oauthSessionId, { allowExpired: true })
     : undefined;
@@ -116,26 +156,14 @@ async function validateRepositoryToken({ store, basePublicUrl, repoId }) {
   };
 }
 
-async function rotateRepositoryWebhookSecret({ store, basePublicUrl, repoId, input = {} }) {
-  await requireRepo(store, repoId);
-  const rotated = await store.rotateWebhookSecret(repoId, input.webhookSecret || '');
-  return {
-    status: 200,
-    body: {
-      repository: repoWithWebhook(basePublicUrl, rotated.repo),
-      webhookSecret: rotated.webhookSecret,
-      secretShownOnce: true,
-    },
-  };
-}
-
 export {
   configureRepositoryAgentrix,
   createRepository,
   getRepository,
-  listDeliveries,
-  listDispatchRuns,
+  listGitEvents,
+  listIssues,
   listRepositories,
-  rotateRepositoryWebhookSecret,
+  requireAccessibleRepo,
+  syncIssuesSnapshot,
   validateRepositoryToken,
 }

@@ -1,7 +1,8 @@
 目标：审查当前 PR/MR，并提交一条 review。
 
 执行要求：
+- 先通过统一 CLI 的 `pr get` 获取 PR/MR 的变更内容和描述。
+- 如果下方 Review Target 注入了 Source issue，用 `issue get` 读取源 issue 与仓库中的方案文件，对照验收点检查实现是否完整、是否偏离方案；有偏离时要求 PR body 说明或指出缺口。
 - 优先指出 bug、行为回归、安全风险和测试缺口。
 - 有问题时给出文件/行或代码符号；没有明确问题时说明未发现阻塞问题。
 - 有明确问题或行级意见时使用 review 提交命令发布结果；没有明确问题时加 `--as-comment`，发布为普通 PR/MR comment。
-- issue-flow 已覆盖的 provider 动作不得直接调用 `gh`、`glab` 或手写 provider API。

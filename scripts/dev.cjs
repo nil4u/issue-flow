@@ -3,8 +3,9 @@
 const { spawn } = require('node:child_process');
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const apiUrl = process.env.VITE_ISSUE_FLOW_API_BASE_URL || 'http://127.0.0.1:8788';
-const webOrigin = process.env.ISSUE_FLOW_WEB_ORIGIN || 'http://127.0.0.1:8787';
+const publicApiUrl = process.env.ISSUE_FLOW_BASE_URL || 'http://127.0.0.1:8788';
+const webApiUrl = process.env.ISSUE_FLOW_WEB_API_BASE_URL || 'http://127.0.0.1:8788';
+const appUrl = process.env.ISSUE_FLOW_APP_URL || 'http://127.0.0.1:8787';
 const databaseUrl = process.env.DATABASE_URL || 'postgres://issue_flow:issue_flow@127.0.0.1:5432/issue_flow';
 
 const children = [];
@@ -45,7 +46,8 @@ process.on('SIGTERM', () => shutdown(0));
 
 start('api', npm, ['run', 'api:dev'], {
   DATABASE_URL: databaseUrl,
-  ISSUE_FLOW_WEB_ORIGIN: webOrigin,
+  ISSUE_FLOW_BASE_URL: publicApiUrl,
+  ISSUE_FLOW_APP_URL: appUrl,
 });
 
 start('web', npm, [
@@ -59,5 +61,5 @@ start('web', npm, [
   '--port',
   '8787',
 ], {
-  VITE_ISSUE_FLOW_API_BASE_URL: apiUrl,
+  ISSUE_FLOW_WEB_API_BASE_URL: webApiUrl,
 });

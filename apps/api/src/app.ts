@@ -2,16 +2,18 @@ import Fastify, { type FastifyRequest } from "fastify"
 import cors from "@fastify/cors"
 
 import { gitlabAuthRoutes } from "./routes/auth/gitlab.js"
+import { dashboardRoutes } from "./routes/dashboards.js"
 import { gitServerRoutes } from "./routes/git-servers.js"
 import { gitlabRoutes } from "./routes/gitlab.js"
 import { healthRoutes } from "./routes/health.js"
 import { repositoryRoutes } from "./routes/repositories.js"
 import { sessionRoutes } from "./routes/session.js"
+import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
 import { errorResponse } from "./core/responses.js"
 import { createIssueFlowStore, type IssueFlowStore } from "./storage/store.js"
-import { allowedOrigin, parseCookies, setNoStore } from "./utils/http.js"
+import { allowedOrigin, parseCookies, requiredBaseUrl, setNoStore } from "./utils/http.js"
 
 export type CreateAppOptions = {
   store?: IssueFlowStore
@@ -19,6 +21,8 @@ export type CreateAppOptions = {
 }
 
 export async function createApp(options: CreateAppOptions = {}) {
+  requiredBaseUrl()
+
   const app = Fastify({
     logger: {
       level: process.env.ISSUE_FLOW_LOG_LEVEL || "info",
@@ -79,11 +83,13 @@ export async function createApp(options: CreateAppOptions = {}) {
   })
 
   await app.register(healthRoutes)
+  await app.register(setupRoutes)
   await app.register(sessionRoutes)
   await app.register(gitServerRoutes)
   await app.register(gitlabAuthRoutes)
   await app.register(userAgentrixConfigRoutes)
   await app.register(repositoryRoutes)
+  await app.register(dashboardRoutes)
   await app.register(gitlabRoutes)
   await app.register(gitlabWebhookRoutes)
 
