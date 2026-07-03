@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "issueFlowVersion": "0.2.0",
+  "issueFlowVersion": "0.3.0",
   "provider": "github",
   "runtime": "agentrix",
   "files": {
     ".agentrix/plugins/issue-flow/.claude-plugin/plugin.json": {
       "source": ".claude-plugin/plugin.json",
       "mode": "managed",
-      "sha256": "2460df2372855bc4a24c9152322143489b8a767450d6be59b5735d342c91d01c"
+      "sha256": "9ffdce7e9e4f6824812739489eb156cd200c5e8d2f8adde777660aaafea7233c"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "7edcf789b541a1324421d188fe244943f130274a1373e65134a78105e913ecad"
+      "sha256": "5effbbf5c731b743ce8cd9bd3c0f7f1ffe724c0ffa8da92737d06756fca6042e"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md",
@@ -42,11 +42,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/review.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/review.prompt.md",
       "mode": "managed",
-<<<<<<< HEAD
       "sha256": "0b2b649c128b12748f140bc05764bca1b569be59d706046c32d1090420d2fd6f"
-=======
-      "sha256": "4e04d2d521f07bec4fbad5b9a4e1412195d0c864d58c2b50900dfae686f5dc62"
->>>>>>> develop
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md",
@@ -166,11 +162,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
       "mode": "managed",
-<<<<<<< HEAD
       "sha256": "b1c1953abcc3199c3fd7ab475ee7a124cef70e0f1b75748fcd8f95c8b3b3035e"
-=======
-      "sha256": "6702d69625ade150f39d33f39e4f2343c526a85f6ce4191a6646370700318453"
->>>>>>> develop
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
@@ -195,7 +187,7 @@
     ".github/workflows/issue-flow-failure-intake.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-failure-intake.yml",
       "mode": "managed",
-      "sha256": "bb509cf315db9973fb1a112d266ff0feebad8c379f63cc03d82c14dc001f2b51"
+      "sha256": "027e468ae75ae069f73dfc7d56aca438dc19711c1b274b23fcc7f9d93f41f097"
     },
     ".github/workflows/issue-flow-labels.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-labels.yml",
@@ -255,11 +247,7 @@
     ".issue-flow/prompts/review.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/review.prompt.md",
       "mode": "customizable",
-<<<<<<< HEAD
       "sha256": "0b2b649c128b12748f140bc05764bca1b569be59d706046c32d1090420d2fd6f"
-=======
-      "sha256": "4e04d2d521f07bec4fbad5b9a4e1412195d0c864d58c2b50900dfae686f5dc62"
->>>>>>> develop
     },
     ".issue-flow/prompts/triage.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/triage.prompt.md",
