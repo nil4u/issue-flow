@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/nil4u/issue-flow/compare/v0.2.0...v0.2.1) (2026-06-30)
+
+
+### Bug Fixes
+
+* allow no-finding reviews as comments ([d094730](https://github.com/nil4u/issue-flow/commit/d0947304726063c4e20906e813eafc5d63e19d64))
+* propagate task id on Agentrix resume ([6ea1c14](https://github.com/nil4u/issue-flow/commit/6ea1c14a41d512e9fb742de81ab2a8bf913a24b1))
+* resume clarify comments on issue tasks ([7092890](https://github.com/nil4u/issue-flow/commit/7092890ddf7d63c55dc78cf0091cb08715c2b542))
+
 ## [0.2.0](https://github.com/nil4u/issue-flow/compare/v0.1.0...v0.2.0) (2026-06-25)
 
 
