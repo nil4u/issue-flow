@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 
 const DEFAULT_RUNTIME = 'agentrix';
 const MANIFEST_VERSION = 1;
+const ISSUE_FLOW_VERSION = readIssueFlowVersion();
 const INSTALL_MANIFEST = '.issue-flow/install-manifest.json';
 const MODE_MANAGED = 'managed';
 const MODE_CUSTOMIZABLE = 'customizable';
@@ -67,6 +68,15 @@ const VALUE_OPTIONS = new Set(['--runtime']);
 
 function packageRootDir() {
   return path.resolve(__dirname, '..', '..', '..');
+}
+
+function readIssueFlowVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(packageRootDir(), 'package.json'), 'utf8'));
+    return String(pkg.version || '');
+  } catch {
+    return '';
+  }
 }
 
 function skillRootDir() {
@@ -199,6 +209,9 @@ function readInstallManifest(options = {}) {
   }
   return {
     version: manifest.version || MANIFEST_VERSION,
+    issueFlowVersion: manifest.issueFlowVersion || '',
+    provider: manifest.provider || '',
+    runtime: manifest.runtime || '',
     files: manifest.files,
   };
 }
@@ -210,6 +223,9 @@ function formatInstallManifest(manifest) {
   }
   return `${JSON.stringify({
     version: MANIFEST_VERSION,
+    issueFlowVersion: manifest.issueFlowVersion || ISSUE_FLOW_VERSION,
+    provider: manifest.provider || '',
+    runtime: manifest.runtime || DEFAULT_RUNTIME,
     files,
   }, null, 2)}\n`;
 }
@@ -890,7 +906,7 @@ function summarizeGroupOperations(operations, options = {}) {
   return results;
 }
 
-function nextManifestFromOperations(manifest, operations) {
+function nextManifestFromOperations(manifest, operations, options = {}) {
   const files = { ...manifest.files };
   for (const operation of operations) {
     if (operation.kind === 'desired') {
@@ -911,6 +927,9 @@ function nextManifestFromOperations(manifest, operations) {
 
   return {
     version: MANIFEST_VERSION,
+    issueFlowVersion: ISSUE_FLOW_VERSION,
+    provider: options.provider || manifest.provider || '',
+    runtime: resolveRuntime(options),
     files,
   };
 }
@@ -923,7 +942,7 @@ function runFileInstall(specs, options = {}) {
   const operations = resolveConflicts([...desiredOperations, ...staleOperations], options);
 
   applyFileOperations(operations, options);
-  const nextManifest = nextManifestFromOperations(manifest, operations);
+  const nextManifest = nextManifestFromOperations(manifest, operations, options);
   return [
     ...summarizeGroupOperations(operations, options),
     writeInstallManifest(nextManifest, options),
@@ -985,7 +1004,7 @@ function installGithub(options = {}) {
       ...githubWorkflowInstallSpecs(options),
       ...bootstrapInstallSpecs(AGENTRIX_PROJECT_FILES),
       ...packageInstallSpecs(AGENTRIX_PROJECT_DIRS),
-    ], { ...options, pruneStale: true }),
+    ], { ...options, provider: 'github', pruneStale: true }),
   ];
 }
 
@@ -1063,7 +1082,7 @@ function installGitlab(options = {}) {
     ...bootstrapInstallSpecs(AGENTRIX_GITLAB_FILES),
     ...bootstrapInstallSpecs(AGENTRIX_PROJECT_FILES),
     ...packageInstallSpecs(AGENTRIX_PROJECT_DIRS),
-  ], { ...options, pruneStale: true });
+  ], { ...options, provider: 'gitlab', pruneStale: true });
   return [
     ...removeLegacyAgentrixProjectRoot(options),
     installGitlabRootCi(options),

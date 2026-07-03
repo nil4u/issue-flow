@@ -1,7 +1,7 @@
 ---
 name: issue-flow
-version: 0.2.0 # x-release-please-version
-description: "Label-based issue 状态流转工具。通过统一 issue-flow CLI 操作 GitHub/GitLab issue、labels、comments、PR/MR 和 review。"
+version: 0.2.1 # x-release-please-version
+description: "Label-based issue 状态流转工具。通过统一 issue-flow CLI 操作 GitHub/GitLab issue、labels、comments、PR/MR 和 review。在使用 issue-flow managed labels（type::/status::/flow:: 等）或包含 .issue-flow/ 目录的仓库中处理 issue/PR 时使用。"
 metadata:
   requires:
     bins: ["node"]
@@ -25,6 +25,8 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs <resource> <action> [options]
 issue-flow <resource> <action> [options]
 ```
 
+`${CLAUDE_SKILL_DIR}` 由 Claude 运行时注入；未定义时，用本 SKILL.md 所在目录替代（`cli.cjs` 与 SKILL.md 同目录）。
+
 不要为 issue-flow 已覆盖的动作直接调用 `gh`、`glab`、`gh api`、`glab api`，也不要手写 GitHub/GitLab REST/GraphQL 请求。provider 内部可以使用 token API 或 CLI fallback，但这个选择由 issue-flow 封装。
 
 ## Label 体系
@@ -45,13 +47,7 @@ issue-flow <resource> <action> [options]
 
 ### CI failure intake label policy
 
-`dispatch pipeline-failed` 创建或更新的 CI failure issue 默认使用 `type::ops`、`status::active`、`flow::build`、`automation::build`、`failure::ci` 和单一 `size::`。它仍走 build action，但 agent 必须先定位根因再调整标签或提交修复。
-
-- 确认是仓库代码回归时，改为 `type::bug` 并按 build 修复。
-- workflow/provider/secret/variable/runner/environment/transient/external 问题保持 `type::ops`。
-- 等外部权限、secret、runner 或服务恢复时，设置 `status::suspend`，避免保留 `status::active` + `flow::build` 反复触发。
-- 确认误报或无可执行事项时，设置 `status::drop`。
-- 确认已恢复并有验证依据时，设置 `status::done`。
+`dispatch pipeline-failed` 创建或更新的 CI failure issue 默认使用 `type::ops`、`status::active`、`flow::build`、`automation::build`、`failure::ci` 和单一 `size::`。它仍走 build action，但 agent 必须先定位根因再调整标签或提交修复；根因分类与 `type::`/`status::` 流转细则见 build CI failure prompt（`.issue-flow/prompts/build-ci-failure.prompt.md`，未自定义时为 skill 内置默认版本）。
 
 ## Provider 操作
 
@@ -62,6 +58,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue get --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue create --title "<normalized title>" --body-file <tmp-issue-body-file> \
   --type type::feature --status status::active --flow flow::plan --priority priority::p2 --size size::M
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build --size size::M
+node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --type type::bug --normalized-body-file <tmp-normalized-body-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue intake --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments list --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments create --issue 123 --body-file <tmp-comment-body-file>
@@ -69,6 +66,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
 ```
 
 - `issue apply` 只移除指定 prefix 的旧 label，不动其他 prefix。
+- 规范化正文：按 issue 的 `type::` 对应 `.issue-flow/templates/type-*.md` 重写正文，写到 repo 外临时文件，用 `--normalized-body-file` 随标签一起应用。
 - 设置 `flow::clarify` 时不会更新 issue body（会忽略 `--normalized-body-file`）。
 - 创建 issue 时，body 先按 `.issue-flow/templates/type-*.md` 整理，写到 repo 外临时文件（如 `mktemp`）；不要把 body 文件提交到 git。
 - `type::`、`status::`、`flow::`、`priority::`、`automation::`、`size::` 必须通过对应参数传入，不能放在 `--label`。

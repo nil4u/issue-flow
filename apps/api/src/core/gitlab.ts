@@ -83,6 +83,21 @@ function normalizeProject(project = {}) {
     accessLevelKnown,
     permissionStatus: accessLevelKnown ? (accessLevel >= 40 ? 'can_install' : 'no_permission') : 'unknown',
     canInstall: accessLevelKnown ? accessLevel >= 40 : false,
+    sharedRunnersEnabled: project.shared_runners_enabled !== false && project.sharedRunnersEnabled !== false,
+    groupRunnersEnabled: project.group_runners_enabled !== false && project.groupRunnersEnabled !== false,
+  };
+}
+
+function normalizeIssue(issue = {}) {
+  return {
+    id: issue.id !== undefined ? String(issue.id) : '',
+    iid: Number(issue.iid || issue.number || 0),
+    title: issue.title || '',
+    state: issue.state || '',
+    labels: Array.isArray(issue.labels) ? issue.labels.map((label) => String(label || '')).filter(Boolean) : [],
+    createdAt: issue.created_at || '',
+    updatedAt: issue.updated_at || '',
+    closedAt: issue.closed_at || '',
   };
 }
 
@@ -98,11 +113,39 @@ async function listGitlabProjectsPage(input = {}, extraParams = {}) {
   return Array.isArray(result.parsed) ? result.parsed.map(normalizeProject) : [];
 }
 
-function gitlabOAuthRedirectUri(config, basePublicUrl) {
-  return config.oauthRedirectUri || `${String(basePublicUrl || '').replace(/\/+$/, '')}/api/auth/gitlab/callback`;
+async function listGitlabIssues(input = {}) {
+  const issues = [];
+  let page = 1;
+  while (page <= Number(input.maxPages || 50)) {
+    const params = new URLSearchParams({
+      state: input.state || 'all',
+      scope: input.scope || 'all',
+      per_page: String(input.perPage || 100),
+      page: String(page),
+    });
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/issues?${params}`,
+      input.token,
+      { authType: input.authType }
+    );
+    if (Array.isArray(result.parsed)) {
+      issues.push(...result.parsed.map(normalizeIssue));
+    }
+    const nextPage = result.headers && result.headers.get && result.headers.get('x-next-page');
+    if (!nextPage) break;
+    page = Number(nextPage);
+    if (!page) break;
+  }
+  return issues;
 }
 
-function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl }) {
+function gitlabOAuthRedirectUri(config, basePublicUrl) {
+  return `${String(basePublicUrl || '').replace(/\/+$/, '')}/api/auth/gitlab/callback`;
+}
+
+function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl, appUrl }) {
   if (!config.oauthClientId) {
     const error = new Error('GitLab OAuth client id is not configured');
     error.status = 400;
@@ -119,7 +162,7 @@ function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl }) {
   return url.toString();
 }
 
-async function exchangeGitlabOAuthCode({ config, code, basePublicUrl }) {
+async function exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl }) {
   if (!config.oauthClientId || !config.oauthClientSecret) {
     const error = new Error('GitLab OAuth client is not configured');
     error.status = 400;
@@ -208,8 +251,11 @@ async function getGitlabCurrentUser(input = {}) {
     const user = await fetchJson('GET', input.apiUrl, '/user', token, { authType: input.authType });
     return {
       status: 'valid',
+      id: user.parsed && user.parsed.id !== undefined ? String(user.parsed.id) : '',
       username: user.parsed && (user.parsed.username || user.parsed.name) || '',
       name: user.parsed && user.parsed.name || '',
+      email: user.parsed && user.parsed.email || '',
+      avatarUrl: user.parsed && user.parsed.avatar_url || '',
       scopes: parseScopes(user.headers),
       lastValidatedAt: nowIso(),
       errorCode: '',
@@ -251,6 +297,70 @@ async function getGitlabProjectForInstall(input = {}) {
     authType: input.authType,
   });
   return normalizeProject(result.parsed || {});
+}
+
+async function getGitlabProjectMember(input = {}) {
+  const userId = String(input.userId || '').trim();
+  if (!userId) return undefined;
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/members/all/${encodeURIComponent(userId)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && (error.status === 403 || error.status === 404)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function addGitlabProjectMember(input = {}) {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/members`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        user_id: input.userId,
+        access_level: Number(input.accessLevel || 40),
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
+async function updateGitlabProjectMember(input = {}) {
+  const result = await fetchJson(
+    'PUT',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/members/${encodeURIComponent(input.userId)}`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        access_level: Number(input.accessLevel || 40),
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
+async function upsertGitlabProjectMember(input = {}) {
+  try {
+    return await addGitlabProjectMember(input);
+  } catch (error) {
+    if (!error || error.status !== 409) {
+      throw error;
+    }
+    return updateGitlabProjectMember(input);
+  }
 }
 
 function gitlabWebhookBody(input = {}) {
@@ -301,6 +411,46 @@ async function listGitlabWebhooks(input = {}) {
   return Array.isArray(result.parsed) ? result.parsed : [];
 }
 
+async function createGitlabMergeRequest(input = {}) {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/merge_requests`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        source_branch: input.sourceBranch,
+        target_branch: input.targetBranch,
+        title: input.title || 'Install issue-flow',
+        description: input.description || '',
+        remove_source_branch: input.removeSourceBranch !== false,
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
+async function getGitlabMergeRequest(input = {}) {
+  const iid = String(input.iid || input.mergeRequestIid || '').trim();
+  if (!iid) return undefined;
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/merge_requests/${encodeURIComponent(iid)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && error.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 async function upsertGitlabWebhook(input = {}) {
   if (input.hookId) {
     try {
@@ -322,12 +472,97 @@ async function upsertGitlabWebhook(input = {}) {
   return installGitlabWebhook(input);
 }
 
+async function getGitlabProjectVariable(input = {}, key = '') {
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/variables/${encodeURIComponent(key)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && error.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function getGitlabGroupVariable(input = {}, groupPath = '', key = '') {
+  if (!groupPath) return undefined;
+  try {
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `/groups/${encodeURIComponent(groupPath)}/variables/${encodeURIComponent(key)}`,
+      input.token,
+      { authType: input.authType }
+    );
+    return result.parsed || {};
+  } catch (error) {
+    if (error && (error.status === 403 || error.status === 404)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function gitlabGroupPathsForProject(projectPath = '') {
+  const parts = String(projectPath || '').split('/').filter(Boolean);
+  parts.pop();
+  const paths = [];
+  while (parts.length) {
+    paths.push(parts.join('/'));
+    parts.pop();
+  }
+  return paths;
+}
+
+function publicGitlabVariable(variable = {}, source = 'project', groupPath = '') {
+  if (!variable) return undefined;
+  const masked = Boolean(variable.masked);
+  const hidden = Boolean(variable.hidden);
+  const rawValue = variable.value !== undefined && variable.value !== null ? String(variable.value) : '';
+  const environmentScope = variable.environment_scope || variable.environmentScope || '*';
+  return {
+    key: variable.key || '',
+    value: masked || hidden ? '*****' : rawValue,
+    source,
+    groupPath,
+    scope: environmentScope,
+    environmentScope,
+    variableType: variable.variable_type || variable.variableType || 'env_var',
+    protected: Boolean(variable.protected),
+    masked,
+    raw: variable.raw !== false,
+    hidden,
+    description: variable.description || '',
+  };
+}
+
+async function getGitlabVariableForInstall(input = {}, key = '') {
+  const projectVariable = await getGitlabProjectVariable(input, key);
+  if (projectVariable) {
+    return publicGitlabVariable(projectVariable, 'project');
+  }
+  for (const groupPath of gitlabGroupPathsForProject(input.projectPath || '')) {
+    const groupVariable = await getGitlabGroupVariable(input, groupPath, key);
+    if (groupVariable) {
+      return publicGitlabVariable(groupVariable, 'group', groupPath);
+    }
+  }
+  return undefined;
+}
+
 async function upsertGitlabProjectVariable(input = {}, variable = {}) {
   const key = variable.key;
   const body = {
     key,
     value: variable.value,
     variable_type: variable.variableType || 'env_var',
+    environment_scope: variable.environmentScope || variable.scope || '*',
     protected: Boolean(variable.protected),
     masked: Boolean(variable.masked),
     raw: variable.raw !== false,
@@ -364,6 +599,84 @@ async function configureGitlabProjectVariables(input = {}) {
     results.push(await upsertGitlabProjectVariable(input, variable));
   }
   return results;
+}
+
+function normalizeGitlabRunner(runner = {}) {
+  return {
+    id: runner.id !== undefined ? String(runner.id) : '',
+    description: runner.description || '',
+    active: runner.active !== false,
+    locked: Boolean(runner.locked),
+    paused: Boolean(runner.paused),
+    status: runner.status || '',
+    shortToken: runner.short_sha || runner.shortSha || runner.short_token || runner.shortToken || runner.token_short || runner.tokenShort || '',
+    runnerType: runner.runner_type || runner.runnerType || '',
+    tagList: Array.isArray(runner.tag_list || runner.tagList)
+      ? (runner.tag_list || runner.tagList).map((tag) => String(tag || '')).filter(Boolean)
+      : [],
+  };
+}
+
+async function listGitlabProjectRunners(input = {}) {
+  const result = await fetchJson(
+    'GET',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/runners`,
+    input.token,
+    { authType: input.authType }
+  );
+  return Array.isArray(result.parsed) ? result.parsed.map(normalizeGitlabRunner) : [];
+}
+
+async function getGitlabRunner(input = {}, runnerId = '') {
+  const result = await fetchJson(
+    'GET',
+    input.apiUrl,
+    `/runners/${encodeURIComponent(runnerId)}`,
+    input.token,
+    { authType: input.authType }
+  );
+  return normalizeGitlabRunner(result.parsed || {});
+}
+
+async function listGitlabRunners(input = {}, params = {}) {
+  const query = new URLSearchParams({
+    per_page: String(input.perPage || 100),
+    ...params,
+  });
+  const result = await fetchJson(
+    'GET',
+    input.apiUrl,
+    `/runners?${query}`,
+    input.token,
+    { authType: input.authType }
+  );
+  return Array.isArray(result.parsed) ? result.parsed.map(normalizeGitlabRunner) : [];
+}
+
+async function enableGitlabRunnerForProject(input = {}, runnerId = '') {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/runners`,
+    input.token,
+    { authType: input.authType, body: { runner_id: runnerId } }
+  );
+  return result.parsed || {};
+}
+
+async function updateGitlabProjectRunnerSettings(input = {}, settings = {}) {
+  const body = {};
+  if (settings.sharedRunnersEnabled !== undefined) body.shared_runners_enabled = Boolean(settings.sharedRunnersEnabled);
+  if (settings.groupRunnersEnabled !== undefined) body.group_runners_enabled = Boolean(settings.groupRunnersEnabled);
+  const result = await fetchJson(
+    'PUT',
+    input.apiUrl,
+    projectApiPath(input.projectIdOrPath),
+    input.token,
+    { authType: input.authType, body }
+  );
+  return normalizeProject(result.parsed || {});
 }
 
 function gitlabLabelApiPath(projectIdOrPath, labelName) {
@@ -516,18 +829,34 @@ async function validateGitlabToken(input = {}) {
 
 export {
   createGitlabRepositoryCommit,
+  createGitlabMergeRequest,
+  getGitlabMergeRequest,
   configureGitlabProjectVariables,
   exchangeGitlabOAuthCode,
+  getGitlabRunner,
   refreshGitlabOAuthToken,
+  addGitlabProjectMember,
   getGitlabCurrentUser,
+  getGitlabProjectMember,
   getGitlabProjectForInstall,
+  getGitlabProjectVariable,
+  getGitlabVariableForInstall,
   getGitlabRepositoryFile,
   gitlabOAuthAuthorizeUrl,
   gitlabOAuthRedirectUri,
   installGitlabWebhook,
+  listGitlabIssues,
+  enableGitlabRunnerForProject,
+  listGitlabRunners,
+  listGitlabProjectRunners,
+  listGitlabWebhooks,
   listGitlabProjects,
   projectApiPath,
   syncGitlabProjectLabels,
+  updateGitlabProjectMember,
+  updateGitlabProjectRunnerSettings,
+  upsertGitlabProjectMember,
+  upsertGitlabProjectVariable,
   upsertGitlabWebhook,
   validateGitlabToken,
 }

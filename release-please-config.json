@@ -11,6 +11,11 @@
         {
           "type": "generic",
           "path": "skills/issue-flow/SKILL.md"
+        },
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
         }
       ]
     }

@@ -34,6 +34,7 @@ test('release manifest matches package and skill versions', () => {
   assert.equal(manifest['.'], pkg.version);
   assert.match(versionLine, new RegExp(`^version: ${pkg.version.replaceAll('.', '\\.')}`));
   assert.match(versionLine, /x-release-please-version/);
+  assert.equal(readJson('.claude-plugin/plugin.json').version, pkg.version);
 });
 
 test('release-please config updates the project package and skill file', () => {
@@ -50,6 +51,11 @@ test('release-please config updates the project package and skill file', () => {
       type: 'generic',
       path: 'skills/issue-flow/SKILL.md',
     },
+    {
+      type: 'json',
+      path: '.claude-plugin/plugin.json',
+      jsonpath: '$.version',
+    },
   ]);
 });
 
@@ -61,6 +67,8 @@ test('release workflow runs release-please in manifest mode on main', () => {
   assert.match(workflow, /pull-requests: write/);
   assert.doesNotMatch(workflow, /issues: write/);
   assert.match(workflow, /uses: googleapis\/release-please-action@v4/);
+  assert.match(workflow, /group: release-please-main/);
+  assert.match(workflow, /target-branch: main/);
   assert.match(workflow, /config-file: release-please-config\.json/);
   assert.match(workflow, /manifest-file: \.release-please-manifest\.json/);
 });
