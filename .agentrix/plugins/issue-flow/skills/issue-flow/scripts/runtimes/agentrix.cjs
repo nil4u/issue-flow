@@ -509,6 +509,18 @@ function appendOptionalArg(args, flag, value) {
   }
 }
 
+function buildAgentrixRepo(fullName, gitServerId) {
+  const parts = String(fullName || '').split('/').filter(Boolean);
+  if (parts.length < 2) {
+    throw new Error(`Invalid repository fullName: ${fullName}`);
+  }
+  return {
+    gitServerId,
+    owner: parts.slice(0, -1).join('/'),
+    name: parts[parts.length - 1],
+  };
+}
+
 function buildRunTitle(action, issue) {
   if (action === 'review') {
     return `Review PR #${issue.number}: ${truncate(issue.title || 'untitled pull request', 80)}`;
@@ -522,14 +534,14 @@ function buildRepoArg(issue = {}, options = {}) {
   if (!gitServerId) {
     return '';
   }
-  const repoFullName = String(issue.repoFullName || options.repo || '').trim();
-  const [owner, ...nameParts] = repoFullName.split('/');
-  const name = nameParts.join('/');
+  const owner = String(issue.owner || '').trim();
+  const name = String(issue.repo || '').trim();
+  const repo = owner && name
+    ? { gitServerId, owner, name }
+    : buildAgentrixRepo(String(issue.repoFullName || options.repo || '').trim(), gitServerId);
   return JSON.stringify({
-    gitServerId,
+    ...repo,
     serverRepoId: options.gitlabProject ? String(options.gitlabProject) : undefined,
-    owner: owner || undefined,
-    name: name || undefined,
   });
 }
 
@@ -870,6 +882,7 @@ module.exports = {
   buildIssuePlanPattern,
   buildPrompt,
   buildPullRequestPrompt,
+  buildAgentrixRepo,
   buildIssueCommentResumeInstruction,
   buildResumeTaskArgs,
   buildRunArgs,
