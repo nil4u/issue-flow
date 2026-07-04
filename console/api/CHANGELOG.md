@@ -1,0 +1,14 @@
+# Changelog
+
+## [0.2.0](https://github.com/nil4u/issue-flow/compare/console-v0.1.0...console-v0.2.0) (2026-07-04)
+
+
+### Features
+
+* **console:** serve web dist from the API and ship a production Docker image ([ec090d5](https://github.com/nil4u/issue-flow/commit/ec090d5be78bff8b546d2a71e1cff9a34e00d511))
+
+
+### Bug Fixes
+
+* **console:** configure plugin install directory ([a493389](https://github.com/nil4u/issue-flow/commit/a493389e46bebd4e96e15d1efb20424613cb8f34))
+* **console:** handle install conflicts ([0104e4a](https://github.com/nil4u/issue-flow/commit/0104e4a2fd16fe104cfe40bb717c32f4a9a4f946))

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/nil4u/issue-flow/compare/v0.3.0...v0.3.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* **console:** handle install conflicts ([0104e4a](https://github.com/nil4u/issue-flow/commit/0104e4a2fd16fe104cfe40bb717c32f4a9a4f946))
+* **plugin:** harden gitlab root ci conflict flow and decision persistence ([c695501](https://github.com/nil4u/issue-flow/commit/c6955011669717e091f4517525e0a6a81ce73069))
+
 ## [0.3.0](https://github.com/nil4u/issue-flow/compare/v0.2.1...v0.3.0) (2026-07-03)
 
 
