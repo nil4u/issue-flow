@@ -63,106 +63,15 @@ jobs:
             type=raw,value=latest
             type=sha
 
-  docker-build:
+  docker-publish:
     needs:
       - release-please
       - docker-prepare
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            suffix: amd64
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-            suffix: arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push digest
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: console/Dockerfile
-          push: true
-          platforms: ${{ matrix.platform }}
-          tags: ${{ env.IMAGE_NAME }}
-          labels: ${{ needs.docker-prepare.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
-
-      - name: Export digest
-        run: |
-          mkdir -p "$RUNNER_TEMP/digests"
-          digest="${{ steps.build.outputs.digest }}"
-          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-digests-${{ matrix.suffix }}
-          path: ${{ runner.temp }}/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  docker-merge:
-    needs:
-      - release-please
-      - docker-prepare
-      - docker-build
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: release-digests-*
-          path: ${{ runner.temp }}/digests
-          merge-multiple: true
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create manifest list
-        working-directory: ${{ runner.temp }}/digests
-        run: |
-          tag_args=()
-          while IFS= read -r tag; do
-            tag="${tag#"${tag%%[![:space:]]*}"}"
-            tag="${tag%"${tag##*[![:space:]]}"}"
-            [ -n "$tag" ] && tag_args+=("-t" "$tag")
-          done <<'EOF'
-          ${{ needs.docker-prepare.outputs.tags }}
-          EOF
-
-          image_args=()
-          for digest in *; do
-            image_args+=("${{ env.IMAGE_NAME }}@sha256:${digest}")
-          done
-          [ "${#image_args[@]}" -ge 2 ]
-          docker buildx imagetools create "${tag_args[@]}" "${image_args[@]}"
-
-      - name: Inspect image
-        run: docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ needs.docker-prepare.outputs.version }}
+    uses: ./.github/workflows/console-image-publish.yml
+    secrets: inherit
+    with:
+      image_name: ghcr.io/${{ github.repository }}-console
+      tags: ${{ needs.docker-prepare.outputs.tags }}
+      labels: ${{ needs.docker-prepare.outputs.labels }}
+      version: ${{ needs.docker-prepare.outputs.version }}

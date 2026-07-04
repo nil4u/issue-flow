@@ -93,10 +93,23 @@ test('release workflow runs release-please in manifest mode on main', () => {
 test('console image workflows build arm64 without qemu emulation', () => {
   const releaseWorkflow = read('.github/workflows/release-please.yml');
   const imageWorkflow = read('.github/workflows/docker-image.yml');
-  const workflows = `${releaseWorkflow}\n${imageWorkflow}`;
+  const publishWorkflow = read('.github/workflows/console-image-publish.yml');
+  const workflows = `${releaseWorkflow}\n${imageWorkflow}\n${publishWorkflow}`;
 
   assert.doesNotMatch(workflows, /platforms:\s*linux\/amd64,linux\/arm64/);
   assert.match(workflows, /runner:\s+ubuntu-24\.04-arm/);
   assert.match(workflows, /push-by-digest=true/);
   assert.match(workflows, /docker buildx imagetools create/);
+});
+
+test('console image workflows share one publish implementation', () => {
+  const releaseWorkflow = read('.github/workflows/release-please.yml');
+  const imageWorkflow = read('.github/workflows/docker-image.yml');
+  const publishWorkflow = read('.github/workflows/console-image-publish.yml');
+
+  assert.match(releaseWorkflow, /uses: \.\/\.github\/workflows\/console-image-publish\.yml/);
+  assert.match(imageWorkflow, /uses: \.\/\.github\/workflows\/console-image-publish\.yml/);
+  assert.match(publishWorkflow, /workflow_call:/);
+  assert.doesNotMatch(`${releaseWorkflow}\n${imageWorkflow}`, /docker\/build-push-action@v6/);
+  assert.doesNotMatch(`${releaseWorkflow}\n${imageWorkflow}`, /docker buildx imagetools create/);
 });

@@ -1,0 +1,127 @@
+# [INPUT]: 依赖 workflow_call 传入 image_name/tags/labels/version 与 console/Dockerfile
+# [OUTPUT]: 原生构建 linux/amd64、linux/arm64 console 镜像并合并为 GHCR multi-arch manifest
+# [POS]: console 镜像发布的唯一构建实现，被 release 与手动镜像入口复用
+# [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+
+name: Console Image Publish
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: "Fully qualified image name"
+        required: true
+        type: string
+      tags:
+        description: "Newline-separated image tags"
+        required: true
+        type: string
+      labels:
+        description: "Newline-separated image labels"
+        required: true
+        type: string
+      version:
+        description: "Tag to inspect after publishing"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: console/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ inputs.image_name }}
+          labels: ${{ inputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          tag_args=()
+          while IFS= read -r tag; do
+            tag="${tag#"${tag%%[![:space:]]*}"}"
+            tag="${tag%"${tag##*[![:space:]]}"}"
+            [ -n "$tag" ] && tag_args+=("-t" "$tag")
+          done <<'EOF'
+          ${{ inputs.tags }}
+          EOF
+
+          image_args=()
+          for digest in *; do
+            image_args+=("${{ inputs.image_name }}@sha256:${digest}")
+          done
+          [ "${#image_args[@]}" -ge 2 ]
+          docker buildx imagetools create "${tag_args[@]}" "${image_args[@]}"
+
+      - name: Inspect image
+        run: docker buildx imagetools inspect ${{ inputs.image_name }}:${{ inputs.version }}
