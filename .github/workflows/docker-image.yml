@@ -33,8 +33,53 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}-console
 
 jobs:
-  build-and-push:
+  prepare:
+    timeout-minutes: 45
     runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/console-v') }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && inputs.latest }}
+            type=sha
+
+      - name: Image version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+            printf 'version=%s\n' "${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == refs/tags/console-v* ]]; then
+            printf 'version=%s\n' "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            printf 'version=sha-%s\n' "$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
 
     steps:
@@ -49,26 +94,74 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=tag
-            type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/console-v') }}
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && inputs.latest }}
-            type=sha
-
-      - name: Build and push
+      - name: Build and push digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: console/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.IMAGE_NAME }}
+          labels: ${{ needs.prepare.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          tag_args=()
+          while IFS= read -r tag; do
+            tag="${tag#"${tag%%[![:space:]]*}"}"
+            tag="${tag%"${tag##*[![:space:]]}"}"
+            [ -n "$tag" ] && tag_args+=("-t" "$tag")
+          done <<'EOF'
+          ${{ needs.prepare.outputs.tags }}
+          EOF
+
+          image_args=()
+          for digest in *; do
+            image_args+=("${{ env.IMAGE_NAME }}@sha256:${digest}")
+          done
+          [ "${#image_args[@]}" -ge 2 ]
+          docker buildx imagetools create "${tag_args[@]}" "${image_args[@]}"
+
+      - name: Inspect image
+        run: docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}

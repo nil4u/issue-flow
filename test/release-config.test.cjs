@@ -89,3 +89,14 @@ test('release workflow runs release-please in manifest mode on main', () => {
   assert.match(workflow, /config-file: release-please-config\.json/);
   assert.match(workflow, /manifest-file: \.release-please-manifest\.json/);
 });
+
+test('console image workflows build arm64 without qemu emulation', () => {
+  const releaseWorkflow = read('.github/workflows/release-please.yml');
+  const imageWorkflow = read('.github/workflows/docker-image.yml');
+  const workflows = `${releaseWorkflow}\n${imageWorkflow}`;
+
+  assert.doesNotMatch(workflows, /platforms:\s*linux\/amd64,linux\/arm64/);
+  assert.match(workflows, /runner:\s+ubuntu-24\.04-arm/);
+  assert.match(workflows, /push-by-digest=true/);
+  assert.match(workflows, /docker buildx imagetools create/);
+});
