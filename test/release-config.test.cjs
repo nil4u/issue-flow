@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 package.json、SKILL.md、release-please config/manifest 与 release workflow 文件
- * [OUTPUT]: 对外提供 release-please 版本管理配置的回归测试
- * [POS]: test 套件中的发布配置契约验证，防止版本源、extra-files 标记和 workflow 入口漂移
+ * [INPUT]: 依赖 plugin/console 两个 package.json、SKILL.md、release-please config/manifest 与 release workflow 文件
+ * [OUTPUT]: 对外提供 release-please 双包版本管理配置的回归测试
+ * [POS]: 根 test 套件中的发布配置契约验证，防止版本源、extra-files 标记和 workflow 入口漂移
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,32 +21,34 @@ function readJson(relativePath) {
 }
 
 function skillVersionLine() {
-  const match = read('skills/issue-flow/SKILL.md').match(/^version:\s*([^\s#]+).*$/m);
+  const match = read('plugin/skills/issue-flow/SKILL.md').match(/^version:\s*([^\s#]+).*$/m);
   assert.ok(match, 'SKILL.md must expose a version in front matter');
   return match[0];
 }
 
-test('release manifest matches package and skill versions', () => {
-  const pkg = readJson('package.json');
+test('release manifest matches plugin and console package versions', () => {
+  const pluginPkg = readJson('plugin/package.json');
+  const consolePkg = readJson('console/api/package.json');
   const manifest = readJson('.release-please-manifest.json');
   const versionLine = skillVersionLine();
 
-  assert.equal(manifest['.'], pkg.version);
-  assert.match(versionLine, new RegExp(`^version: ${pkg.version.replaceAll('.', '\\.')}`));
+  assert.equal(manifest['plugin'], pluginPkg.version);
+  assert.equal(manifest['console/api'], consolePkg.version);
+  assert.match(versionLine, new RegExp(`^version: ${pluginPkg.version.replaceAll('.', '\\.')}`));
   assert.match(versionLine, /x-release-please-version/);
-  assert.equal(readJson('.claude-plugin/plugin.json').version, pkg.version);
+  assert.equal(readJson('plugin/.claude-plugin/plugin.json').version, pluginPkg.version);
 });
 
-test('release-please config updates the project package and skill file', () => {
+test('release-please config releases plugin and console independently', () => {
   const config = readJson('release-please-config.json');
-  const rootPackage = config.packages['.'];
+  const pluginPackage = config.packages['plugin'];
+  const consolePackage = config.packages['console/api'];
 
-  assert.equal(rootPackage['release-type'], 'node');
-  assert.equal(rootPackage['package-name'], 'issue-flow');
-  assert.equal(rootPackage['changelog-path'], 'CHANGELOG.md');
-  assert.equal(rootPackage['include-component-in-tag'], false);
-  assert.match(config['bootstrap-sha'], /^[0-9a-f]{40}$/);
-  assert.deepEqual(rootPackage['extra-files'], [
+  assert.equal(pluginPackage['release-type'], 'node');
+  assert.equal(pluginPackage['package-name'], 'issue-flow');
+  assert.equal(pluginPackage['changelog-path'], 'CHANGELOG.md');
+  assert.equal(pluginPackage['include-component-in-tag'], false);
+  assert.deepEqual(pluginPackage['extra-files'], [
     {
       type: 'generic',
       path: 'skills/issue-flow/SKILL.md',
@@ -57,6 +59,21 @@ test('release-please config updates the project package and skill file', () => {
       jsonpath: '$.version',
     },
   ]);
+
+  assert.equal(consolePackage['release-type'], 'node');
+  assert.equal(consolePackage['package-name'], 'issue-flow-console');
+  assert.equal(consolePackage['component'], 'console');
+  assert.notEqual(consolePackage['include-component-in-tag'], false);
+});
+
+test('workspace packages agree with release manifest layout', () => {
+  const rootPkg = readJson('package.json');
+
+  assert.equal(rootPkg.private, true);
+  assert.deepEqual(rootPkg.workspaces, ['plugin', 'console/api', 'console/web']);
+  assert.equal(readJson('plugin/package.json').name, 'issue-flow');
+  assert.equal(readJson('console/api/package.json').name, 'issue-flow-console');
+  assert.equal(readJson('console/api/package.json').private, true);
 });
 
 test('release workflow runs release-please in manifest mode on main', () => {

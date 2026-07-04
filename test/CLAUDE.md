@@ -2,32 +2,11 @@
 > L2 | 父级: /CLAUDE.md
 
 成员清单
-agentrix-runtime.test.cjs: Agentrix runtime prompt、run args、resume 与 task comment 的行为测试。
-bootstrap.test.cjs: install/bootstrap 生成文件、manifest 与 provider workflow 的行为测试。
-cli.test.cjs: 统一 CLI help、dry-run envelope 与命令路由测试。
-create-issue.test.cjs: issue create 参数解析、managed label 与 task marker 测试。
-dispatch.test.cjs: issue/PR/MR event dispatch、自动流转与 review resume 测试。
-install.test.cjs: install.sh checkout source、GitHub/GitLab 安装路径与 dry-run 测试。
-intake.test.cjs: issue intake 默认标签与 provider repo hint 测试。
-labels.test.cjs: managed label catalog 与 apply 规则测试。
-merged.test.cjs: merged PR/MR source issue transition 测试。
-metrics-sql.test.cjs: 只读 metrics SQL 校验、参数绑定与 MR 快照解析的纯逻辑测试。
-metrics.test.cjs: issue_stats 重建、pull_requests 投影、metric views 与 dashboard API 的 Postgres 集成测试。
-pipeline-failed.test.cjs: CI failure intake、fingerprint 与 root-cause analysis 测试。
-providers.test.cjs: GitHub/GitLab provider API、CLI fallback、review comment 与 label sync 测试。
-release-config.test.cjs: release-please config、manifest、SKILL version marker 与 workflow 入口测试。
-resolve.test.cjs: mention、automation decision 与 flow action 解析测试。
-service.test.cjs: apps/api Fastify 服务与 GitLab 控制台流程的 Postgres 集成测试。
-review.test.cjs: review CLI parser、provider review submission 与 stale-head guard 测试。
-submit.test.cjs: PR/MR submit、source marker、base branch 与 push auth 测试。
-sync-labels.test.cjs: label sync parser、dry-run 与 drift detection 测试。
-integration.test.cjs: provider lifecycle 集成场景测试，默认不在 npm test 中运行。
-integration-lifecycle.test.cjs: 真实远端 lifecycle 集成测试，默认不在 npm test 中运行。
+release-config.test.cjs: release-please 双包 config、manifest、SKILL version marker、workspace 布局与 workflow 入口测试。
 CLAUDE.md: 本目录的 L2 地图，记录测试文件职责。
 
 依赖边界
-test/*.test.cjs -> skills/issue-flow/scripts/*、assets/*、package/release 配置。
-service.test.cjs、metrics.test.cjs -> apps/api/src/*、prisma/migrations/*，需要 DATABASE_URL 指向可用 Postgres。
-integration*.test.cjs -> 真实 provider/远端环境，默认由 test:integration 单独执行。
+release-config.test.cjs -> 根 package.json、release-please-config.json、.release-please-manifest.json、plugin/package.json、plugin/skills/issue-flow/SKILL.md、plugin/.claude-plugin/plugin.json、console/api/package.json、.github/workflows/release-please.yml。
+插件行为测试位于 plugin/test/，console API 测试位于 console/api/test/。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

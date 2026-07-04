@@ -1,0 +1,13 @@
+{
+  "name": "issue-flow",
+  "version": "0.3.0",
+  "description": "Label-based issue state machine and deterministic git provider operations for development automation.",
+  "license": "MIT",
+  "bin": {
+    "issue-flow": "skills/issue-flow/cli.cjs"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.cjs\"",
+    "test:integration": "node --test \"test/integration/*.test.cjs\""
+  }
+}

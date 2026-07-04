@@ -1,0 +1,17 @@
+.git
+.github
+.agentrix
+.issue-flow
+.issue-flow-service
+tmp
+node_modules
+console/*/node_modules
+console/api/dist
+console/web/dist
+coverage
+*.tgz
+.env
+.env.*
+!.env.example
+!.env.dev.example
+.DS_Store

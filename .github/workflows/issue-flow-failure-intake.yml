@@ -5,10 +5,11 @@ on:
     workflows:
       - 'Issue Flow Auto'
       - 'Issue Flow Comment'
-      - 'Issue Flow PR Merged'
-      - 'Issue Flow PR Review'
-      - 'Issue Flow PR Review Comment'
       - 'Issue Flow Labels'
+      - 'Issue Flow PR Merged'
+      - 'Issue Flow PR Review Comment'
+      - 'Issue Flow PR Review'
+      - 'Release Please'
     types:
       - completed
 
