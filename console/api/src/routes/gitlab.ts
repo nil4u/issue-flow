@@ -163,7 +163,7 @@ export async function gitlabRoutes(app: FastifyInstance) {
         session,
       })
       if (result.status >= 400) {
-        if (result.status === 409) {
+        if (result.status === 409 && Array.isArray((result.body as { conflicts?: unknown }).conflicts)) {
           send("conflicts", result.body)
         } else {
           send("error", result.body)

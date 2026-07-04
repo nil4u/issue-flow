@@ -1,8 +1,7 @@
 // @ts-nocheck
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
+const PACKAGE_ROOT = path.resolve(__dirname, '../../../..')
 const DEFAULT_PLUGIN_DIR = path.join(PACKAGE_ROOT, 'plugin')
 
 function issueFlowPluginDir(env = process.env) {

@@ -1,3 +1,5 @@
+import fs from "node:fs"
+import path from "node:path"
 import Fastify, { type FastifyRequest } from "fastify"
 import cors from "@fastify/cors"
 
@@ -18,6 +20,52 @@ import { allowedOrigin, parseCookies, requiredBaseUrl, setNoStore } from "./util
 export type CreateAppOptions = {
   store?: IssueFlowStore
   storeOptions?: Record<string, unknown>
+}
+
+const MIME_TYPES: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+}
+
+function webDistDir() {
+  const root = path.resolve(__dirname, "../../..")
+  return path.resolve(process.env.ISSUE_FLOW_WEB_DIST_DIR || path.join(root, "console/web/dist"))
+}
+
+function staticCandidate(root: string, pathname: string) {
+  const decoded = decodeURIComponent(pathname)
+  const target = path.resolve(root, `.${decoded === "/" ? "/index.html" : decoded}`)
+  return target === root || target.startsWith(`${root}${path.sep}`) ? target : ""
+}
+
+async function readableStaticFile(root: string, pathname: string) {
+  const candidate = staticCandidate(root, pathname)
+  if (candidate) {
+    const stat = await fs.promises.stat(candidate).catch(() => undefined)
+    if (stat?.isFile()) return candidate
+  }
+  if (path.extname(pathname)) return ""
+  const fallback = path.join(root, "index.html")
+  const stat = await fs.promises.stat(fallback).catch(() => undefined)
+  return stat?.isFile() ? fallback : ""
+}
+
+async function sendStaticWeb(request: FastifyRequest, reply: any) {
+  const pathname = new URL(request.url, "http://issue-flow.local").pathname
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    return reply.code(404).send({ error: "not_found" })
+  }
+  const file = await readableStaticFile(webDistDir(), pathname)
+  if (!file) return reply.code(404).send({ error: "web_dist_not_found" })
+  const isIndex = path.basename(file) === "index.html"
+  reply.header("Cache-Control", isIndex ? "no-cache" : "public, max-age=31536000, immutable")
+  reply.type(MIME_TYPES[path.extname(file)] || "application/octet-stream")
+  return reply.send(fs.createReadStream(file))
 }
 
 export async function createApp(options: CreateAppOptions = {}) {
@@ -47,8 +95,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     request.cookies = parseCookies(request.headers.cookie || "")
   })
 
-  app.addHook("onSend", async (_request, reply, payload) => {
-    setNoStore(reply)
+  app.addHook("onSend", async (request, reply, payload) => {
+    const pathname = new URL(request.url, "http://issue-flow.local").pathname
+    if (pathname === "/health" || pathname.startsWith("/api/")) {
+      setNoStore(reply)
+    }
     return payload
   })
 
@@ -97,6 +148,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     name: "issue-flow API",
     version: "0.2.0",
   }))
+
+  app.get("/*", sendStaticWeb)
 
   if (app.issueFlowStore.ready) {
     await app.issueFlowStore.ready

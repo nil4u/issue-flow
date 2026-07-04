@@ -1,0 +1,46 @@
+services:
+  console:
+    build:
+      context: ..
+      dockerfile: console/Dockerfile
+    image: ghcr.io/nil4u/issue-flow-console:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://issue_flow:issue_flow@postgres:5432/issue_flow
+      ISSUE_FLOW_API_HOST: 0.0.0.0
+      ISSUE_FLOW_API_PORT: 8788
+      ISSUE_FLOW_BASE_URL: http://127.0.0.1:8788
+      ISSUE_FLOW_APP_URL: http://127.0.0.1:8788
+      ISSUE_FLOW_AGENTRIX_BASE_URL: https://agentrix.xmz.ai
+      ISSUE_FLOW_SETUP_CODE: issue-flow-change-me
+      ISSUE_FLOW_SERVICE_KEY_FILE: /var/lib/issue-flow/key
+      ISSUE_FLOW_PLUGIN_DIR: /opt/issue-flow/plugin
+    ports:
+      - "8788:8788"
+    volumes:
+      - issue-flow-state:/var/lib/issue-flow
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: issue_flow
+      POSTGRES_PASSWORD: issue_flow
+      POSTGRES_DB: issue_flow
+    volumes:
+      - issue-flow-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U issue_flow -d issue_flow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  issue-flow-postgres:
+  issue-flow-state:

@@ -1,8 +1,14 @@
+import path from "node:path"
 import dotenv from "dotenv"
 
 import { createApp } from "./app.js"
 
-const envFile = process.env.ISSUE_FLOW_ENV_FILE || (process.env.NODE_ENV === "production" ? ".env" : ".env.dev")
+function defaultEnvFile() {
+  const root = path.resolve(__dirname, "../../..")
+  return path.join(root, process.env.NODE_ENV === "production" ? ".env" : ".env.dev")
+}
+
+const envFile = process.env.ISSUE_FLOW_ENV_FILE || defaultEnvFile()
 dotenv.config({ path: envFile })
 
 const DEFAULT_HOST = "127.0.0.1"

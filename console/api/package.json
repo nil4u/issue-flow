@@ -6,8 +6,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "node --env-file=../../.env.dev --watch --import tsx src/main.ts",
-    "start": "tsx --env-file=../../.env src/main.ts",
-    "build": "npm run db:generate && tsc -p tsconfig.json --noEmit",
+    "start": "NODE_ENV=production node dist/main.js",
+    "build": "npm run db:generate && tsc -p tsconfig.json",
     "test": "node --test \"test/*.test.cjs\"",
     "db:generate": "node --env-file-if-exists=../../.env.dev ../../node_modules/prisma/build/index.js generate",
     "db:migrate:dev": "node --env-file-if-exists=../../.env.dev ../../node_modules/prisma/build/index.js migrate dev",
@@ -18,12 +18,13 @@
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@xmz-ai/gitlab-webhook-bridge": "^0.1.2",
+    "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "prisma": "^7.8.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "prisma": "^7.8.0",
     "tsx": "^4.22.4",
     "typescript": "~6"
   }

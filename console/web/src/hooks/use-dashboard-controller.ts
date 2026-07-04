@@ -500,6 +500,12 @@ export function useDashboardController() {
           })
           if (body.kind === "conflicts") {
             setInstallConflictPlan(body.plan)
+            setCheckProgress((current) => ({
+              ...current,
+              open: false,
+              title: "需要确认文件冲突",
+              detail: `${body.plan.conflicts.length} 个冲突需要处理。`,
+            }))
             return
           }
           setInstallConflictPlan(undefined)

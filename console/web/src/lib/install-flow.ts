@@ -89,7 +89,7 @@ export async function requestInstallPlugin(input: { gitServerId: string; project
     body: JSON.stringify(input),
   })
   const body = await response.json().catch(() => ({}))
-  if (response.status === 409) {
+  if (response.status === 409 && Array.isArray((body as InstallConflictPlan).conflicts)) {
     return { kind: "conflicts" as const, plan: body as InstallConflictPlan }
   }
   if (!response.ok) {
