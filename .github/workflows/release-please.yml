@@ -23,7 +23,7 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Create or update release PR
@@ -65,6 +65,7 @@ jobs:
         with:
           context: .
           file: console/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
