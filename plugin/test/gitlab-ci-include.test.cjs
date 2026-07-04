@@ -43,6 +43,27 @@ test('existing local include is unchanged', () => {
   assert.equal(result.content, input);
 });
 
+test('existing local include accepts GitLab leading slash spelling', () => {
+  const input = 'include:\n  - local: /.gitlab/issue-flow.gitlab-ci.yml\n';
+  const result = addLocalInclude(input, target);
+  assert.equal(hasLocalInclude(input, target), true);
+  assert.equal(result.changed, false);
+  assert.equal(result.content, input);
+});
+
+test('commented and non-include paths do not count as configured', () => {
+  assert.equal(hasLocalInclude('# - local: .gitlab/issue-flow.gitlab-ci.yml\n', target), false);
+  assert.equal(hasLocalInclude('job:\n  artifacts:\n    paths:\n      - .gitlab/issue-flow.gitlab-ci.yml\n', target), false);
+});
+
+test('zero-indent include list appends local include', () => {
+  const input = 'include:\n- local: ci/base.yml\njob:\n  script: echo ok\n';
+  assert.equal(
+    addLocalInclude(input, target).content,
+    'include:\n- local: ci/base.yml\n- local: .gitlab/issue-flow.gitlab-ci.yml\njob:\n  script: echo ok\n'
+  );
+});
+
 test('comments and non-include content are preserved', () => {
   const input = '# header\ninclude:\n  - local: ci/base.yml # keep\n\njob:\n  script: echo ok\n';
   const result = addLocalInclude(input, target).content;

@@ -13,7 +13,13 @@ const test = require('node:test');
 
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 const PROVIDER_CLI_RULE = 'Provider actions covered by issue-flow must go through its unified CLI; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-write provider API requests for those actions.';
-const REQUIRED_SKILL_BLOCK = `## Required Skill\n\nRead this project-level skill file before acting: \`skills/issue-flow/SKILL.md\`\n${PROVIDER_CLI_RULE}`;
+// Prompt 中的 SKILL.md 路径相对 process.cwd() 生成，期望值按同一规则计算，
+// 使测试从仓库根或 plugin/ 目录运行都成立。
+const REQUIRED_SKILL_PATH = path
+  .relative(process.cwd(), path.resolve(__dirname, '..', 'skills', 'issue-flow', 'SKILL.md'))
+  .replace(/\\/g, '/')
+  .replace(/^\.?\//, '');
+const REQUIRED_SKILL_BLOCK = `## Required Skill\n\nRead this project-level skill file before acting: \`${REQUIRED_SKILL_PATH}\`\n${PROVIDER_CLI_RULE}`;
 
 function assertRequiredSkillAtEnd(prompt) {
   assert.equal(prompt.trimEnd().endsWith(REQUIRED_SKILL_BLOCK), true);

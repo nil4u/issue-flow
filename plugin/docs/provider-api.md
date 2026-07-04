@@ -444,8 +444,9 @@ node bootstrap.cjs gitlab [--runtime agentrix] [--force] [--dry-run]
 - Runtime：写入 `.agentrix/plugins/issue-flow/`，只包含运行时需要的 skill、脚本和默认 prompt/template；安装期 workflow/config 不进入该目录
 - GitHub：写入 `.github/workflows/issue-flow-auto.yml`、`.github/workflows/issue-flow-comment.yml`、`.github/workflows/issue-flow-pr-merged.yml`
 - GitLab：写入 `.gitlab-ci.yml` 和 `.gitlab/issue-flow.gitlab-ci.yml`
-- 如果目标项目已有 `.gitlab-ci.yml` 且尚未 include issue-flow，安装器会把原内容保存为
-  `.gitlab/issue-flow-project.gitlab-ci.yml`，并将根 `.gitlab-ci.yml` 改成同时 include 原 pipeline 和 issue-flow
+- 如果目标项目已有 `.gitlab-ci.yml` 且尚未 include issue-flow，该文件按安装冲突处理：经确认（交互提示、
+  `--force` 或 `--decision-file`）后向简单的顶层 `include` 追加 `.gitlab/issue-flow.gitlab-ci.yml`；
+  复杂 include 结构只报告冲突交给用户手工处理，不做改写
 - issue-flow 项目配置：写入 `.issue-flow/config.json`、`.issue-flow/prompts/`、`.issue-flow/templates/`、`.issue-flow/issues/README.md`
 - Runtime 资源来自 `skills/issue-flow/assets/agentrix/runtime/`，workflow/config 资源来自 `skills/issue-flow/assets/agentrix/bootstrap/`
 - 不提供 workflow/plugin 目录选项；路径由 runtime preset 约定

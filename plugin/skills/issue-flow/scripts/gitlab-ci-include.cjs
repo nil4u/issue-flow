@@ -37,8 +37,8 @@ function unquote(value) {
   return text;
 }
 
-function localIncludeLine(target) {
-  return `  - ${LOCAL_KEY}: ${target}\n`;
+function localIncludeLine(target, indent = '  ') {
+  return `${indent}- ${LOCAL_KEY}: ${target}\n`;
 }
 
 function includeBlock(target) {
@@ -61,7 +61,7 @@ function findTopLevelInclude(lines) {
       if (!trimmed || trimmed.startsWith('#')) {
         continue;
       }
-      if (lineIndent(next) === 0) {
+      if (lineIndent(next) === 0 && !trimmed.startsWith('- ')) {
         break;
       }
       end = cursor + 1;
@@ -71,16 +71,25 @@ function findTopLevelInclude(lines) {
   return undefined;
 }
 
+function normalizeLocalPath(value) {
+  return String(value || '').replace(/^\/+/, '');
+}
+
 function includesTargetInLine(line, target) {
-  const localMatch = String(line || '').match(/\blocal\s*:\s*(.+?)\s*$/);
-  if (localMatch && unquote(localMatch[1]) === target) {
+  const text = stripComment(line);
+  const normalizedTarget = normalizeLocalPath(target);
+  const localMatch = text.match(/\blocal\s*:\s*(.+?)\s*$/);
+  if (localMatch && normalizeLocalPath(unquote(localMatch[1])) === normalizedTarget) {
     return true;
   }
-  return unquote(String(line || '').replace(/^\s*-\s*/, '')) === target;
+  return normalizeLocalPath(unquote(text.replace(/^\s*-\s*/, ''))) === normalizedTarget;
 }
 
 function hasLocalInclude(content, target) {
-  return splitLines(content).some((line) => includesTargetInLine(line, target));
+  const lines = splitLines(content);
+  const range = findTopLevelInclude(lines);
+  if (!range) return false;
+  return lines.slice(range.start, range.end).some((line) => includesTargetInLine(line, target));
 }
 
 function classifyInclude(lines, range) {
@@ -97,7 +106,7 @@ function classifyInclude(lines, range) {
     return trimmed && !trimmed.startsWith('#');
   });
   if (!body.length) return 'missing';
-  if (body.every((line) => /^\s+-\s+/.test(line))) return 'list';
+  if (body.every((line) => /^\s*-\s+/.test(line))) return 'list';
   // Map conversion re-indents every block line, so comments or blank lines
   // inside the block would end up misplaced — only rewrite uniform key lines.
   if (raw.every((line) => /^\s{2}[A-Za-z_][A-Za-z0-9_-]*\s*:/.test(line))) return 'map';
@@ -128,7 +137,9 @@ function addLocalInclude(content, target) {
   const current = lines.slice(range.start, range.end).join('');
 
   if (kind === 'list') {
-    return { content: `${before}${current}${localIncludeLine(target)}${after}`, changed: true, reason: 'list' };
+    const firstItem = lines.slice(range.start + 1, range.end).find((line) => /^\s*-\s+/.test(line)) || '';
+    const listIndent = (firstItem.match(/^(\s*)-/) || ['', '  '])[1];
+    return { content: `${before}${current}${localIncludeLine(target, listIndent)}${after}`, changed: true, reason: 'list' };
   }
 
   if (kind === 'scalar') {

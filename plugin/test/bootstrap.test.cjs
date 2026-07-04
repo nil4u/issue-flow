@@ -495,7 +495,10 @@ test('bootstrap force removes legacy Agentrix project config root', () => {
 test('gitlab bootstrap writes include snippet and Agentrix config convention paths', () => {
   const root = makeTempRoot();
   try {
-    const results = installGitlab({ cwd: root });
+    const results = runBootstrap('gitlab', {
+      cwd: root,
+      decisions: { actions: { '.gitlab-ci.yml': 'use_proposed' } },
+    });
     const written = results.map((result) => path.relative(root, result.target)).sort();
     assert.deepEqual(written, [
       ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
@@ -565,7 +568,10 @@ test('gitlab bootstrap appends include to existing root ci without discarding it
     const rootCi = path.join(root, '.gitlab-ci.yml');
     fs.writeFileSync(rootCi, 'stages:\n  - test\n\nunit:\n  script: echo ok\n');
 
-    const results = installGitlab({ cwd: root });
+    const results = runBootstrap('gitlab', {
+      cwd: root,
+      decisions: { actions: { '.gitlab-ci.yml': 'use_proposed' } },
+    });
     const updated = results.find((result) => result.target === rootCi);
     assert.equal(updated.action, 'updated');
     assert.match(fs.readFileSync(rootCi, 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
@@ -609,12 +615,87 @@ test('gitlab bootstrap plan reports complex root ci include for manual review', 
     assert.equal(conflict.proposedContent, undefined);
     assert.match(conflict.message, /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
 
-    const results = installGitlab({ cwd: root });
+    const results = runBootstrap('gitlab', {
+      cwd: root,
+      decisions: { actions: { '.gitlab-ci.yml': 'keep_current' } },
+    });
     const skipped = results.find((result) => result.target === rootCi);
     assert.equal(skipped.action, 'skipped');
-    assert.equal(skipped.reason, 'complex_include');
+    assert.equal(skipped.reason, 'keep_current');
     assert.match(skipped.message, /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
     assert.equal(fs.readFileSync(rootCi, 'utf8'), complexCi);
+
+    const nextPlan = createInstallPlan('gitlab', { cwd: root });
+    assert.equal(nextPlan.conflicts.some((item) => item.id === '.gitlab-ci.yml'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('gitlab bootstrap re-install keeps root ci with include and user jobs', () => {
+  const root = makeTempRoot();
+  try {
+    const rootCi = path.join(root, '.gitlab-ci.yml');
+    fs.writeFileSync(rootCi, 'stages:\n  - test\n\nunit:\n  script: echo ok\n');
+    runBootstrap('gitlab', {
+      cwd: root,
+      decisions: { actions: { '.gitlab-ci.yml': 'use_proposed' } },
+    });
+    const installed = fs.readFileSync(rootCi, 'utf8');
+
+    const plan = createInstallPlan('gitlab', { cwd: root });
+    assert.equal(plan.conflicts.length, 0);
+
+    const results = runBootstrap('gitlab', { cwd: root });
+    const rootCiResults = results.filter((result) => result.target === rootCi);
+    assert.deepEqual(rootCiResults.map((result) => result.action), ['skipped']);
+    assert.equal(fs.readFileSync(rootCi, 'utf8'), installed);
+    assert.match(installed, /unit:\n  script: echo ok/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('gitlab bootstrap keep_current decision on simple include persists across installs', () => {
+  const root = makeTempRoot();
+  try {
+    const rootCi = path.join(root, '.gitlab-ci.yml');
+    const original = 'stages:\n  - test\n\nunit:\n  script: echo ok\n';
+    fs.writeFileSync(rootCi, original);
+    runBootstrap('gitlab', {
+      cwd: root,
+      decisions: { actions: { '.gitlab-ci.yml': 'keep_current' } },
+    });
+    assert.equal(fs.readFileSync(rootCi, 'utf8'), original);
+
+    const plan = createInstallPlan('gitlab', { cwd: root });
+    assert.equal(plan.conflicts.some((item) => item.id === '.gitlab-ci.yml'), false);
+
+    const results = runBootstrap('gitlab', { cwd: root });
+    const rootCiResults = results.filter((result) => result.target === rootCi);
+    assert.deepEqual(rootCiResults.map((result) => result.action), ['skipped']);
+    assert.equal(fs.readFileSync(rootCi, 'utf8'), original);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap managed keep decision persists across an intermediate install', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const workflowPath = path.join(root, '.github/workflows/issue-flow-auto.yml');
+    fs.writeFileSync(workflowPath, 'custom workflow');
+    runBootstrap('github', {
+      cwd: root,
+      decisions: { actions: { '.github/workflows/issue-flow-auto.yml': 'keep' } },
+    });
+
+    installGithub({ cwd: root });
+    assert.equal(fs.readFileSync(workflowPath, 'utf8'), 'custom workflow');
+
+    const plan = createInstallPlan('github', { cwd: root });
+    assert.equal(plan.conflicts.some((item) => item.path === '.github/workflows/issue-flow-auto.yml'), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -106,12 +106,46 @@ test('install script installs GitLab root include from checkout source', () => {
   }
 });
 
-test('install script appends GitLab root ci include from checkout source', () => {
+test('install script treats existing GitLab root ci as a conflict without --force', () => {
   const root = makeTempRoot();
   try {
     fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
 
     const result = runInstall(['gitlab'], { cwd: root });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(result.stderr, /Install conflicts require an interactive terminal/);
+    assert.match(result.stderr, /\.gitlab-ci\.yml/);
+    assert.equal(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), 'build:\n  script: echo build\n');
+    // 冲突在任何写入之前中止，不留部分安装状态。
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), false);
+    assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('install script keeps complex GitLab root ci and still installs the rest', () => {
+  const root = makeTempRoot();
+  try {
+    const complexCi = 'include:\n  rules:\n    - if: $CI_COMMIT_BRANCH\n      local: ci/base.yml\n';
+    fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), complexCi);
+
+    const result = runInstall(['gitlab'], { cwd: root });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), complexCi);
+    assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('install script appends GitLab root ci include from checkout source with --force', () => {
+  const root = makeTempRoot();
+  try {
+    fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
+
+    const result = runInstall(['gitlab', '--force'], { cwd: root });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /updated \.gitlab-ci\.yml/);
     assert.match(

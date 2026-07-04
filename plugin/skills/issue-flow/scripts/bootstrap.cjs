@@ -230,7 +230,7 @@ function conflictCategory(operation) {
 }
 
 function defaultConflictAction(operation) {
-  if (operation.category === 'gitlab_ci' || operation.targetRelative === GITLAB_ROOT_CI) {
+  if (conflictCategory(operation) === 'gitlab_ci') {
     return operation.reason === 'complex_include' ? 'keep_current' : 'use_proposed';
   }
   if (operation.kind === 'stale') {
@@ -240,7 +240,7 @@ function defaultConflictAction(operation) {
 }
 
 function allowedConflictActions(operation) {
-  if (operation.category === 'gitlab_ci' || operation.targetRelative === GITLAB_ROOT_CI) {
+  if (conflictCategory(operation) === 'gitlab_ci') {
     return operation.reason === 'complex_include' ? ['keep_current'] : ['use_proposed', 'keep_current'];
   }
   if (operation.kind === 'stale') {
@@ -262,7 +262,7 @@ function conflictPayload(operation) {
     currentHash: operation.currentHash || '',
     newHash: operation.newHash || '',
   };
-  if (operation.category === 'gitlab_ci' || operation.targetRelative === GITLAB_ROOT_CI) {
+  if (conflictCategory(operation) === 'gitlab_ci') {
     if (Object.prototype.hasOwnProperty.call(operation, 'currentContent')) {
       conflict.currentContent = operation.currentContent;
     }
@@ -682,11 +682,18 @@ function currentTargetHash(target) {
 }
 
 function desiredManifestEntry(file) {
-  return {
+  const entry = {
     source: file.sourceRelative,
     mode: file.mode,
     sha256: file.newHash,
   };
+  if (file.operation === 'skip' && ['keep', 'keep_current'].includes(file.reason)) {
+    entry.acknowledged = true;
+  }
+  if (file.operation === 'skip' && file.reason === 'customized' && file.previous && file.previous.acknowledged) {
+    entry.acknowledged = true;
+  }
+  return entry;
 }
 
 function createFileOperation(file, manifest, options = {}) {
@@ -763,7 +770,7 @@ function createFileOperation(file, manifest, options = {}) {
     };
   }
 
-  if (previous && file.mode === MODE_CUSTOMIZABLE && newHash === previous.sha256) {
+  if (previous && (file.mode === MODE_CUSTOMIZABLE || previous.acknowledged) && newHash === previous.sha256) {
     return {
       ...base,
       operation: 'skip',
@@ -798,6 +805,11 @@ function createStaleOperations(manifest, desiredFiles, options = {}) {
 
   for (const [targetRelative, previous] of Object.entries(manifest.files)) {
     if (desiredTargets.has(targetRelative)) {
+      continue;
+    }
+    // The root CI file is manifest-tracked but installed outside the desired
+    // specs (gitlabRootCiOperation owns it); the stale sweep must never touch it.
+    if (targetRelative === GITLAB_ROOT_CI) {
       continue;
     }
 
@@ -922,13 +934,43 @@ function resolveConflicts(operations, options = {}) {
     return operations;
   }
 
+  // complex_include 只允许 keep_current，没有可做的决策——在此直接落定，
+  // 避免非交互安装为它中止，或交互场景弹出无法执行的 overwrite 选项。
+  const settled = operations.map((operation) => (
+    operation.operation === 'conflict' && operation.reason === 'complex_include'
+      ? { ...operation, operation: 'skip', action: 'skipped', reason: 'keep_current' }
+      : operation
+  ));
+  const remaining = settled.filter((operation) => operation.operation === 'conflict');
+  if (remaining.length === 0) {
+    return settled;
+  }
+
   if (options.decisions) {
-    return operations.map((operation) => {
+    return settled.map((operation) => {
       if (operation.operation !== 'conflict') {
         return operation;
       }
 
       const action = decisionAction(operation, options);
+      if (conflictCategory(operation) === 'gitlab_ci') {
+        if (action === 'use_proposed') {
+          return {
+            ...operation,
+            operation: 'write',
+            action: 'updated',
+            dryAction: 'would_update',
+            reason: 'use_proposed',
+          };
+        }
+        return {
+          ...operation,
+          operation: 'skip',
+          action: 'skipped',
+          reason: 'keep_current',
+        };
+      }
+
       if (operation.kind === 'stale') {
         if (action === 'remove') {
           return {
@@ -969,13 +1011,13 @@ function resolveConflicts(operations, options = {}) {
   if (!isInteractive(options)) {
     throw new Error([
       'Install conflicts require an interactive terminal.',
-      formatConflictList(conflicts, options),
+      formatConflictList(remaining, options),
       'Re-run install in a terminal and choose skip or overwrite, or use --force to overwrite.',
     ].join('\n'));
   }
 
   let allDecision;
-  return operations.map((operation) => {
+  return settled.map((operation) => {
     if (operation.operation !== 'conflict') {
       return operation;
     }
@@ -1000,7 +1042,7 @@ function resolveConflicts(operations, options = {}) {
       return {
         ...operation,
         operation: 'write',
-        action: 'written',
+        action: conflictCategory(operation) === 'gitlab_ci' ? 'updated' : 'written',
         dryAction: 'would_write',
         reason: 'overwrite',
       };
@@ -1010,7 +1052,7 @@ function resolveConflicts(operations, options = {}) {
       ...operation,
       operation: 'skip',
       action: 'skipped',
-      reason: 'keep',
+      reason: conflictCategory(operation) === 'gitlab_ci' ? 'keep_current' : 'keep',
     };
   });
 }
@@ -1114,7 +1156,7 @@ function nextManifestFromOperations(manifest, operations, options = {}) {
     if (operation.kind === 'desired') {
       if (
         operation.operation === 'write'
-        || (operation.operation === 'skip' && ['current', 'keep', 'customized'].includes(operation.reason))
+        || (operation.operation === 'skip' && ['current', 'configured', 'keep', 'keep_current', 'customized'].includes(operation.reason))
       ) {
         files[operation.targetRelative] = desiredManifestEntry(operation);
       } else if (!operation.previous) {
@@ -1139,12 +1181,12 @@ function nextManifestFromOperations(manifest, operations, options = {}) {
   };
 }
 
-function runFileInstall(specs, options = {}) {
+function runFileInstall(specs, options = {}, extraOperations = []) {
   const manifest = readInstallManifest(options);
   const desiredFiles = expandInstallSpecs(specs, options);
   const desiredOperations = desiredFiles.map((file) => createFileOperation(file, manifest, options));
   const staleOperations = options.pruneStale ? createStaleOperations(manifest, desiredFiles, options) : [];
-  const operations = resolveConflicts([...desiredOperations, ...staleOperations], options);
+  const operations = resolveConflicts([...desiredOperations, ...staleOperations, ...extraOperations], options);
 
   applyFileOperations(operations, options);
   const nextManifest = nextManifestFromOperations(manifest, operations, options);
@@ -1217,35 +1259,16 @@ function hasIssueFlowGitlabInclude(content) {
   return hasLocalInclude(content, GITLAB_ISSUE_FLOW_CI);
 }
 
-function installGitlabRootCi(options = {}) {
+// 只读地推导根 CI 的安装 operation（不写文件、不写 manifest），由
+// installGitlab 并入 runFileInstall 的统一「解冲突 → 写入 → manifest」流水线，
+// 保证任何冲突都在写入任何文件之前被发现。
+function gitlabRootCiOperation(options = {}) {
   const cwd = options.cwd || process.cwd();
   const target = path.resolve(cwd, GITLAB_ROOT_CI);
-  if (!fs.existsSync(target)) {
-    const source = path.join(agentrixBootstrapAssetsDir(), 'workflows/gitlab/root.gitlab-ci.yml');
-    if (!options.dryRun) {
-      fs.copyFileSync(source, target);
-    }
-    return {
-      action: options.dryRun ? 'would_write' : 'written',
-      source,
-      target,
-    };
-  }
-
-  const current = fs.readFileSync(target, 'utf8');
-  if (hasIssueFlowGitlabInclude(current)) {
-    return {
-      action: 'skipped',
-      reason: 'configured',
-      source: target,
-      target,
-    };
-  }
-
-  const transformed = addLocalInclude(current, GITLAB_ISSUE_FLOW_CI);
-  const message = `Add "- local: ${GITLAB_ISSUE_FLOW_CI}" to the top-level include list in ${GITLAB_ROOT_CI} manually.`;
-  const operation = {
-    category: 'gitlab_ci',
+  const manifest = readInstallManifest(options);
+  const previous = manifest.files[GITLAB_ROOT_CI];
+  const source = path.join(agentrixBootstrapAssetsDir(), 'workflows/gitlab/root.gitlab-ci.yml');
+  const base = {
     kind: 'desired',
     source: target,
     sourceRelative: GITLAB_ROOT_CI,
@@ -1255,75 +1278,121 @@ function installGitlabRootCi(options = {}) {
     groupTarget: target,
     groupTargetRelative: GITLAB_ROOT_CI,
     mode: MODE_MANAGED,
-    previous: undefined,
-    currentHash: textSha256(current),
-    newHash: transformed.needsReview ? textSha256(current) : textSha256(transformed.content),
+    previous,
     targetExists: true,
-    operation: 'conflict',
-    action: 'conflict',
-    dryAction: 'would_conflict',
-    reason: transformed.needsReview ? 'complex_include' : 'missing_issue_flow_include',
-    currentContent: current,
-    proposedContent: transformed.needsReview ? undefined : transformed.content,
-    message: transformed.needsReview ? message : undefined,
   };
 
-  if (options.planMode) {
-    collectConflict(operation, options);
+  if (!fs.existsSync(target)) {
     return {
-      action: 'skipped',
-      reason: operation.reason,
-      source: target,
-      target,
-      message: operation.message,
+      operation: {
+        ...base,
+        source,
+        sourceRelative: joinRepoPath('skills/issue-flow/assets/agentrix/bootstrap', 'workflows/gitlab/root.gitlab-ci.yml'),
+        groupSource: source,
+        currentHash: undefined,
+        newHash: fileSha256(source),
+        targetExists: false,
+        operation: 'write',
+        action: 'written',
+        dryAction: 'would_write',
+        reason: 'missing',
+      },
     };
   }
 
-  if (transformed.needsReview) {
+  const current = fs.readFileSync(target, 'utf8');
+  const currentHash = textSha256(current);
+  if (hasIssueFlowGitlabInclude(current)) {
     return {
-      action: 'skipped',
-      reason: 'complex_include',
-      source: target,
-      target,
-      message,
+      operation: {
+        ...base,
+        currentHash,
+        newHash: currentHash,
+        operation: 'skip',
+        action: 'skipped',
+        reason: 'configured',
+      },
     };
   }
 
-  const action = options.decisions ? decisionAction(operation, options) : 'use_proposed';
-  if (action === 'keep_current') {
+  if (previous && currentHash === previous.sha256) {
     return {
-      action: 'skipped',
-      reason: 'keep_current',
-      source: target,
-      target,
+      operation: {
+        ...base,
+        currentHash,
+        newHash: previous.sha256,
+        operation: 'skip',
+        action: 'skipped',
+        reason: 'keep_current',
+      },
     };
   }
 
-  if (!options.dryRun) {
-    fs.writeFileSync(target, transformed.content, 'utf8');
+  const transformed = addLocalInclude(current, GITLAB_ISSUE_FLOW_CI);
+  const manualMessage = `Add "- local: ${GITLAB_ISSUE_FLOW_CI}" to the top-level include list in ${GITLAB_ROOT_CI} manually.`;
+  const newHash = transformed.needsReview ? currentHash : textSha256(transformed.content);
+  if (previous && newHash === previous.sha256) {
+    return {
+      operation: {
+        ...base,
+        currentHash,
+        newHash,
+        operation: 'skip',
+        action: 'skipped',
+        reason: 'keep_current',
+      },
+    };
+  }
+  if (options.force && transformed.needsReview) {
+    throw new Error(`${GITLAB_ROOT_CI} has a complex include block; ${manualMessage}`);
   }
 
+  const forceWrite = options.force && !transformed.needsReview;
+  const operation = {
+    ...base,
+    category: 'gitlab_ci',
+    currentHash,
+    newHash,
+    operation: forceWrite ? 'write' : 'conflict',
+    action: forceWrite ? 'updated' : 'conflict',
+    dryAction: forceWrite ? 'would_update' : 'would_conflict',
+    reason: forceWrite ? 'force' : transformed.needsReview ? 'complex_include' : 'missing_issue_flow_include',
+    currentContent: current,
+    proposedContent: transformed.needsReview ? undefined : transformed.content,
+    message: transformed.needsReview ? manualMessage : undefined,
+  };
+  if (!transformed.needsReview) {
+    operation.content = transformed.content;
+  }
   return {
-    action: options.dryRun ? 'would_update' : 'updated',
-    source: target,
-    target,
-    message: `${GITLAB_ROOT_CI} now includes ${GITLAB_ISSUE_FLOW_CI}.`,
+    operation,
+    needsReview: Boolean(transformed.needsReview),
+    message: transformed.needsReview ? manualMessage : `${GITLAB_ROOT_CI} now includes ${GITLAB_ISSUE_FLOW_CI}.`,
   };
 }
 
 function installGitlab(options = {}) {
   resolveRuntime(options);
+  const rootCi = gitlabRootCiOperation(options);
   removeAgentrixPluginRootForForce(options);
   const fileResults = runFileInstall([
     ...packageInstallSpecs(AGENTRIX_PLUGIN_SPECS),
     ...bootstrapInstallSpecs(AGENTRIX_GITLAB_FILES),
     ...bootstrapInstallSpecs(AGENTRIX_PROJECT_FILES),
     ...packageInstallSpecs(AGENTRIX_PROJECT_DIRS),
-  ], { ...options, provider: 'gitlab', pruneStale: true });
+  ], { ...options, provider: 'gitlab', pruneStale: true }, [rootCi.operation]);
+  const results = fileResults.map((result) => {
+    if (result.target !== rootCi.operation.target || !rootCi.message) {
+      return result;
+    }
+    if (!rootCi.needsReview && result.action === 'skipped') {
+      return result;
+    }
+    return { ...result, message: rootCi.message };
+  });
   return [
     ...removeLegacyAgentrixProjectRoot(options),
-    installGitlabRootCi(options),
-    ...fileResults,
+    ...results,
   ];
 }
 
