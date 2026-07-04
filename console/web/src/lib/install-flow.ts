@@ -1,4 +1,4 @@
-import { api, API_BASE_URL, type InstallCheck, type InstallCheckProgress, type InstallStep } from "@/issue-flow-model"
+import { API_BASE_URL, type InstallCheck, type InstallCheckProgress, type InstallConflictDecision, type InstallConflictPlan, type InstallStep } from "@/issue-flow-model"
 
 export const installCheckProgressSteps: InstallCheckProgress["steps"] = [
   { id: "permissions", label: "Permissions", status: "pending" },
@@ -29,9 +29,9 @@ export function mergeInstallCheck(current: InstallCheck | undefined, next: Insta
 }
 
 export async function streamInstallPlugin(
-  input: { gitServerId: string; projectId: string },
+  input: { gitServerId: string; projectId: string; decisions?: InstallConflictDecision },
   onEvent: (event: string, data: unknown) => void
-): Promise<InstallCheck> {
+): Promise<{ kind: "complete"; body: InstallCheck } | { kind: "conflicts"; plan: InstallConflictPlan }> {
   const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin/stream`, {
     method: "POST",
     credentials: "include",
@@ -48,7 +48,7 @@ export async function streamInstallPlugin(
   const decoder = new TextDecoder()
   const reader = response.body.getReader()
   let buffer = ""
-  let complete: InstallCheck | undefined
+  let terminal: { kind: "complete"; body: InstallCheck } | { kind: "conflicts"; plan: InstallConflictPlan } | undefined
 
   function handleChunk(chunk: string) {
     buffer += chunk
@@ -59,7 +59,8 @@ export async function streamInstallPlugin(
       const event = raw.match(/^event:\s*(.+)$/m)?.[1] || "message"
       const dataText = raw.match(/^data:\s*(.+)$/m)?.[1] || "{}"
       const data = JSON.parse(dataText)
-      if (event === "complete") complete = data as InstallCheck
+      if (event === "complete") terminal = { kind: "complete", body: data as InstallCheck }
+      if (event === "conflicts") terminal = { kind: "conflicts", plan: data as InstallConflictPlan }
       if (event === "error") {
         const error = new Error(String(data?.error || "install_plugin_failed"))
         ;(error as Error & { body?: unknown }).body = data
@@ -76,15 +77,27 @@ export async function streamInstallPlugin(
     handleChunk(decoder.decode(value, { stream: true }))
   }
   handleChunk(decoder.decode())
-  if (!complete) throw new Error("install_plugin_stream_incomplete")
-  return complete
+  if (!terminal) throw new Error("install_plugin_stream_incomplete")
+  return terminal
 }
 
-export async function requestInstallPlugin(input: { gitServerId: string; projectId: string }) {
-  return api<InstallCheck>("/api/gitlab/install-plugin", {
+export async function requestInstallPlugin(input: { gitServerId: string; projectId: string; decisions?: InstallConflictDecision }) {
+  const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin`, {
     method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
+  const body = await response.json().catch(() => ({}))
+  if (response.status === 409) {
+    return { kind: "conflicts" as const, plan: body as InstallConflictPlan }
+  }
+  if (!response.ok) {
+    const error = new Error(body.error || `HTTP ${response.status}`)
+    ;(error as Error & { body?: unknown }).body = body
+    throw error
+  }
+  return { kind: "complete" as const, body: body as InstallCheck }
 }
 
 export function isStreamConnectionError(error: unknown) {

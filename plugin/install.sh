@@ -6,10 +6,17 @@ DEFAULT_REF="main"
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [github|gitlab|auto] [--force] [--dry-run]
+Usage: install.sh [github|gitlab|auto] [--force] [--dry-run] [--plan-json] [--decision-file <path>]
 
 Installs issue-flow into the current project.
 After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
+
+Options:
+  --force                  Apply without asking; overwrite conflicting files.
+  --dry-run                Print files that would be written without writing them.
+  --plan-json              Print the install conflict plan as JSON and exit 0 (writes nothing).
+  --decision-file <path>   Apply per-conflict decisions from a JSON file produced against --plan-json.
+                           Exits 4 with install_plan_changed JSON when the plan fingerprint no longer matches.
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github

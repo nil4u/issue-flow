@@ -234,6 +234,34 @@ export type InstallCheck = {
   repository?: Repository | null
 }
 
+export type InstallConflictAction = "overwrite" | "keep" | "remove" | "forget" | "use_proposed" | "keep_current"
+
+export type InstallConflict = {
+  id: string
+  category: "gitlab_ci" | "user_customizations" | "managed" | "stale"
+  path: string
+  mode: "managed" | "customizable"
+  kind: "desired" | "stale"
+  reason: string
+  defaultAction: InstallConflictAction
+  allowedActions: InstallConflictAction[]
+  currentHash?: string
+  newHash?: string
+  currentContent?: string
+  proposedContent?: string
+  message?: string
+}
+
+export type InstallConflictPlan = {
+  fingerprint: string
+  conflicts: InstallConflict[]
+}
+
+export type InstallConflictDecision = {
+  fingerprint: string
+  actions: Record<string, InstallConflictAction>
+}
+
 export type InstallCheckProgress = {
   open: boolean
   title?: string
@@ -329,6 +357,7 @@ export type RepoWorkspaceProps = {
   defaults?: AgentrixDefaults
   installCheck?: InstallCheck
   checkProgress?: InstallCheckProgress
+  installConflictPlan?: InstallConflictPlan
   checking: boolean
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
@@ -342,6 +371,8 @@ export type RepoWorkspaceProps = {
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetRunner: () => Promise<InstallCheck | undefined>
   onInstallPlugin: () => Promise<InstallCheck | undefined>
+  onConfirmInstallConflicts: (decision: InstallConflictDecision) => Promise<InstallCheck | undefined>
+  onCancelInstallConflicts: () => void
 }
 
 export type EmptyPanelProps = {

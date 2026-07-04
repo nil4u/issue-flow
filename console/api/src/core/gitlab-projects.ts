@@ -1262,6 +1262,7 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
       commitMessage: input.commitMessage || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
       mergeRequestTitle: input.mergeRequestTitle || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
       onProgress: input.onProgress,
+      decisions: input.decisions || undefined,
     });
   } catch (error) {
     return {
@@ -1269,6 +1270,16 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
       body: {
         error: 'gitlab_plugin_install_failed',
         detail: sanitizeError(error),
+      },
+    };
+  }
+
+  if (result.conflicts) {
+    return {
+      status: 409,
+      body: {
+        fingerprint: result.plan && result.plan.fingerprint || '',
+        conflicts: result.plan && result.plan.conflicts || [],
       },
     };
   }

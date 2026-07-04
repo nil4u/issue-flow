@@ -163,7 +163,11 @@ export async function gitlabRoutes(app: FastifyInstance) {
         session,
       })
       if (result.status >= 400) {
-        send("error", result.body)
+        if (result.status === 409) {
+          send("conflicts", result.body)
+        } else {
+          send("error", result.body)
+        }
       } else {
         send("complete", result.body)
       }

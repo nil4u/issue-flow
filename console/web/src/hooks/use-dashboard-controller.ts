@@ -11,6 +11,8 @@ import {
   type GitLabUser,
   type GitServer,
   type InstallCheck,
+  type InstallConflictDecision,
+  type InstallConflictPlan,
   type InstallCheckProgress,
   type ProjectAccess,
   type Repository,
@@ -51,6 +53,7 @@ export function useDashboardController() {
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [agentrixDefaults, setAgentrixDefaults] = useState<AgentrixDefaults>()
   const [installCheck, setInstallCheck] = useState<InstallCheck>()
+  const [installConflictPlan, setInstallConflictPlan] = useState<InstallConflictPlan>()
   const [checkProgress, setCheckProgress] = useState<InstallCheckProgress>({
     open: false,
     steps: installCheckProgressSteps,
@@ -443,7 +446,7 @@ export function useDashboardController() {
     } catch (error) { notifyError(error, "配置 GitLab Runner 失败") } finally { setChecking(false) }
   }
 
-  async function installPlugin() {
+  async function installPlugin(decisions?: InstallConflictDecision) {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
       toast.warning("权限不足", {
@@ -464,11 +467,23 @@ export function useDashboardController() {
       const body = await streamInstallPlugin({
         gitServerId: selectedGitServerId,
         projectId: selectedProject.id,
+        decisions,
       }, (event, data) => {
         if (event !== "progress") return
         setCheckProgress((current) => pluginInstallProgressFromEvent(current, operationLabel, data))
       })
-      return await finishPluginInstall(body, operationLabel)
+      if (body.kind === "conflicts") {
+        setInstallConflictPlan(body.plan)
+        setCheckProgress((current) => ({
+          ...current,
+          open: false,
+          title: "需要确认文件冲突",
+          detail: `${body.plan.conflicts.length} 个冲突需要处理。`,
+        }))
+        return
+      }
+      setInstallConflictPlan(undefined)
+      return await finishPluginInstall(body.body, operationLabel)
     } catch (error) {
       if (isStreamConnectionError(error)) {
         try {
@@ -481,8 +496,14 @@ export function useDashboardController() {
           const body = await requestInstallPlugin({
             gitServerId: selectedGitServerId,
             projectId: selectedProject.id,
+            decisions,
           })
-          return await finishPluginInstall(body, operationLabel)
+          if (body.kind === "conflicts") {
+            setInstallConflictPlan(body.plan)
+            return
+          }
+          setInstallConflictPlan(undefined)
+          return await finishPluginInstall(body.body, operationLabel)
         } catch (recoverError) {
           notifyError(recoverError, "恢复安装状态失败")
         }
@@ -507,6 +528,12 @@ export function useDashboardController() {
     await loadRepositories(selectedGitServerId)
     setCheckProgress((current) => pluginInstallCompleteProgress(current, body, operationLabel))
     return nextCheck
+  }
+  async function confirmInstallConflicts(decision: InstallConflictDecision) {
+    return installPlugin(decision)
+  }
+  function cancelInstallConflicts() {
+    setInstallConflictPlan(undefined)
   }
   async function loginGitLab(gitServerId = selectedGitServerId, options: { returnTo?: string } = {}) {
     if (!gitServerId) {
@@ -644,6 +671,7 @@ export function useDashboardController() {
 
   useEffect(() => {
     setInstallCheck(undefined)
+    setInstallConflictPlan(undefined)
     setProjectAccess(undefined)
   }, [selectedProjectId])
 
@@ -755,6 +783,7 @@ export function useDashboardController() {
       defaults: agentrixDefaults,
       installCheck,
       checkProgress,
+      installConflictPlan,
       checking,
       projectAccess,
       loadingProjectAccess,
@@ -768,6 +797,8 @@ export function useDashboardController() {
       onSetWebhook: setInstallWebhook,
       onSetRunner: setInstallRunner,
       onInstallPlugin: installPlugin,
+      onConfirmInstallConflicts: confirmInstallConflicts,
+      onCancelInstallConflicts: cancelInstallConflicts,
     },
   }
 }

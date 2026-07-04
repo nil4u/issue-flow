@@ -12,6 +12,7 @@ const {
   installGithub,
   installGitlab,
   parseArgs,
+  createInstallPlan,
   runBootstrap,
 } = require('../skills/issue-flow/scripts/bootstrap.cjs');
 
@@ -293,18 +294,140 @@ test('bootstrap updates legacy managed files and force overwrites conflicts', ()
   }
 });
 
-test('bootstrap fails non-interactively when a tracked customizable file changed', () => {
+test('bootstrap keeps tracked customizable file when upstream is unchanged', () => {
   const root = makeTempRoot();
   try {
     installGithub({ cwd: root });
     const templatePath = path.join(root, '.issue-flow/templates/plan-impl.md');
     fs.writeFileSync(templatePath, 'custom plan template');
 
-    assert.throws(
-      () => installGithub({ cwd: root }),
-      /Install conflicts require an interactive terminal\.[\s\S]*\.issue-flow\/templates\/plan-impl\.md/
-    );
+    const plan = createInstallPlan('github', { cwd: root });
+    assert.equal(plan.conflicts.some((conflict) => conflict.path === '.issue-flow/templates/plan-impl.md'), false);
+    installGithub({ cwd: root });
     assert.equal(fs.readFileSync(templatePath, 'utf8'), 'custom plan template');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap reports three-way conflict when customizable file and upstream both changed', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const templatePath = path.join(root, '.issue-flow/templates/plan-impl.md');
+    fs.writeFileSync(templatePath, 'custom plan template');
+
+    const manifestPath = path.join(root, '.issue-flow/install-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files['.issue-flow/templates/plan-impl.md'].sha256 = '0'.repeat(64);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const plan = createInstallPlan('github', { cwd: root });
+    const conflict = plan.conflicts.find((item) => item.path === '.issue-flow/templates/plan-impl.md');
+    assert.equal(conflict.category, 'user_customizations');
+    assert.equal(conflict.kind, 'desired');
+    assert.equal(conflict.reason, 'modified');
+    assert.equal(conflict.defaultAction, 'keep');
+    assert.deepEqual(conflict.allowedActions, ['overwrite', 'keep']);
+    assert.equal(conflict.currentContent, undefined);
+    assert.equal(conflict.proposedContent, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap keep decision acknowledges upstream without writing the file', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const templatePath = path.join(root, '.issue-flow/templates/plan-impl.md');
+    fs.writeFileSync(templatePath, 'custom plan template');
+
+    const manifestPath = path.join(root, '.issue-flow/install-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files['.issue-flow/templates/plan-impl.md'].sha256 = '0'.repeat(64);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const results = runBootstrap('github', {
+      cwd: root,
+      decisions: { actions: { '.issue-flow/templates/plan-impl.md': 'keep' } },
+    });
+    const kept = results.find((result) => result.target === templatePath);
+    assert.equal(kept.action, 'skipped');
+    assert.equal(kept.reason, 'keep');
+    assert.equal(fs.readFileSync(templatePath, 'utf8'), 'custom plan template');
+
+    const upstreamSha = require('node:crypto').createHash('sha256')
+      .update(fs.readFileSync(path.resolve(__dirname, '../skills/issue-flow/assets/agentrix/runtime/templates/plan-impl.md')))
+      .digest('hex');
+    const nextManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(nextManifest.files['.issue-flow/templates/plan-impl.md'].sha256, upstreamSha);
+
+    const plan = createInstallPlan('github', { cwd: root });
+    assert.equal(plan.conflicts.some((item) => item.path === '.issue-flow/templates/plan-impl.md'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap reports managed conflict with overwrite default and applies overwrite decision', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const workflowPath = path.join(root, '.github/workflows/issue-flow-auto.yml');
+    fs.writeFileSync(workflowPath, 'custom workflow');
+
+    const plan = createInstallPlan('github', { cwd: root });
+    const conflict = plan.conflicts.find((item) => item.path === '.github/workflows/issue-flow-auto.yml');
+    assert.equal(conflict.category, 'managed');
+    assert.equal(conflict.reason, 'modified');
+    assert.equal(conflict.defaultAction, 'overwrite');
+    assert.deepEqual(conflict.allowedActions, ['overwrite', 'keep']);
+
+    runBootstrap('github', {
+      cwd: root,
+      decisions: { actions: { '.github/workflows/issue-flow-auto.yml': 'overwrite' } },
+    });
+    assert.match(fs.readFileSync(workflowPath, 'utf8'), /Issue Flow Auto/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap forget decision keeps modified stale customizable file on disk', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const stalePath = path.join(root, '.issue-flow/prompts/legacy.prompt.md');
+    fs.writeFileSync(stalePath, 'user modified stale prompt');
+
+    const manifestPath = path.join(root, '.issue-flow/install-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files['.issue-flow/prompts/legacy.prompt.md'] = {
+      source: 'old/legacy.prompt.md',
+      mode: 'customizable',
+      sha256: '0'.repeat(64),
+    };
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const plan = createInstallPlan('github', { cwd: root });
+    const conflict = plan.conflicts.find((item) => item.path === '.issue-flow/prompts/legacy.prompt.md');
+    assert.equal(conflict.category, 'stale');
+    assert.equal(conflict.kind, 'stale');
+    assert.equal(conflict.reason, 'stale-modified');
+    assert.equal(conflict.defaultAction, 'forget');
+    assert.deepEqual(conflict.allowedActions, ['remove', 'forget']);
+
+    const results = runBootstrap('github', {
+      cwd: root,
+      decisions: { actions: { '.issue-flow/prompts/legacy.prompt.md': 'forget' } },
+    });
+    const forgotten = results.find((result) => result.target === stalePath);
+    assert.equal(forgotten.action, 'skipped');
+    assert.equal(forgotten.reason, 'forget');
+    assert.equal(fs.readFileSync(stalePath, 'utf8'), 'user modified stale prompt');
+    const nextManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(nextManifest.files['.issue-flow/prompts/legacy.prompt.md'], undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -436,21 +559,62 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
   }
 });
 
-test('gitlab bootstrap wraps existing root ci without discarding it', () => {
+test('gitlab bootstrap appends include to existing root ci without discarding it', () => {
   const root = makeTempRoot();
   try {
     const rootCi = path.join(root, '.gitlab-ci.yml');
     fs.writeFileSync(rootCi, 'stages:\n  - test\n\nunit:\n  script: echo ok\n');
 
     const results = installGitlab({ cwd: root });
-    const wrapped = results.find((result) => result.target === rootCi);
-    assert.equal(wrapped.action, 'wrapped');
+    const updated = results.find((result) => result.target === rootCi);
+    assert.equal(updated.action, 'updated');
     assert.match(fs.readFileSync(rootCi, 'utf8'), /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
-    assert.match(fs.readFileSync(rootCi, 'utf8'), /local: \.gitlab\/issue-flow-project\.gitlab-ci\.yml/);
-    assert.equal(
-      fs.readFileSync(path.join(root, '.gitlab/issue-flow-project.gitlab-ci.yml'), 'utf8'),
-      'stages:\n  - test\n\nunit:\n  script: echo ok\n'
-    );
+    assert.match(fs.readFileSync(rootCi, 'utf8'), /stages:\n  - test\n\nunit:\n  script: echo ok/);
+    assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow-project.gitlab-ci.yml')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('gitlab bootstrap plan reports root ci include conflict', () => {
+  const root = makeTempRoot();
+  try {
+    const rootCi = path.join(root, '.gitlab-ci.yml');
+    fs.writeFileSync(rootCi, 'stages:\n  - test\n');
+
+    const plan = createInstallPlan('gitlab', { cwd: root });
+    assert.equal(plan.conflicts.length, 1);
+    assert.equal(plan.conflicts[0].id, '.gitlab-ci.yml');
+    assert.equal(plan.conflicts[0].category, 'gitlab_ci');
+    assert.equal(plan.conflicts[0].defaultAction, 'use_proposed');
+    assert.match(plan.conflicts[0].proposedContent, /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
+    assert.equal(fs.readFileSync(rootCi, 'utf8'), 'stages:\n  - test\n');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('gitlab bootstrap plan reports complex root ci include for manual review', () => {
+  const root = makeTempRoot();
+  try {
+    const rootCi = path.join(root, '.gitlab-ci.yml');
+    const complexCi = 'include:\n  rules:\n    - if: $CI_COMMIT_BRANCH\n      local: ci/base.yml\n';
+    fs.writeFileSync(rootCi, complexCi);
+
+    const plan = createInstallPlan('gitlab', { cwd: root });
+    const conflict = plan.conflicts.find((item) => item.id === '.gitlab-ci.yml');
+    assert.equal(conflict.reason, 'complex_include');
+    assert.equal(conflict.defaultAction, 'keep_current');
+    assert.deepEqual(conflict.allowedActions, ['keep_current']);
+    assert.equal(conflict.proposedContent, undefined);
+    assert.match(conflict.message, /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
+
+    const results = installGitlab({ cwd: root });
+    const skipped = results.find((result) => result.target === rootCi);
+    assert.equal(skipped.action, 'skipped');
+    assert.equal(skipped.reason, 'complex_include');
+    assert.match(skipped.message, /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/);
+    assert.equal(fs.readFileSync(rootCi, 'utf8'), complexCi);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

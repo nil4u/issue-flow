@@ -106,22 +106,119 @@ test('install script installs GitLab root include from checkout source', () => {
   }
 });
 
-test('install script wraps existing GitLab root ci from checkout source', () => {
+test('install script appends GitLab root ci include from checkout source', () => {
   const root = makeTempRoot();
   try {
     fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
 
     const result = runInstall(['gitlab'], { cwd: root });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /wrapped \.gitlab-ci\.yml/);
+    assert.match(result.stdout, /updated \.gitlab-ci\.yml/);
     assert.match(
       fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'),
-      /local: \.gitlab\/issue-flow-project\.gitlab-ci\.yml/
+      /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/
     );
-    assert.equal(
-      fs.readFileSync(path.join(root, '.gitlab/issue-flow-project.gitlab-ci.yml'), 'utf8'),
-      'build:\n  script: echo build\n'
+    assert.match(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), /build:\n  script: echo build/);
+    assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow-project.gitlab-ci.yml')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('install script plan-json reports conflicts and writes nothing', () => {
+  const root = makeTempRoot();
+  try {
+    fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
+
+    const result = runInstall(['gitlab', '--plan-json'], { cwd: root });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    const plan = JSON.parse(result.stdout);
+    assert.equal(plan.conflicts.length, 1);
+    assert.equal(plan.conflicts[0].id, '.gitlab-ci.yml');
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), false);
+    assert.equal(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), 'build:\n  script: echo build\n');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('install script decision-file exits 4 when fingerprint is stale', () => {
+  const root = makeTempRoot();
+  try {
+    fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
+    const decisionPath = path.join(root, 'decisions.json');
+    fs.writeFileSync(decisionPath, JSON.stringify({
+      fingerprint: 'stale',
+      actions: {
+        '.gitlab-ci.yml': 'use_proposed',
+      },
+    }));
+
+    const result = runInstall(['gitlab', '--decision-file', decisionPath], { cwd: root });
+    assert.equal(result.status, 4, result.stderr || result.stdout);
+    const body = JSON.parse(result.stdout);
+    assert.equal(body.error, 'install_plan_changed');
+    assert.equal(body.conflicts[0].id, '.gitlab-ci.yml');
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('install script decision-file applies defaults for missing decisions', () => {
+  const root = makeTempRoot();
+  try {
+    fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
+
+    const planResult = runInstall(['gitlab', '--plan-json'], { cwd: root });
+    assert.equal(planResult.status, 0, planResult.stderr || planResult.stdout);
+    const plan = JSON.parse(planResult.stdout);
+
+    const decisionPath = path.join(root, 'decisions.json');
+    fs.writeFileSync(decisionPath, JSON.stringify({ fingerprint: plan.fingerprint, actions: {} }));
+
+    const result = runInstall(['gitlab', '--decision-file', decisionPath], { cwd: root });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(
+      fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'),
+      /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/
     );
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('install script decision-file rejects unknown ids and disallowed actions', () => {
+  const root = makeTempRoot();
+  try {
+    fs.writeFileSync(path.join(root, '.gitlab-ci.yml'), 'build:\n  script: echo build\n');
+
+    const planResult = runInstall(['gitlab', '--plan-json'], { cwd: root });
+    assert.equal(planResult.status, 0, planResult.stderr || planResult.stdout);
+    const plan = JSON.parse(planResult.stdout);
+
+    const unknownPath = path.join(root, 'unknown.json');
+    fs.writeFileSync(unknownPath, JSON.stringify({
+      fingerprint: plan.fingerprint,
+      actions: { 'nope.txt': 'keep' },
+    }));
+    const unknown = runInstall(['gitlab', '--decision-file', unknownPath], { cwd: root });
+    assert.equal(unknown.status, 1, unknown.stderr || unknown.stdout);
+    assert.match(unknown.stderr, /unknown conflict: nope\.txt/);
+
+    const disallowedPath = path.join(root, 'disallowed.json');
+    fs.writeFileSync(disallowedPath, JSON.stringify({
+      fingerprint: plan.fingerprint,
+      actions: { '.gitlab-ci.yml': 'remove' },
+    }));
+    const disallowed = runInstall(['gitlab', '--decision-file', disallowedPath], { cwd: root });
+    assert.equal(disallowed.status, 1, disallowed.stderr || disallowed.stdout);
+    assert.match(disallowed.stderr, /not allowed for \.gitlab-ci\.yml/);
+
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), false);
+    assert.equal(fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'), 'build:\n  script: echo build\n');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -4,6 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const {
+  addLocalInclude,
+  hasLocalInclude,
+} = require('./gitlab-ci-include.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
 const MANIFEST_VERSION = 1;
@@ -29,7 +33,6 @@ const AGENTRIX_GITLAB_FILES = [
   ['workflows/gitlab/issue-flow.gitlab-ci.yml', '.gitlab/issue-flow.gitlab-ci.yml', { mode: MODE_MANAGED }],
 ];
 const GITLAB_ROOT_CI = '.gitlab-ci.yml';
-const GITLAB_PROJECT_CI = '.gitlab/issue-flow-project.gitlab-ci.yml';
 const GITLAB_ISSUE_FLOW_CI = '.gitlab/issue-flow.gitlab-ci.yml';
 const AGENTRIX_CONFIG = ['config.json', '.issue-flow/config.json', { mode: MODE_CUSTOMIZABLE }];
 const AGENTRIX_PROJECT_FILES = [
@@ -64,7 +67,7 @@ const AGENTRIX_PLUGIN_SPECS = [
   AGENTRIX_PLUGIN_MANIFEST,
   ...AGENTRIX_PLUGIN_DIRS,
 ];
-const VALUE_OPTIONS = new Set(['--runtime']);
+const VALUE_OPTIONS = new Set(['--runtime', '--decision-file']);
 
 function packageRootDir() {
   return path.resolve(__dirname, '..', '..', '..');
@@ -97,6 +100,8 @@ function usage() {
     '  --runtime <name>  Runtime preset. Defaults to agentrix.',
     '  --force           Overwrite existing generated files.',
     '  --dry-run         Print files that would be written.',
+    '  --plan-json       Print install conflict plan JSON without writing files.',
+    '  --decision-file   Apply conflict decisions from a JSON file.',
     '  --help',
   ].join('\n');
 }
@@ -129,6 +134,10 @@ function parseArgs(argv) {
     }
     if (arg === '--dry-run') {
       options.dryRun = true;
+      continue;
+    }
+    if (arg === '--plan-json') {
+      options.planJson = true;
       continue;
     }
     if (!arg.startsWith('--')) {
@@ -192,6 +201,141 @@ function fileSha256(filePath) {
 
 function textSha256(content) {
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function conflictCategory(operation) {
+  if (operation.category) {
+    return operation.category;
+  }
+  if (operation.targetRelative === GITLAB_ROOT_CI) {
+    return 'gitlab_ci';
+  }
+  if (operation.kind === 'stale') {
+    return 'stale';
+  }
+  if (operation.mode === MODE_CUSTOMIZABLE) {
+    return 'user_customizations';
+  }
+  return 'managed';
+}
+
+function defaultConflictAction(operation) {
+  if (operation.category === 'gitlab_ci' || operation.targetRelative === GITLAB_ROOT_CI) {
+    return operation.reason === 'complex_include' ? 'keep_current' : 'use_proposed';
+  }
+  if (operation.kind === 'stale') {
+    return operation.mode === MODE_MANAGED ? 'remove' : 'forget';
+  }
+  return operation.mode === MODE_CUSTOMIZABLE ? 'keep' : 'overwrite';
+}
+
+function allowedConflictActions(operation) {
+  if (operation.category === 'gitlab_ci' || operation.targetRelative === GITLAB_ROOT_CI) {
+    return operation.reason === 'complex_include' ? ['keep_current'] : ['use_proposed', 'keep_current'];
+  }
+  if (operation.kind === 'stale') {
+    return ['remove', 'forget'];
+  }
+  return ['overwrite', 'keep'];
+}
+
+function conflictPayload(operation) {
+  const conflict = {
+    id: operation.targetRelative,
+    category: conflictCategory(operation),
+    path: operation.targetRelative,
+    mode: operation.mode,
+    kind: operation.kind,
+    reason: operation.reason,
+    defaultAction: defaultConflictAction(operation),
+    allowedActions: allowedConflictActions(operation),
+    currentHash: operation.currentHash || '',
+    newHash: operation.newHash || '',
+  };
+  if (operation.category === 'gitlab_ci' || operation.targetRelative === GITLAB_ROOT_CI) {
+    if (Object.prototype.hasOwnProperty.call(operation, 'currentContent')) {
+      conflict.currentContent = operation.currentContent;
+    }
+    if (Object.prototype.hasOwnProperty.call(operation, 'proposedContent')) {
+      conflict.proposedContent = operation.proposedContent;
+    }
+    if (operation.message) {
+      conflict.message = operation.message;
+    }
+  }
+  return conflict;
+}
+
+function conflictFingerprint(conflicts) {
+  const shape = conflicts
+    .map((conflict) => ({
+      id: conflict.id,
+      category: conflict.category,
+      kind: conflict.kind,
+      mode: conflict.mode,
+      reason: conflict.reason,
+      currentHash: conflict.currentHash || '',
+      newHash: conflict.newHash || '',
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return textSha256(canonicalJson(shape));
+}
+
+function installPlanFromConflicts(conflicts) {
+  const sorted = conflicts.slice().sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    fingerprint: conflictFingerprint(sorted),
+    conflicts: sorted,
+  };
+}
+
+function collectConflict(operation, options = {}) {
+  if (typeof options.conflictCollector === 'function') {
+    options.conflictCollector(conflictPayload(operation));
+  }
+}
+
+function readDecisionFile(filePath) {
+  const body = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return {
+    fingerprint: String(body.fingerprint || ''),
+    actions: body.actions && typeof body.actions === 'object' ? body.actions : {},
+  };
+}
+
+function decisionAction(operation, options = {}) {
+  const decisions = options.decisions || {};
+  const actions = decisions.actions || {};
+  return actions[operation.targetRelative] || defaultConflictAction(operation);
+}
+
+function validateDecisionFile(plan, decisions) {
+  if (!decisions) {
+    return;
+  }
+  if (decisions.fingerprint !== plan.fingerprint) {
+    return;
+  }
+  const byId = new Map(plan.conflicts.map((conflict) => [conflict.id, conflict]));
+  for (const [id, action] of Object.entries(decisions.actions || {})) {
+    const conflict = byId.get(id);
+    if (!conflict) {
+      throw new Error(`Decision file references unknown conflict: ${id}`);
+    }
+    if (!conflict.allowedActions.includes(action)) {
+      throw new Error(`Decision file action ${action} is not allowed for ${id}.`);
+    }
+  }
 }
 
 function readInstallManifest(options = {}) {
@@ -619,6 +763,15 @@ function createFileOperation(file, manifest, options = {}) {
     };
   }
 
+  if (previous && file.mode === MODE_CUSTOMIZABLE && newHash === previous.sha256) {
+    return {
+      ...base,
+      operation: 'skip',
+      action: 'skipped',
+      reason: 'customized',
+    };
+  }
+
   if (!previous && file.mode === MODE_MANAGED) {
     return {
       ...base,
@@ -761,7 +914,56 @@ function promptConflict(conflict, options = {}) {
 function resolveConflicts(operations, options = {}) {
   const conflicts = operations.filter((operation) => operation.operation === 'conflict');
   if (conflicts.length === 0 || options.dryRun) {
+    if (options.planMode) {
+      for (const conflict of conflicts) {
+        collectConflict(conflict, options);
+      }
+    }
     return operations;
+  }
+
+  if (options.decisions) {
+    return operations.map((operation) => {
+      if (operation.operation !== 'conflict') {
+        return operation;
+      }
+
+      const action = decisionAction(operation, options);
+      if (operation.kind === 'stale') {
+        if (action === 'remove') {
+          return {
+            ...operation,
+            operation: 'remove',
+            action: 'removed',
+            dryAction: 'would_remove',
+            reason: 'remove',
+          };
+        }
+        return {
+          ...operation,
+          operation: 'forget',
+          action: 'skipped',
+          reason: 'forget',
+        };
+      }
+
+      if (action === 'overwrite') {
+        return {
+          ...operation,
+          operation: 'write',
+          action: 'written',
+          dryAction: 'would_write',
+          reason: 'overwrite',
+        };
+      }
+
+      return {
+        ...operation,
+        operation: 'skip',
+        action: 'skipped',
+        reason: 'keep',
+      };
+    });
   }
 
   if (!isInteractive(options)) {
@@ -808,7 +1010,7 @@ function resolveConflicts(operations, options = {}) {
       ...operation,
       operation: 'skip',
       action: 'skipped',
-      reason: 'conflict',
+      reason: 'keep',
     };
   });
 }
@@ -854,7 +1056,7 @@ function operationResult(operation, options = {}) {
 function shouldReportIndividually(operation, options = {}) {
   const result = operationResult(operation, options);
   return ['would_conflict', 'removed', 'would_remove'].includes(result.action)
-    || (result.action === 'skipped' && ['conflict', 'missing'].includes(result.reason));
+    || (result.action === 'skipped' && ['conflict', 'keep', 'forget', 'missing'].includes(result.reason));
 }
 
 function summarizeGroupOperations(operations, options = {}) {
@@ -910,7 +1112,10 @@ function nextManifestFromOperations(manifest, operations, options = {}) {
   const files = { ...manifest.files };
   for (const operation of operations) {
     if (operation.kind === 'desired') {
-      if (operation.operation === 'write' || (operation.operation === 'skip' && operation.reason === 'current')) {
+      if (
+        operation.operation === 'write'
+        || (operation.operation === 'skip' && ['current', 'keep', 'customized'].includes(operation.reason))
+      ) {
         files[operation.targetRelative] = desiredManifestEntry(operation);
       } else if (!operation.previous) {
         delete files[operation.targetRelative];
@@ -1008,25 +1213,13 @@ function installGithub(options = {}) {
   ];
 }
 
-function gitlabRootCiContent(includeProjectCi = false) {
-  const lines = [
-    'include:',
-    `  - local: ${GITLAB_ISSUE_FLOW_CI}`,
-  ];
-  if (includeProjectCi) {
-    lines.push(`  - local: ${GITLAB_PROJECT_CI}`);
-  }
-  return `${lines.join('\n')}\n`;
-}
-
 function hasIssueFlowGitlabInclude(content) {
-  return String(content || '').includes(GITLAB_ISSUE_FLOW_CI);
+  return hasLocalInclude(content, GITLAB_ISSUE_FLOW_CI);
 }
 
 function installGitlabRootCi(options = {}) {
   const cwd = options.cwd || process.cwd();
   const target = path.resolve(cwd, GITLAB_ROOT_CI);
-  const projectTarget = path.resolve(cwd, GITLAB_PROJECT_CI);
   if (!fs.existsSync(target)) {
     const source = path.join(agentrixBootstrapAssetsDir(), 'workflows/gitlab/root.gitlab-ci.yml');
     if (!options.dryRun) {
@@ -1049,28 +1242,72 @@ function installGitlabRootCi(options = {}) {
     };
   }
 
-  if (fs.existsSync(projectTarget) && !options.force) {
+  const transformed = addLocalInclude(current, GITLAB_ISSUE_FLOW_CI);
+  const message = `Add "- local: ${GITLAB_ISSUE_FLOW_CI}" to the top-level include list in ${GITLAB_ROOT_CI} manually.`;
+  const operation = {
+    category: 'gitlab_ci',
+    kind: 'desired',
+    source: target,
+    sourceRelative: GITLAB_ROOT_CI,
+    target,
+    targetRelative: GITLAB_ROOT_CI,
+    groupSource: target,
+    groupTarget: target,
+    groupTargetRelative: GITLAB_ROOT_CI,
+    mode: MODE_MANAGED,
+    previous: undefined,
+    currentHash: textSha256(current),
+    newHash: transformed.needsReview ? textSha256(current) : textSha256(transformed.content),
+    targetExists: true,
+    operation: 'conflict',
+    action: 'conflict',
+    dryAction: 'would_conflict',
+    reason: transformed.needsReview ? 'complex_include' : 'missing_issue_flow_include',
+    currentContent: current,
+    proposedContent: transformed.needsReview ? undefined : transformed.content,
+    message: transformed.needsReview ? message : undefined,
+  };
+
+  if (options.planMode) {
+    collectConflict(operation, options);
     return {
       action: 'skipped',
-      reason: 'project-ci-exists',
+      reason: operation.reason,
       source: target,
       target,
-      message: `${GITLAB_PROJECT_CI} already exists; re-run with --force or add ${GITLAB_ISSUE_FLOW_CI} to ${GITLAB_ROOT_CI}.`,
+      message: operation.message,
+    };
+  }
+
+  if (transformed.needsReview) {
+    return {
+      action: 'skipped',
+      reason: 'complex_include',
+      source: target,
+      target,
+      message,
+    };
+  }
+
+  const action = options.decisions ? decisionAction(operation, options) : 'use_proposed';
+  if (action === 'keep_current') {
+    return {
+      action: 'skipped',
+      reason: 'keep_current',
+      source: target,
+      target,
     };
   }
 
   if (!options.dryRun) {
-    fs.mkdirSync(path.dirname(projectTarget), { recursive: true });
-    fs.writeFileSync(projectTarget, current, 'utf8');
-    fs.writeFileSync(target, gitlabRootCiContent(true), 'utf8');
+    fs.writeFileSync(target, transformed.content, 'utf8');
   }
 
   return {
-    action: options.dryRun ? 'would_wrap' : 'wrapped',
+    action: options.dryRun ? 'would_update' : 'updated',
     source: target,
     target,
-    projectTarget,
-    message: `${GITLAB_ROOT_CI} now includes issue-flow and ${GITLAB_PROJECT_CI}.`,
+    message: `${GITLAB_ROOT_CI} now includes ${GITLAB_ISSUE_FLOW_CI}.`,
   };
 }
 
@@ -1112,11 +1349,43 @@ function runBootstrap(target, options = {}) {
   throw new Error('bootstrap target must be github or gitlab');
 }
 
+function createInstallPlan(target, options = {}) {
+  const conflicts = [];
+  runBootstrap(target, {
+    ...options,
+    dryRun: true,
+    planMode: true,
+    conflictCollector: (conflict) => conflicts.push(conflict),
+  });
+  return installPlanFromConflicts(conflicts);
+}
+
 function main(argv = process.argv.slice(2)) {
   const { target, options } = parseArgs(argv);
   if (options.help || !target) {
     console.log(usage());
     return 0;
+  }
+
+  if (options.planJson) {
+    const plan = createInstallPlan(target, options);
+    process.stdout.write(`${JSON.stringify(plan)}\n`);
+    return 0;
+  }
+
+  if (options.decisionFile) {
+    const decisions = readDecisionFile(options.decisionFile);
+    const plan = createInstallPlan(target, options);
+    if (decisions.fingerprint !== plan.fingerprint) {
+      process.stdout.write(`${JSON.stringify({
+        error: 'install_plan_changed',
+        fingerprint: plan.fingerprint,
+        conflicts: plan.conflicts,
+      })}\n`);
+      return 4;
+    }
+    validateDecisionFile(plan, decisions);
+    options.decisions = decisions;
   }
 
   const results = runBootstrap(target, options);
@@ -1141,12 +1410,13 @@ module.exports = {
   installGitlab,
   main,
   parseArgs,
+  createInstallPlan,
   runBootstrap,
 };
 
 if (require.main === module) {
   try {
-    main();
+    process.exitCode = main();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

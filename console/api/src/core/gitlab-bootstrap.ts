@@ -67,8 +67,9 @@ async function runIssueFlowInstallScript(cwd, input = {}) {
     failure.status = 502
     throw failure
   }
+  const args = [script, input.provider || 'gitlab', ...(input.args || [])]
   try {
-    return await execFileAsync('sh', [script, input.provider || 'gitlab', '--force'], {
+    const result = await execFileAsync('sh', args, {
       cwd,
       env: {
         ...process.env,
@@ -76,11 +77,29 @@ async function runIssueFlowInstallScript(cwd, input = {}) {
       },
       maxBuffer: 1024 * 1024 * 8,
     })
+    return { status: 0, stdout: result.stdout || '', stderr: result.stderr || '' }
   } catch (error) {
+    if (error && error.code === 4 && input.allowPlanChanged) {
+      return {
+        status: 4,
+        stdout: error.stdout || '',
+        stderr: error.stderr || '',
+      }
+    }
     const detail = redact(error && (error.stderr || error.stdout || error.message) || '', input.token || '').trim()
     const failure = new Error(`issue-flow install failed${detail ? `: ${detail}` : ''}`)
     failure.status = 502
     throw failure
+  }
+}
+
+function parseInstallerJson(output = '', fallbackError = 'issue_flow_install_json_invalid') {
+  try {
+    return JSON.parse(String(output || '').trim() || '{}')
+  } catch {
+    const error = new Error(fallbackError)
+    error.status = 502
+    throw error
   }
 }
 
@@ -117,8 +136,43 @@ async function installGitlabPluginMergeRequest(input = {}) {
     await runGit(checkout, ['checkout', '-b', sourceBranch], token)
     progress({ id: 'clone', status: 'passed', label: '克隆仓库', detail: `已创建分支 ${sourceBranch}` })
 
-    progress({ id: 'install', status: 'running', label: '安装文件', detail: '正在写入 issue-flow 文件' })
-    await runIssueFlowInstallScript(checkout, { provider: 'gitlab', token })
+    progress({ id: 'install', status: 'running', label: '安装文件', detail: input.decisions ? '正在按冲突决策写入 issue-flow 文件' : '正在检查 issue-flow 文件冲突' })
+    if (input.decisions) {
+      const decisionFile = path.join(root, 'install-decisions.json')
+      fs.writeFileSync(decisionFile, `${JSON.stringify(input.decisions)}\n`, 'utf8')
+      const install = await runIssueFlowInstallScript(checkout, {
+        provider: 'gitlab',
+        token,
+        args: ['--decision-file', decisionFile],
+        allowPlanChanged: true,
+      })
+      if (install.status === 4) {
+        const plan = parseInstallerJson(install.stdout, 'issue_flow_install_plan_changed_invalid')
+        progress({ id: 'install', status: 'passed', label: '安装文件', detail: '安装计划已变化，需要重新选择冲突处理方式' })
+        return {
+          conflicts: true,
+          plan: {
+            fingerprint: plan.fingerprint || '',
+            conflicts: plan.conflicts || [],
+          },
+        }
+      }
+    } else {
+      const planResult = await runIssueFlowInstallScript(checkout, {
+        provider: 'gitlab',
+        token,
+        args: ['--plan-json'],
+      })
+      const plan = parseInstallerJson(planResult.stdout, 'issue_flow_install_plan_invalid')
+      if (Array.isArray(plan.conflicts) && plan.conflicts.length) {
+        progress({ id: 'install', status: 'passed', label: '安装文件', detail: `${plan.conflicts.length} 个文件需要确认` })
+        return {
+          conflicts: true,
+          plan,
+        }
+      }
+      await runIssueFlowInstallScript(checkout, { provider: 'gitlab', token })
+    }
     progress({ id: 'install', status: 'passed', label: '安装文件', detail: '安装文件已生成' })
 
     progress({ id: 'commit', status: 'running', label: '提交变更', detail: '正在提交并推送分支' })

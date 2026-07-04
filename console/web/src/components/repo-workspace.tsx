@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AgentrixHelpDialog } from "@/components/agentrix-help-dialog"
 import { EmptyPanel } from "@/components/empty-panel"
 import { GitRunnerValue } from "@/components/git-runner-value"
+import { InstallConflictWizard } from "@/components/install-conflict-wizard"
 import { IssuesBoard } from "@/components/issues-board"
 import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -102,11 +103,14 @@ function InstallConsole({
   defaults,
   installCheck,
   checkProgress,
+  installConflictPlan,
   checking,
   projectAccess,
   loadingProjectAccess,
   onCheck,
   onCloseCheckProgress,
+  onConfirmInstallConflicts,
+  onCancelInstallConflicts,
   onInstallPlugin,
   onSetVariable,
   onSetRunner,
@@ -259,6 +263,12 @@ function InstallConsole({
         checking={checking}
         progress={checkProgress}
         onClose={onCloseCheckProgress}
+      />
+      <InstallConflictWizard
+        checking={checking}
+        plan={installConflictPlan}
+        onCancel={onCancelInstallConflicts}
+        onConfirm={onConfirmInstallConflicts}
       />
     </div>
   )
