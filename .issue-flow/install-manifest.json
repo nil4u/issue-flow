@@ -114,6 +114,11 @@
       "mode": "managed",
       "sha256": "bc15e11946652e4c6fe46e724a48bf714ce23606aa705341784e8484da1bb3ea"
     },
+    ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/gitlab-ci-include.cjs": {
+      "source": "skills/issue-flow/scripts/gitlab-ci-include.cjs",
+      "mode": "managed",
+      "sha256": "f68b0060586dbc8411ec9ad160ab14d635338f33c5f3db81b08faddc8fee2017"
+    },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/intake.cjs": {
       "source": "skills/issue-flow/scripts/intake.cjs",
       "mode": "managed",
