@@ -1,5 +1,5 @@
 # [INPUT]: 依赖 main push/workflow_dispatch、release-please-config.json 与 .release-please-manifest.json
-# [OUTPUT]: 创建或更新 release PR；release PR 合并后创建 GitHub Release 与 vX.Y.Z tag
+# [OUTPUT]: 创建或更新 release PR；release PR 合并后创建 GitHub Release/tag；console release 同步发布 GHCR 镜像
 # [POS]: workflows 的发布自动化入口，固定从 main 维护 package.json、SKILL.md、CHANGELOG、manifest 与 tag
 # [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 
@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
   pull-requests: write
 
 concurrency:
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
 
     steps:
       - name: Create or update release PR
@@ -32,3 +33,40 @@ jobs:
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs['console/api--release_created'] == 'true' }}
+
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ steps.release.outputs['console/api--release_created'] == 'true' }}
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ steps.release.outputs['console/api--release_created'] == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        if: ${{ steps.release.outputs['console/api--release_created'] == 'true' }}
+        id: docker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-console
+          tags: |
+            type=raw,value=${{ steps.release.outputs['console/api--tag_name'] }}
+            type=raw,value=latest
+            type=sha
+
+      - name: Build and push console image
+        if: ${{ steps.release.outputs['console/api--release_created'] == 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: console/Dockerfile
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -10,6 +10,16 @@ on:
     tags:
       - "console-v*"
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional image tag to publish, for example console-v0.2.0"
+        required: false
+        type: string
+      latest:
+        description: "Also publish latest"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -46,7 +56,9 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
+            type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/console-v') }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && inputs.latest }}
             type=sha
 
       - name: Build and push
