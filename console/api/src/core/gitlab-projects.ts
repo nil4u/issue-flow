@@ -1259,6 +1259,7 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
       projectPath: project.pathWithNamespace,
       branch: project.defaultBranch || existing.defaultBranch || 'main',
       operation,
+      commitAuthor: config.commitAuthor,
       commitMessage: input.commitMessage || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
       mergeRequestTitle: input.mergeRequestTitle || `${operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
       onProgress: input.onProgress,

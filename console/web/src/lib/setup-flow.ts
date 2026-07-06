@@ -7,6 +7,8 @@ export type SetupInitializeInput = {
   oauthClientSecret: string
   agentrixGitServerId: string
   adminPat: string
+  commitAuthorName: string
+  commitAuthorEmail: string
 }
 
 export type SetupInitializeResult = {
@@ -27,6 +29,10 @@ export async function initializeIssueFlowSetup(input: SetupInitializeInput) {
       },
       agentrixGitServerId: input.agentrixGitServerId,
       adminPat: input.adminPat,
+      commitAuthor: {
+        name: input.commitAuthorName,
+        email: input.commitAuthorEmail,
+      },
     }),
   })
   return body

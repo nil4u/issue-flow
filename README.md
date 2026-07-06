@@ -201,6 +201,8 @@ INSERT INTO git_servers (
   webhook_secret,
   agentrix_git_server_id,
   admin_pat,
+  commit_author_name,
+  commit_author_email,
   created_at,
   updated_at
 ) VALUES (
@@ -216,12 +218,14 @@ INSERT INTO git_servers (
   '<backend-managed-webhook-secret>',
   '<agentrix-git-server-id>',
   '<gitlab-admin-pat>',
+  'issue-flow',
+  'issue-flow@example.com',
   NOW(),
   NOW()
 );
 ```
 
-There is no HTTP endpoint for creating or updating Git server rows. Insert and update them in PostgreSQL as administrator-managed service configuration. The API returns only public server fields and fingerprints. OAuth client secret, webhook secret, and admin PAT are never returned to the browser. Repositories created by install store `gitServerId`, and server-side dispatch passes `agentrix_git_server_id` to Agentrix as `AGENTRIX_GIT_SERVER_ID`. GitHub is a reserved server type in this schema but is not implemented by issue-flow service yet.
+Git server rows can be created during first-run setup and updated by admins in the console. SQL insertion remains supported for deployment automation. `commit_author_name` and `commit_author_email` are used for console-created install/upgrade commits; setup defaults them to `issue-flow` and `issue-flow@<primary-domain>` such as `issue-flow@lianjia.com` for `https://git.lianjia.com`. The API returns only public server fields and fingerprints. OAuth client secret, webhook secret, and admin PAT are never returned to the browser. Repositories created by install store `gitServerId`, and server-side dispatch passes `agentrix_git_server_id` to Agentrix as `AGENTRIX_GIT_SERVER_ID`. GitHub is a reserved server type in this schema but is not implemented by issue-flow service yet.
 
 Create a GitLab OAuth application for the issue-flow console and configure the callback URL on the GitLab app. The callback URL is derived at runtime from `ISSUE_FLOW_BASE_URL` plus `/api/auth/gitlab/callback`. The API requests the scopes saved in the selected `git_servers` row. The recommended scopes are `api read_repository write_repository openid profile email`.
 

@@ -37,6 +37,8 @@ function gitServerMissingFields(server = {}) {
     if (!server.webhook?.secret) missing.push("webhook.secret")
     if (!server.agentrixGitServerId) missing.push("agentrixGitServerId")
     if (!server.adminPat) missing.push("adminPat")
+    if (!server.commitAuthor?.name) missing.push("commitAuthor.name")
+    if (!server.commitAuthor?.email) missing.push("commitAuthor.email")
   }
   return missing
 }
@@ -61,6 +63,12 @@ function defaultGitlabId(baseUrl = "") {
 function defaultGitlabApiUrl(baseUrl = "") {
   const root = normalizedUrl(baseUrl)
   return root ? `${root}/api/v4` : ""
+}
+
+function defaultCommitAuthorEmail(baseUrl = "") {
+  const parts = gitlabHost(baseUrl).split(".").filter(Boolean)
+  const domain = parts.length >= 2 ? parts.slice(-2).join(".") : parts[0] || ""
+  return domain ? `issue-flow@${domain}` : ""
 }
 
 async function getSetupStatus({ store, env = process.env }) {
@@ -111,6 +119,10 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
     },
     agentrixGitServerId: input.agentrixGitServerId,
     adminPat: input.adminPat,
+    commitAuthor: {
+      name: input.commitAuthor?.name || input.commitAuthorName || "issue-flow",
+      email: input.commitAuthor?.email || input.commitAuthorEmail || defaultCommitAuthorEmail(baseUrl),
+    },
   })
 
   const missing = gitServerMissingFields(gitServer)

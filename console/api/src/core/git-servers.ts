@@ -1,4 +1,10 @@
 // @ts-nocheck
+async function requireAdmin({ store, userId }) {
+  const user = await store.getUser(userId)
+  if (user?.role === "admin") return user
+  return undefined
+}
+
 async function listGitServers({ store }) {
   return {
     status: 200,
@@ -8,6 +14,35 @@ async function listGitServers({ store }) {
   };
 }
 
+async function saveGitServer({ store, userId, input = {} }) {
+  if (!await requireAdmin({ store, userId })) {
+    return { status: 403, body: { error: "admin_required" } }
+  }
+  const gitServer = await store.ensureGitServer(input)
+  return {
+    status: 200,
+    body: {
+      gitServer: store.publicGitServer(gitServer),
+    },
+  }
+}
+
+async function deleteGitServer({ store, userId, gitServerId = "" }) {
+  if (!await requireAdmin({ store, userId })) {
+    return { status: 403, body: { error: "admin_required" } }
+  }
+  if (!gitServerId) {
+    return { status: 400, body: { error: "git_server_id_required" } }
+  }
+  const deleted = await store.deleteGitServer(gitServerId)
+  return {
+    status: deleted ? 200 : 404,
+    body: deleted ? { ok: true } : { error: "git_server_not_found" },
+  }
+}
+
 export {
+  deleteGitServer,
   listGitServers,
+  saveGitServer,
 }

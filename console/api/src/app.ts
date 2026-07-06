@@ -119,7 +119,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(cors, {
     origin: (origin, callback) => callback(null, allowedOrigin(origin || "")),
     credentials: true,
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",

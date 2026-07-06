@@ -29,6 +29,10 @@ function gitlabConfigFromServer(server = {}) {
     oauthClientId: server.oauth && server.oauth.clientId || '',
     oauthClientSecret: server.oauth && server.oauth.clientSecret || '',
     oauthScopes: server.oauth && server.oauth.scopes || '',
+    commitAuthor: {
+      name: server.commitAuthor && server.commitAuthor.name || 'issue-flow',
+      email: server.commitAuthor && server.commitAuthor.email || '',
+    },
   };
 }
 
