@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/nil4u/issue-flow/compare/console-v0.3.0...console-v0.3.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* skip repo sync on repeat login ([adade30](https://github.com/nil4u/issue-flow/commit/adade30833b08a9957eb711677b1212e6e48d2ad))
+
 ## [0.3.0](https://github.com/nil4u/issue-flow/compare/console-v0.2.0...console-v0.3.0) (2026-07-06)
 
 
