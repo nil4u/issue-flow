@@ -4,6 +4,11 @@
   "version": "0.2.0",
   "description": "Issue Flow console: dashboard API for managed repositories and metrics.",
   "license": "MIT",
+  "keywords": [
+    "agentrix",
+    "automation",
+    "issue-flow"
+  ],
   "scripts": {
     "dev": "node --env-file=../../.env.dev --watch --import tsx src/main.ts",
     "start": "NODE_ENV=production node dist/main.js",
