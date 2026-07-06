@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/nil4u/issue-flow/compare/console-v0.2.0...console-v0.3.0) (2026-07-06)
+
+
+### Features
+
+* release pending module updates ([d5ea4f8](https://github.com/nil4u/issue-flow/commit/d5ea4f8bd6675356ae800b54248bf515bf2da5f3))
+
 ## [0.2.0](https://github.com/nil4u/issue-flow/compare/console-v0.1.0...console-v0.2.0) (2026-07-04)
 
 
