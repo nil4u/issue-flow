@@ -1412,6 +1412,7 @@ test('GitLab project sync follows pagination before replacing repo access', asyn
         gitServerId: 'gitlab-main',
         userId: user.id,
         token: 'gl-oauth-user-token',
+        maxPages: 'invalid',
       },
     });
 

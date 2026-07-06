@@ -96,6 +96,11 @@ function normalizeIssue(issue = {}) {
   };
 }
 
+function pageLimit(value, fallback = 50) {
+  const parsed = Number(value || fallback);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 async function listGitlabProjectsPage(input = {}, extraParams = {}) {
   const params = new URLSearchParams({
     membership: 'true',
@@ -114,7 +119,8 @@ async function listGitlabProjectsPage(input = {}, extraParams = {}) {
 async function listGitlabIssues(input = {}) {
   const issues = [];
   let page = 1;
-  while (page <= Number(input.maxPages || 50)) {
+  const maxPages = pageLimit(input.maxPages);
+  while (page <= maxPages) {
     const params = new URLSearchParams({
       state: input.state || 'all',
       scope: input.scope || 'all',
@@ -275,7 +281,8 @@ async function listGitlabProjects(input = {}) {
   const projects = [...firstPage.projects];
   let nextPage = firstPage.nextPage;
   let pagesRead = 1;
-  while (nextPage && pagesRead < Number(input.maxPages || 50)) {
+  const maxPages = pageLimit(input.maxPages);
+  while (nextPage && pagesRead < maxPages) {
     const page = await listGitlabProjectsPage(input, { page: String(nextPage) });
     projects.push(...page.projects);
     nextPage = page.nextPage;
