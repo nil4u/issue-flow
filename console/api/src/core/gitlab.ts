@@ -105,7 +105,10 @@ async function listGitlabProjectsPage(input = {}, extraParams = {}) {
   const result = await fetchJson('GET', input.apiUrl, `/projects?${params}`, input.token, {
     authType: input.authType,
   });
-  return Array.isArray(result.parsed) ? result.parsed.map(normalizeProject) : [];
+  return {
+    projects: Array.isArray(result.parsed) ? result.parsed.map(normalizeProject) : [],
+    nextPage: result.headers && result.headers.get && result.headers.get('x-next-page') || '',
+  };
 }
 
 async function listGitlabIssues(input = {}) {
@@ -268,7 +271,16 @@ async function getGitlabCurrentUser(input = {}) {
 }
 
 async function listGitlabProjects(input = {}) {
-  const projects = await listGitlabProjectsPage(input);
+  const firstPage = await listGitlabProjectsPage(input);
+  const projects = [...firstPage.projects];
+  let nextPage = firstPage.nextPage;
+  let pagesRead = 1;
+  while (nextPage && pagesRead < Number(input.maxPages || 50)) {
+    const page = await listGitlabProjectsPage(input, { page: String(nextPage) });
+    projects.push(...page.projects);
+    nextPage = page.nextPage;
+    pagesRead += 1;
+  }
   return Promise.all(projects.map(async (project) => {
     if (project.accessLevelKnown || !project.id) {
       return project;

@@ -1355,6 +1355,83 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
   }
 });
 
+test('GitLab project sync follows pagination before replacing repo access', async () => {
+  const { dir, store } = tempStore();
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects?membership=true&per_page=100') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'x-next-page': '2',
+      });
+      res.end(JSON.stringify([{
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        web_url: 'https://gitlab.example.com/team/app',
+        default_branch: 'main',
+        permissions: { project_access: { access_level: 40 } },
+      }]));
+      return;
+    }
+    if (req.url === '/api/v4/projects?membership=true&page=2&per_page=100') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([{
+        id: 43,
+        name: 'Api',
+        path_with_namespace: 'team/api',
+        web_url: 'https://gitlab.example.com/team/api',
+        default_branch: 'main',
+        permissions: { project_access: { access_level: 40 } },
+      }]));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({
+      id: 'user-alice',
+      displayName: 'Alice',
+      email: 'alice@example.com',
+    });
+    const synced = await listGitlabProjectsWithInstallStatus({
+      store,
+      input: {
+        gitServerId: 'gitlab-main',
+        userId: user.id,
+        token: 'gl-oauth-user-token',
+      },
+    });
+
+    assert.equal(synced.status, 200);
+    assert.deepEqual(synced.body.projects.map((project) => project.id), ['42', '43']);
+    assert.deepEqual(requests.slice(0, 3), [
+      '/api/v4/user',
+      '/api/v4/projects?membership=true&per_page=100',
+      '/api/v4/projects?membership=true&page=2&per_page=100',
+    ]);
+
+    const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
+    assert.deepEqual(repos.map((repo) => repo.projectPath), ['team/api', 'team/app']);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('GitLab settings checks variables independently and caches safe metadata', async () => {
   const { dir, store } = tempStore();
   const variables = new Map([
