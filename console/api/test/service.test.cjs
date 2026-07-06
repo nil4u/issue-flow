@@ -108,6 +108,24 @@ function close(server) {
   return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
 
+async function waitFor(callback, options = {}) {
+  const timeoutMs = options.timeoutMs || 1000;
+  const intervalMs = options.intervalMs || 20;
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const value = await callback();
+      if (value) return value;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  if (lastError) throw lastError;
+  throw new Error('condition not met before timeout');
+}
+
 function setCookieToCookieHeader(value = '') {
   return String(value || '')
     .split(/,\s*(?=[^;,]+=)/)
@@ -424,9 +442,22 @@ test('git accounts resolve to one issue-flow user across git servers', async () 
         displayName: 'Alice GH',
       },
     });
+    const repeated = await store.resolveUserForGitAccount({
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice Updated',
+      },
+    });
     const user = await store.getUser(first.user.id, { includeAccounts: true });
 
+    assert.equal(first.accountCreated, true);
+    assert.equal(second.accountCreated, true);
+    assert.equal(repeated.accountCreated, false);
     assert.equal(second.user.id, first.user.id);
+    assert.equal(repeated.user.id, first.user.id);
     assert.equal(user.accounts.length, 2);
     assert.deepEqual(user.accounts.map((account) => account.gitServerId).sort(), ['github-main', 'gitlab-main']);
   } finally {
@@ -2555,11 +2586,9 @@ test('GitLab OAuth flow stores session token server-side and project APIs use th
     assert.equal(sessionBody.session.gitServerId, 'gitlab-main');
     assert.doesNotMatch(JSON.stringify(sessionBody), /gl-oauth-session-token/);
 
-    const repositories = await fetch(`${baseUrl}/api/repositories?gitServerId=gitlab-main`, { headers: { Cookie: setCookieToCookieHeader(sessionCookie) } });
-    assert.equal(repositories.status, 200);
-    const repositoriesBody = await repositories.json();
-    assert.equal(repositoriesBody.repositories[0].projectPath, 'team/app');
-    assert.doesNotMatch(JSON.stringify(repositoriesBody), /gl-oauth-session-token/);
+    const repositoriesBeforeExplicitSync = await fetch(`${baseUrl}/api/repositories?gitServerId=gitlab-main`, { headers: { Cookie: setCookieToCookieHeader(sessionCookie) } });
+    assert.equal(repositoriesBeforeExplicitSync.status, 200);
+    assert.doesNotMatch(JSON.stringify(await repositoriesBeforeExplicitSync.json()), /gl-oauth-session-token/);
 
     const projects = await fetch(`${baseUrl}/api/gitlab/projects?gitServerId=gitlab-main`, { headers: { Cookie: setCookieToCookieHeader(sessionCookie) } });
     assert.equal(projects.status, 200);
@@ -2567,6 +2596,217 @@ test('GitLab OAuth flow stores session token server-side and project APIs use th
     assert.equal(projectsBody.projects[0].pathWithNamespace, 'team/app');
     assert.equal(projectsBody.projects[0].canInstall, true);
     assert.doesNotMatch(JSON.stringify(projectsBody), /gl-oauth-session-token/);
+
+    const repositories = await fetch(`${baseUrl}/api/repositories?gitServerId=gitlab-main`, { headers: { Cookie: setCookieToCookieHeader(sessionCookie) } });
+    assert.equal(repositories.status, 200);
+    const repositoriesBody = await repositories.json();
+    assert.equal(repositoriesBody.repositories[0].projectPath, 'team/app');
+    assert.doesNotMatch(JSON.stringify(repositoriesBody), /gl-oauth-session-token/);
+  } finally {
+    await apiApp.close();
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('GitLab OAuth callback does not wait for repository sync', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_APP_URL: process.env.ISSUE_FLOW_APP_URL,
+  };
+  let releaseProjects;
+  let markProjectsRequested;
+  const projectsCanRespond = new Promise((resolve) => { releaseProjects = resolve; });
+  const projectsRequested = new Promise((resolve) => { markProjectsRequested = resolve; });
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/oauth/token' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = new URLSearchParams(raw);
+        assert.equal(body.get('client_id'), 'oauth-client');
+        assert.equal(body.get('client_secret'), 'oauth-secret');
+        assert.equal(body.get('code'), 'oauth-code');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          access_token: 'gl-oauth-session-token',
+          refresh_token: 'refresh-token',
+          token_type: 'Bearer',
+          scope: 'api',
+          expires_in: 3600,
+        }));
+      });
+      return;
+    }
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-session-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects?membership=true&per_page=100') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-session-token');
+      markProjectsRequested();
+      projectsCanRespond.then(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify([{
+          id: 42,
+          name: 'App',
+          path_with_namespace: 'team/app',
+          default_branch: 'main',
+          permissions: { project_access: { access_level: 40 } },
+        }]));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase, {
+    oauthClientId: 'oauth-client',
+    oauthClientSecret: 'oauth-secret',
+  });
+  process.env.ISSUE_FLOW_APP_URL = 'http://web.local';
+
+  const { app: apiApp, baseUrl } = await listenApp(store);
+  try {
+    const authorize = await fetch(`${baseUrl}/api/auth/gitlab/authorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gitServerId: 'gitlab-main', returnTo: '/repos' }),
+    });
+    assert.equal(authorize.status, 200);
+    const state = new URL((await authorize.json()).authorizeUrl).searchParams.get('state');
+
+    const callbackPromise = fetch(`${baseUrl}/api/auth/gitlab/callback?code=oauth-code&state=${state}`, {
+      redirect: 'manual',
+    });
+    await projectsRequested;
+    const callbackBeforeProjectsResponse = await Promise.race([
+      callbackPromise,
+      new Promise((resolve) => setTimeout(() => resolve(undefined), 200)),
+    ]);
+    releaseProjects();
+    assert.ok(callbackBeforeProjectsResponse, 'OAuth callback should return before GitLab projects responds');
+
+    const callback = callbackBeforeProjectsResponse || await callbackPromise;
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get('location'), 'http://web.local/repos?gitlab=connected');
+
+    const user = await store.db.user.findFirst({ where: { displayName: 'Alice' } });
+    await waitFor(async () => {
+      const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user && user.id });
+      return repos.length === 1 && repos[0].projectPath === 'team/app';
+    });
+  } finally {
+    releaseProjects();
+    await apiApp.close();
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('GitLab OAuth skips repository sync for existing git accounts', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_APP_URL: process.env.ISSUE_FLOW_APP_URL,
+  };
+  let tokenRequests = 0;
+  let projectRequests = 0;
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/oauth/token' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        tokenRequests += 1;
+        const body = new URLSearchParams(raw);
+        assert.equal(body.get('client_id'), 'oauth-client');
+        assert.equal(body.get('client_secret'), 'oauth-secret');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          access_token: `gl-oauth-session-token-${tokenRequests}`,
+          refresh_token: `refresh-token-${tokenRequests}`,
+          token_type: 'Bearer',
+          scope: 'api',
+          expires_in: 3600,
+        }));
+      });
+      return;
+    }
+    if (req.url === '/api/v4/user') {
+      assert.match(req.headers.authorization || '', /^Bearer gl-oauth-session-token-/);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects?membership=true&per_page=100') {
+      projectRequests += 1;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([{
+        id: 42,
+        name: 'App',
+        path_with_namespace: 'team/app',
+        default_branch: 'main',
+        permissions: { project_access: { access_level: 40 } },
+      }]));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase, {
+    oauthClientId: 'oauth-client',
+    oauthClientSecret: 'oauth-secret',
+  });
+  process.env.ISSUE_FLOW_APP_URL = 'http://web.local';
+
+  const { app: apiApp, baseUrl } = await listenApp(store);
+  async function loginOnce() {
+    const authorize = await fetch(`${baseUrl}/api/auth/gitlab/authorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gitServerId: 'gitlab-main', returnTo: '/repos' }),
+    });
+    assert.equal(authorize.status, 200);
+    const state = new URL((await authorize.json()).authorizeUrl).searchParams.get('state');
+    const callback = await fetch(`${baseUrl}/api/auth/gitlab/callback?code=oauth-code&state=${state}`, {
+      redirect: 'manual',
+    });
+    assert.equal(callback.status, 302);
+    return callback;
+  }
+
+  try {
+    await loginOnce();
+    await waitFor(() => projectRequests === 1);
+    await loginOnce();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(projectRequests, 1);
+
+    const account = await store.findUserGitAccount({
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      providerUserId: '100',
+    });
+    assert.equal(account.username, 'alice');
   } finally {
     await apiApp.close();
     await close(gitlab);
