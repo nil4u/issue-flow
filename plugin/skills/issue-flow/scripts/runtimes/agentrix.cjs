@@ -37,6 +37,7 @@ const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
 const PROVIDER_TOKEN_ENV_KEYS = [
   'GITHUB_TOKEN',
   'GH_TOKEN',
+  'ISSUE_FLOW_GITLAB_TOKEN',
   'GITLAB_TOKEN',
   'GL_TOKEN',
   'GITLAB_PRIVATE_TOKEN',

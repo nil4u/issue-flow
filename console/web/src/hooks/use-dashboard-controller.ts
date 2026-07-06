@@ -388,12 +388,17 @@ export function useDashboardController() {
   }
 
   function canAutoConfigureStep(checkType: string) {
-    return ["permissions", "webhook", "runners"].includes(checkType)
+    return ["permissions", "webhook", "variables", "runners"].includes(checkType)
   }
 
   async function autoConfigureInstallStep(checkType: string) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
-    const paths: Record<string, string> = { permissions: "/api/gitlab/install-permission", webhook: "/api/gitlab/install-webhook", runners: "/api/gitlab/install-runner" }
+    const paths: Record<string, string> = {
+      permissions: "/api/gitlab/install-permission",
+      webhook: "/api/gitlab/install-webhook",
+      variables: "/api/gitlab/install-variable",
+      runners: "/api/gitlab/install-runner",
+    }
     const path = paths[checkType] || ""
     if (!path) throw new Error("install_step_not_auto_configurable")
     return api<InstallCheck>(path, {

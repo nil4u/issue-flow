@@ -1,6 +1,7 @@
 // @ts-nocheck
 import fs from 'node:fs'
 import {
+  createGitlabProjectAccessToken,
   enableGitlabRunnerForProject,
   getGitlabCurrentUser,
   getGitlabProjectForInstall,
@@ -9,6 +10,7 @@ import {
   getGitlabRunner,
   getGitlabRepositoryFile,
   getGitlabVariableForInstall,
+  getGitlabVariableForValidation,
   listGitlabProjects,
   listGitlabProjectRunners,
   listGitlabRunners,
@@ -17,6 +19,7 @@ import {
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
   updateGitlabProjectRunnerSettings,
+  validateGitlabProjectApiToken,
 } from './gitlab.js'
 import {
   installGitlabPluginMergeRequest,
@@ -38,6 +41,7 @@ const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
 const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
 const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
 const ISSUE_FLOW_RUNNER_TAG = 'issue-flow'
+const ISSUE_FLOW_GITLAB_TOKEN_KEY = 'ISSUE_FLOW_GITLAB_TOKEN'
 
 function readPackageVersion() {
   try {
@@ -53,6 +57,14 @@ function gitlabCiVariablesForInstall({ config, installConfig }) {
   const agentrix = installConfig.agentrix || {};
   const runnerId = agentrix.runnerId || automation.runnerId || '';
   return [
+    {
+      key: ISSUE_FLOW_GITLAB_TOKEN_KEY,
+      required: true,
+      masked: true,
+      autoCreate: true,
+      label: ISSUE_FLOW_GITLAB_TOKEN_KEY,
+      description: 'issue-flow GitLab CI jobs 调用 GitLab API 的项目访问 token。',
+    },
     { key: 'AGENTRIX_BASE_URL', value: agentrix.baseUrl, required: true },
     { key: 'AGENTRIX_API_KEY', value: agentrix.apiKey, masked: true, required: true },
     { key: 'AGENTRIX_RUNNER_ID', value: runnerId, required: true },
@@ -91,7 +103,7 @@ function statusFromBoolean(ok, missingDetail, readyDetail = '') {
 function variableCheckState(variable, existingVariable) {
   const exists = Boolean(existingVariable);
   const required = variable.required !== false;
-  const writable = variable.value !== undefined && variable.value !== '';
+  const writable = Boolean(variable.autoCreate) || variable.value !== undefined && variable.value !== '';
   const needsInput = required && !exists && !writable;
   if (exists) {
     return { status: 'passed', detail: '已设置' };
@@ -262,7 +274,7 @@ async function checkGitlabIssueFlowRunner({ apiInput, project }) {
 function variableResult(variable, existingVariable) {
   const state = variableCheckState(variable, existingVariable);
   const required = variable.required !== false;
-  const writable = variable.value !== undefined && variable.value !== '';
+  const writable = Boolean(variable.autoCreate) || variable.value !== undefined && variable.value !== '';
   const cache = variableCache(existingVariable);
   return {
     key: variable.key,
@@ -306,6 +318,77 @@ function variableCache(existingVariable) {
     cache.description = existingVariable.description;
   }
   return cache;
+}
+
+function variableResultWithValidation(variable, existingVariable, validation) {
+  const result = variableResult(variable, existingVariable);
+  if (variable.key !== ISSUE_FLOW_GITLAB_TOKEN_KEY || !existingVariable) return result;
+  if (!validation || validation.status === 'valid') {
+    return {
+      ...result,
+      status: 'passed',
+      detail: '已验证 GitLab API 权限',
+      validation: validation || undefined,
+    };
+  }
+  return {
+    ...result,
+    status: 'needs_action',
+    detail: 'token 无效或权限不足，可自动重新创建',
+    validation,
+  };
+}
+
+async function validateIssueFlowGitlabTokenVariable(apiInput) {
+  const variable = await getGitlabVariableForValidation(apiInput, ISSUE_FLOW_GITLAB_TOKEN_KEY);
+  if (!variable) return { variable: undefined, validation: undefined };
+  const validation = await validateGitlabProjectApiToken({
+    apiUrl: apiInput.apiUrl,
+    projectIdOrPath: apiInput.projectIdOrPath,
+    token: variable.secretValue,
+    authType: 'private-token',
+  });
+  return {
+    variable,
+    validation,
+  };
+}
+
+function issueFlowGitlabTokenName(project = {}) {
+  const suffix = String(project.id || project.pathWithNamespace || Date.now()).replace(/[^A-Za-z0-9._-]+/g, '-');
+  return `issue-flow-${suffix}-${Date.now()}`;
+}
+
+async function createIssueFlowGitlabTokenVariable({ config, project, apiInput }) {
+  if (!config.adminPat) {
+    const error = new Error('Git server admin PAT is required to create ISSUE_FLOW_GITLAB_TOKEN');
+    error.status = 400;
+    throw error;
+  }
+  const token = await createGitlabProjectAccessToken({
+    apiUrl: config.apiUrl,
+    token: config.adminPat,
+    authType: 'private-token',
+    projectIdOrPath: apiInput.projectIdOrPath,
+    name: issueFlowGitlabTokenName(project),
+    scopes: ['api'],
+    accessLevel: 40,
+    expiresInDays: 365,
+  });
+  const value = String(token.token || '');
+  if (!value) {
+    const error = new Error('GitLab did not return a project access token value');
+    error.status = 502;
+    throw error;
+  }
+  await upsertGitlabProjectVariable(apiInput, {
+    key: ISSUE_FLOW_GITLAB_TOKEN_KEY,
+    value,
+    masked: true,
+    protected: false,
+    raw: true,
+  });
+  return token;
 }
 
 function webhookCache(hook) {
@@ -889,13 +972,21 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
     const variableResults = [];
     const variableCaches = [];
     for (const variable of variables) {
-      const existingVariable = await getGitlabVariableForInstall(apiInput, variable.key);
+      let existingVariable;
+      let validation;
+      if (variable.key === ISSUE_FLOW_GITLAB_TOKEN_KEY) {
+        const checked = await validateIssueFlowGitlabTokenVariable(apiInput);
+        existingVariable = checked.variable;
+        validation = checked.validation;
+      } else {
+        existingVariable = await getGitlabVariableForInstall(apiInput, variable.key);
+      }
       const cache = variableCache(existingVariable);
       if (cache) variableCaches.push(cache);
-      variableResults.push(variableResult(variable, existingVariable));
+      variableResults.push(variableResultWithValidation(variable, existingVariable, validation));
     }
     const missingVariables = variableResults
-      .filter((item) => item.required && !item.exists)
+      .filter((item) => item.required && (!item.exists || item.status === 'needs_action'))
       .map((item) => item.key);
     const inputRequiredVariables = variableResults
       .filter((item) => item.needsInput)
@@ -1030,40 +1121,69 @@ async function setGitlabProjectInstallVariable({ store, input = {}, session, env
   }
   const key = String(input.key || '').trim();
   const definitions = gitlabCiVariablesForInstall({ config, installConfig });
-  const definition = definitions.find((item) => item.key === key);
-  if (!definition) {
+  const selectedDefinitions = key
+    ? definitions.filter((item) => item.key === key)
+    : definitions.filter((item) => item.autoCreate || item.value !== undefined && item.value !== '');
+  if (!selectedDefinitions.length) {
     return { status: 400, body: { error: 'gitlab_variable_unknown' } };
   }
-  const nextValue = input.value !== undefined ? input.value : definition.value;
-  if (nextValue === undefined || nextValue === '') {
+  const savedItems = [];
+  for (const definition of selectedDefinitions) {
+    let nextValue = input.value !== undefined && key ? input.value : definition.value;
+    if (definition.key === ISSUE_FLOW_GITLAB_TOKEN_KEY && (nextValue === undefined || nextValue === '')) {
+      const checked = await validateIssueFlowGitlabTokenVariable(apiInput);
+      if (checked.variable && checked.validation && checked.validation.status === 'valid') {
+        savedItems.push({ definition, saved: checked.variable, validation: checked.validation });
+        continue;
+      }
+      await createIssueFlowGitlabTokenVariable({ config, project, apiInput });
+      const saved = await getGitlabVariableForValidation(apiInput, definition.key);
+      if (saved) savedItems.push({ definition, saved });
+      continue;
+    }
+    if (nextValue === undefined || nextValue === '') {
+      if (key) return { status: 400, body: { error: 'gitlab_variable_value_required' } };
+      continue;
+    }
+    await upsertGitlabProjectVariable(apiInput, {
+      ...definition,
+      value: String(nextValue),
+      environmentScope: input.environmentScope || input.scope || definition.environmentScope || '*',
+    });
+    const saved = definition.key === ISSUE_FLOW_GITLAB_TOKEN_KEY
+      ? await getGitlabVariableForValidation(apiInput, definition.key)
+      : await getGitlabVariableForInstall(apiInput, definition.key);
+    if (saved) savedItems.push({ definition, saved });
+  }
+  if (!savedItems.length) {
     return { status: 400, body: { error: 'gitlab_variable_value_required' } };
   }
-  await upsertGitlabProjectVariable(apiInput, {
-    ...definition,
-    value: String(nextValue),
-    environmentScope: input.environmentScope || input.scope || definition.environmentScope || '*',
-  });
-  const saved = await getGitlabVariableForInstall(apiInput, key);
-  const item = variableResult(definition, saved);
-  const cache = variableCache(saved);
   const currentItems = existing.settings && existing.settings.variables && existing.settings.variables.items || [];
-  const variables = {
-    items: cache ? mergeVariableCache(currentItems, cache) : currentItems,
-    checkedAt: new Date().toISOString(),
-  };
+  let nextItems = currentItems;
+  for (const item of savedItems) {
+    const cache = variableCache(item.saved);
+    if (cache) nextItems = mergeVariableCache(nextItems, cache);
+  }
+  const variables = { items: nextItems, checkedAt: new Date().toISOString() };
   const repository = await store.updateRepositorySettingsCache(existing.id, { variables });
   const cacheByKey = new Map(variables.items.map((variable) => [variable.key, variable]));
+  const resultByKey = new Map();
+  for (const item of savedItems) {
+    let validation = item.validation;
+    if (item.definition.key === ISSUE_FLOW_GITLAB_TOKEN_KEY) {
+      validation = validation || (await validateIssueFlowGitlabTokenVariable(apiInput)).validation;
+    }
+    resultByKey.set(item.definition.key, variableResultWithValidation(item.definition, item.saved, validation));
+  }
   const step = installStep('variables', 'api', 'CI/CD variables', 'passed', '变量已设置', {
-    variables: definitions.map((variable) => variable.key === key
-      ? item
-      : variableResult(variable, cacheByKey.get(variable.key))),
+    variables: definitions.map((variable) => resultByKey.get(variable.key) || variableResult(variable, cacheByKey.get(variable.key))),
   });
   return {
     status: 200,
     body: {
       repository,
       step,
-      variable: item,
+      variable: key ? resultByKey.get(key) : undefined,
       steps: [step],
       installable: true,
     },

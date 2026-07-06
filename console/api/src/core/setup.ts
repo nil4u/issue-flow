@@ -3,20 +3,42 @@ import crypto from "node:crypto"
 import { createGitlabOAuthAuthorize } from "./gitlab-auth.js"
 
 const DEFAULT_GITLAB_OAUTH_SCOPES = "api read_repository write_repository openid profile email"
+let generatedSetupCode = ""
+let generatedSetupCodeLogged = false
 
-function setupCode(env = process.env) {
+function configuredSetupCode(env = process.env) {
   return String(env.ISSUE_FLOW_SETUP_CODE || "").trim()
 }
 
-function requiredSetupCode(env = process.env) {
-  const code = setupCode(env)
-  if (!code) {
-    const error = new Error("ISSUE_FLOW_SETUP_CODE is required")
-    error.status = 500
-    error.code = "setup_code_not_configured"
-    throw error
+function randomSetupCode() {
+  return `issue-flow-${crypto.randomBytes(16).toString("hex")}`
+}
+
+function setupCode(env = process.env) {
+  const code = configuredSetupCode(env)
+  if (code) return code
+  if (!generatedSetupCode) {
+    generatedSetupCode = randomSetupCode()
   }
-  return code
+  return generatedSetupCode
+}
+
+type SetupCodeLogger = {
+  warn: (bindings: Record<string, unknown>, message: string) => void
+}
+
+function ensureSetupCode(options: { env?: NodeJS.ProcessEnv; logger?: SetupCodeLogger } = {}) {
+  const { env = process.env, logger } = options
+  const configured = configuredSetupCode(env)
+  if (configured) return { code: configured, generated: false }
+
+  const code = setupCode(env)
+  env.ISSUE_FLOW_SETUP_CODE = code
+  if (!generatedSetupCodeLogged && logger) {
+    logger.warn({ setupCode: code }, "ISSUE_FLOW_SETUP_CODE is not set; generated temporary setup code")
+    generatedSetupCodeLogged = true
+  }
+  return { code, generated: true }
 }
 
 function timingSafeEqualString(a = "", b = "") {
@@ -90,7 +112,7 @@ async function getSetupStatus({ store, env = process.env }) {
 }
 
 async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env = process.env }) {
-  const expectedCode = requiredSetupCode(env)
+  const expectedCode = setupCode(env)
   if (!timingSafeEqualString(String(input.setupCode || ""), expectedCode)) {
     return { status: 401, body: { error: "setup_code_invalid" } }
   }
@@ -158,6 +180,7 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
 }
 
 export {
+  ensureSetupCode,
   getSetupStatus,
   initializeSetup,
 }

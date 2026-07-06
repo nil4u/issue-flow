@@ -57,6 +57,12 @@ export const gitlabInstallCheckConfig = {
       title: "Variables",
       items: [
         {
+          id: "variable:ISSUE_FLOW_GITLAB_TOKEN",
+          type: "variable",
+          name: "ISSUE_FLOW_GITLAB_TOKEN",
+          description: "issue-flow GitLab CI jobs 调用 GitLab API 的项目访问 token，安装检查会自动创建并写入。",
+        },
+        {
           id: "variable:AGENTRIX_BASE_URL",
           type: "variable",
           name: "AGENTRIX_BASE_URL",

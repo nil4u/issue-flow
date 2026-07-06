@@ -520,6 +520,38 @@ test('setup initialize configures first git server and returns OAuth authorize U
   }
 });
 
+test('setup code is generated when ISSUE_FLOW_SETUP_CODE is missing', async () => {
+  const previousSetupCode = process.env.ISSUE_FLOW_SETUP_CODE;
+  delete process.env.ISSUE_FLOW_SETUP_CODE;
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    assert.match(process.env.ISSUE_FLOW_SETUP_CODE, /^issue-flow-[0-9a-f]{32}$/);
+
+    const status = await fetch(`${baseUrl}/api/setup/status`);
+    assert.equal(status.status, 200);
+    const body = await status.json();
+    assert.equal(body.needsSetup, true);
+    assert.equal(body.setupCodeConfigured, true);
+
+    const rejected = await fetch(`${baseUrl}/api/setup/initialize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setupCode: 'wrong-code' }),
+    });
+    assert.equal(rejected.status, 401);
+  } finally {
+    if (previousSetupCode === undefined) {
+      delete process.env.ISSUE_FLOW_SETUP_CODE;
+    } else {
+      process.env.ISSUE_FLOW_SETUP_CODE = previousSetupCode;
+    }
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('setup OAuth creates exactly one default admin user', async () => {
   const { dir, store } = tempStore();
   try {
@@ -1333,11 +1365,22 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     ['ISSUE_FLOW_REVIEW_ENABLED', { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: 'false', environment_scope: '*', variable_type: 'env_var' }],
   ]);
   let updatedVariable;
+  let createdProjectToken = false;
   const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user' && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 701, username: 'project_42_bot' }));
+      return;
+    }
     if (req.url === '/api/v4/user') {
       assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET' && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 42, name: 'App', path_with_namespace: 'team/app', default_branch: 'main' }));
       return;
     }
     if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
@@ -1357,6 +1400,48 @@ test('GitLab settings checks variables independently and caches safe metadata', 
       res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
       return;
     }
+    if (req.url === '/api/v4/projects/42/members/all/701' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'glpat-issue-flow-token-1234567890');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 701, username: 'project_42_bot', access_level: 40 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/access_tokens' && req.method === 'POST') {
+      assert.equal(req.headers['private-token'], 'gl-admin-pat');
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.equal(body.access_level, 40);
+        assert.deepEqual(body.scopes, ['api']);
+        assert.match(body.name, /^issue-flow-/);
+        assert.match(body.expires_at, /^\d{4}-\d{2}-\d{2}$/);
+        createdProjectToken = true;
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 701, name: body.name, token: 'glpat-issue-flow-token-1234567890' }));
+      });
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/issues?') && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/merge_requests?') && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/labels?') && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/variables?') && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
     if (req.url.startsWith('/api/v4/projects/42/variables/') && req.method === 'GET') {
       const key = decodeURIComponent(req.url.split('/').pop());
       const variable = variables.get(key);
@@ -1367,6 +1452,25 @@ test('GitLab settings checks variables independently and caches safe metadata', 
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(variable));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/variables/ISSUE_FLOW_GITLAB_TOKEN' && req.method === 'PUT') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.equal(body.value, 'glpat-issue-flow-token-1234567890');
+        assert.equal(body.masked, true);
+        variables.set(body.key, {
+          key: body.key,
+          value: body.value,
+          environment_scope: body.environment_scope,
+          variable_type: body.variable_type,
+          masked: body.masked,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(variables.get(body.key)));
+      });
       return;
     }
     if (req.url.startsWith('/api/v4/groups/') && req.method === 'GET') {
@@ -1442,6 +1546,21 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(cachedApiKey.status, undefined);
     assert.equal(cachedApiKey.detail, undefined);
     assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'variable' } }), 5);
+
+    const tokenCreated = await setGitlabProjectInstallVariable({
+      store,
+      input: {
+        gitServerId: 'gitlab-main',
+        token: 'gl-oauth-user-token',
+        projectId: '42',
+        key: 'ISSUE_FLOW_GITLAB_TOKEN',
+      },
+    });
+    assert.equal(tokenCreated.status, 200);
+    assert.equal(createdProjectToken, true);
+    assert.equal(tokenCreated.body.variable.status, 'passed');
+    assert.equal(tokenCreated.body.variable.value, '*****');
+    assert.equal(tokenCreated.body.variable.detail, '已验证 GitLab API 权限');
 
     const saved = await setGitlabProjectInstallVariable({
       store,

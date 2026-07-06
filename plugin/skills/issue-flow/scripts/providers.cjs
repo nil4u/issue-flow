@@ -37,7 +37,7 @@ function detectProvider(options = {}, payload = {}) {
     return 'gitlab';
   }
   const repoHint = String(options.repo || options.gitlabProject || process.env.GITLAB_PROJECT_PATH || process.env.CI_PROJECT_PATH || '').toLowerCase();
-  if (repoHint.includes('gitlab') || process.env.GITLAB_TOKEN || process.env.GL_TOKEN || process.env.GITLAB_PRIVATE_TOKEN) {
+  if (repoHint.includes('gitlab') || process.env.ISSUE_FLOW_GITLAB_TOKEN || process.env.GITLAB_TOKEN || process.env.GL_TOKEN || process.env.GITLAB_PRIVATE_TOKEN) {
     return 'gitlab';
   }
   if (repoHint.includes('github')) {
@@ -845,6 +845,7 @@ async function collectGithubWorkflowRunFailureDetails(repo, runId, options = {})
 function getGitlabToken(options = {}) {
   return (
     options.gitlabToken ||
+    process.env.ISSUE_FLOW_GITLAB_TOKEN ||
     process.env.GITLAB_TOKEN ||
     process.env.GL_TOKEN ||
     process.env.GITLAB_PRIVATE_TOKEN ||

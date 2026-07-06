@@ -14,6 +14,7 @@ import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
 import { errorResponse } from "./core/responses.js"
+import { ensureSetupCode } from "./core/setup.js"
 import { createIssueFlowStore, type IssueFlowStore } from "./storage/store.js"
 import { allowedOrigin, parseCookies, requiredBaseUrl, setNoStore } from "./utils/http.js"
 
@@ -88,6 +89,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       ],
     },
   })
+  ensureSetupCode({ logger: app.log })
 
   app.decorate("issueFlowStore", options.store || createIssueFlowStore(options.storeOptions || {}))
 

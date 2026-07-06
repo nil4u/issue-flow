@@ -551,6 +551,26 @@ async function getGitlabVariableForInstall(input = {}, key = '') {
   return undefined;
 }
 
+async function getGitlabVariableForValidation(input = {}, key = '') {
+  const projectVariable = await getGitlabProjectVariable(input, key);
+  if (projectVariable) {
+    return {
+      ...publicGitlabVariable(projectVariable, 'project'),
+      secretValue: projectVariable.value !== undefined && projectVariable.value !== null ? String(projectVariable.value) : '',
+    };
+  }
+  for (const groupPath of gitlabGroupPathsForProject(input.projectPath || '')) {
+    const groupVariable = await getGitlabGroupVariable(input, groupPath, key);
+    if (groupVariable) {
+      return {
+        ...publicGitlabVariable(groupVariable, 'group', groupPath),
+        secretValue: groupVariable.value !== undefined && groupVariable.value !== null ? String(groupVariable.value) : '',
+      };
+    }
+  }
+  return undefined;
+}
+
 async function upsertGitlabProjectVariable(input = {}, variable = {}) {
   const key = variable.key;
   const body = {
@@ -584,6 +604,99 @@ async function upsertGitlabProjectVariable(input = {}, variable = {}) {
     );
     return result.parsed || {};
   }
+}
+
+function dateDaysFromNow(days = 365) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + Number(days || 365));
+  return date.toISOString().slice(0, 10);
+}
+
+async function createGitlabProjectAccessToken(input = {}) {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/access_tokens`,
+    input.token,
+    {
+      authType: input.authType,
+      body: {
+        name: input.name || `issue-flow-${Date.now()}`,
+        scopes: input.scopes || ['api'],
+        access_level: Number(input.accessLevel || 40),
+        expires_at: input.expiresAt || dateDaysFromNow(input.expiresInDays || 365),
+      },
+    }
+  );
+  return result.parsed || {};
+}
+
+async function validateGitlabProjectApiToken(input = {}) {
+  const token = input.token || '';
+  const minimumAccessLevel = Number(input.minimumAccessLevel || 40);
+  if (!token) {
+    return {
+      status: 'missing',
+      lastValidatedAt: nowIso(),
+      errorCode: 'MISSING_TOKEN',
+      checks: [],
+    };
+  }
+  const checks = [];
+  async function check(id, label, method, path, body) {
+    try {
+      const result = await fetchJson(method, input.apiUrl, path, token, {
+        authType: input.authType || 'private-token',
+        body,
+      });
+      checks.push({ id, label, status: 'passed' });
+      return result.parsed || true;
+    } catch (error) {
+      checks.push({
+        id,
+        label,
+        status: 'blocked',
+        detail: error && error.status ? `HTTP ${error.status}` : error && error.message || 'failed',
+      });
+      return undefined;
+    }
+  }
+
+  const user = await check('user-read', '识别 token 用户', 'GET', '/user');
+  await check('project-read', '读取项目', 'GET', projectApiPath(input.projectIdOrPath));
+  if (user && user.id !== undefined && user.id !== null) {
+    const member = await check(
+      'project-maintainer',
+      '确认项目 Maintainer 权限',
+      'GET',
+      `${projectApiPath(input.projectIdOrPath)}/members/all/${encodeURIComponent(user.id)}`
+    );
+    const accessLevel = Number(member && (member.access_level || member.accessLevel) || 0);
+    const maintainerCheck = checks.find((item) => item.id === 'project-maintainer');
+    if (maintainerCheck && maintainerCheck.status === 'passed' && accessLevel < minimumAccessLevel) {
+      maintainerCheck.status = 'blocked';
+      maintainerCheck.detail = `access_level ${accessLevel} < ${minimumAccessLevel}`;
+    }
+  } else {
+    checks.push({
+      id: 'project-maintainer',
+      label: '确认项目 Maintainer 权限',
+      status: 'blocked',
+      detail: '无法识别 token 用户',
+    });
+  }
+  await check('issue-read', '读取 issues', 'GET', `${projectApiPath(input.projectIdOrPath)}/issues?per_page=1`);
+  await check('merge-request-read', '读取 merge requests', 'GET', `${projectApiPath(input.projectIdOrPath)}/merge_requests?per_page=1`);
+  await check('label-read', '读取 labels', 'GET', `${projectApiPath(input.projectIdOrPath)}/labels?per_page=1`);
+  await check('variable-read', '读取 CI/CD variables', 'GET', `${projectApiPath(input.projectIdOrPath)}/variables?per_page=1`);
+
+  const passed = checks.every((item) => item.status === 'passed');
+  return {
+    status: passed ? 'valid' : 'invalid',
+    lastValidatedAt: nowIso(),
+    errorCode: passed ? '' : 'PERMISSION_CHECK_FAILED',
+    checks,
+  };
 }
 
 function normalizeGitlabRunner(runner = {}) {
@@ -741,6 +854,7 @@ async function validateGitlabToken(input = {}) {
 }
 
 export {
+  createGitlabProjectAccessToken,
   createGitlabRepositoryCommit,
   createGitlabMergeRequest,
   getGitlabMergeRequest,
@@ -753,6 +867,7 @@ export {
   getGitlabProjectForInstall,
   getGitlabProjectVariable,
   getGitlabVariableForInstall,
+  getGitlabVariableForValidation,
   getGitlabRepositoryFile,
   gitlabOAuthAuthorizeUrl,
   gitlabOAuthRedirectUri,
@@ -769,5 +884,6 @@ export {
   upsertGitlabProjectMember,
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
+  validateGitlabProjectApiToken,
   validateGitlabToken,
 }

@@ -275,6 +275,7 @@ test('submit push auth uses GitHub token as temporary askpass credentials', () =
 test('submit push auth uses GitLab CI job token username for askpass', () => {
   withTemporaryEnv(
     {
+      ISSUE_FLOW_GITLAB_TOKEN: undefined,
       GITLAB_TOKEN: undefined,
       GL_TOKEN: undefined,
       GITLAB_PRIVATE_TOKEN: undefined,
@@ -289,6 +290,31 @@ test('submit push auth uses GitLab CI job token username for askpass', () => {
       try {
         assert.equal(askpass.env.ISSUE_FLOW_GIT_USERNAME, 'gitlab-ci-token');
         assert.equal(askpass.env.ISSUE_FLOW_GIT_TOKEN, 'ci-job-token-123');
+      } finally {
+        askpass.cleanup();
+      }
+    }
+  );
+});
+
+test('submit push auth prefers issue-flow GitLab token over generic GitLab tokens', () => {
+  withTemporaryEnv(
+    {
+      ISSUE_FLOW_GITLAB_TOKEN: 'issue-flow-gitlab-token-123',
+      GITLAB_TOKEN: 'generic-gitlab-token-123',
+      GL_TOKEN: undefined,
+      GITLAB_PRIVATE_TOKEN: undefined,
+      CI_JOB_TOKEN: 'ci-job-token-123',
+      GIT_ASKPASS: undefined,
+    },
+    () => {
+      assert.equal(gitPushTokenForProvider('gitlab'), 'issue-flow-gitlab-token-123');
+      assert.equal(gitPushUsernameForProvider('gitlab', 'issue-flow-gitlab-token-123'), 'oauth2');
+
+      const askpass = createGitAskpassEnv('gitlab');
+      try {
+        assert.equal(askpass.env.ISSUE_FLOW_GIT_USERNAME, 'oauth2');
+        assert.equal(askpass.env.ISSUE_FLOW_GIT_TOKEN, 'issue-flow-gitlab-token-123');
       } finally {
         askpass.cleanup();
       }
