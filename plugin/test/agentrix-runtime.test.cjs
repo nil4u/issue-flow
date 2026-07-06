@@ -94,6 +94,25 @@ test('agentrix config only customizes prompt, template, and plan root paths', ()
   }
 });
 
+test('agentrix command logging shell-quotes args and redacts api key', () => {
+  const command = agentrix.redactedCommand('npx', [
+    '--yes',
+    '@agentrix/agentrix-run@latest',
+    '--api-key',
+    'sk-secret-value',
+    '--title',
+    "Review PR #8: Bob's change",
+    '--prompt',
+    'line one\nline two',
+  ]);
+
+  assert.equal(
+    command,
+    "npx --yes @agentrix/agentrix-run@latest --api-key '[redacted]' --title 'Review PR #8: Bob'\\''s change' --prompt 'line one\nline two'"
+  );
+  assert.doesNotMatch(command, /sk-secret-value/);
+});
+
 test('agentrix prompt falls back to built-in defaults and injects fixed plan conventions', () => {
   const prompt = agentrix.buildPrompt(
     'plan',
@@ -548,6 +567,7 @@ test('agentrix-run child env does not forward provider tokens', () => {
     {
       GITHUB_TOKEN: 'actions-token',
       GH_TOKEN: 'user-token',
+      ISSUE_FLOW_GITLAB_TOKEN: 'issue-flow-gitlab-token',
       GITLAB_TOKEN: 'gitlab-token',
       GL_TOKEN: 'gl-token',
       GITLAB_PRIVATE_TOKEN: 'private-token',
@@ -561,6 +581,7 @@ test('agentrix-run child env does not forward provider tokens', () => {
 
   assert.equal(env.GITHUB_TOKEN, undefined);
   assert.equal(env.GH_TOKEN, undefined);
+  assert.equal(env.ISSUE_FLOW_GITLAB_TOKEN, undefined);
   assert.equal(env.GITLAB_TOKEN, undefined);
   assert.equal(env.GL_TOKEN, undefined);
   assert.equal(env.GITLAB_PRIVATE_TOKEN, undefined);
@@ -577,6 +598,7 @@ test('agentrix-run child env forwards git server id without provider tokens', ()
     { envEventName: 'GITLAB_EVENT_NAME' },
     'build',
     {
+      ISSUE_FLOW_GITLAB_TOKEN: 'issue-flow-gitlab-token',
       GITLAB_TOKEN: 'gitlab-token',
       GITLAB_EVENT_NAME: 'issue',
     },
@@ -585,6 +607,7 @@ test('agentrix-run child env forwards git server id without provider tokens', ()
     }
   );
 
+  assert.equal(env.ISSUE_FLOW_GITLAB_TOKEN, undefined);
   assert.equal(env.GITLAB_TOKEN, undefined);
   assert.equal(env.AGENTRIX_GIT_SERVER_ID, 'gitlab-main');
 });

@@ -51,7 +51,33 @@ export type Repository = {
 }
 
 export type GitLabUser = { username: string; name?: string; avatarUrl?: string }
-export type GitServer = { id: string; type: string; name?: string; baseUrl?: string }
+export type GitServer = {
+  id: string
+  type: string
+  name?: string
+  baseUrl?: string
+  apiUrl?: string
+  tokenAuth?: string
+  oauth?: {
+    clientId?: string
+    clientSecret?: string
+    clientSecretFingerprint?: string
+    scopes?: string
+  }
+  webhook?: {
+    secret?: string
+    secretFingerprint?: string
+  }
+  commitAuthor?: {
+    name?: string
+    email?: string
+  }
+  agentrixGitServerId?: string
+  adminPat?: string
+  adminPatFingerprint?: string
+  createdAt?: string
+  updatedAt?: string
+}
 
 export type SetupStatus = {
   initialized: boolean

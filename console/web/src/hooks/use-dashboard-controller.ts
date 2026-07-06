@@ -70,6 +70,8 @@ export function useDashboardController() {
     markAutoSynced,
   } = useIssuesState()
   const [pendingGitServerId, setPendingGitServerId] = useState("")
+  const [savingGitServerId, setSavingGitServerId] = useState("")
+  const [deletingGitServerId, setDeletingGitServerId] = useState("")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
     return window.localStorage.getItem("issue-flow.sidebarCollapsed") === "1"
@@ -114,8 +116,8 @@ export function useDashboardController() {
       settingsSection: "account",
     }, mode)
   }
-  function navigateUserSettings(mode: "push" | "replace" = "push") {
-    applyRoute(userSettingsRoute, mode)
+  function navigateUserSettings(settingsSection: WorkspaceRoute["settingsSection"] = "account", mode: "push" | "replace" = "push") {
+    applyRoute({ ...userSettingsRoute, settingsSection }, mode)
   }
 
   async function loadGitServers() {
@@ -128,6 +130,49 @@ export function useDashboardController() {
       return servers[0]?.id || ""
     })
     return servers
+  }
+
+  async function saveGitServer(input: GitServer) {
+    setSavingGitServerId(input.id || "new")
+    try {
+      const body = await api<{ gitServer: GitServer }>("/api/git-servers", {
+        method: "POST",
+        body: JSON.stringify(input),
+      })
+      const servers = await loadGitServers()
+      if (!selectedGitServerId && body.gitServer?.id) {
+        setSelectedGitServerId(body.gitServer.id)
+      }
+      toast.success("Git server 已保存")
+      return servers
+    } catch (error) {
+      notifyError(error, "保存 Git server 失败")
+      throw error
+    } finally {
+      setSavingGitServerId("")
+    }
+  }
+
+  async function deleteGitServer(gitServerId: string) {
+    setDeletingGitServerId(gitServerId)
+    try {
+      await api(`/api/git-servers/${encodeURIComponent(gitServerId)}`, { method: "DELETE" })
+      const servers = await loadGitServers()
+      if (selectedGitServerId === gitServerId) {
+        const nextId = servers.find((server) => server.id !== gitServerId)?.id || servers[0]?.id || ""
+        setSelectedGitServerId(nextId)
+        setSelectedProjectId("")
+        setRepositories([])
+        setProjects([])
+      }
+      toast.success("Git server 已删除")
+      return servers
+    } catch (error) {
+      notifyError(error, "删除 Git server 失败")
+      throw error
+    } finally {
+      setDeletingGitServerId("")
+    }
   }
 
   async function loadUserSession() {
@@ -343,12 +388,17 @@ export function useDashboardController() {
   }
 
   function canAutoConfigureStep(checkType: string) {
-    return ["permissions", "webhook", "runners"].includes(checkType)
+    return ["permissions", "webhook", "variables", "runners"].includes(checkType)
   }
 
   async function autoConfigureInstallStep(checkType: string) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
-    const paths: Record<string, string> = { permissions: "/api/gitlab/install-permission", webhook: "/api/gitlab/install-webhook", runners: "/api/gitlab/install-runner" }
+    const paths: Record<string, string> = {
+      permissions: "/api/gitlab/install-permission",
+      webhook: "/api/gitlab/install-webhook",
+      variables: "/api/gitlab/install-variable",
+      runners: "/api/gitlab/install-runner",
+    }
     const path = paths[checkType] || ""
     if (!path) throw new Error("install_step_not_auto_configurable")
     return api<InstallCheck>(path, {
@@ -776,8 +826,14 @@ export function useDashboardController() {
     userSettings: {
       userSession,
       gitServers,
+      activeSection: route.settingsSection,
       pendingGitServerId,
+      savingGitServerId,
+      deletingGitServerId,
+      onSelectSection: (section: WorkspaceRoute["settingsSection"]) => navigateUserSettings(section),
       onConnectGitServer: connectGitServerAccount,
+      onSaveGitServer: saveGitServer,
+      onDeleteGitServer: deleteGitServer,
     },
     workspace: {
       tab: activeTab,

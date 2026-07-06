@@ -13,6 +13,8 @@ type SetupForm = {
   oauthClientSecret: string
   agentrixGitServerId: string
   adminPat: string
+  commitAuthorName: string
+  commitAuthorEmail: string
 }
 
 const defaultForm: SetupForm = {
@@ -22,6 +24,8 @@ const defaultForm: SetupForm = {
   oauthClientSecret: "",
   agentrixGitServerId: "",
   adminPat: "",
+  commitAuthorName: "issue-flow",
+  commitAuthorEmail: "",
 }
 
 export function SetupPage({
@@ -36,7 +40,13 @@ export function SetupPage({
   const [form, setForm] = useState<SetupForm>(defaultForm)
 
   function update<K extends keyof SetupForm>(key: K, value: SetupForm[K]) {
-    setForm((current) => ({ ...current, [key]: value }))
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "baseUrl" && (!current.commitAuthorEmail || current.commitAuthorEmail === defaultCommitAuthorEmail(current.baseUrl))
+        ? { commitAuthorEmail: defaultCommitAuthorEmail(value) }
+        : {}),
+    }))
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -106,6 +116,23 @@ export function SetupPage({
               required
             />
           </label>
+          <label className="setup-field">
+            <span>Commit Author Name</span>
+            <Input
+              value={form.commitAuthorName}
+              onChange={(event) => update("commitAuthorName", event.target.value)}
+              required
+            />
+          </label>
+          <label className="setup-field">
+            <span>Commit Author Email</span>
+            <Input
+              type="email"
+              value={form.commitAuthorEmail}
+              onChange={(event) => update("commitAuthorEmail", event.target.value)}
+              required
+            />
+          </label>
 
           {status && !status.setupCodeConfigured ? (
             <div className="setup-note">
@@ -127,4 +154,14 @@ export function SetupPage({
       </section>
     </main>
   )
+}
+
+function defaultCommitAuthorEmail(baseUrl = "") {
+  try {
+    const parts = new URL(String(baseUrl || "").trim()).hostname.split(".").filter(Boolean)
+    const domain = parts.length >= 2 ? parts.slice(-2).join(".") : parts[0] || ""
+    return domain ? `issue-flow@${domain}` : ""
+  } catch {
+    return ""
+  }
 }

@@ -38,6 +38,19 @@ function normalizeApiUrl(baseUrl, apiUrl) {
   return normalizedBaseUrl ? `${normalizedBaseUrl}/api/v4` : ""
 }
 
+function hostFromBaseUrl(baseUrl = "") {
+  try {
+    return new URL(normalizeBaseUrl(baseUrl)).hostname
+  } catch {
+    return ""
+  }
+}
+
+function primaryDomainFromBaseUrl(baseUrl = "") {
+  const parts = hostFromBaseUrl(baseUrl).split(".").filter(Boolean)
+  return parts.length >= 2 ? parts.slice(-2).join(".") : parts[0] || ""
+}
+
 function normalizeOauthScopes(value) {
   return String(value || "")
     .split(/[,\s]+/)
@@ -69,6 +82,14 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
   const id = String(input.id || "").trim()
   const baseUrl = normalizeBaseUrl(input.baseUrl || "")
   const oauth = input.oauth || {}
+  const commitAuthor = input.commitAuthor || input.commit_author || {}
+  const commitAuthorName = String(commitAuthor.name || input.commitAuthorName || input.commit_author_name || "issue-flow").trim()
+  const commitAuthorEmail = String(
+    commitAuthor.email
+      || input.commitAuthorEmail
+      || input.commit_author_email
+      || (primaryDomainFromBaseUrl(baseUrl) ? `issue-flow@${primaryDomainFromBaseUrl(baseUrl)}` : "")
+  ).trim()
   const agentrixGitServerId = input.agentrixGitServerId || input.agentrix_git_server_id || input.agentrix && input.agentrix.gitServerId || ""
   return {
     id,
@@ -87,6 +108,10 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     },
     agentrixGitServerId,
     adminPatFingerprint: fingerprints.adminPatFingerprint || "",
+    commitAuthor: {
+      name: commitAuthorName,
+      email: commitAuthorEmail,
+    },
   }
 }
 
@@ -600,6 +625,10 @@ class IssueFlowStore {
       },
       agentrixGitServerId: row.agentrixGitServerId || row.agentrix_git_server_id || "",
       adminPatFingerprint: fingerprintSecret(adminPat),
+      commitAuthor: {
+        name: row.commitAuthorName || row.commit_author_name || "issue-flow",
+        email: row.commitAuthorEmail || row.commit_author_email || "",
+      },
       createdAt: timestampValue(row.createdAt),
       updatedAt: timestampValue(row.updatedAt),
     }
@@ -645,11 +674,20 @@ class IssueFlowStore {
     const hasAgentrixGitServerId = Object.prototype.hasOwnProperty.call(input, "agentrixGitServerId")
       || Object.prototype.hasOwnProperty.call(input, "agentrix_git_server_id")
       || Boolean(input.agentrix && Object.prototype.hasOwnProperty.call(input.agentrix, "gitServerId"))
+    const hasCommitAuthor = Object.prototype.hasOwnProperty.call(input, "commitAuthor")
+      || Object.prototype.hasOwnProperty.call(input, "commit_author")
+      || Object.prototype.hasOwnProperty.call(input, "commitAuthorName")
+      || Object.prototype.hasOwnProperty.call(input, "commitAuthorEmail")
+      || Object.prototype.hasOwnProperty.call(input, "commit_author_name")
+      || Object.prototype.hasOwnProperty.call(input, "commit_author_email")
     const existing = await this.getGitServer(normalized.id, { includeSecret: true })
     const oauthClientSecret = hasOauthSecret ? (input.oauth && input.oauth.clientSecret || "") : (existing && existing.oauth && existing.oauth.clientSecret || "")
     const webhookSecret = hasWebhookSecret ? (input.webhook && input.webhook.secret || "") : (existing && existing.webhook && existing.webhook.secret || "")
     const adminPat = hasAdminPat ? (input.adminPat || input.admin_pat || "") : (existing && existing.adminPat || "")
     const agentrixGitServerId = hasAgentrixGitServerId ? normalized.agentrixGitServerId : (existing && existing.agentrixGitServerId || normalized.agentrixGitServerId)
+    const commitAuthor = hasCommitAuthor || !existing
+      ? normalized.commitAuthor
+      : existing.commitAuthor || normalized.commitAuthor
     const now = new Date()
 
     await this.db.gitServer.upsert({
@@ -667,6 +705,8 @@ class IssueFlowStore {
         webhookSecret,
         agentrixGitServerId,
         adminPat,
+        commitAuthorName: commitAuthor.name,
+        commitAuthorEmail: commitAuthor.email,
         createdAt: now,
         updatedAt: now,
       },
@@ -682,10 +722,26 @@ class IssueFlowStore {
         webhookSecret,
         agentrixGitServerId,
         adminPat,
+        commitAuthorName: commitAuthor.name,
+        commitAuthorEmail: commitAuthor.email,
         updatedAt: now,
       },
     })
     return this.getGitServer(normalized.id, { includeSecret: true })
+  }
+
+  async deleteGitServer(id) {
+    await this.ready
+    const gitServerId = String(id || "").trim()
+    if (!gitServerId) return false
+    const existing = await this.getGitServer(gitServerId)
+    if (!existing) return false
+    await this.db.$transaction(async (tx) => {
+      await tx.userRepoAccess.deleteMany({ where: { gitServerId } })
+      await tx.oAuthSession.deleteMany({ where: { gitServerId } })
+      await tx.gitServer.delete({ where: { id: gitServerId } })
+    })
+    return true
   }
 
   repoSettingsFromItems(rows = []) {

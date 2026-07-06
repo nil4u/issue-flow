@@ -1,9 +1,106 @@
-import { Check, GitBranch, Link2, Loader2 } from "lucide-react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { Check, GitBranch, Link2, Loader2, Plus, Save, Server, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import type { GitServer, UserGitAccount, UserSession } from "@/issue-flow-model"
 
+type SettingsSection = "account" | "git-servers"
+
+type GitServerForm = {
+  id: string
+  type: string
+  name: string
+  baseUrl: string
+  apiUrl: string
+  tokenAuth: string
+  oauthClientId: string
+  oauthClientSecret: string
+  oauthScopes: string
+  webhookSecret: string
+  agentrixGitServerId: string
+  adminPat: string
+  commitAuthorName: string
+  commitAuthorEmail: string
+}
+
+const emptyGitServerForm: GitServerForm = {
+  id: "",
+  type: "gitlab",
+  name: "",
+  baseUrl: "",
+  apiUrl: "",
+  tokenAuth: "bearer",
+  oauthClientId: "",
+  oauthClientSecret: "",
+  oauthScopes: "api read_repository write_repository openid profile email",
+  webhookSecret: "",
+  agentrixGitServerId: "",
+  adminPat: "",
+  commitAuthorName: "issue-flow",
+  commitAuthorEmail: "",
+}
+
 export function UserSettings({
+  userSession,
+  gitServers,
+  activeSection,
+  pendingGitServerId,
+  savingGitServerId,
+  deletingGitServerId,
+  onSelectSection,
+  onConnectGitServer,
+  onSaveGitServer,
+  onDeleteGitServer,
+}: {
+  userSession: UserSession
+  gitServers: GitServer[]
+  activeSection: SettingsSection
+  pendingGitServerId: string
+  savingGitServerId: string
+  deletingGitServerId: string
+  onSelectSection: (section: SettingsSection) => void
+  onConnectGitServer: (gitServerId: string) => void
+  onSaveGitServer: (input: GitServer) => Promise<unknown>
+  onDeleteGitServer: (gitServerId: string) => Promise<unknown>
+}) {
+  const isAdmin = userSession.user && !("username" in userSession.user) && userSession.user.role === "admin"
+  const section = isAdmin ? activeSection : "account"
+
+  return (
+    <div className="settings-panel">
+      <header className="settings-titlebar">
+        <div className="settings-tabs" role="tablist" aria-label="用户设置">
+          <button type="button" className={`settings-tab ${section === "account" ? "active" : ""}`} onClick={() => onSelectSection("account")}>账户</button>
+          {isAdmin && (
+            <button type="button" className={`settings-tab ${section === "git-servers" ? "active" : ""}`} onClick={() => onSelectSection("git-servers")}>Git servers</button>
+          )}
+        </div>
+      </header>
+
+      <div className="settings-body">
+        {section === "git-servers" ? (
+          <GitServerAdmin
+            gitServers={gitServers}
+            savingGitServerId={savingGitServerId}
+            deletingGitServerId={deletingGitServerId}
+            onSaveGitServer={onSaveGitServer}
+            onDeleteGitServer={onDeleteGitServer}
+          />
+        ) : (
+          <AccountSettings
+            userSession={userSession}
+            gitServers={gitServers}
+            pendingGitServerId={pendingGitServerId}
+            onConnectGitServer={onConnectGitServer}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AccountSettings({
   userSession,
   gitServers,
   pendingGitServerId,
@@ -23,65 +120,286 @@ export function UserSettings({
   const displayName = userDisplayName(user)
 
   return (
-    <div className="settings-panel">
-      <header className="settings-titlebar">
-        <div className="settings-tabs" role="tablist" aria-label="用户设置">
-          <button type="button" className="settings-tab active">账户</button>
-        </div>
-      </header>
-
-      <div className="settings-body">
-        <section className="settings-content">
-          <div className="account-summary">
-            <span className="account-avatar">{displayName.slice(0, 1).toUpperCase() || "U"}</span>
-            <span>
-              <strong>{displayName}</strong>
-              <small>{userEmail(user) || "通过 Git 账号登录 issue-flow"}</small>
-            </span>
-          </div>
-
-          <div className="account-group">
-            <header>
-              <strong>关联 Git 账号</strong>
-              <span>{connectedCount(accountByServerId, gitServers)} / {gitServers.length}</span>
-            </header>
-            <div className="account-list">
-              {gitServers.map((server) => {
-                const account = accountByServerId.get(server.id)
-                const connected = Boolean(account)
-                const unsupported = server.type !== "gitlab"
-                return (
-                  <div className="account-row" key={server.id}>
-                    <span className="account-provider-icon">{providerIcon(server.type)}</span>
-                    <span className="account-row-copy">
-                      <strong>{accountTitle(account, server)}</strong>
-                      <small>{serverLabel(server, account)}</small>
-                    </span>
-                    <span className={`account-status ${connected ? "connected" : ""}`}>
-                      {connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
-                      {connected ? "已关联" : "未关联"}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant={connected ? "outline" : "default"}
-                      disabled={pendingGitServerId === server.id || unsupported}
-                      onClick={() => onConnectGitServer(server.id)}
-                    >
-                      {pendingGitServerId === server.id && <Loader2 className="size-4 animate-spin" />}
-                      {connected ? "重新关联" : unsupported ? "待支持" : "关联"}
-                    </Button>
-                  </div>
-                )
-              })}
-              {gitServers.length === 0 && (
-                <div className="account-empty">还没有配置 Git server</div>
-              )}
-            </div>
-          </div>
-        </section>
+    <section className="settings-content">
+      <div className="account-summary">
+        <span className="account-avatar">{displayName.slice(0, 1).toUpperCase() || "U"}</span>
+        <span>
+          <strong>{displayName}</strong>
+          <small>{userEmail(user) || "通过 Git 账号登录 issue-flow"}</small>
+        </span>
       </div>
-    </div>
+
+      <div className="account-group">
+        <header>
+          <strong>关联 Git 账号</strong>
+          <span>{connectedCount(accountByServerId, gitServers)} / {gitServers.length}</span>
+        </header>
+        <div className="account-list">
+          {gitServers.map((server) => {
+            const account = accountByServerId.get(server.id)
+            const connected = Boolean(account)
+            const unsupported = server.type !== "gitlab"
+            return (
+              <div className="account-row" key={server.id}>
+                <span className="account-provider-icon">{providerIcon(server.type)}</span>
+                <span className="account-row-copy">
+                  <strong>{accountTitle(account, server)}</strong>
+                  <small>{serverLabel(server, account)}</small>
+                </span>
+                <span className={`account-status ${connected ? "connected" : ""}`}>
+                  {connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
+                  {connected ? "已关联" : "未关联"}
+                </span>
+                <Button
+                  size="sm"
+                  variant={connected ? "outline" : "default"}
+                  disabled={pendingGitServerId === server.id || unsupported}
+                  onClick={() => onConnectGitServer(server.id)}
+                >
+                  {pendingGitServerId === server.id && <Loader2 className="size-4 animate-spin" />}
+                  {connected ? "重新关联" : unsupported ? "待支持" : "关联"}
+                </Button>
+              </div>
+            )
+          })}
+          {gitServers.length === 0 && (
+            <div className="account-empty">还没有配置 Git server</div>
+          )}
+        </div>
+      </div>
+    </section>
   )
+}
+
+function GitServerAdmin({
+  gitServers,
+  savingGitServerId,
+  deletingGitServerId,
+  onSaveGitServer,
+  onDeleteGitServer,
+}: {
+  gitServers: GitServer[]
+  savingGitServerId: string
+  deletingGitServerId: string
+  onSaveGitServer: (input: GitServer) => Promise<unknown>
+  onDeleteGitServer: (gitServerId: string) => Promise<unknown>
+}) {
+  const [selectedId, setSelectedId] = useState(gitServers[0]?.id || "")
+  const selectedServer = useMemo(() => gitServers.find((server) => server.id === selectedId), [gitServers, selectedId])
+  const [form, setForm] = useState<GitServerForm>(() => formFromGitServer(selectedServer))
+  const isNew = !selectedServer
+  const busy = Boolean(savingGitServerId || deletingGitServerId)
+  const saving = savingGitServerId === (form.id || "new")
+
+  useEffect(() => {
+    if (selectedId && gitServers.some((server) => server.id === selectedId)) return
+    setSelectedId(gitServers[0]?.id || "")
+  }, [gitServers, selectedId])
+
+  useEffect(() => {
+    setForm(formFromGitServer(selectedServer))
+  }, [selectedServer?.id])
+
+  function update<K extends keyof GitServerForm>(key: K, value: GitServerForm[K]) {
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "baseUrl" && !current.apiUrl ? { apiUrl: defaultApiUrl(value) } : {}),
+      ...(key === "baseUrl" && (!current.commitAuthorEmail || current.commitAuthorEmail === defaultCommitAuthorEmail(current.baseUrl))
+        ? { commitAuthorEmail: defaultCommitAuthorEmail(value) }
+        : {}),
+    }))
+  }
+
+  async function submit() {
+    await onSaveGitServer(payloadFromForm(form))
+    setSelectedId(form.id)
+  }
+
+  async function remove() {
+    if (!selectedServer) return
+    const confirmed = window.confirm(`删除 Git server "${selectedServer.name || selectedServer.id}"？`)
+    if (!confirmed) return
+    await onDeleteGitServer(selectedServer.id)
+  }
+
+  return (
+    <section className="settings-content git-server-admin">
+      <div className="git-server-layout">
+        <aside className="git-server-list" aria-label="Git servers">
+          <header>
+            <strong>Git servers</strong>
+            <Button size="sm" variant="outline" onClick={() => setSelectedId("")}>
+              <Plus className="size-3.5" />
+              添加
+            </Button>
+          </header>
+          <div className="git-server-items">
+            {gitServers.map((server) => (
+              <button
+                type="button"
+                key={server.id}
+                className={`git-server-item ${server.id === selectedId ? "active" : ""}`}
+                onClick={() => setSelectedId(server.id)}
+              >
+                <span className="account-provider-icon"><Server className="size-4" /></span>
+                <span>
+                  <strong>{server.name || server.id}</strong>
+                  <small>{server.baseUrl || server.type}</small>
+                </span>
+              </button>
+            ))}
+            {gitServers.length === 0 && <div className="account-empty">还没有 Git server</div>}
+          </div>
+        </aside>
+
+        <form className="git-server-form" onSubmit={(event) => { event.preventDefault(); void submit() }}>
+          <header>
+            <span>
+              <strong>{isNew ? "添加 Git server" : "修改 Git server"}</strong>
+              <small>敏感字段留空时会保留已有值。</small>
+            </span>
+            <div className="git-server-form-actions">
+              {!isNew && (
+                <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => void remove()}>
+                  {deletingGitServerId === selectedServer.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                  删除
+                </Button>
+              )}
+              <Button type="submit" size="sm" disabled={busy || !form.id || !form.baseUrl || !form.commitAuthorName || !form.commitAuthorEmail}>
+                {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                保存
+              </Button>
+            </div>
+          </header>
+
+          <div className="git-server-fields">
+            <Field label="ID">
+              <Input value={form.id} disabled={!isNew} onChange={(event) => update("id", event.currentTarget.value)} placeholder="gitlab-main" />
+            </Field>
+            <Field label="类型">
+              <select value={form.type} onChange={(event) => update("type", event.currentTarget.value)}>
+                <option value="gitlab">gitlab</option>
+                <option value="github">github</option>
+              </select>
+            </Field>
+            <Field label="名称">
+              <Input value={form.name} onChange={(event) => update("name", event.currentTarget.value)} placeholder="GitLab" />
+            </Field>
+            <Field label="Token auth">
+              <select value={form.tokenAuth} onChange={(event) => update("tokenAuth", event.currentTarget.value)}>
+                <option value="bearer">bearer</option>
+                <option value="private-token">private-token</option>
+              </select>
+            </Field>
+            <Field label="Base URL">
+              <Input value={form.baseUrl} onChange={(event) => update("baseUrl", event.currentTarget.value)} placeholder="https://gitlab.example.com" />
+            </Field>
+            <Field label="API URL">
+              <Input value={form.apiUrl} onChange={(event) => update("apiUrl", event.currentTarget.value)} placeholder="https://gitlab.example.com/api/v4" />
+            </Field>
+            <Field label="Commit author name">
+              <Input value={form.commitAuthorName} onChange={(event) => update("commitAuthorName", event.currentTarget.value)} />
+            </Field>
+            <Field label="Commit author email">
+              <Input type="email" value={form.commitAuthorEmail} onChange={(event) => update("commitAuthorEmail", event.currentTarget.value)} />
+            </Field>
+            <Field label="OAuth client ID">
+              <Input value={form.oauthClientId} onChange={(event) => update("oauthClientId", event.currentTarget.value)} />
+            </Field>
+            <Field label={`OAuth secret${fingerprintLabel(selectedServer?.oauth?.clientSecretFingerprint)}`}>
+              <Input type="password" value={form.oauthClientSecret} onChange={(event) => update("oauthClientSecret", event.currentTarget.value)} placeholder="留空保留现值" />
+            </Field>
+            <Field label="OAuth scopes" wide>
+              <Input value={form.oauthScopes} onChange={(event) => update("oauthScopes", event.currentTarget.value)} />
+            </Field>
+            <Field label={`Webhook secret${fingerprintLabel(selectedServer?.webhook?.secretFingerprint)}`}>
+              <Input type="password" value={form.webhookSecret} onChange={(event) => update("webhookSecret", event.currentTarget.value)} placeholder="留空保留现值" />
+            </Field>
+            <Field label="Agentrix Git server ID">
+              <Input value={form.agentrixGitServerId} onChange={(event) => update("agentrixGitServerId", event.currentTarget.value)} />
+            </Field>
+            <Field label={`Admin PAT${fingerprintLabel(selectedServer?.adminPatFingerprint)}`} wide>
+              <Input type="password" value={form.adminPat} onChange={(event) => update("adminPat", event.currentTarget.value)} placeholder="留空保留现值" />
+            </Field>
+          </div>
+        </form>
+      </div>
+    </section>
+  )
+}
+
+function Field({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
+  return (
+    <label className={`setup-field ${wide ? "wide" : ""}`}>
+      <span>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function formFromGitServer(server?: GitServer): GitServerForm {
+  if (!server) return emptyGitServerForm
+  return {
+    id: server.id || "",
+    type: server.type || "gitlab",
+    name: server.name || "",
+    baseUrl: server.baseUrl || "",
+    apiUrl: server.apiUrl || "",
+    tokenAuth: server.tokenAuth || "bearer",
+    oauthClientId: server.oauth?.clientId || "",
+    oauthClientSecret: "",
+    oauthScopes: server.oauth?.scopes || emptyGitServerForm.oauthScopes,
+    webhookSecret: "",
+    agentrixGitServerId: server.agentrixGitServerId || "",
+    adminPat: "",
+    commitAuthorName: server.commitAuthor?.name || emptyGitServerForm.commitAuthorName,
+    commitAuthorEmail: server.commitAuthor?.email || defaultCommitAuthorEmail(server.baseUrl),
+  }
+}
+
+function payloadFromForm(form: GitServerForm): GitServer {
+  const payload: GitServer = {
+    id: form.id.trim(),
+    type: form.type,
+    name: form.name.trim(),
+    baseUrl: form.baseUrl.trim(),
+    apiUrl: form.apiUrl.trim(),
+    tokenAuth: form.tokenAuth,
+    oauth: {
+      clientId: form.oauthClientId.trim(),
+      scopes: form.oauthScopes.trim(),
+    },
+    webhook: {},
+    agentrixGitServerId: form.agentrixGitServerId.trim(),
+    commitAuthor: {
+      name: form.commitAuthorName.trim(),
+      email: form.commitAuthorEmail.trim(),
+    },
+  }
+  if (form.oauthClientSecret) payload.oauth = { ...payload.oauth, clientSecret: form.oauthClientSecret }
+  if (form.webhookSecret) payload.webhook = { secret: form.webhookSecret }
+  if (form.adminPat) payload.adminPat = form.adminPat
+  return payload
+}
+
+function defaultApiUrl(baseUrl = "") {
+  const root = String(baseUrl || "").trim().replace(/\/+$/, "")
+  return root ? `${root}/api/v4` : ""
+}
+
+function defaultCommitAuthorEmail(baseUrl = "") {
+  try {
+    const parts = new URL(String(baseUrl || "").trim()).hostname.split(".").filter(Boolean)
+    const domain = parts.length >= 2 ? parts.slice(-2).join(".") : parts[0] || ""
+    return domain ? `issue-flow@${domain}` : ""
+  } catch {
+    return ""
+  }
+}
+
+function fingerprintLabel(value = "") {
+  return value ? ` · ${value}` : ""
 }
 
 function userDisplayName(user: UserSession["user"]) {

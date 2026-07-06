@@ -60,6 +60,14 @@ function gitlabRemoteUrl(input = {}) {
   return url.toString();
 }
 
+function commitAuthor(input = {}) {
+  const author = input.commitAuthor || {}
+  return {
+    name: String(author.name || input.commitAuthorName || 'issue-flow').trim() || 'issue-flow',
+    email: String(author.email || input.commitAuthorEmail || '').trim(),
+  }
+}
+
 async function runIssueFlowInstallScript(cwd, input = {}) {
   const script = issueFlowInstallScriptPath()
   if (!fs.existsSync(script)) {
@@ -191,8 +199,14 @@ async function installGitlabPluginMergeRequest(input = {}) {
       }
     }
 
-    await runGit(checkout, ['config', 'user.name', 'issue-flow'], token)
-    await runGit(checkout, ['config', 'user.email', 'issue-flow@localhost'], token)
+    const author = commitAuthor(input)
+    if (!author.email) {
+      const failure = new Error('git commit author email is required')
+      failure.status = 400
+      throw failure
+    }
+    await runGit(checkout, ['config', 'user.name', author.name], token)
+    await runGit(checkout, ['config', 'user.email', author.email], token)
     await runGit(checkout, ['commit', '-m', input.commitMessage || 'Install issue-flow plugin'], token)
     await runGit(checkout, ['push', 'origin', `HEAD:refs/heads/${sourceBranch}`], token)
     progress({ id: 'commit', status: 'passed', label: '提交变更', detail: `${files.length} 个文件变更已推送` })

@@ -71,6 +71,10 @@ function installInput(extra = {}) {
     projectPath: 'group/app',
     branch: 'main',
     operation: 'install',
+    commitAuthor: {
+      name: 'Issue Flow Bot',
+      email: 'issue-flow-bot@gitlab.example.com',
+    },
     ...extra,
   };
 }
@@ -157,6 +161,10 @@ test('install merge request applies decisions from a temp file outside the check
   assert.equal(result.skipped, false);
   assert.equal(result.mergeRequest.iid, '3');
   assert.equal(gitCalls('push').length, 1);
+  assert.deepEqual(gitCalls('config').map((call) => call.args), [
+    ['config', 'user.name', 'Issue Flow Bot'],
+    ['config', 'user.email', 'issue-flow-bot@gitlab.example.com'],
+  ]);
 });
 
 test('install merge request re-streams new plan when decisions are stale', async () => {
