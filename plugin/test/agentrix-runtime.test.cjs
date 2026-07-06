@@ -94,6 +94,25 @@ test('agentrix config only customizes prompt, template, and plan root paths', ()
   }
 });
 
+test('agentrix command logging shell-quotes args and redacts api key', () => {
+  const command = agentrix.redactedCommand('npx', [
+    '--yes',
+    '@agentrix/agentrix-run@latest',
+    '--api-key',
+    'sk-secret-value',
+    '--title',
+    "Review PR #8: Bob's change",
+    '--prompt',
+    'line one\nline two',
+  ]);
+
+  assert.equal(
+    command,
+    "npx --yes @agentrix/agentrix-run@latest --api-key '[redacted]' --title 'Review PR #8: Bob'\\''s change' --prompt 'line one\nline two'"
+  );
+  assert.doesNotMatch(command, /sk-secret-value/);
+});
+
 test('agentrix prompt falls back to built-in defaults and injects fixed plan conventions', () => {
   const prompt = agentrix.buildPrompt(
     'plan',
