@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/nil4u/issue-flow/compare/v0.3.1...v0.4.0) (2026-07-06)
+
+
+### Features
+
+* release pending module updates ([d5ea4f8](https://github.com/nil4u/issue-flow/commit/d5ea4f8bd6675356ae800b54248bf515bf2da5f3))
+
 ## [0.3.1](https://github.com/nil4u/issue-flow/compare/v0.3.0...v0.3.1) (2026-07-04)
 
 
