@@ -11,6 +11,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const ROOT = path.resolve(__dirname, '..');
+const releaseCommitValidator = require('../scripts/validate-release-commits.cjs');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -83,11 +84,45 @@ test('release workflow runs release-please in manifest mode on main', () => {
   assert.match(workflow, /contents: write/);
   assert.match(workflow, /pull-requests: write/);
   assert.doesNotMatch(workflow, /issues: write/);
+  assert.match(workflow, /actions\/checkout@v4/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(workflow, /node scripts\/validate-release-commits\.cjs/);
   assert.match(workflow, /uses: googleapis\/release-please-action@v4/);
   assert.match(workflow, /group: release-please-main/);
   assert.match(workflow, /target-branch: main/);
   assert.match(workflow, /config-file: release-please-config\.json/);
   assert.match(workflow, /manifest-file: \.release-please-manifest\.json/);
+});
+
+test('release commit validator follows release-please tag and commit conventions', () => {
+  assert.equal(releaseCommitValidator.versionTag('1.2.3'), 'v1.2.3');
+  assert.equal(releaseCommitValidator.versionTag('v1.2.3'), 'v1.2.3');
+  assert.equal(
+    releaseCommitValidator.packageTag('plugin', { 'include-component-in-tag': false }, '0.3.1'),
+    'v0.3.1',
+  );
+  assert.equal(
+    releaseCommitValidator.packageTag('console/api', { component: 'console' }, '0.2.0'),
+    'console-v0.2.0',
+  );
+
+  assert.deepEqual(releaseCommitValidator.parseConventionalSubject('fix(plugin): repair release guard'), {
+    type: 'fix',
+    breaking: false,
+  });
+  assert.deepEqual(releaseCommitValidator.parseConventionalSubject('feat!: drop legacy flow'), {
+    type: 'feat',
+    breaking: true,
+  });
+  assert.equal(releaseCommitValidator.parseConventionalSubject('Add GitLab token automation'), undefined);
+  assert.equal(
+    releaseCommitValidator.hasBreakingFooter('feat: update\n\nBREAKING CHANGE: reset config'),
+    true,
+  );
+  assert.equal(
+    releaseCommitValidator.isReleaseCommit({ type: 'deps', breaking: false }, 'deps: update runtime'),
+    true,
+  );
 });
 
 test('console image workflows build arm64 without qemu emulation', () => {

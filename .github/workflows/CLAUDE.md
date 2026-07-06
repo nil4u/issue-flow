@@ -15,7 +15,7 @@ test.yml: PR 与 main/develop push 入口，plugin 与 console 各自独立 job 
 CLAUDE.md: 本目录的 L2 地图，记录 workflow 职责与边界。
 
 依赖边界
-release-please.yml -> release-please-config.json、.release-please-manifest.json、plugin/package.json、plugin/skills/issue-flow/SKILL.md、plugin/.claude-plugin/plugin.json、console/api/package.json、CHANGELOG 文件、console/Dockerfile。
+release-please.yml -> release-please-config.json、.release-please-manifest.json、scripts/validate-release-commits.cjs、plugin/package.json、plugin/skills/issue-flow/SKILL.md、plugin/.claude-plugin/plugin.json、console/api/package.json、CHANGELOG 文件、console/Dockerfile。
 docker-image.yml -> console/Dockerfile、package-lock.json、console/api、console/web、plugin。
 test.yml -> npm workspaces(plugin、console/api、console/web)、Postgres service 容器、根 test/。
 issue-flow-*.yml -> .agentrix/plugins/issue-flow、.issue-flow、GitHub event payload。
