@@ -183,19 +183,14 @@ async function finishGitlabOAuth({ store, basePublicUrl, appUrl, query = {} }) {
       baseUrl: config.baseUrl,
     },
   });
-  try {
-    const projects = await listGitlabProjects({
-      apiUrl: config.apiUrl,
+  if (identity.accountCreated) {
+    syncRepositoriesAfterGitlabOAuth({
+      store,
+      config,
+      server,
       token,
-      authType: 'bearer',
-    });
-    await store.syncRepositories({
-      gitServerId: server.id,
       userId: identity.user.id,
-      projects,
     });
-  } catch {
-    // 登录状态优先落库；仓库列表失败后仍可由前端强制刷新。
   }
   return {
     status: 302,
@@ -204,6 +199,26 @@ async function finishGitlabOAuth({ store, basePublicUrl, appUrl, query = {} }) {
     account: identity.account,
     returnTo: state.returnTo,
   };
+}
+
+function syncRepositoriesAfterGitlabOAuth(input = {}) {
+  void (async () => {
+    try {
+      const { store, config, server, token, userId } = input;
+      const projects = await listGitlabProjects({
+        apiUrl: config.apiUrl,
+        token,
+        authType: 'bearer',
+      });
+      await store.syncRepositories({
+        gitServerId: server.id,
+        userId,
+        projects,
+      });
+    } catch {
+      // 登录状态优先落库；仓库列表失败后仍可由前端强制刷新。
+    }
+  })();
 }
 
 async function logoutGitlabSession({ store, sessionId }) {

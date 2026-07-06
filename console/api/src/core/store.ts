@@ -574,6 +574,7 @@ class IssueFlowStore {
         data: account,
         updatedAt: now,
       }
+      const accountCreated = !existingAccount && !existingForUserServer
       const savedAccount = existingForUserServer
         ? await tx.userGitAccount.update({
           where: { id: existingForUserServer.id },
@@ -594,12 +595,13 @@ class IssueFlowStore {
           },
           update: data,
         })
-      return { userId: user.id, accountId: savedAccount.id }
+      return { userId: user.id, accountId: savedAccount.id, accountCreated }
     })
     const savedAccount = await this.findUserGitAccount(account)
     return {
       user: await this.getUser(result.userId, { includeAccounts: true }),
       account: savedAccount,
+      accountCreated: Boolean(result.accountCreated),
     }
   }
 
