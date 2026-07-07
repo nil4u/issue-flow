@@ -624,6 +624,7 @@ test('setup initialize configures first git server and returns OAuth authorize U
     const incompleteBody = await incomplete.json();
     assert.equal(incompleteBody.error, 'git_server_incomplete');
     assert.deepEqual(incompleteBody.missing, ['botPat']);
+    assert.equal(await store.getGitServer('gitlab-gitlab-example-com'), undefined);
 
     const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
       method: 'POST',
@@ -682,6 +683,45 @@ test('setup initialize configures first git server and returns OAuth authorize U
     } else {
       process.env.ISSUE_FLOW_APP_URL = previousAppUrl;
     }
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setup status does not force setup when an existing Git server lacks Bot PAT', async () => {
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.ensureGitServer({
+      id: 'gitlab-main',
+      type: 'gitlab',
+      name: 'GitLab Main',
+      baseUrl: 'https://gitlab.example.com',
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      oauth: {
+        clientId: 'oauth-client',
+        clientSecret: 'oauth-secret',
+      },
+      webhook: {
+        secret: 'webhook-secret',
+      },
+      agentrixGitServerId: 'agentrix-main',
+      adminPat: 'admin-pat',
+      commitAuthor: {
+        name: 'issue-flow',
+        email: 'issue-flow@example.com',
+      },
+    });
+
+    const status = await fetch(`${baseUrl}/api/setup/status`);
+    assert.equal(status.status, 200);
+    const body = await status.json();
+    assert.equal(body.initialized, true);
+    assert.equal(body.needsSetup, false);
+    assert.equal(body.state, 'configured');
+    assert.deepEqual(body.missing, []);
+  } finally {
     await app.close();
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });

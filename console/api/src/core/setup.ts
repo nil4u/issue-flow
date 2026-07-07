@@ -59,9 +59,16 @@ function gitServerMissingFields(server = {}) {
     if (!server.webhook?.secret) missing.push("webhook.secret")
     if (!server.agentrixGitServerId) missing.push("agentrixGitServerId")
     if (!server.adminPat) missing.push("adminPat")
-    if (!server.botPat) missing.push("botPat")
     if (!server.commitAuthor?.name) missing.push("commitAuthor.name")
     if (!server.commitAuthor?.email) missing.push("commitAuthor.email")
+  }
+  return missing
+}
+
+function setupInputMissingFields(input = {}) {
+  const missing = []
+  if ((input.type || "gitlab") === "gitlab" && !String(input.botPat || input.bot_pat || "").trim()) {
+    missing.push("botPat")
   }
   return missing
 }
@@ -121,6 +128,16 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
   const current = await getSetupStatus({ store, env })
   if (current.body.initialized) {
     return { status: 409, body: { error: "setup_already_initialized" } }
+  }
+  const missingInput = setupInputMissingFields(input)
+  if (missingInput.length) {
+    return {
+      status: 400,
+      body: {
+        error: "git_server_incomplete",
+        missing: missingInput,
+      },
+    }
   }
 
   const baseUrl = normalizedUrl(input.baseUrl)
