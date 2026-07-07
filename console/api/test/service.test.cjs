@@ -605,7 +605,7 @@ test('setup initialize configures first git server and returns OAuth authorize U
     });
     assert.equal(rejected.status, 401);
 
-    const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
+    const incomplete = await fetch(`${baseUrl}/api/setup/initialize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -620,6 +620,27 @@ test('setup initialize configures first git server and returns OAuth authorize U
         adminPat: 'admin-pat',
       }),
     });
+    assert.equal(incomplete.status, 400);
+    const incompleteBody = await incomplete.json();
+    assert.equal(incompleteBody.error, 'git_server_incomplete');
+    assert.deepEqual(incompleteBody.missing, ['botPat']);
+
+    const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        setupCode: 'test-setup-code',
+        type: 'gitlab',
+        baseUrl: 'https://gitlab.example.com',
+        oauth: {
+          clientId: 'oauth-client',
+          clientSecret: 'oauth-secret',
+        },
+        agentrixGitServerId: 'agentrix-main',
+        adminPat: 'admin-pat',
+        botPat: 'bot-pat',
+      }),
+    });
     assert.equal(initialized.status, 201);
     assert.equal(initialized.headers.get('set-cookie'), null);
     const body = await initialized.json();
@@ -631,12 +652,13 @@ test('setup initialize configures first git server and returns OAuth authorize U
       name: 'issue-flow',
       email: 'issue-flow@example.com',
     });
-    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat/);
+    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat|bot-pat/);
 
     const savedServer = await store.getGitServer('gitlab-gitlab-example-com', { includeSecret: true });
     assert.equal(Object.hasOwn(savedServer.oauth, 'redirectUri'), false);
     assert.equal(savedServer.oauth.scopes, 'api read_repository write_repository openid profile email');
     assert.match(savedServer.webhook.secret, /^[a-f0-9]{64}$/);
+    assert.equal(savedServer.botPat, 'bot-pat');
     assert.deepEqual(savedServer.commitAuthor, {
       name: 'issue-flow',
       email: 'issue-flow@example.com',

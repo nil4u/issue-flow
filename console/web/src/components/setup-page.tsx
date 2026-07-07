@@ -124,6 +124,7 @@ export function SetupPage({
               type="password"
               value={form.botPat}
               onChange={(event) => update("botPat", event.target.value)}
+              required
             />
           </label>
           <label className="setup-field">

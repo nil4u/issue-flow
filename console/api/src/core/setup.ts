@@ -59,6 +59,7 @@ function gitServerMissingFields(server = {}) {
     if (!server.webhook?.secret) missing.push("webhook.secret")
     if (!server.agentrixGitServerId) missing.push("agentrixGitServerId")
     if (!server.adminPat) missing.push("adminPat")
+    if (!server.botPat) missing.push("botPat")
     if (!server.commitAuthor?.name) missing.push("commitAuthor.name")
     if (!server.commitAuthor?.email) missing.push("commitAuthor.email")
   }
