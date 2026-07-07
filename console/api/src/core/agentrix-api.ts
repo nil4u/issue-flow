@@ -1,14 +1,30 @@
-// @ts-nocheck
+import {
+  GetPrivateCloudRunnerSecretResponseSchema,
+  ListMachinesResponseSchema,
+  ListPrivateCloudsResponseSchema,
+  UserProfileResponseSchema,
+} from '@agentrix/shared'
 import { agentrixServiceConfig } from './common.js'
 
-async function agentrixRequest({ env = process.env, apiKey = '', path = '' }) {
+type AgentrixError = Error & {
+  status?: number
+  code?: string
+  body?: unknown
+}
+
+function agentrixError(message: string, status: number, code: string, body?: unknown): AgentrixError {
+  const error = new Error(message) as AgentrixError
+  error.status = status
+  error.code = code
+  if (body !== undefined) error.body = body
+  return error
+}
+
+async function agentrixRequest({ env = process.env, apiKey = '', path = '', schema = undefined }) {
   const baseUrl = agentrixServiceConfig(env).baseUrl
   const token = String(apiKey || '').trim()
   if (!token) {
-    const error = new Error('Agentrix API key is required')
-    error.status = 400
-    error.code = 'agentrix_api_key_required'
-    throw error
+    throw agentrixError('Agentrix API key is required', 400, 'agentrix_api_key_required')
   }
   const response = await fetch(new URL(path, baseUrl), {
     headers: {
@@ -17,7 +33,7 @@ async function agentrixRequest({ env = process.env, apiKey = '', path = '' }) {
     },
   })
   const text = await response.text()
-  let body = {}
+  let body: any = {}
   if (text) {
     try {
       body = JSON.parse(text)
@@ -26,20 +42,24 @@ async function agentrixRequest({ env = process.env, apiKey = '', path = '' }) {
     }
   }
   if (!response.ok) {
-    const error = new Error(body && (body.message || body.error) || `Agentrix request failed (${response.status})`)
-    error.status = response.status
-    error.code = response.status === 401 || response.status === 403 ? 'agentrix_api_key_invalid' : 'agentrix_request_failed'
-    error.body = body
-    throw error
+    throw agentrixError(
+      body && (body.message || body.error) || `Agentrix request failed (${response.status})`,
+      response.status,
+      response.status === 401 || response.status === 403 ? 'agentrix_api_key_invalid' : 'agentrix_request_failed',
+      body,
+    )
   }
-  return body
+  if (!schema) return body
+  const parsed = schema.safeParse(body)
+  if (parsed.success) return parsed.data
+  throw agentrixError(`Agentrix response schema mismatch for ${path}`, 502, 'agentrix_response_invalid', parsed.error.flatten())
 }
 
-function publicAgentrixUser(profile = {}) {
-  const user = profile.user || profile
+function publicAgentrixUser(profile) {
+  const user = profile.user
   return {
-    id: String(user.id || user.userId || ''),
-    username: String(user.username || ''),
+    id: String(user.id),
+    username: String(user.username),
     email: String(user.email || ''),
     avatar: user.avatar || '',
     role: user.role || '',
@@ -48,14 +68,8 @@ function publicAgentrixUser(profile = {}) {
 }
 
 async function validateAgentrixApiKey({ env = process.env, apiKey = '' }) {
-  const profile = await agentrixRequest({ env, apiKey, path: '/v1/auth/me' })
+  const profile = await agentrixRequest({ env, apiKey, path: '/v1/auth/me', schema: UserProfileResponseSchema })
   const user = publicAgentrixUser(profile)
-  if (!user.id) {
-    const error = new Error('Agentrix did not return a user profile')
-    error.status = 502
-    error.code = 'agentrix_profile_invalid'
-    throw error
-  }
   return {
     status: 'valid',
     user,
@@ -64,35 +78,33 @@ async function validateAgentrixApiKey({ env = process.env, apiKey = '' }) {
 }
 
 async function listAgentrixMachines({ env = process.env, apiKey = '' }) {
-  const result = await agentrixRequest({ env, apiKey, path: '/v1/machines' })
+  const result = await agentrixRequest({ env, apiKey, path: '/v1/machines', schema: ListMachinesResponseSchema })
   return {
-    clouds: Array.isArray(result.clouds) ? result.clouds : [],
-    localMachines: Array.isArray(result.localMachines) ? result.localMachines : [],
+    clouds: result.clouds,
+    localMachines: result.localMachines,
   }
 }
 
 async function listAgentrixPrivateClouds({ env = process.env, apiKey = '' }) {
-  const result = await agentrixRequest({ env, apiKey, path: '/v1/private-clouds' })
+  const result = await agentrixRequest({ env, apiKey, path: '/v1/private-clouds', schema: ListPrivateCloudsResponseSchema })
   return {
-    clouds: Array.isArray(result.clouds) ? result.clouds : [],
-    entitlement: result.entitlement || {},
+    clouds: result.clouds,
+    entitlement: result.entitlement,
   }
 }
 
 async function getAgentrixPrivateCloudRunnerSecret({ env = process.env, apiKey = '', cloudId = '' }) {
   const id = String(cloudId || '').trim()
   if (!id) {
-    const error = new Error('cloud id is required')
-    error.status = 400
-    error.code = 'cloud_id_required'
-    throw error
+    throw agentrixError('cloud id is required', 400, 'cloud_id_required')
   }
   const result = await agentrixRequest({
     env,
     apiKey,
     path: `/v1/private-clouds/${encodeURIComponent(id)}/runner-secret`,
+    schema: GetPrivateCloudRunnerSecretResponseSchema,
   })
-  return String(result.secret || '')
+  return result.secret
 }
 
 export {

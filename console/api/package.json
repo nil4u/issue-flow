@@ -19,6 +19,7 @@
     "db:migrate": "node --env-file-if-exists=../../.env ../../node_modules/prisma/build/index.js migrate deploy"
   },
   "dependencies": {
+    "@agentrix/shared": "^2.44.0",
     "@fastify/cors": "^11.2.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
