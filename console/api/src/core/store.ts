@@ -12,8 +12,16 @@ import {
   metricsResultFromRows,
 } from "./metrics-sql.js"
 import { fingerprintSecret } from "./sanitize.js"
+import { normalizeTaskAction } from "./task-projection.js"
 
 const DEFAULT_STATE_DIR = ".issue-flow-service"
+const TASK_TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"])
+const TASK_SPAN_FLOW_BY_ACTION = {
+  triage: "triage",
+  plan: "plan",
+  build: "build",
+  review: "approve",
+}
 
 function nowIso() {
   return new Date().toISOString()
@@ -1618,6 +1626,264 @@ class IssueFlowStore {
     return { pullRequest: this.pullRequestFromRecord(row), applied: true }
   }
 
+  taskFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId || "",
+      repositoryId: row.repositoryId || "",
+      repositoryFullName: row.repositoryFullName || "",
+      issueId: row.issueId || "",
+      issueNumber: row.issueNumber || 0,
+      issueSpanRowId: row.issueSpanRowId || "",
+      taskId: row.taskId,
+      action: row.action || "",
+      agent: row.agent || "",
+      model: row.model || "",
+      turns: row.turns || 0,
+      modelUsage: row.modelUsage ?? undefined,
+      status: row.status || "queued",
+      result: row.result || "",
+      queuedAt: timestampValue(row.queuedAt),
+      startedAt: timestampValue(row.startedAt),
+      finishedAt: timestampValue(row.finishedAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+  }
+
+  taskEventFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId || "",
+      repositoryId: row.repositoryId || "",
+      repositoryFullName: row.repositoryFullName || "",
+      issueId: row.issueId || "",
+      issueNumber: row.issueNumber || 0,
+      taskId: row.taskId,
+      chatId: row.chatId || "",
+      eventId: row.eventId,
+      sequence: row.sequence,
+      eventType: row.eventType,
+      eventData: row.eventData,
+      createdAt: timestampValue(row.createdAt),
+    }
+  }
+
+  async resolveTaskIssueSpan(row, client = this.db) {
+    if (!row || row.issueSpanRowId) return row
+    if (!row.gitServerId || !row.repositoryId || !row.issueId) return row
+    const at = row.startedAt || row.queuedAt
+    if (!at) return row
+    const spans = await client.issueSpan.findMany({
+      where: {
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        issueId: row.issueId,
+        enteredAt: { lte: at },
+        OR: [
+          { exitedAt: null },
+          { exitedAt: { gte: at } },
+        ],
+      },
+      orderBy: { enteredAt: "desc" },
+    })
+    if (!spans.length) return row
+    const span = spans.find((item) => item.flow === TASK_SPAN_FLOW_BY_ACTION[row.action]) || spans[0]
+    return client.task.update({
+      where: { id: row.id },
+      data: { issueSpanRowId: span.id, updatedAt: new Date() },
+    })
+  }
+
+  async upsertTaskLink(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    if (!taskId) return { task: undefined, applied: false }
+    let gitServerId = String(input.gitServerId || "").trim()
+    if (!gitServerId && input.agentrixGitServerId) {
+      const server = await client.gitServer.findFirst({
+        where: { agentrixGitServerId: String(input.agentrixGitServerId).trim() },
+      })
+      if (server) gitServerId = server.id
+    }
+    const repositoryId = String(input.repositoryId || "").trim()
+    const issueNumber = Number(input.issueNumber || 0)
+    const issue = gitServerId && repositoryId && issueNumber
+      ? await client.issue.findUnique({
+        where: {
+          gitServerId_repositoryId_issueNumber: { gitServerId, repositoryId, issueNumber },
+        },
+      })
+      : undefined
+
+    const existing = await client.task.findUnique({ where: { taskId } })
+    const data = {
+      gitServerId: gitServerId || existing && existing.gitServerId || "",
+      repositoryId: repositoryId || existing && existing.repositoryId || "",
+      repositoryFullName: issue && issue.repositoryFullName || existing && existing.repositoryFullName || "",
+      issueId: issue && issue.issueId || existing && existing.issueId || "",
+      issueNumber: issueNumber || existing && existing.issueNumber || 0,
+      action: normalizeTaskAction(input.action) || existing && existing.action || "",
+      queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
+      updatedAt: new Date(),
+    }
+    let row = await client.task.upsert({
+      where: { taskId },
+      create: {
+        id: input.id || randomId("task"),
+        taskId,
+        ...data,
+      },
+      update: data,
+    })
+    row = await this.resolveTaskIssueSpan(row, client)
+    if (row.issueId) {
+      await client.taskEvent.updateMany({
+        where: { taskId, issueId: "" },
+        data: {
+          gitServerId: row.gitServerId,
+          repositoryId: row.repositoryId,
+          repositoryFullName: row.repositoryFullName,
+          issueId: row.issueId,
+          issueNumber: row.issueNumber,
+        },
+      })
+      this.scheduleIssueStatsRebuild({
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        issueId: row.issueId,
+      })
+    }
+    return { task: this.taskFromRecord(row), applied: true }
+  }
+
+  async upsertTaskRuntime(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    if (!taskId) return { task: undefined, applied: false }
+    const existing = await client.task.findUnique({ where: { taskId } })
+    if (input.weakStatus && existing && TASK_TERMINAL_STATUSES.has(existing.status)) {
+      return { task: this.taskFromRecord(existing), applied: false }
+    }
+    const data = {
+      agent: existing && existing.agent || String(input.agent || ""),
+      model: existing && existing.model || String(input.model || ""),
+      turns: Math.max(existing && existing.turns || 0, Number(input.turns || 0)),
+      status: String(input.status || existing && existing.status || "queued"),
+      queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
+      startedAt: existing && existing.startedAt || nullableDate(input.startedAt),
+      finishedAt: nullableDate(input.finishedAt) || existing && existing.finishedAt || null,
+      updatedAt: new Date(),
+    }
+    if (input.modelUsage !== undefined) {
+      data.modelUsage = input.modelUsage
+    }
+    let row = await client.task.upsert({
+      where: { taskId },
+      create: {
+        id: input.id || randomId("task"),
+        taskId,
+        ...data,
+      },
+      update: data,
+    })
+    row = await this.resolveTaskIssueSpan(row, client)
+    if (row.issueId) {
+      this.scheduleIssueStatsRebuild({
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        issueId: row.issueId,
+      })
+    }
+    return { task: this.taskFromRecord(row), applied: true }
+  }
+
+  async appendTaskEvent(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    const eventId = String(input.eventId || "").trim()
+    const eventType = String(input.eventType || "").trim()
+    if (!taskId || !eventId || !eventType) return { taskEvent: undefined, applied: false }
+    const existing = await client.taskEvent.findUnique({ where: { eventId } })
+    if (existing) return { taskEvent: this.taskEventFromRecord(existing), applied: false }
+    const task = await client.task.findUnique({ where: { taskId } })
+    for (let attempt = 0; ; attempt += 1) {
+      const last = await client.taskEvent.findFirst({
+        where: { taskId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      })
+      try {
+        const row = await client.taskEvent.create({
+          data: {
+            id: input.id || randomId("task_event"),
+            gitServerId: task && task.gitServerId || "",
+            repositoryId: task && task.repositoryId || "",
+            repositoryFullName: task && task.repositoryFullName || "",
+            issueId: task && task.issueId || "",
+            issueNumber: task && task.issueNumber || 0,
+            taskId,
+            chatId: String(input.chatId || ""),
+            eventId,
+            sequence: (last && last.sequence || 0) + 1,
+            eventType,
+            eventData: input.eventData ?? {},
+            createdAt: asDate(input.createdAt || nowIso()),
+          },
+        })
+        return { taskEvent: this.taskEventFromRecord(row), applied: true }
+      } catch (error) {
+        if (error && error.code === "P2002" && attempt < 3) {
+          const duplicate = await client.taskEvent.findUnique({ where: { eventId } })
+          if (duplicate) return { taskEvent: this.taskEventFromRecord(duplicate), applied: false }
+          continue
+        }
+        throw error
+      }
+    }
+  }
+
+  async getTask(taskId) {
+    await this.ready
+    if (!taskId) return undefined
+    const row = await this.db.task.findUnique({ where: { taskId: String(taskId) } })
+    return this.taskFromRecord(row)
+  }
+
+  async listTaskEvents(taskId) {
+    await this.ready
+    if (!taskId) return []
+    const rows = await this.db.taskEvent.findMany({
+      where: { taskId: String(taskId) },
+      orderBy: { sequence: "asc" },
+    })
+    return rows.map((row) => this.taskEventFromRecord(row))
+  }
+
+  async getAgentrixForwardCursor(machineId) {
+    await this.ready
+    const id = String(machineId || "").trim()
+    if (!id) return 0
+    const row = await this.db.agentrixForwardCursor.findUnique({ where: { machineId: id } })
+    return row ? Number(row.cursor) : 0
+  }
+
+  async setAgentrixForwardCursor(machineId, cursor) {
+    await this.ready
+    const id = String(machineId || "").trim()
+    const value = Math.max(0, Math.floor(Number(cursor) || 0))
+    if (!id || !value) return this.getAgentrixForwardCursor(id)
+    const existing = await this.db.agentrixForwardCursor.findUnique({ where: { machineId: id } })
+    if (existing && Number(existing.cursor) >= value) return Number(existing.cursor)
+    const row = await this.db.agentrixForwardCursor.upsert({
+      where: { machineId: id },
+      create: { machineId: id, cursor: BigInt(value), updatedAt: new Date() },
+      update: { cursor: BigInt(value), updatedAt: new Date() },
+    })
+    return Number(row.cursor)
+  }
+
   issueStatFromRecord(row) {
     if (!row) return undefined
     return {
@@ -1719,8 +1985,25 @@ class IssueFlowStore {
         ],
       },
     })
+    const tasks = await client.task.findMany({
+      where: { gitServerId, repositoryId, issueId },
+    })
+    const taskSeconds = { triage: 0, plan: 0, build: 0, review: 0 }
+    const taskTurns = { triage: 0, plan: 0, build: 0, review: 0 }
+    let cycleStartedAt = null
+    for (const task of tasks) {
+      if (task.startedAt && (!cycleStartedAt || task.startedAt < cycleStartedAt)) {
+        cycleStartedAt = task.startedAt
+      }
+      if (!(task.action in taskSeconds)) continue
+      if (task.startedAt && task.finishedAt) {
+        taskSeconds[task.action] += Math.max(0, Math.round((task.finishedAt.getTime() - task.startedAt.getTime()) / 1000))
+      }
+      taskTurns[task.action] += task.turns || 0
+    }
     const data = {
       openedAt: issue.openedAt,
+      cycleStartedAt,
       closedAt: issue.closedAt,
       doneAt: issue.status === "done" ? issue.closedAt : null,
       dropAt: issue.status === "drop" ? issue.closedAt : null,
@@ -1730,6 +2013,14 @@ class IssueFlowStore {
       clarifySpanSeconds: spanSeconds.clarify,
       approveSpanSeconds: spanSeconds.approve,
       suspendSpanSeconds: spanSeconds.suspend,
+      triageTaskSeconds: taskSeconds.triage,
+      planTaskSeconds: taskSeconds.plan,
+      buildTaskSeconds: taskSeconds.build,
+      reviewTaskSeconds: taskSeconds.review,
+      triageTaskTurns: taskTurns.triage,
+      planTaskTurns: taskTurns.plan,
+      buildTaskTurns: taskTurns.build,
+      reviewTaskTurns: taskTurns.review,
       pullRequestCount,
       updatedAt: new Date(),
     }

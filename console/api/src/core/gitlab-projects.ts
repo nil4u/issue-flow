@@ -1,5 +1,4 @@
 // @ts-nocheck
-import fs from 'node:fs'
 import {
   createGitlabProjectAccessToken,
   enableGitlabRunnerForProject,
@@ -24,7 +23,6 @@ import {
 import {
   installGitlabPluginMergeRequest,
 } from './gitlab-bootstrap.js'
-import { issueFlowPackageJsonPath } from './plugin-paths.js'
 import {
   repoWithWebhook,
   resolveGitServer,
@@ -34,23 +32,18 @@ import {
   mergeAgentrixInstallInput,
   savedAgentrixDefaults,
 } from './user-agentrix-config.js'
+import {
+  ISSUE_FLOW_MANIFEST_PATH,
+  ISSUE_FLOW_PLUGIN_KEY,
+  LATEST_ISSUE_FLOW_VERSION,
+  pluginCacheFromManifest,
+  pluginState,
+} from './issue-flow-plugin.js'
 import { sanitizeError } from './sanitize.js'
 
 const ADMIN_PAT_PERMISSION_KEY = 'admin-pat'
-const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
-const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
-const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
 const ISSUE_FLOW_RUNNER_TAG = 'issue-flow'
 const ISSUE_FLOW_GITLAB_TOKEN_KEY = 'ISSUE_FLOW_GITLAB_TOKEN'
-
-function readPackageVersion() {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(issueFlowPackageJsonPath(), 'utf8'))
-    return String(pkg.version || '')
-  } catch {
-    return ''
-  }
-}
 
 function gitlabCiVariablesForInstall({ config, installConfig }) {
   const automation = installConfig.automation || {};
@@ -582,25 +575,6 @@ async function setGitlabProjectInstallPermission({ store, input = {}, session, e
   };
 }
 
-function parseVersion(value = '') {
-  return String(value || '')
-    .replace(/^v/, '')
-    .split(/[.-]/)
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => Number.isFinite(part) ? part : 0)
-}
-
-function compareVersions(left = '', right = '') {
-  const a = parseVersion(left)
-  const b = parseVersion(right)
-  const length = Math.max(a.length, b.length, 3)
-  for (let index = 0; index < length; index += 1) {
-    const diff = (a[index] || 0) - (b[index] || 0)
-    if (diff !== 0) return diff
-  }
-  return 0
-}
-
 function decodeGitlabFile(file) {
   if (!file || file.content === undefined || file.content === null) return ''
   if (file.encoding === 'base64' || !file.encoding) {
@@ -612,32 +586,6 @@ function decodeGitlabFile(file) {
 function pluginSettingFromRepository(repository) {
   return (repository && repository.settings && repository.settings.plugins && repository.settings.plugins.items || [])
     .find((item) => item && item.key === ISSUE_FLOW_PLUGIN_KEY)
-}
-
-function pluginNeedsUpgrade(installedVersion, latestVersion) {
-  return !installedVersion || Boolean(latestVersion && compareVersions(installedVersion, latestVersion) < 0)
-}
-
-function pluginVersionValue(version) {
-  return version ? version.replace(/^v/, '') : ''
-}
-
-function pluginState(cache) {
-  if (cache && cache.pendingMergeRequest && cache.pendingMergeRequest.webUrl) {
-    return { status: 'needs_action', detail: `MR !${cache.pendingMergeRequest.iid || ''} 待合并`, needsUpgrade: Boolean(cache.needsUpgrade) }
-  }
-  if (!cache || !cache.installed) {
-    return { status: 'blocked', detail: '未安装', needsUpgrade: false }
-  }
-  if (!cache.installedVersion) {
-    const latest = pluginVersionValue(cache.latestVersion || LATEST_ISSUE_FLOW_VERSION)
-    return { status: 'needs_action', detail: `未知版本 -> ${latest}`, needsUpgrade: true }
-  }
-  if (pluginNeedsUpgrade(cache.installedVersion, cache.latestVersion || LATEST_ISSUE_FLOW_VERSION)) {
-    const latest = pluginVersionValue(cache.latestVersion || LATEST_ISSUE_FLOW_VERSION)
-    return { status: 'needs_action', detail: `${pluginVersionValue(cache.installedVersion)} -> ${latest}`, needsUpgrade: true }
-  }
-  return { status: 'passed', detail: `v${pluginVersionValue(cache.installedVersion)}`, needsUpgrade: false }
 }
 
 async function openPendingMergeRequest(apiInput, pending) {
@@ -668,28 +616,6 @@ async function pluginCacheWithFreshPending({ store, existing, apiInput, cache })
     },
   })
   return next
-}
-
-function pluginCacheFromManifest(manifest = {}, extra = {}) {
-  const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
-  const latestVersion = extra.latestVersion || LATEST_ISSUE_FLOW_VERSION
-  const cache = {
-    key: ISSUE_FLOW_PLUGIN_KEY,
-    source: 'gitlab',
-    manifestPath: ISSUE_FLOW_MANIFEST_PATH,
-    installed: true,
-    installedVersion,
-    latestVersion,
-    manifestVersion: Number(manifest.version || 0),
-    provider: manifest.provider || 'gitlab',
-    runtime: manifest.runtime || 'agentrix',
-    pendingMergeRequest: extra.pendingMergeRequest || undefined,
-  }
-  const state = pluginState({ ...cache, latestVersion })
-  return {
-    ...cache,
-    ...state,
-  }
 }
 
 function pluginStepFromCache(cache, extra = {}) {

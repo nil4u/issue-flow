@@ -190,6 +190,61 @@ model PullRequest {
   @@map("pull_requests")
 }
 
+model Task {
+  id                 String    @id
+  gitServerId        String    @default("") @map("git_server_id")
+  repositoryId       String    @default("") @map("repository_id")
+  repositoryFullName String    @default("") @map("repository_full_name")
+  issueId            String    @default("") @map("issue_id")
+  issueNumber        Int       @default(0) @map("issue_number")
+  issueSpanRowId     String    @default("") @map("issue_span_row_id")
+  taskId             String    @unique @map("task_id")
+  action             String    @default("")
+  agent              String    @default("")
+  model              String    @default("")
+  turns              Int       @default(0)
+  modelUsage         Json?     @map("model_usage")
+  status             String    @default("queued")
+  result             String    @default("")
+  queuedAt           DateTime? @map("queued_at")
+  startedAt          DateTime? @map("started_at")
+  finishedAt         DateTime? @map("finished_at")
+  updatedAt          DateTime  @map("updated_at")
+
+  @@index([gitServerId, repositoryId, issueId])
+  @@index([action, startedAt])
+  @@index([status])
+  @@map("tasks")
+}
+
+model TaskEvent {
+  id                 String   @id
+  gitServerId        String   @default("") @map("git_server_id")
+  repositoryId       String   @default("") @map("repository_id")
+  repositoryFullName String   @default("") @map("repository_full_name")
+  issueId            String   @default("") @map("issue_id")
+  issueNumber        Int      @default(0) @map("issue_number")
+  taskId             String   @map("task_id")
+  chatId             String   @default("") @map("chat_id")
+  eventId            String   @unique @map("event_id")
+  sequence           Int
+  eventType          String   @map("event_type")
+  eventData          Json     @map("event_data")
+  createdAt          DateTime @map("created_at")
+
+  @@unique([taskId, sequence])
+  @@index([gitServerId, repositoryId, issueId])
+  @@map("task_events")
+}
+
+model AgentrixForwardCursor {
+  machineId String   @id @map("machine_id")
+  cursor    BigInt   @default(0)
+  updatedAt DateTime @map("updated_at")
+
+  @@map("agentrix_forward_cursors")
+}
+
 model IssueStat {
   id                 String    @id
   openedAt           DateTime  @map("opened_at")

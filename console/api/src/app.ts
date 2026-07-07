@@ -13,6 +13,7 @@ import { sessionRoutes } from "./routes/session.js"
 import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
+import { attachAgentrixForwardServer } from "./core/agentrix-forward.js"
 import { errorResponse } from "./core/responses.js"
 import { ensureSetupCode } from "./core/setup.js"
 import { createIssueFlowStore, type IssueFlowStore } from "./storage/store.js"
@@ -152,6 +153,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   }))
 
   app.get("/*", sendStaticWeb)
+
+  attachAgentrixForwardServer(app)
 
   if (app.issueFlowStore.ready) {
     await app.issueFlowStore.ready

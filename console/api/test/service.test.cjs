@@ -1201,6 +1201,105 @@ test('GitLab merge request close webhook clears pending plugin MR', async () => 
   }
 });
 
+test('GitLab merge request merge webhook marks pending plugin as installed without reading manifest', async () => {
+  const { dir, store } = tempStore();
+  const calls = [];
+  const gitlab = http.createServer((req, res) => {
+    calls.push({ method: req.method, url: req.url });
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 501, token: 'pipeline-trigger-token-1234567890' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/trigger/pipeline' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 8001, status: 'created' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  try {
+    await seedGitlabServer(store, gitlabBase, {
+      adminPat: 'gl-admin-pat',
+      agentrixGitServerId: 'agentrix-gitlab-main',
+      webhookSecret: 'backend-webhook-secret',
+    });
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: gitlabBase,
+      projectPath: 'team/app',
+      automation: { reviewEnabled: false },
+    }, { status: 'unchecked', projectId: '42', defaultBranch: 'main' });
+    await store.updateRepositorySettingsCache(created.repo.id, {
+      plugins: {
+        items: [{
+          key: 'issue-flow',
+          installed: false,
+          latestVersion: packageVersion,
+          targetVersion: packageVersion,
+          needsUpgrade: true,
+          pendingMergeRequest: {
+            iid: '9',
+            webUrl: `${gitlabBase}/team/app/-/merge_requests/9`,
+            sourceBranch: 'issue-flow/install-123',
+            targetBranch: 'main',
+          },
+        }],
+        checkedAt: new Date().toISOString(),
+      },
+    });
+
+    const accepted = await handleGitlabWebhook({
+      store,
+      repoId: created.repo.id,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'backend-webhook-secret',
+        'X-Gitlab-Event': 'Merge Request Hook',
+        'X-Gitlab-Event-UUID': 'delivery-merge-1',
+      },
+      rawBody: JSON.stringify({
+        object_kind: 'merge_request',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        object_attributes: {
+          id: 1009,
+          iid: 9,
+          action: 'merge',
+          state: 'merged',
+          source_branch: 'issue-flow/install-123',
+          target_branch: 'main',
+        },
+      }),
+    });
+
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.deliveries.some((delivery) => {
+      return delivery.target === 'issue-flow-business'
+        && delivery.status === 'delivered'
+        && delivery.handled.includes('plugin_merge_refreshed');
+    }), true);
+    assert.equal(calls.some((call) => call.url && call.url.includes('/repository/files/')), false);
+    const repo = await store.getRepository(created.repo.id);
+    const plugin = repo.settings.plugins.items.find((item) => item.key === 'issue-flow');
+    assert.equal(plugin.pendingMergeRequest, undefined);
+    assert.equal(plugin.installed, true);
+    assert.equal(plugin.installedVersion, packageVersion);
+    assert.equal(plugin.targetVersion, undefined);
+    assert.equal(plugin.status, 'passed');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('API service exposes health and repository list over HTTP', async () => {
   const { dir, store } = tempStore();
   const { app, baseUrl } = await listenApp(store);

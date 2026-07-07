@@ -2,11 +2,13 @@
 > L2 | 父级: /CLAUDE.md
 
 成员清单
+agentrix-forward.test.cjs: agentrix forward 接收端 hello/events/ack 会话协议的纯逻辑测试，用 fake store，不需要数据库（真实 ws 端到端在 metrics.test.cjs）。
 gitlab-bootstrap.test.cjs: 插件安装 MR 冲突流（plan 冲突终止、decision 临时文件、exit 4 重新出计划）的 stub 测试，不需要数据库。
 metrics-sql.test.cjs: 只读 metrics SQL 校验、参数绑定与 MR 快照解析的纯逻辑测试。
-metrics.test.cjs: issue_stats 重建、pull_requests 投影、metric views 与 dashboard API 的 Postgres 集成测试。
+metrics.test.cjs: issue_stats 重建、pull_requests/tasks/task_events 投影、metric views 与 dashboard API 的 Postgres 集成测试。
 plugin-paths.test.cjs: 插件目录解析与 ISSUE_FLOW_PLUGIN_DIR 覆盖的纯逻辑测试。
-service.test.cjs: console/api Fastify 服务与 GitLab 控制台流程的 Postgres 集成测试。
+service.test.cjs: console/api Fastify 服务、GitLab 控制台流程、插件安装状态 webhook 投影的 Postgres 集成测试。
+task-projection.test.cjs: forward create-task/resume-task 信封的 issue↔task 链接提取与 forward 事件到 task 生命周期/task_events 映射的纯逻辑测试。
 CLAUDE.md: 本目录的 L2 地图，记录测试文件职责。
 
 依赖边界

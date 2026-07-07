@@ -1,5 +1,4 @@
 // @ts-nocheck
-import fs from 'node:fs'
 import {
   composeVariables,
   defaultVariables,
@@ -9,25 +8,14 @@ import {
   staticVariables,
 } from '@xmz-ai/gitlab-webhook-bridge'
 import { requireRepo, resolveGitServer } from './common.js'
-import { getGitlabRepositoryFile } from './gitlab.js'
 import { applyGitEventToIssueFacts } from './issue-projection.js'
 import { applyGitEventToPullRequestFacts } from './pull-request-projection.js'
-import { issueFlowPackageJsonPath } from './plugin-paths.js'
+import {
+  ISSUE_FLOW_PLUGIN_KEY,
+  pluginCacheFromMergedPending,
+} from './issue-flow-plugin.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
-
-const ISSUE_FLOW_PLUGIN_KEY = 'issue-flow'
-const ISSUE_FLOW_MANIFEST_PATH = '.issue-flow/install-manifest.json'
-const LATEST_ISSUE_FLOW_VERSION = readPackageVersion()
-
-function readPackageVersion() {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(issueFlowPackageJsonPath(), 'utf8'))
-    return String(pkg.version || '')
-  } catch {
-    return ''
-  }
-}
 
 function webhookUrl(basePublicUrl, repoId) {
   return `${String(basePublicUrl || '').replace(/\/+$/, '')}/webhooks/gitlab/${encodeURIComponent(repoId)}`;
@@ -136,33 +124,6 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
   });
 }
 
-function parseVersion(value = '') {
-  return String(value || '')
-    .replace(/^v/, '')
-    .split(/[.-]/)
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => Number.isFinite(part) ? part : 0)
-}
-
-function compareVersions(left = '', right = '') {
-  const a = parseVersion(left)
-  const b = parseVersion(right)
-  const length = Math.max(a.length, b.length, 3)
-  for (let index = 0; index < length; index += 1) {
-    const diff = (a[index] || 0) - (b[index] || 0)
-    if (diff !== 0) return diff
-  }
-  return 0
-}
-
-function decodeGitlabFile(file) {
-  if (!file || file.content === undefined || file.content === null) return ''
-  if (file.encoding === 'base64' || !file.encoding) {
-    return Buffer.from(String(file.content || ''), 'base64').toString('utf8')
-  }
-  return String(file.content || '')
-}
-
 function mergedMergeRequest(payload = {}) {
   const attributes = payload.object_attributes || payload.objectAttributes || {}
   const kind = payload.object_kind || payload.objectKind || payload.event_type || payload.eventType || ''
@@ -173,6 +134,7 @@ function mergedMergeRequest(payload = {}) {
   return {
     iid: attributes.iid !== undefined ? String(attributes.iid) : '',
     sourceBranch: attributes.source_branch || attributes.sourceBranch || '',
+    targetBranch: attributes.target_branch || attributes.targetBranch || '',
   }
 }
 
@@ -202,59 +164,24 @@ function pluginMergeMatches(pending, mergeRequest) {
   return source.startsWith('issue-flow/install-') || source.startsWith('issue-flow/upgrade-')
 }
 
-function pluginCacheFromManifest(manifest = {}) {
-  const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
-  const needsUpgrade = !installedVersion
-    || Boolean(LATEST_ISSUE_FLOW_VERSION && compareVersions(installedVersion, LATEST_ISSUE_FLOW_VERSION) < 0)
-  const detail = !installedVersion
-    ? `未知版本 -> ${LATEST_ISSUE_FLOW_VERSION.replace(/^v/, '')}`
-    : needsUpgrade
-      ? `${installedVersion.replace(/^v/, '')} -> ${LATEST_ISSUE_FLOW_VERSION.replace(/^v/, '')}`
-      : `v${installedVersion.replace(/^v/, '')}`
-  return {
-    key: ISSUE_FLOW_PLUGIN_KEY,
-    source: 'gitlab',
-    manifestPath: ISSUE_FLOW_MANIFEST_PATH,
-    installed: true,
-    installedVersion,
-    latestVersion: LATEST_ISSUE_FLOW_VERSION,
-    manifestVersion: Number(manifest.version || 0),
-    provider: manifest.provider || 'gitlab',
-    runtime: manifest.runtime || 'agentrix',
-    needsUpgrade,
-    status: needsUpgrade ? 'needs_action' : 'passed',
-    detail,
-  }
-}
-
-async function handleIssueFlowBusinessEvent({ store, repo, secrets, event }) {
+async function handleIssueFlowBusinessEvent({ store, repo, event }) {
   const payload = event && event.raw && event.raw.body || {}
   return Promise.all([
-    refreshPluginAfterMerge({ store, repo, secrets, payload }),
+    refreshPluginAfterMerge({ store, repo, payload }),
     clearPluginAfterClose({ store, repo, payload }),
   ])
 }
 
-async function refreshPluginAfterMerge({ store, repo, secrets, payload }) {
+async function refreshPluginAfterMerge({ store, repo, payload }) {
   const mergeRequest = mergedMergeRequest(payload)
   if (!mergeRequest) return undefined
   const repository = await store.getRepository(repo.id)
   const pending = pendingPlugin(repository)
   if (!pluginMergeMatches(pending, mergeRequest)) return undefined
-  const checkedAt = new Date().toISOString()
-  const file = await getGitlabRepositoryFile({
-    apiUrl: repo.apiUrl,
-    token: secrets.providerToken,
-    authType: secrets.providerAuthType || 'private-token',
-    projectIdOrPath: repo.projectId || repo.serverRepoId || repo.projectPath,
-    filePath: ISSUE_FLOW_MANIFEST_PATH,
-    ref: repo.defaultBranch || 'main',
-  })
-  const manifest = file ? JSON.parse(decodeGitlabFile(file)) : undefined
   await store.updateRepositorySettingsCache(repo.id, {
     plugins: {
-      items: manifest ? [pluginCacheFromManifest(manifest)] : [],
-      checkedAt,
+      items: [pluginCacheFromMergedPending(pending)],
+      checkedAt: new Date().toISOString(),
     },
   })
   return 'plugin_merge_refreshed'
