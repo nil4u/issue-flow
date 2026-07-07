@@ -2,6 +2,7 @@
 import { llmProxyConfig, resolveGitServer, sessionUserKey } from './common.js'
 import {
   createGitlabUserImpersonationToken,
+  getGitlabCurrentUser,
 } from './gitlab.js'
 import { getAgentrixPrivateCloudRunnerSecret } from './agentrix-api.js'
 import { savedAgentrixDefaults } from './user-agentrix-config.js'
@@ -58,14 +59,6 @@ function tokenExpiresAt(input = {}) {
   const date = new Date()
   date.setUTCDate(date.getUTCDate() + (Number.isFinite(days) && days > 0 ? days : 365))
   return date.toISOString().slice(0, 10)
-}
-
-function gitlabUserIdFromSession(session = {}) {
-  return String(
-    session.account && session.account.providerUserId
-    || session.user && session.user.id
-    || ''
-  ).trim()
 }
 
 function publicGitServer(server = {}) {
@@ -137,22 +130,35 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
   let tokenValue = ''
   let tokenId = ''
   let validation
-  const gitlabUserId = gitlabUserIdFromSession(current)
-  if (!config.adminPat || !gitlabUserId) {
+  if (!config.adminPat) {
     return {
       status: 400,
       body: {
         error: 'runner_gitlab_token_required',
-        detail: 'Git server admin PAT is missing or current GitLab user id is unavailable.',
+        detail: 'Git server admin PAT is missing.',
       },
     }
   }
   try {
+    const adminUser = await getGitlabCurrentUser({
+      apiUrl: config.apiUrl,
+      token: config.adminPat,
+      authType: 'private-token',
+    })
+    if (adminUser.status !== 'valid' || !adminUser.id) {
+      return {
+        status: 400,
+        body: {
+          error: 'runner_gitlab_token_required',
+          detail: 'Git server admin PAT is invalid or its user id is unavailable.',
+        },
+      }
+    }
     const created = await createGitlabUserImpersonationToken({
       apiUrl: config.apiUrl,
       token: config.adminPat,
       authType: 'private-token',
-      userId: gitlabUserId,
+      userId: adminUser.id,
       name: tokenName(runnerId),
       scopes: DEFAULT_TOKEN_SCOPES,
       expiresAt: tokenExpiresAt(input),
@@ -161,9 +167,9 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     tokenId = created.id !== undefined ? String(created.id) : ''
     validation = {
       status: 'valid',
-      id: gitlabUserId,
-      username: current.account && current.account.username || current.user && current.user.username || '',
-      name: current.account && current.account.displayName || current.user && current.user.name || '',
+      id: adminUser.id,
+      username: adminUser.username || '',
+      name: adminUser.name || '',
       scopes: created.scopes || DEFAULT_TOKEN_SCOPES,
     }
     if (!tokenValue) {
@@ -183,7 +189,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     userId: current.userId,
     gitServerId: server.id,
     runnerId,
-    gitlabUserId: validation.id || gitlabUserIdFromSession(current),
+    gitlabUserId: validation.id || '',
     gitlabUsername: validation.username || '',
     gitlabTokenId: tokenId,
     token: tokenValue,

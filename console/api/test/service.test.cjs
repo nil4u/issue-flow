@@ -1684,7 +1684,17 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
   const requests = [];
   const gitlab = http.createServer((req, res) => {
     requests.push(req.url);
-    if (req.url === '/api/v4/users/101/impersonation_tokens' && req.method === 'POST') {
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-admin-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 7,
+        username: 'issue-flow-bot',
+        name: 'Issue Flow Bot',
+      }));
+      return;
+    }
+    if (req.url === '/api/v4/users/7/impersonation_tokens' && req.method === 'POST') {
       assert.equal(req.headers['private-token'], 'gl-admin-pat');
       let raw = '';
       req.on('data', (chunk) => { raw += chunk; });
@@ -1766,7 +1776,9 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
     assert.match(createdBody.dockerCommand, /AGENTRIX_API_KEY='agentrix-key'/);
     assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
     assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-runner-token'/);
-    assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), true);
+    assert.equal(requests.includes('/api/v4/user'), true);
+    assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), true);
+    assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), false);
     assert.equal(requests.includes('agentrix:/v1/private-clouds/cloud-main/runner-secret'), true);
 
     const saved = await store.getRunnerGitlabToken({
@@ -1776,7 +1788,8 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
       includeSecret: true,
     });
     assert.equal(saved.token, 'gl-runner-token');
-    assert.equal(saved.gitlabUsername, 'alice');
+    assert.equal(saved.gitlabUserId, '7');
+    assert.equal(saved.gitlabUsername, 'issue-flow-bot');
     const defaults = await store.getUserAgentrixConfig('user:user-alice', { includeSecret: true });
     assert.equal(defaults.agentrix.runnerId, 'cloud-main');
     assert.equal(defaults.agentrix.apiKey, 'agentrix-key');

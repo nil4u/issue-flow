@@ -21,8 +21,8 @@ const stepOrder: StepId[] = ["git", "token", "command"]
 
 const stepMeta: Record<StepId, { title: string; detail: string }> = {
   git: {
-    title: "Git 账号",
-    detail: "选择 runner 使用的 GitLab 身份。",
+    title: "Git server",
+    detail: "确认 runner 连接的 GitLab server。",
   },
   token: {
     title: "Token",
