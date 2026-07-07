@@ -201,7 +201,7 @@ function AgentrixAccountGroup({
   const agentrix = config?.agentrix
   const user = agentrix?.user
   const connected = Boolean(agentrix?.apiKeyFingerprint)
-  const title = connected ? user?.username || user?.email || user?.id || "Agentrix" : "Agentrix API key"
+  const title = connected ? user?.username || user?.email || user?.id || "Agentrix" : "Agentrix"
   const detail = connected ? user?.email || "" : ""
 
   useEffect(() => {
@@ -262,7 +262,7 @@ function AgentrixAccountGroup({
       </header>
       <div className="account-list">
         {!gitServerId ? (
-          <div className="account-empty">先关联一个 GitLab 账号后再设置 Agentrix API key</div>
+          <div className="account-empty">先关联一个 GitLab 账号后再关联 Agentrix</div>
         ) : (
           <div className={`account-row agentrix-account-row ${connected ? "linked" : "unlinked"}`}>
             <span className={`account-provider-icon ${connected ? "connected" : "unlinked"}`}>
@@ -274,7 +274,7 @@ function AgentrixAccountGroup({
             </span>
             <span className={`account-status ${connected ? "connected" : ""}`}>
               {loading ? <Loader2 className="size-3.5 animate-spin" /> : connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
-              {connected ? "已校验" : "未关联"}
+              {connected ? "已关联" : "未关联"}
             </span>
             <Button
               type="button"
@@ -284,7 +284,7 @@ function AgentrixAccountGroup({
               disabled={loading}
               onClick={() => setEditing(true)}
             >
-              设置
+              {connected ? "重新关联" : "关联"}
             </Button>
           </div>
         )}

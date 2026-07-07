@@ -693,16 +693,6 @@
   }
   .agentrix-account-action {
     min-width: 4rem;
-    transition: opacity 120ms ease;
-  }
-  .agentrix-account-row.linked .agentrix-account-action {
-    opacity: 0;
-    pointer-events: none;
-  }
-  .agentrix-account-row.linked:hover .agentrix-account-action,
-  .agentrix-account-row.linked:focus-within .agentrix-account-action {
-    opacity: 1;
-    pointer-events: auto;
   }
   .agentrix-account-dialog {
     max-width: min(30rem, calc(100% - 2rem));
