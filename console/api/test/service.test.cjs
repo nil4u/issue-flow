@@ -1838,6 +1838,9 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_WS_URL='wss:\/\/issue-flow\.internal\/webhooks\/agentrix\/forward'/);
     assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_TOKEN='forward-token'/);
     assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-bot-pat'/);
+    assert.match(createdBody.dockerCommand, /-v agentrix-home:\/home\/agentrix\/\.agentrix/);
+    assert.doesNotMatch(createdBody.dockerCommand, /agentrix-workspaces/);
+    assert.doesNotMatch(createdBody.dockerCommand, /\/home\/agentrix\/\.agentrix\/workspaces/);
     assert.match(createdBody.dockerCommand, /registry\.internal\/agentrix\/agentrix-cli:2026\.07'$/);
     assert.equal(requests.includes('/api/v4/user'), true);
     assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), false);

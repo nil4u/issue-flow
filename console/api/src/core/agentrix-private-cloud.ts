@@ -31,7 +31,6 @@ function dockerCommand(input = {}) {
     ...(input.gitServer && input.gitServer.apiUrl ? [`  -e GITLAB_API_URL=${shellQuote(input.gitServer.apiUrl)} \\`] : []),
     `  -e GITLAB_TOKEN=${shellQuote(input.gitlabToken)} \\`,
     '  -v agentrix-home:/home/agentrix/.agentrix \\',
-    '  -v agentrix-workspaces:/home/agentrix/.agentrix/workspaces \\',
     `  ${shellQuote(input.cliImage || DEFAULT_AGENTRIX_CLI_IMAGE)}`,
   ]
   return lines.join('\n')

@@ -333,7 +333,7 @@ export function AgentrixPrivateCloudWizard({
               ) : status === "checking" ? (
                 <ValidationLine tone="loading" text={statusText} />
               ) : shouldContinueAfterLlmWarning() ? (
-                <ValidationLine tone="error" text={`${llmValidation.message} 确认后可点击“继续生成”。`} />
+                <ValidationLine tone="error" text={`${llmValidation.message} 如果确认无误，也可点击 "继续生成"。`} />
               ) : null}
             </div>
           )}
