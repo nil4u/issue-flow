@@ -1310,7 +1310,14 @@ test('API service exposes health and repository list over HTTP', async () => {
 
     const repositories = await fetch(`${baseUrl}/api/repositories`);
     assert.equal(repositories.status, 200);
-    assert.deepEqual(await repositories.json(), { repositories: [] });
+    assert.deepEqual(await repositories.json(), {
+      repositories: [],
+      owners: [],
+      page: 1,
+      perPage: 50,
+      total: 0,
+      hasMore: false,
+    });
 
     await store.ensureGitServer({
       id: 'gitlab-main',
@@ -1439,7 +1446,7 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
     assert.equal(synced.status, 200);
     assert.equal(synced.body.projects[0].canInstall, true);
 
-    const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
+    const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
     assert.equal(repos.length, 1);
     assert.equal(repos[0].projectId, '42');
     assert.equal(repos[0].projectPath, 'team/app');
@@ -1459,7 +1466,7 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
       },
     });
     assert.equal(refreshed.status, 200);
-    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 0);
+    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).repositories.length, 0);
     assert.ok(await store.db.repo.findUnique({ where: { id: repos[0].id } }));
 
     const created = await store.createRepository({
@@ -1474,7 +1481,7 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
       defaultBranch: 'main',
     });
     assert.equal(created.repo.id, repos[0].id);
-    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 1);
+    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).repositories.length, 1);
     assert.equal(await store.db.repoSettingItem.count({
       where: { repoId: repos[0].id, kind: 'webhook', key: 'issue-flow' },
     }), 0);
@@ -1553,7 +1560,7 @@ test('GitLab project sync follows pagination before replacing repo access', asyn
       '/api/v4/projects?membership=true&page=2&per_page=100',
     ]);
 
-    const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
+    const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
     assert.deepEqual(repos.map((repo) => repo.projectPath), ['team/api', 'team/app']);
   } finally {
     await close(gitlab);
@@ -2803,7 +2810,7 @@ test('GitLab OAuth callback does not wait for repository sync', async () => {
 
     const user = await store.db.user.findFirst({ where: { displayName: 'Alice' } });
     await waitFor(async () => {
-      const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user && user.id });
+      const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user && user.id });
       return repos.length === 1 && repos[0].projectPath === 'team/app';
     });
   } finally {

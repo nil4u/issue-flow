@@ -1105,9 +1105,9 @@ class IssueFlowStore {
   async listRepositories(options = {}) {
     await this.ready
     const userId = String(options.userId || "").trim()
-    if (!userId) return { repositories: [], owners: [], page: 1, perPage: 50, hasMore: false }
     const page = Math.max(1, Number(options.page || 1) || 1)
     const perPage = Math.min(100, Math.max(10, Number(options.perPage || 50) || 50))
+    if (!userId) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const q = String(options.q || "").trim()
     const owner = String(options.owner || "").trim()
     const selectedProjectId = String(options.selectedProjectId || "").trim()
@@ -1119,7 +1119,7 @@ class IssueFlowStore {
       select: { repoId: true },
     })
     const repoIds = accessRows.map((row) => row.repoId)
-    if (!repoIds.length) return { repositories: [], owners: [], page, perPage, hasMore: false }
+    if (!repoIds.length) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const where = {
       id: { in: repoIds },
       ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
