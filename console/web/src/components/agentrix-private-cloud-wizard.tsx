@@ -1,38 +1,27 @@
 import { useEffect, useMemo, useState } from "react"
-import { Check, ChevronLeft, ChevronRight, CircleAlert, Copy, KeyRound, Loader2, Server, Terminal } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, CircleAlert, Copy, Loader2, Server } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
   api,
   type AgentrixCloud,
   type AgentrixPrivateCloudConfig,
   type GitServer,
-  type RunnerGitlabToken,
   type RunnerGitlabTokenResult,
   type UserSession,
 } from "@/issue-flow-model"
-import { notifyError } from "@/lib/errors"
+import { errorMessage, notifyError } from "@/lib/errors"
 
-type StepId = "git" | "token" | "command"
+type StepId = "git" | "llm" | "command"
+type WizardStatus = "idle" | "checking" | "ready" | "error"
+type LlmValidationStatus = "idle" | "checking" | "invalid"
 
-const stepOrder: StepId[] = ["git", "token", "command"]
-
-const stepMeta: Record<StepId, { title: string; detail: string }> = {
-  git: {
-    title: "Git server",
-    detail: "确认 runner 连接的 GitLab server。",
-  },
-  token: {
-    title: "Bot PAT",
-    detail: "使用管理员配置的 Bot PAT。",
-  },
-  command: {
-    title: "Docker 命令",
-    detail: "复制后在服务器执行。",
-  },
-}
+const BOT_PAT_ADMIN_MESSAGE = "Bot PAT 未配置或已失效，请联系管理员处理 Git server 设置。"
+const LLM_PROXY_VALIDATE_TIMEOUT_MS = 4000
 
 export function AgentrixPrivateCloudWizard({
   cloud,
@@ -56,13 +45,18 @@ export function AgentrixPrivateCloudWizard({
   const [step, setStep] = useState<StepId>("git")
   const [config, setConfig] = useState<AgentrixPrivateCloudConfig>()
   const [command, setCommand] = useState("")
+  const [llmProxyBaseUrl, setLlmProxyBaseUrl] = useState("")
+  const [llmProxyApiKey, setLlmProxyApiKey] = useState("")
   const [generating, setGenerating] = useState(false)
+  const [status, setStatus] = useState<WizardStatus>("idle")
+  const [statusText, setStatusText] = useState("")
+  const [llmValidation, setLlmValidation] = useState<{ status: LlmValidationStatus; message: string; key: string }>({
+    status: "idle",
+    message: "",
+    key: "",
+  })
   const connected = Boolean(gitServerId && linkedGitServerIds.has(gitServerId))
   const selectedGitServer = selectableServers.find((server) => server.id === gitServerId)
-  const botPatConfigured = Boolean(selectedGitServer?.botPatFingerprint || config?.gitServer?.botPatFingerprint)
-  const existingToken = (config?.runnerGitlabTokens || []).find((token) => token.runnerId === cloud.id)
-  const activeIndex = stepOrder.indexOf(step)
-  const availableStepIndex = highestAvailableStepIndex()
 
   useEffect(() => {
     if (gitServerId || !selectableServers.length) return
@@ -74,75 +68,169 @@ export function AgentrixPrivateCloudWizard({
     void loadConfig(gitServerId)
   }, [gitServerId])
 
-  useEffect(() => {
-    if (activeIndex <= availableStepIndex) return
-    setStep(stepOrder[availableStepIndex])
-  }, [activeIndex, availableStepIndex])
-
-  async function loadConfig(nextGitServerId = gitServerId) {
+  async function loadConfig(nextGitServerId = gitServerId, options: { notify?: boolean } = {}) {
     try {
       const body = await api<AgentrixPrivateCloudConfig>(`/api/agentrix/private-cloud?gitServerId=${encodeURIComponent(nextGitServerId)}`)
       setConfig(body)
+      hydrateLlmProxy(body)
       return body
     } catch (error) {
-      notifyError(error, "加载 Agentrix runner 配置失败")
+      if (options.notify !== false) notifyError(error, "加载 Agentrix runner 配置失败")
       throw error
     }
   }
 
-  async function generateToken() {
-    if (!canGenerateToken()) return
+  async function confirmGitServer() {
+    if (!canConfirmGitServer()) return
     setGenerating(true)
+    setStatus("checking")
+    setStatusText("正在校验 Bot PAT...")
     try {
-      const body = await api<RunnerGitlabTokenResult>("/api/agentrix/private-cloud/gitlab-token", {
+      const latestConfig = await loadConfig(gitServerId, { notify: false })
+      if (!hasBotPat(latestConfig)) {
+        setStatus("error")
+        setStatusText(BOT_PAT_ADMIN_MESSAGE)
+        return
+      }
+      const body = await api<{ gitServer?: GitServer; botPat?: { status?: string } }>("/api/agentrix/private-cloud/git-server/validate", {
         method: "POST",
         body: JSON.stringify({
           gitServerId,
-          runnerId: cloud.id,
         }),
       })
-      setCommand(body.dockerCommand || "")
-      setConfig((current) => mergeTokenConfig(current, body))
-      setStep("command")
-      toast.success("Docker 命令已生成")
+      setConfig((current) => ({
+        ...(current || latestConfig),
+        gitServer: body.gitServer || latestConfig.gitServer,
+      }))
+      setStatus("ready")
+      setStatusText("")
+      setStep("llm")
     } catch (error) {
-      notifyError(error, "生成 Docker 命令失败")
+      if (isBotPatError(error)) {
+        setStatus("error")
+        setStatusText(BOT_PAT_ADMIN_MESSAGE)
+      } else {
+        setStatus("error")
+        setStatusText(errorMessage(error))
+        notifyError(error, "校验 Git server 失败")
+      }
     } finally {
       setGenerating(false)
     }
   }
 
-  function canGenerateToken() {
-    return connected && botPatConfigured && validRunnerId(cloud.id)
-  }
-
-  function stepReady(id: StepId) {
-    if (id === "git") return connected
-    if (id === "token") return Boolean(command)
-    if (id === "command") return Boolean(command)
-    return false
-  }
-
-  function highestAvailableStepIndex() {
-    let index = 0
-    for (let current = 0; current < stepOrder.length - 1; current += 1) {
-      if (!stepReady(stepOrder[current])) break
-      index = current + 1
+  async function generateCommand() {
+    if (!canGenerateCommand()) return
+    setGenerating(true)
+    setStatus("checking")
+    setStatusText(shouldContinueAfterLlmWarning() ? "正在生成 Docker 命令..." : "正在校验模型服务...")
+    try {
+      if (!shouldContinueAfterLlmWarning()) {
+        setLlmValidation({ status: "checking", message: "", key: llmValidationKey() })
+        const validation = await validateLlmProxy()
+        if (!validation.valid) {
+          setLlmValidation({ status: "invalid", message: validation.message, key: llmValidationKey() })
+          setStatus("idle")
+          setStatusText("")
+          return
+        }
+        setLlmValidation({ status: "idle", message: "", key: "" })
+      }
+      setStatusText("正在生成 Docker 命令...")
+      const body = await api<RunnerGitlabTokenResult>("/api/agentrix/private-cloud/gitlab-token", {
+        method: "POST",
+        body: JSON.stringify({
+          gitServerId,
+          runnerId: cloud.id,
+          llmProxyBaseUrl: llmProxyBaseUrl.trim(),
+          llmProxyApiKey: llmProxyApiKey.trim(),
+        }),
+      })
+      setCommand(body.dockerCommand || "")
+      setConfig((current) => mergeTokenConfig(current, body))
+      setStatus("ready")
+      setStatusText("")
+      setStep("command")
+      toast.success("Docker 命令已生成")
+    } catch (error) {
+      if (isBotPatError(error)) {
+        setStatus("error")
+        setStatusText(BOT_PAT_ADMIN_MESSAGE)
+      } else {
+        setStatus("error")
+        setStatusText(errorMessage(error))
+        notifyError(error, "生成 Docker 命令失败")
+      }
+    } finally {
+      setGenerating(false)
     }
-    return index
   }
 
-  function stepStatus(id: StepId, index: number) {
-    if (step === id) return "当前步骤"
-    if (stepReady(id)) return "已完成"
-    if (index <= availableStepIndex) return "可继续"
-    return "等待前置步骤"
+  async function validateLlmProxy(): Promise<{ valid: boolean; message: string }> {
+    const modelsUrl = llmProxyModelsUrl(llmProxyBaseUrl)
+    if (!modelsUrl) {
+      return { valid: false, message: "BASE_URL 不是有效的 http(s) 地址。" }
+    }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), LLM_PROXY_VALIDATE_TIMEOUT_MS)
+    try {
+      const response = await fetch(modelsUrl, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${llmProxyApiKey.trim()}`,
+        },
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        return { valid: false, message: llmProxyHttpWarning(response.status) }
+      }
+      const body = await response.json().catch(() => undefined)
+      if (!body || typeof body !== "object") {
+        return { valid: false, message: "模型服务返回成功，但 /v1/models 响应不是有效 JSON。" }
+      }
+      return { valid: true, message: "" }
+    } catch (error) {
+      return { valid: false, message: llmProxyFetchWarning(error) }
+    } finally {
+      window.clearTimeout(timeout)
+    }
   }
 
-  function move(delta: number) {
-    const targetIndex = Math.min(stepOrder.length - 1, Math.max(0, activeIndex + delta))
-    const nextIndex = delta > 0 ? Math.min(targetIndex, availableStepIndex) : targetIndex
-    setStep(stepOrder[nextIndex])
+  function canConfirmGitServer() {
+    return connected && validRunnerId(cloud.id)
+  }
+
+  function canGenerateCommand() {
+    return canConfirmGitServer() && Boolean(llmProxyBaseUrl.trim() && llmProxyApiKey.trim())
+  }
+
+  function shouldContinueAfterLlmWarning() {
+    return llmValidation.status === "invalid" && llmValidation.key === llmValidationKey()
+  }
+
+  function llmValidationKey() {
+    return `${llmProxyBaseUrl.trim()}\n${llmProxyApiKey.trim()}`
+  }
+
+  function resetLlmValidation() {
+    setLlmValidation({ status: "idle", message: "", key: "" })
+  }
+
+  function updateLlmProxyBaseUrl(value: string) {
+    setLlmProxyBaseUrl(value)
+    resetLlmValidation()
+  }
+
+  function updateLlmProxyApiKey(value: string) {
+    setLlmProxyApiKey(value)
+    resetLlmValidation()
+  }
+
+  function generateButtonText() {
+    if (generating && statusText.includes("校验")) return "校验中"
+    if (generating) return "生成中"
+    return shouldContinueAfterLlmWarning() ? "继续生成" : "生成命令"
   }
 
   async function copyCommand() {
@@ -151,36 +239,33 @@ export function AgentrixPrivateCloudWizard({
     toast.success("Docker 命令已复制")
   }
 
+  function selectGitServer(nextGitServerId: string) {
+    setGitServerId(nextGitServerId)
+    setCommand("")
+    goToStep("git")
+  }
+
+  function hydrateLlmProxy(body?: AgentrixPrivateCloudConfig) {
+    setLlmProxyBaseUrl((current) => current || body?.llmProxy?.baseUrl || "")
+    setLlmProxyApiKey((current) => current || body?.llmProxy?.apiKey || "")
+  }
+
+  function hasBotPat(latestConfig?: AgentrixPrivateCloudConfig) {
+    const configFingerprint = latestConfig ? latestConfig.gitServer?.botPatFingerprint : config?.gitServer?.botPatFingerprint
+    return Boolean(selectedGitServer?.botPatFingerprint || configFingerprint)
+  }
+
+  function goToStep(nextStep: StepId) {
+    setStep(nextStep)
+    setStatus("idle")
+    setStatusText("")
+  }
+
   return (
     <div className="agentrix-wizard">
-      <aside className="agentrix-wizard-steps" aria-label="Agentrix Private Cloud setup steps">
-        {stepOrder.map((id, index) => {
-          const locked = index > availableStepIndex
-          return (
-            <button
-              type="button"
-              key={id}
-              className={`agentrix-step ${step === id ? "active" : ""} ${stepReady(id) ? "done" : ""}`}
-              disabled={locked}
-              aria-current={step === id ? "step" : undefined}
-              onClick={() => setStep(id)}
-            >
-              <span className="agentrix-step-index">{stepReady(id) ? <Check className="size-3.5" /> : index + 1}</span>
-              <span>
-                <strong>{stepMeta[id].title}</strong>
-                <small>{stepStatus(id, index)}</small>
-              </span>
-            </button>
-          )
-        })}
-      </aside>
-
       <section className="agentrix-wizard-panel">
         <header className="agentrix-panel-head">
-          <span>
-            <strong>{stepMeta[step].title}</strong>
-            <small>{stepMeta[step].detail}</small>
-          </span>
+          <DialogTitle className="agentrix-panel-title">部署 runner - {stepTitle(step)}</DialogTitle>
         </header>
 
         <div className="agentrix-panel-body">
@@ -189,7 +274,7 @@ export function AgentrixPrivateCloudWizard({
               {selectableServers.length ? (
                 <label className="setup-field">
                   <span>Git server</span>
-                  <select value={gitServerId} onChange={(event) => { setGitServerId(event.currentTarget.value); setCommand("") }}>
+                  <select value={gitServerId} onChange={(event) => selectGitServer(event.currentTarget.value)}>
                     {selectableServers.map((server) => (
                       <option key={server.id} value={server.id}>{server.name || server.baseUrl || server.id}</option>
                     ))}
@@ -201,86 +286,157 @@ export function AgentrixPrivateCloudWizard({
                   <p>需要先配置 GitLab server。</p>
                 </div>
               )}
-              <ValidationLine ok={connected} text={connected ? "已关联" : "未关联"} />
+              <ValidationLine tone={connected ? "ok" : "error"} text={connected ? "已关联" : "未关联"} />
               {!connected && gitServerId ? (
                 <Button type="button" variant="outline" onClick={() => onConnectGitServer(gitServerId)}>
                   <Server className="size-4" />
                   关联
                 </Button>
               ) : null}
+              {status === "checking" ? (
+                <ValidationLine tone="loading" text={statusText} />
+              ) : status === "error" && statusText ? (
+                <ValidationLine tone="error" text={statusText} />
+              ) : null}
             </div>
           )}
 
-          {step === "token" && (
+          {step === "llm" && (
             <div className="agentrix-step-body">
-              <ValidationLine ok={canGenerateToken()} text={tokenValidationText({ connected, botPatConfigured, token: existingToken })} />
-              <Button type="button" disabled={generating || !canGenerateToken()} onClick={() => void generateToken()}>
-                {generating ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-                生成命令
-              </Button>
+              <label className="setup-field">
+                <span>BASE_URL</span>
+                <Input
+                  value={llmProxyBaseUrl}
+                  onChange={(event) => updateLlmProxyBaseUrl(event.currentTarget.value)}
+                  placeholder="模型服务的 baseUrl，例如 https://api.xmz.ai"
+                />
+              </label>
+              <label className="setup-field">
+                <span>API_KEY</span>
+                <Input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  className="agentrix-secret-input"
+                  value={llmProxyApiKey}
+                  onChange={(event) => updateLlmProxyApiKey(event.currentTarget.value)}
+                  placeholder="模型服务的 API key"
+                />
+              </label>
+              {status === "error" && statusText ? (
+                <ValidationLine tone="error" text={statusText} />
+              ) : status === "checking" ? (
+                <ValidationLine tone="loading" text={statusText} />
+              ) : shouldContinueAfterLlmWarning() ? (
+                <ValidationLine tone="error" text={`${llmValidation.message} 确认后可点击“继续生成”。`} />
+              ) : null}
             </div>
           )}
 
           {step === "command" && (
             <div className="agentrix-step-body command-step">
               <Textarea readOnly value={command || ""} />
-              <Button type="button" disabled={!command} onClick={() => void copyCommand()}>
-                <Copy className="size-4" />
-                复制
-              </Button>
             </div>
           )}
         </div>
 
         <footer className="agentrix-panel-actions">
-          <Button type="button" variant="outline" disabled={activeIndex === 0} onClick={() => move(-1)}>
-            <ChevronLeft className="size-4" />
-            上一步
-          </Button>
-          {step !== "token" && step !== "command" ? (
-            <Button type="button" className="agentrix-primary-action" disabled={!stepReady(step)} onClick={() => move(1)}>
-              下一步
-              <ChevronRight className="size-4" />
+          {step === "command" ? (
+            <Button type="button" variant="outline" onClick={() => goToStep("llm")}>
+              <ChevronLeft className="size-4" />
+              上一步
             </Button>
           ) : null}
-          {step === "token" && command ? (
-            <Button type="button" className="agentrix-primary-action" onClick={() => setStep("command")}>
-              查看命令
-              <Terminal className="size-4" />
+          {step === "llm" ? (
+            <Button type="button" variant="outline" onClick={() => goToStep("git")}>
+              <ChevronLeft className="size-4" />
+              上一步
             </Button>
           ) : null}
+          {step === "git" ? (
+            <Button type="button" className="agentrix-primary-action" disabled={generating || !canConfirmGitServer()} onClick={() => void confirmGitServer()}>
+              {generating ? <Loader2 className="size-4 animate-spin" /> : null}
+              {generating ? "校验中" : "下一步"}
+              {!generating ? <ChevronRight className="size-4" /> : null}
+            </Button>
+          ) : step === "llm" ? (
+            <Button type="button" className="agentrix-primary-action" disabled={generating || !canGenerateCommand()} onClick={() => void generateCommand()}>
+              {generating ? <Loader2 className="size-4 animate-spin" /> : null}
+              {generateButtonText()}
+              {!generating ? <ChevronRight className="size-4" /> : null}
+            </Button>
+          ) : (
+            <Button type="button" className="agentrix-primary-action" disabled={!command} onClick={() => void copyCommand()}>
+              <Copy className="size-4" />
+              复制
+            </Button>
+          )}
         </footer>
       </section>
     </div>
   )
 }
 
-function ValidationLine({ ok, text }: { ok: boolean; text: string }) {
+function stepTitle(step: StepId) {
+  if (step === "git") return "确认 Git server"
+  if (step === "llm") return "模型服务"
+  return "Docker 命令"
+}
+
+function ValidationLine({ tone, text }: { tone: "ok" | "error" | "loading"; text: string }) {
   return (
-    <div className={`agentrix-validation ${ok ? "ok" : ""}`}>
-      {ok ? <Check className="size-3.5" /> : <CircleAlert className="size-3.5" />}
+    <div className={`agentrix-validation ${tone}`}>
+      {tone === "loading" ? <Loader2 className="size-3.5 animate-spin" /> : tone === "ok" ? <Check className="size-3.5" /> : <CircleAlert className="size-3.5" />}
       <span>{text}</span>
     </div>
   )
 }
 
-function tokenValidationText({
-  connected,
-  botPatConfigured,
-  token,
-}: {
-  connected: boolean
-  botPatConfigured: boolean
-  token?: RunnerGitlabToken
-}) {
-  if (!connected) return "请先完成前面的步骤。"
-  if (!botPatConfigured) return "Git server 未配置 Bot PAT"
-  if (!token) return "已配置"
-  return "已配置，可重新生成命令"
-}
-
 function validRunnerId(value = "") {
   return /^cloud-[A-Za-z0-9_-]+$/.test(String(value || "").trim())
+}
+
+function llmProxyModelsUrl(baseUrl = "") {
+  const normalized = String(baseUrl || "").trim().replace(/\/+$/, "")
+  if (!normalized) return ""
+  const suffix = normalized.endsWith("/v1") ? "/models" : "/v1/models"
+  try {
+    const url = new URL(`${normalized}${suffix}`)
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : ""
+  } catch {
+    return ""
+  }
+}
+
+function llmProxyHttpWarning(status: number) {
+  if (status === 401 || status === 403) {
+    return `模型服务拒绝访问，BASE_URL 或 API_KEY 可能不正确。HTTP ${status}。`
+  }
+  return `模型服务 /v1/models 返回 HTTP ${status}。`
+}
+
+function llmProxyFetchWarning(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "模型服务 /v1/models 校验超时。"
+  }
+  if (error instanceof Error && error.message) {
+    return `无法访问模型服务 /v1/models：${error.message}。`
+  }
+  return "无法访问模型服务 /v1/models。"
+}
+
+function isBotPatError(error: unknown) {
+  const code = error instanceof Error ? error.message : ""
+  return [
+    "runner_gitlab_bot_pat_required",
+    "runner_gitlab_bot_pat_invalid",
+    "runner_gitlab_bot_pat_validation_failed",
+  ].includes(code)
 }
 
 function mergeTokenConfig(current: AgentrixPrivateCloudConfig | undefined, next: RunnerGitlabTokenResult): AgentrixPrivateCloudConfig {

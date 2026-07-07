@@ -14,6 +14,7 @@ function agentrixServiceConfig(env = process.env) {
 function llmProxyConfig(env = process.env) {
   return {
     baseUrl: normalizeBaseUrl(env.LLM_PROXY_BASE_URL || DEFAULT_LLM_PROXY_BASE_URL),
+    apiKey: '',
   };
 }
 

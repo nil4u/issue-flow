@@ -50,9 +50,8 @@ test('forwardServerConfig requires the token and defaults the path', () => {
   assert.deepEqual(
     forwardServerConfig({
       ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN: ' secret ',
-      ISSUE_FLOW_AGENTRIX_FORWARD_PATH: '/ws/forward',
     }),
-    { token: 'secret', path: '/ws/forward' },
+    { token: 'secret', path: '/webhooks/agentrix/forward' },
   );
 });
 

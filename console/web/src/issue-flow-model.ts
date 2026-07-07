@@ -269,9 +269,11 @@ export type AgentrixPrivateCloudConfig = {
   agentrix: {
     serverUrl: string
     webappUrl: string
+    cliImage?: string
   }
   llmProxy: {
     baseUrl: string
+    apiKey?: string
   }
   gitServer?: GitServer
   defaults?: AgentrixDefaults

@@ -1752,6 +1752,8 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
   const { dir, store } = tempStore();
   const previousEnv = {
     ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+    ISSUE_FLOW_AGENTRIX_CLI_IMAGE: process.env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE,
+    ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN: process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN,
     LLM_PROXY_BASE_URL: process.env.LLM_PROXY_BASE_URL,
   };
   const requests = [];
@@ -1785,6 +1787,8 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
   const agentrixBase = await listen(agentrix);
   await seedGitlabServer(store, gitlabBase);
   process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+  process.env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE = 'registry.internal/agentrix/agentrix-cli:2026.07';
+  process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN = 'forward-token';
   process.env.LLM_PROXY_BASE_URL = 'https://llm.internal';
 
   const { app, baseUrl } = await listenApp(store);
@@ -1818,6 +1822,7 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
       body: JSON.stringify({
         gitServerId: 'gitlab-main',
         runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
       }),
     });
     assert.equal(created.status, 200);
@@ -1827,9 +1832,13 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     assert.equal(createdBody.runnerGitlabToken.token, undefined);
     assert.equal(createdBody.runnerGitlabToken.gitlabTokenId, '');
     assert.equal(createdBody.llmProxy.baseUrl, 'https://llm.internal');
-    assert.match(createdBody.dockerCommand, /AGENTRIX_API_KEY='agentrix-key'/);
+    assert.equal(createdBody.llmProxy.apiKey, 'llm-proxy-key');
+    assert.match(createdBody.dockerCommand, /AGENTRIX_API_KEY='llm-proxy-key'/);
     assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
+    assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_WS_URL='wss:\/\/issue-flow\.internal\/webhooks\/agentrix\/forward'/);
+    assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_TOKEN='forward-token'/);
     assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-bot-pat'/);
+    assert.match(createdBody.dockerCommand, /registry\.internal\/agentrix\/agentrix-cli:2026\.07'$/);
     assert.equal(requests.includes('/api/v4/user'), true);
     assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), false);
     assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), false);
@@ -1849,6 +1858,165 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     const configBody = await config.json();
     assert.equal(configBody.runnerGitlabTokens.length, 0);
     assert.equal(configBody.agentrix.serverUrl, 'https://agentrix.xmz.ai');
+    assert.equal(configBody.agentrix.cliImage, 'registry.internal/agentrix/agentrix-cli:2026.07');
+    assert.equal(configBody.llmProxy.apiKey, '');
+  } finally {
+    await app.close();
+    await close(gitlab);
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud requires event forward token before fetching runner secret', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN: process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN,
+  };
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 7,
+        username: 'issue-flow-bot',
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  delete process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN;
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
+      }),
+    });
+    assert.equal(rejected.status, 400);
+    const body = await rejected.json();
+    assert.equal(body.error, 'agentrix_forward_token_required');
+    assert.deepEqual(requests, ['/api/v4/user']);
+  } finally {
+    await app.close();
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud validates Bot PAT before fetching runner secret', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+  };
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'bad-bot-pat');
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: '403 Forbidden' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  const agentrix = http.createServer((req, res) => {
+    requests.push(`agentrix:${req.url}`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ secret: 'should-not-be-used' }));
+  });
+  const agentrixBase = await listen(agentrix);
+  await seedGitlabServer(store, gitlabBase, { botPat: 'bad-bot-pat' });
+  process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const checked = await fetch(`${baseUrl}/api/agentrix/private-cloud/git-server/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+      }),
+    });
+    assert.equal(checked.status, 400);
+    assert.equal((await checked.json()).error, 'runner_gitlab_bot_pat_invalid');
+    assert.deepEqual(requests, ['/api/v4/user']);
+    requests.length = 0;
+
+    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
+      }),
+    });
+    assert.equal(rejected.status, 400);
+    const body = await rejected.json();
+    assert.equal(body.error, 'runner_gitlab_bot_pat_invalid');
+    assert.deepEqual(requests, ['/api/v4/user']);
+    assert.equal((await store.listRunnerGitlabTokens({ userId: 'user-alice', gitServerId: 'gitlab-main' })).length, 0);
   } finally {
     await app.close();
     await close(gitlab);

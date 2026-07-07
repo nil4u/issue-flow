@@ -467,6 +467,11 @@
     color: var(--if-color-text);
     font-size: 0.8125rem;
   }
+  .install-conflict-row select:focus-visible {
+    border-color: var(--if-color-focus-border);
+    box-shadow: none;
+    outline: 0;
+  }
   .install-conflict-row p.install-conflict-warning {
     color: var(--if-color-warning, #b45309);
   }

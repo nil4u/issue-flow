@@ -3,7 +3,7 @@ import { AlertCircle, Cloud, Server, Settings, Wrench } from "lucide-react"
 
 import { AgentrixPrivateCloudWizard } from "@/components/agentrix-private-cloud-wizard"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import {
   api,
   type AgentrixCloud,
@@ -137,9 +137,6 @@ export function AgentrixPanel({
         if (!open) setDeployCloud(undefined)
       }}>
         <DialogContent className="agentrix-deploy-dialog">
-          <DialogHeader>
-            <DialogTitle>部署 runner</DialogTitle>
-          </DialogHeader>
           {deployCloud ? (
             <AgentrixPrivateCloudWizard
               cloud={deployCloud}

@@ -15,7 +15,7 @@ const MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 function forwardServerConfig(env = process.env) {
   return {
     token: String(env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN || "").trim(),
-    path: String(env.ISSUE_FLOW_AGENTRIX_FORWARD_PATH || DEFAULT_FORWARD_PATH),
+    path: DEFAULT_FORWARD_PATH,
   }
 }
 

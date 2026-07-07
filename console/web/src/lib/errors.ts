@@ -32,6 +32,15 @@ export function errorMessage(error: unknown) {
   if (code === "setup_already_initialized") {
     return "系统已经完成初始化。"
   }
+  if (code === "llm_proxy_base_url_required") {
+    return "请填写 AGENTRIX_BASE_URL。"
+  }
+  if (code === "llm_proxy_api_key_required") {
+    return "请填写 AGENTRIX_API_KEY。"
+  }
+  if (code === "agentrix_forward_token_required") {
+    return "服务端缺少 ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN，请联系管理员配置。"
+  }
   if (code === "Not Found" && typeof body?.message === "string" && body.message.startsWith("Route ")) {
     return "接口不存在，API 服务可能还没重启到最新代码。"
   }
