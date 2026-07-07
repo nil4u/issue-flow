@@ -65,6 +65,7 @@ function OverviewTab({
   user,
   project,
   repository,
+  loadingRepositoryDetails,
   onLogin,
   onOpenSettings,
 }: RepoWorkspaceProps & { onOpenSettings: () => void }) {
@@ -77,6 +78,9 @@ function OverviewTab({
     )
   }
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
+  if (repository && !repository.settings && loadingRepositoryDetails) {
+    return <EmptyPanel icon={<Loader2 className="size-6 animate-spin" />} title="正在加载仓库详情" detail="正在读取安装状态。" />
+  }
   const plugin = repository?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")
   if (!repository || !plugin?.installed) {
     return (
@@ -100,6 +104,7 @@ function OverviewTab({
 function InstallConsole({
   project,
   repository,
+  loadingRepositoryDetails,
   defaults,
   installCheck,
   checkProgress,
@@ -201,6 +206,9 @@ function InstallConsole({
   }
 
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="先从左侧选择一个 repo。" />
+  if (repository && !repository.settings && loadingRepositoryDetails) {
+    return <EmptyPanel icon={<Loader2 className="size-6 animate-spin" />} title="正在加载仓库详情" detail="正在读取设置项。" />
+  }
 
   return (
     <div className="install-console">

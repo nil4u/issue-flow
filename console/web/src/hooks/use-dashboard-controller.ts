@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
@@ -45,12 +45,19 @@ export function useDashboardController() {
   const [userSession, setUserSession] = useState<UserSession>({ authenticated: false })
   const [sessions, setSessions] = useState<Record<string, SessionState>>({})
   const [repositories, setRepositories] = useState<Repository[]>([])
+  const [repositoryDetails, setRepositoryDetails] = useState<Record<string, Repository>>({})
+  const [loadingRepositoryDetails, setLoadingRepositoryDetails] = useState(false)
   const [projects, setProjects] = useState<GitLabProject[]>([])
+  const [repoPage, setRepoPage] = useState(1)
+  const [repoHasMore, setRepoHasMore] = useState(false)
+  const [loadingMoreProjects, setLoadingMoreProjects] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState(() => route.projectId)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => route.tab)
   const [filter, setFilter] = useState("")
   const [owner, setOwner] = useState("all")
+  const [owners, setOwners] = useState<string[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
+  const [projectLoadingLabel, setProjectLoadingLabel] = useState("")
   const [agentrixDefaults, setAgentrixDefaults] = useState<AgentrixDefaults>()
   const [installCheck, setInstallCheck] = useState<InstallCheck>()
   const [installConflictPlan, setInstallConflictPlan] = useState<InstallConflictPlan>()
@@ -80,24 +87,31 @@ export function useDashboardController() {
   const currentSession = sessions[selectedGitServerId]
   const currentUser = currentSession?.authenticated ? currentSession.user : undefined
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
-  const selectedRepo = selectedProject
+  const selectedRepoSummary = selectedProject
     ? repositories.find((repo) => (
       repo.id === selectedProject.id
       || String(repo.projectId || "") === String(selectedProject.id)
       || repo.projectPath === selectedProject.pathWithNamespace
     ))
     : undefined
+  const selectedRepo = selectedRepoSummary ? repositoryDetails[selectedRepoSummary.id] || selectedRepoSummary : undefined
   const pendingPluginMergeRequestHref = selectedRepo?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")?.pendingMergeRequest?.webUrl || ""
-  const owners = useMemo(() => {
-    return Array.from(new Set(projects.map(ownerOf).filter(Boolean))).sort((a, b) => a.localeCompare(b))
-  }, [projects])
-  const filteredProjects = useMemo(() => {
-    const q = filter.trim().toLowerCase()
-    return projects
-      .filter((project) => owner === "all" || ownerOf(project) === owner)
-      .filter((project) => !q || project.pathWithNamespace.toLowerCase().includes(q))
-      .sort((a, b) => a.pathWithNamespace.localeCompare(b.pathWithNamespace))
-  }, [filter, owner, projects])
+  const filteredProjects = projects
+
+  function mergeRepositories(current: Repository[], next: Repository[]) {
+    const merged = new Map(current.map((repo) => [repo.id, repo]))
+    for (const repo of next) merged.set(repo.id, repo)
+    return Array.from(merged.values())
+  }
+
+  function resetRepositoryState() {
+    setRepositories([])
+    setRepositoryDetails({})
+    setProjects([])
+    setOwners([])
+    setRepoPage(1)
+    setRepoHasMore(false)
+  }
 
   function applyRoute(normalized: WorkspaceRoute, mode: "push" | "replace" = "push") {
     const path = workspaceRoutePath(normalized)
@@ -191,16 +205,29 @@ export function useDashboardController() {
     return Promise.all([loadGitServers(), loadUserSession()]).finally(() => setLoadingLoginState(false))
   }
 
-  async function loadRepositories(gitServerId = selectedGitServerId) {
+  async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean } = {}) {
     if (!gitServerId) {
-      setRepositories([])
-      setProjects([])
+      resetRepositoryState()
       return []
     }
-    const body = await api<{ repositories: Repository[] }>(`/api/repositories?gitServerId=${encodeURIComponent(gitServerId)}`)
+    const page = options.page || 1
+    const params = new URLSearchParams({
+      gitServerId,
+      page: String(page),
+      perPage: "50",
+    })
+    if (selectedProjectId) params.set("selectedProjectId", selectedProjectId)
+    if (filter.trim()) params.set("q", filter.trim())
+    if (owner !== "all") params.set("owner", owner)
+    const body = await api<{ repositories: Repository[]; owners?: string[]; page?: number; hasMore?: boolean }>(`/api/repositories?${params.toString()}`)
     const repos = body.repositories || []
-    setRepositories(repos)
-    const nextProjects = repos.map(repositoryToProject)
+    const nextRepos = options.append ? mergeRepositories(repositories, repos) : repos
+    setRepositories(nextRepos)
+    if (!options.append) setRepositoryDetails({})
+    if (body.owners) setOwners(body.owners)
+    setRepoPage(body.page || page)
+    setRepoHasMore(Boolean(body.hasMore))
+    const nextProjects = nextRepos.map(repositoryToProject)
     setProjects(nextProjects)
     const currentRoute = parseWorkspaceRoute()
     setSelectedProjectId((current) => {
@@ -210,7 +237,33 @@ export function useDashboardController() {
       if (current && nextProjects.some((project) => project.id === current)) return current
       return nextProjects[0]?.id || ""
     })
-    return repos
+    return nextRepos
+  }
+
+  async function loadMoreRepositories() {
+    if (!selectedGitServerId || loadingProjects || loadingMoreProjects || !repoHasMore) return
+    setLoadingMoreProjects(true)
+    try {
+      await loadRepositories(selectedGitServerId, { page: repoPage + 1, append: true })
+    } catch (error) {
+      notifyError(error, "加载更多仓库失败")
+    } finally {
+      setLoadingMoreProjects(false)
+    }
+  }
+
+  async function loadRepositoryDetail(repoId?: string) {
+    if (!repoId) return undefined
+    setLoadingRepositoryDetails(true)
+    try {
+      const body = await api<{ repository: Repository }>(`/api/repositories/${encodeURIComponent(repoId)}`)
+      if (body.repository?.id) {
+        setRepositoryDetails((current) => ({ ...current, [body.repository.id]: body.repository }))
+      }
+      return body.repository
+    } finally {
+      setLoadingRepositoryDetails(false)
+    }
   }
 
   async function loadSession(gitServerId: string) {
@@ -234,11 +287,11 @@ export function useDashboardController() {
   async function syncGitServer(gitServerId = selectedGitServerId) {
     if (!gitServerId) return
     setLoadingProjects(true)
+    setProjectLoadingLabel("同步仓库...")
     try {
       const session = await loadSession(gitServerId)
       if (!session.authenticated) {
-        setRepositories([])
-        setProjects([])
+        resetRepositoryState()
         setAgentrixDefaults(undefined)
         return
       }
@@ -251,25 +304,27 @@ export function useDashboardController() {
       notifyError(error, "同步仓库失败")
     } finally {
       setLoadingProjects(false)
+      setProjectLoadingLabel("")
     }
   }
 
   async function loadGitServerState(gitServerId = selectedGitServerId) {
     if (!gitServerId) return
     setLoadingProjects(true)
+    setProjectLoadingLabel("加载仓库...")
     try {
       const session = await loadSession(gitServerId)
       if (!session.authenticated) {
-        setRepositories([])
-        setProjects([])
+        resetRepositoryState()
         setAgentrixDefaults(undefined)
         return
       }
-      await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId)])
+      await loadRepositories(gitServerId)
     } catch (error) {
       notifyError(error, "加载仓库失败")
     } finally {
       setLoadingProjects(false)
+      setProjectLoadingLabel("")
     }
   }
 
@@ -636,7 +691,7 @@ export function useDashboardController() {
       await api("/api/user/logout", { method: "POST" })
       setUserSession({ authenticated: false })
       setSessions({})
-      setProjects([])
+      resetRepositoryState()
       setSelectedProjectId("")
       setPendingGitServerId("")
     } catch (error) {
@@ -652,8 +707,10 @@ export function useDashboardController() {
   function selectGitServer(gitServerId: string) {
     setSelectedGitServerId(gitServerId)
     setSelectedProjectId("")
+    resetRepositoryState()
     setActiveTab("overview")
     setOwner("all")
+    setFilter("")
     setInstallCheck(undefined)
     setProjectAccess(undefined)
     navigateWorkspace({ gitServerId, projectId: "", tab: "overview" })
@@ -749,6 +806,11 @@ export function useDashboardController() {
   }, [selectedProject?.id])
 
   useEffect(() => {
+    if (!selectedGitServerId || !userSession.authenticated) return
+    void loadRepositories(selectedGitServerId).catch((error) => notifyError(error, "加载仓库失败"))
+  }, [filter, owner])
+
+  useEffect(() => {
     if (activeTab !== "settings" || !selectedGitServerId || !selectedProject || !userSession.authenticated) return
     void Promise.all([
       loadAgentrixDefaults(selectedGitServerId),
@@ -757,6 +819,12 @@ export function useDashboardController() {
       notifyError(error, "加载设置失败")
     })
   }, [activeTab, selectedGitServerId, selectedProject?.id, userSession.authenticated])
+
+  useEffect(() => {
+    if (activeTab === "issues" || !selectedGitServerId || !userSession.authenticated) return
+    if (!selectedRepoSummary?.id || repositoryDetails[selectedRepoSummary.id]?.settings) return
+    void loadRepositoryDetail(selectedRepoSummary.id).catch((error) => notifyError(error, "加载仓库详情失败"))
+  }, [activeTab, selectedGitServerId, selectedRepoSummary?.id, userSession.authenticated, repositoryDetails])
 
   useEffect(() => {
     if (activeTab !== "settings" || !selectedGitServerId || !selectedProject || !pendingPluginMergeRequestHref) return
@@ -813,9 +881,13 @@ export function useDashboardController() {
       owners,
       filter,
       loading: loadingProjects,
+      loadingMore: loadingMoreProjects,
+      hasMore: repoHasMore,
+      loadingLabel: projectLoadingLabel,
       onSelectGitServer: selectGitServer,
       onOwner: setOwner,
       onFilter: setFilter,
+      onLoadMore: loadMoreRepositories,
       onSelectProject: selectProject,
       onLoginCurrent: () => loginGitLab(selectedGitServerId),
       onRefresh: syncGitServer,
@@ -849,6 +921,7 @@ export function useDashboardController() {
       checking,
       projectAccess,
       loadingProjectAccess,
+      loadingRepositoryDetails,
       issues,
       loadingIssues,
       onLogin: () => loginGitLab(selectedGitServerId),

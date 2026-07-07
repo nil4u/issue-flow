@@ -865,7 +865,7 @@
     min-width: 0;
     min-height: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0.9rem;
   }
   .issue-board-toolbar {
@@ -875,8 +875,30 @@
     justify-content: space-between;
     gap: 0.75rem;
   }
+  .issue-board-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: 0.5rem;
+  }
+  .issue-view-switch {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.125rem;
+    border-radius: 8px;
+    background: var(--if-color-surface-high);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 76%, transparent);
+  }
+  .issue-view-switch [data-slot="button"] {
+    min-width: 4.25rem;
+  }
   .issue-board-toolbar > div {
     min-width: 0;
+  }
+  .issue-board-toolbar > div:first-child {
     display: inline-grid;
     gap: 0.125rem;
   }
@@ -893,6 +915,7 @@
     font-size: 0.78rem;
   }
   .issue-board-lanes {
+    grid-row: 2 / -1;
     min-width: 0;
     min-height: 0;
     display: grid;
@@ -1021,6 +1044,148 @@
     padding: 0 0.4rem;
     border-radius: 999px;
     background: var(--if-color-surface-high);
+    white-space: nowrap;
+  }
+  .issue-list-filters {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--if-color-surface-high) 62%, var(--card));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
+  }
+  .issue-search-field {
+    min-width: min(18rem, 100%);
+    flex: 1 1 18rem;
+    min-height: 2.25rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--if-color-surface);
+    transition: border-color 120ms ease, background-color 120ms ease;
+  }
+  .issue-search-field:focus-within {
+    border-color: var(--if-color-focus-border);
+    background: var(--if-color-surface);
+  }
+  .issue-search-field svg {
+    color: var(--if-color-text-secondary);
+  }
+  .issue-search-field input {
+    width: 100%;
+    min-width: 0;
+    height: 2.125rem;
+    border: 0;
+    outline: 0;
+    background: var(--if-color-transparent);
+    box-shadow: none;
+    padding: 0;
+    color: var(--if-color-text);
+    font-size: 0.875rem;
+  }
+  .issue-search-field input::placeholder {
+    color: var(--if-color-text-secondary);
+  }
+  .issue-filter-select {
+    min-width: 7.25rem;
+    background: var(--card);
+  }
+  .issue-list-panel,
+  .issue-list-empty {
+    min-width: 0;
+    min-height: 0;
+    border-radius: 8px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
+  }
+  .issue-list-panel {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent;
+  }
+  .issue-list-panel::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .issue-list-panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .issue-list-panel::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
+  }
+  .issue-list-empty {
+    display: grid;
+    place-items: center;
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+  }
+  .issue-list-table {
+    width: 100%;
+    min-width: 52rem;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+  }
+  .issue-list-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .issue-list-table td {
+    min-height: 3rem;
+    padding: 0.7rem 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    color: var(--if-color-text-secondary);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+  .issue-list-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .issue-list-table tbody tr:hover {
+    background: color-mix(in srgb, var(--if-color-surface-high) 72%, transparent);
+  }
+  .issue-list-title {
+    min-width: 0;
+    display: grid;
+    gap: 0.18rem;
+  }
+  .issue-list-title strong {
+    color: var(--if-color-text-secondary);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .issue-list-title span {
+    max-width: 48rem;
+    color: var(--if-color-text);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .issue-flow-pill {
+    min-height: 1.45rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text-secondary);
+    font-size: 0.75rem;
     white-space: nowrap;
   }
   .install-empty,

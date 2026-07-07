@@ -387,6 +387,7 @@ export type RepoWorkspaceProps = {
   checking: boolean
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
+  loadingRepositoryDetails?: boolean
   issues: IssueRow[]
   loadingIssues?: boolean
   onLogin: () => void

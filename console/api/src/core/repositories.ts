@@ -27,14 +27,20 @@ async function requireAccessibleRepo(store, repoId, userId) {
 }
 
 async function listRepositories({ store, basePublicUrl, input = {}, userId = '' }) {
-  const repositories = await store.listRepositories({
+  const result = await store.listRepositories({
     gitServerId: input.gitServerId || '',
     userId,
+    owner: input.owner || '',
+    q: input.q || input.filter || '',
+    page: input.page || 1,
+    perPage: input.perPage || 50,
+    selectedProjectId: input.selectedProjectId || '',
   });
   return {
     status: 200,
     body: {
-      repositories: repositories.map((repo) => repoWithWebhook(basePublicUrl, repo)),
+      ...result,
+      repositories: result.repositories.map((repo) => repoWithWebhook(basePublicUrl, repo)),
     },
   };
 }

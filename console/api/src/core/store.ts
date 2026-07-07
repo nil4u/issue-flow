@@ -327,6 +327,30 @@ class IssueFlowStore {
     }
   }
 
+  publicRepositorySummary(row) {
+    if (!row) return undefined
+    const fullName = row.fullName || ""
+    const split = splitRepoFullName(fullName)
+    return this.publicRepository({
+      id: row.id,
+      gitServerId: row.gitServerId || "",
+      serverRepoId: row.serverRepoId || "",
+      projectId: row.serverRepoId || "",
+      owner: row.owner || split.owner,
+      name: row.name || split.name,
+      fullName,
+      projectPath: fullName,
+      pathWithNamespace: fullName,
+      defaultBranch: row.defaultBranch || "",
+      url: row.url || "",
+      webUrl: row.url || "",
+      settings: undefined,
+      webhook: {},
+      createdAt: timestampValue(row.createdAt),
+      updatedAt: timestampValue(row.updatedAt),
+    })
+  }
+
   publicGitServer(server) {
     if (!server) return undefined
     return {
@@ -1081,7 +1105,12 @@ class IssueFlowStore {
   async listRepositories(options = {}) {
     await this.ready
     const userId = String(options.userId || "").trim()
-    if (!userId) return []
+    if (!userId) return { repositories: [], owners: [], page: 1, perPage: 50, hasMore: false }
+    const page = Math.max(1, Number(options.page || 1) || 1)
+    const perPage = Math.min(100, Math.max(10, Number(options.perPage || 50) || 50))
+    const q = String(options.q || "").trim()
+    const owner = String(options.owner || "").trim()
+    const selectedProjectId = String(options.selectedProjectId || "").trim()
     const accessRows = await this.db.userRepoAccess.findMany({
       where: {
         userId,
@@ -1090,23 +1119,53 @@ class IssueFlowStore {
       select: { repoId: true },
     })
     const repoIds = accessRows.map((row) => row.repoId)
-    if (!repoIds.length) return []
+    if (!repoIds.length) return { repositories: [], owners: [], page, perPage, hasMore: false }
     const where = {
       id: { in: repoIds },
       ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+      ...(owner && owner !== "all" ? { owner } : {}),
+      ...(q ? { fullName: { contains: q } } : {}),
     }
-    const rows = await this.db.repo.findMany({ where, orderBy: { fullName: "asc" } })
-    const settingRows = rows.length
-      ? await this.db.repoSettingItem.findMany({ where: { repoId: { in: rows.map((row) => row.id) } } })
-      : []
-    const settingsById = new Map()
-    for (const item of settingRows) {
-      if (!settingsById.has(item.repoId)) settingsById.set(item.repoId, [])
-      settingsById.get(item.repoId).push(item)
+    const [pageRows, total, ownerRows] = await Promise.all([
+      this.db.repo.findMany({
+        where,
+        orderBy: { fullName: "asc" },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.db.repo.count({ where }),
+      this.db.repo.findMany({
+        where: {
+          id: { in: repoIds },
+          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+        },
+        select: { owner: true, fullName: true },
+        orderBy: { owner: "asc" },
+      }),
+    ])
+    let rows = pageRows
+    if (selectedProjectId && !rows.some((row) => row.id === selectedProjectId || row.serverRepoId === selectedProjectId)) {
+      const selected = await this.db.repo.findFirst({
+        where: {
+          id: { in: repoIds },
+          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+          OR: [
+            { id: selectedProjectId },
+            { serverRepoId: selectedProjectId },
+          ],
+        },
+      })
+      if (selected) rows = [selected, ...rows]
     }
-    const gitServers = await this.listGitServers()
-    const serverById = new Map(gitServers.map((server) => [server.id, server]))
-    return rows.map((row) => this.repoFromRecord(row, settingsById.get(row.id), serverById.get(row.gitServerId || "")))
+    const owners = Array.from(new Set(ownerRows.map((row) => row.owner || splitRepoFullName(row.fullName).owner).filter(Boolean))).sort((a, b) => a.localeCompare(b))
+    return {
+      repositories: rows.map((row) => this.publicRepositorySummary(row)),
+      owners,
+      page,
+      perPage,
+      total,
+      hasMore: page * perPage < total,
+    }
   }
 
   async getRepository(id) {

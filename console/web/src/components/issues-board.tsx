@@ -1,24 +1,23 @@
-import { useMemo } from "react"
-import { AlertCircle, CircleDot, GitBranch, GitMerge, Loader2, RefreshCw, Search } from "lucide-react"
+import { useMemo, useState } from "react"
+import { AlertCircle, CircleDot, GitBranch, GitMerge, LayoutGrid, List, Loader2, RefreshCw, Search } from "lucide-react"
 
 import { EmptyPanel } from "@/components/empty-panel"
+import { IssuesKanban } from "@/components/issues/issues-kanban"
+import { IssuesList } from "@/components/issues/issues-list"
+import {
+  activeIssueFilters,
+  emptyIssueFilters,
+  filterIssues,
+  groupIssuesByLane,
+  issueFilterOptions,
+  openActiveIssues,
+  sortIssuesByUpdatedDesc,
+  type IssueFilters,
+} from "@/components/issues/issue-view-model"
 import { Button } from "@/components/ui/button"
-import type { IssueRow, RepoWorkspaceProps } from "@/issue-flow-model"
-import { formatWhen } from "@/issue-flow-model"
+import type { RepoWorkspaceProps } from "@/issue-flow-model"
 
-const issueLanes = [
-  { id: "untriaged", title: "No flow", detail: "无 flow:: 标签" },
-  { id: "triage", title: "Triage", detail: "flow::triage" },
-  { id: "plan", title: "Plan", detail: "flow::plan" },
-  { id: "build", title: "Build", detail: "flow::build" },
-  { id: "clarify", title: "Clarify", detail: "flow::clarify" },
-  { id: "approve", title: "Approve", detail: "flow::approve" },
-]
-
-function issueLaneId(issue: IssueRow) {
-  const flow = String(issue.currentFlow || "").toLowerCase()
-  return issueLanes.some((lane) => lane.id === flow) ? flow : "untriaged"
-}
+type IssueViewMode = "board" | "list"
 
 export function IssuesBoard({
   gitServer,
@@ -30,19 +29,14 @@ export function IssuesBoard({
   onLogin,
   onSyncIssues,
 }: RepoWorkspaceProps) {
-  const openIssues = useMemo(() => (issues || []).filter((issue) => {
-    return String(issue.state || "").toLowerCase() === "opened" && String(issue.status || "").toLowerCase() === "active"
-  }), [issues])
-  const grouped = useMemo(() => {
-    const map = new Map(issueLanes.map((lane) => [lane.id, [] as IssueRow[]]))
-    for (const issue of openIssues) {
-      map.get(issueLaneId(issue))?.push(issue)
-    }
-    for (const rows of map.values()) {
-      rows.sort((a, b) => Number(new Date(b.updatedAt || 0).getTime()) - Number(new Date(a.updatedAt || 0).getTime()))
-    }
-    return map
-  }, [openIssues])
+  const [viewMode, setViewMode] = useState<IssueViewMode>("board")
+  const [filters, setFilters] = useState<IssueFilters>(emptyIssueFilters)
+  const openIssues = useMemo(() => openActiveIssues(issues || []), [issues])
+  const sortedOpenIssues = useMemo(() => sortIssuesByUpdatedDesc(openIssues), [openIssues])
+  const grouped = useMemo(() => groupIssuesByLane(sortedOpenIssues), [sortedOpenIssues])
+  const filterOptions = useMemo(() => issueFilterOptions(openIssues), [openIssues])
+  const filteredIssues = useMemo(() => filterIssues(sortedOpenIssues, filters), [filters, sortedOpenIssues])
+  const activeFilterCount = activeIssueFilters(filters)
 
   if (!gitServer) return <EmptyPanel icon={<GitBranch className="size-6" />} title="没有 Git server" detail="请先在后台配置 Git server。" />
   if (!user) {
@@ -58,57 +52,37 @@ export function IssuesBoard({
   return (
     <div className="issue-board">
       <header className="issue-board-toolbar">
-        <span aria-hidden="true" />
-        <Button type="button" variant="secondary" onClick={() => void onSyncIssues()} disabled={loadingIssues}>
-          {loadingIssues ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-          同步
-        </Button>
-      </header>
-      <div className="issue-board-lanes">
-        {issueLanes.map((lane) => (
-          <IssueLane key={lane.id} title={lane.title} detail={lane.detail} issues={grouped.get(lane.id) || []} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function IssueLane({ title, detail, issues }: { title: string; detail: string; issues: IssueRow[] }) {
-  return (
-    <section className="issue-lane">
-      <header>
-        <span>
-          <strong>{title}</strong>
-          <small>{detail}</small>
-        </span>
-        <b>{issues.length}</b>
-      </header>
-      <div className="issue-lane-list">
-        {issues.length === 0 && <div className="issue-lane-empty">暂无 issue</div>}
-        {issues.map((issue) => <IssueCard key={issue.id} issue={issue} />)}
-      </div>
-    </section>
-  )
-}
-
-function IssueCard({ issue }: { issue: IssueRow }) {
-  const meta = [
-    issue.type ? `type::${issue.type}` : "",
-    issue.priority ? `priority::${issue.priority}` : "",
-    issue.size ? `size::${issue.size}` : "",
-  ].filter(Boolean)
-  return (
-    <article className="issue-card">
-      <header>
-        <strong>#{issue.issueNumber}</strong>
-        <small>{formatWhen(issue.updatedAt || issue.openedAt || "")}</small>
-      </header>
-      <p>{issue.title || "-"}</p>
-      {meta.length > 0 && (
-        <div className="issue-card-labels">
-          {meta.map((item) => <span key={item}>{item}</span>)}
+        <div>
+          <strong>{openIssues.length} open issues</strong>
         </div>
+        <div className="issue-board-actions">
+          <div className="issue-view-switch" role="group" aria-label="Issue view mode">
+            <Button type="button" variant={viewMode === "board" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}>
+              <LayoutGrid className="size-4" />
+              看板
+            </Button>
+            <Button type="button" variant={viewMode === "list" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"}>
+              <List className="size-4" />
+              列表
+            </Button>
+          </div>
+          <Button type="button" variant="secondary" onClick={() => void onSyncIssues()} disabled={loadingIssues}>
+            {loadingIssues ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            同步
+          </Button>
+        </div>
+      </header>
+      {viewMode === "board" ? (
+        <IssuesKanban groupedIssues={grouped} />
+      ) : (
+        <IssuesList
+          issues={filteredIssues}
+          filters={filters}
+          options={filterOptions}
+          activeFilterCount={activeFilterCount}
+          onFilters={setFilters}
+        />
       )}
-    </article>
+    </div>
   )
 }
