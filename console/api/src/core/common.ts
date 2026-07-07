@@ -32,6 +32,7 @@ function gitlabConfigFromServer(server = {}) {
     webhookSecret: server.webhook && server.webhook.secret || '',
     agentrixGitServerId: server.agentrixGitServerId || '',
     adminPat: server.adminPat || '',
+    botPat: server.botPat || '',
     tokenAuth: server.tokenAuth || 'bearer',
     oauthClientId: server.oauth && server.oauth.clientId || '',
     oauthClientSecret: server.oauth && server.oauth.clientSecret || '',

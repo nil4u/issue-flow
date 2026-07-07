@@ -667,30 +667,6 @@ async function createGitlabUserImpersonationToken(input = {}) {
   return result.parsed || {};
 }
 
-async function createGitlabUserPersonalAccessToken(input = {}) {
-  const userId = String(input.userId || '').trim();
-  if (!userId) {
-    const error = new Error('GitLab user id is required');
-    error.status = 400;
-    throw error;
-  }
-  const result = await fetchJson(
-    'POST',
-    input.apiUrl,
-    `/users/${encodeURIComponent(userId)}/personal_access_tokens`,
-    input.token,
-    {
-      authType: input.authType || 'private-token',
-      body: {
-        name: input.name || `issue-flow-runner-${Date.now()}`,
-        scopes: input.scopes || ['api'],
-        expires_at: input.expiresAt || dateDaysFromNow(input.expiresInDays || 365),
-      },
-    }
-  );
-  return result.parsed || {};
-}
-
 async function validateGitlabProjectApiToken(input = {}) {
   const token = input.token || '';
   const minimumAccessLevel = Number(input.minimumAccessLevel || 40);
@@ -916,7 +892,6 @@ async function validateGitlabToken(input = {}) {
 export {
   createGitlabProjectAccessToken,
   createGitlabUserImpersonationToken,
-  createGitlabUserPersonalAccessToken,
   createGitlabRepositoryCommit,
   createGitlabMergeRequest,
   getGitlabMergeRequest,

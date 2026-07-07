@@ -141,6 +141,7 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
     },
     agentrixGitServerId: input.agentrixGitServerId,
     adminPat: input.adminPat,
+    botPat: input.botPat,
     commitAuthor: {
       name: input.commitAuthor?.name || input.commitAuthorName || "issue-flow",
       email: input.commitAuthor?.email || input.commitAuthorEmail || defaultCommitAuthorEmail(baseUrl),

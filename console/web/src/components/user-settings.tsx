@@ -24,6 +24,7 @@ type GitServerForm = {
   webhookSecret: string
   agentrixGitServerId: string
   adminPat: string
+  botPat: string
   commitAuthorName: string
   commitAuthorEmail: string
 }
@@ -41,6 +42,7 @@ const emptyGitServerForm: GitServerForm = {
   webhookSecret: "",
   agentrixGitServerId: "",
   adminPat: "",
+  botPat: "",
   commitAuthorName: "issue-flow",
   commitAuthorEmail: "",
 }
@@ -471,6 +473,9 @@ function GitServerAdmin({
             <Field label={`Admin PAT${fingerprintLabel(selectedServer?.adminPatFingerprint)}`} wide>
               <Input type="password" value={form.adminPat} onChange={(event) => update("adminPat", event.currentTarget.value)} placeholder="留空保留现值" />
             </Field>
+            <Field label={`Bot PAT${fingerprintLabel(selectedServer?.botPatFingerprint)}`} wide>
+              <Input type="password" value={form.botPat} onChange={(event) => update("botPat", event.currentTarget.value)} placeholder="留空保留现值" />
+            </Field>
           </div>
         </form>
       </div>
@@ -502,6 +507,7 @@ function formFromGitServer(server?: GitServer): GitServerForm {
     webhookSecret: "",
     agentrixGitServerId: server.agentrixGitServerId || "",
     adminPat: "",
+    botPat: "",
     commitAuthorName: server.commitAuthor?.name || emptyGitServerForm.commitAuthorName,
     commitAuthorEmail: server.commitAuthor?.email || defaultCommitAuthorEmail(server.baseUrl),
   }
@@ -529,6 +535,7 @@ function payloadFromForm(form: GitServerForm): GitServer {
   if (form.oauthClientSecret) payload.oauth = { ...payload.oauth, clientSecret: form.oauthClientSecret }
   if (form.webhookSecret) payload.webhook = { secret: form.webhookSecret }
   if (form.adminPat) payload.adminPat = form.adminPat
+  if (form.botPat) payload.botPat = form.botPat
   return payload
 }
 

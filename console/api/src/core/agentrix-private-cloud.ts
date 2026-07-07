@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { llmProxyConfig, resolveGitServer, sessionUserKey } from './common.js'
 import {
-  createGitlabUserPersonalAccessToken,
   getGitlabCurrentUser,
 } from './gitlab.js'
 import { getAgentrixPrivateCloudRunnerSecret } from './agentrix-api.js'
@@ -9,7 +8,6 @@ import { savedAgentrixDefaults } from './user-agentrix-config.js'
 
 const AGENTRIX_SERVER_URL = 'https://agentrix.xmz.ai'
 const AGENTRIX_WEBAPP_URL = 'https://agentrix.xmz.ai'
-const DEFAULT_TOKEN_SCOPES = ['api', 'read_repository', 'write_repository']
 
 function shellQuote(value = '') {
   return `'${String(value || '').replace(/'/g, "'\\''")}'`
@@ -49,18 +47,6 @@ function runnerIdFrom(input = {}) {
   return String(input.runnerId || input.cloudId || '').trim()
 }
 
-function tokenName(runnerId = '') {
-  const suffix = String(runnerId || Date.now()).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 48)
-  return `issue-flow-runner-${suffix}-${Date.now()}`
-}
-
-function tokenExpiresAt(input = {}) {
-  const days = Number(input.expiresInDays || 365)
-  const date = new Date()
-  date.setUTCDate(date.getUTCDate() + (Number.isFinite(days) && days > 0 ? days : 365))
-  return date.toISOString().slice(0, 10)
-}
-
 function publicGitServer(server = {}) {
   return {
     id: server.id || '',
@@ -68,6 +54,7 @@ function publicGitServer(server = {}) {
     name: server.name || '',
     baseUrl: server.baseUrl || '',
     apiUrl: server.apiUrl || '',
+    botPatFingerprint: server.botPatFingerprint || '',
   }
 }
 
@@ -128,50 +115,32 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     }
   }
   let tokenValue = ''
-  let tokenId = ''
   let validation
-  if (!config.adminPat) {
+  if (!config.botPat) {
     return {
       status: 400,
       body: {
-        error: 'runner_gitlab_token_required',
-        detail: 'Git server admin PAT is missing.',
+        error: 'runner_gitlab_bot_pat_required',
+        detail: 'Git server bot PAT is missing.',
       },
     }
   }
   try {
-    const adminUser = await getGitlabCurrentUser({
+    validation = await getGitlabCurrentUser({
       apiUrl: config.apiUrl,
-      token: config.adminPat,
+      token: config.botPat,
       authType: 'private-token',
     })
-    if (adminUser.status !== 'valid' || !adminUser.id) {
+    if (validation.status !== 'valid') {
       return {
         status: 400,
         body: {
-          error: 'runner_gitlab_token_required',
-          detail: 'Git server admin PAT is invalid or its user id is unavailable.',
+          error: 'runner_gitlab_bot_pat_invalid',
+          detail: 'Git server bot PAT is invalid or cannot access the GitLab API.',
         },
       }
     }
-    const created = await createGitlabUserPersonalAccessToken({
-      apiUrl: config.apiUrl,
-      token: config.adminPat,
-      authType: 'private-token',
-      userId: adminUser.id,
-      name: tokenName(runnerId),
-      scopes: DEFAULT_TOKEN_SCOPES,
-      expiresAt: tokenExpiresAt(input),
-    })
-    tokenValue = String(created.token || '')
-    tokenId = created.id !== undefined ? String(created.id) : ''
-    validation = {
-      status: 'valid',
-      id: adminUser.id,
-      username: adminUser.username || '',
-      name: adminUser.name || '',
-      scopes: created.scopes || DEFAULT_TOKEN_SCOPES,
-    }
+    tokenValue = String(config.botPat || '')
     if (!tokenValue) {
       return { status: 502, body: { error: 'gitlab_token_missing' } }
     }
@@ -179,24 +148,28 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     return {
       status: error && error.status || 502,
       body: {
-        error: 'gitlab_token_auto_create_failed',
+        error: 'runner_gitlab_bot_pat_validation_failed',
         detail: error && error.message || '',
       },
     }
   }
 
-  const saved = await store.saveRunnerGitlabToken({
+  const runnerGitlabToken = {
+    id: `bot_pat:${server.id}:${runnerId}`,
     userId: current.userId,
     gitServerId: server.id,
     runnerId,
     gitlabUserId: validation.id || '',
     gitlabUsername: validation.username || '',
-    gitlabTokenId: tokenId,
-    token: tokenValue,
-    scopes: validation.scopes || DEFAULT_TOKEN_SCOPES,
-    source: 'auto',
-    expiresAt: input.expiresAt || tokenExpiresAt(input),
-  })
+    gitlabTokenId: '',
+    tokenFingerprint: server.botPatFingerprint || '',
+    scopes: validation.scopes || [],
+    source: 'bot_pat',
+    expiresAt: '',
+    revokedAt: '',
+    createdAt: '',
+    updatedAt: '',
+  }
   if (input.saveDefaults !== false) {
     await store.saveUserAgentrixConfig(sessionUserKey(current), {
       automation: {
@@ -212,11 +185,8 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
   return {
     status: 200,
     body: {
-      runnerGitlabToken: {
-        ...saved,
-        token: undefined,
-      },
-      gitlabToken: saved.token,
+      runnerGitlabToken,
+      gitlabToken: tokenValue,
       gitServer: publicGitServer(server),
       agentrix: {
         serverUrl: AGENTRIX_SERVER_URL,
@@ -227,7 +197,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
       dockerCommand: dockerCommand({
         cloudAuthToken,
         agentrixApiKey,
-        gitlabToken: saved.token,
+        gitlabToken: tokenValue,
         gitServer: server,
         llmProxyBaseUrl: llmProxyConfig(env).baseUrl,
       }),

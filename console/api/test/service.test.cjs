@@ -162,6 +162,7 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     },
     agentrixGitServerId: options.agentrixGitServerId || 'agentrix-gitlab-main',
     adminPat: options.adminPat || 'gl-admin-pat',
+    botPat: options.botPat || 'gl-bot-pat',
   });
 }
 
@@ -236,6 +237,7 @@ test('service store keeps Git server config in columns and public reads hide sec
       },
       agentrixGitServerId: 'agentrix-main',
       adminPat: 'admin-pat-secret',
+      botPat: 'bot-pat-secret',
       commitAuthor: {
         name: 'Issue Flow',
         email: 'issue-flow@company.test',
@@ -247,6 +249,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(server.webhook.secret, 'webhook-secret');
     assert.equal(server.agentrixGitServerId, 'agentrix-main');
     assert.equal(server.adminPat, 'admin-pat-secret');
+    assert.equal(server.botPat, 'bot-pat-secret');
 
     const row = await store.db.gitServer.findUnique({ where: { id: 'gitlab-main' } });
     const raw = JSON.stringify(row);
@@ -256,16 +259,19 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(row.oauthScopes, 'api read_repository write_repository openid profile email');
     assert.equal(row.agentrixGitServerId, 'agentrix-main');
     assert.equal(row.adminPat, 'admin-pat-secret');
+    assert.equal(row.botPat, 'bot-pat-secret');
     assert.equal(row.commitAuthorName, 'Issue Flow');
     assert.equal(row.commitAuthorEmail, 'issue-flow@company.test');
     assert.match(raw, /oauth-secret/);
     assert.match(raw, /webhook-secret/);
     assert.match(raw, /admin-pat-secret/);
+    assert.match(raw, /bot-pat-secret/);
 
     const publicServer = await store.getGitServer('gitlab-main');
     assert.equal(publicServer.oauth.clientSecret, undefined);
     assert.equal(publicServer.webhook.secret, undefined);
     assert.equal(publicServer.adminPat, undefined);
+    assert.equal(publicServer.botPat, undefined);
     assert.deepEqual(publicServer.commitAuthor, {
       name: 'Issue Flow',
       email: 'issue-flow@company.test',
@@ -273,6 +279,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(publicServer.oauth.clientSecretFingerprint.length, 12);
     assert.equal(publicServer.webhook.secretFingerprint.length, 12);
     assert.equal(publicServer.adminPatFingerprint.length, 12);
+    assert.equal(publicServer.botPatFingerprint.length, 12);
 
     await store.ensureGitServer({
       id: 'gitlab-main',
@@ -290,6 +297,7 @@ test('service store keeps Git server config in columns and public reads hide sec
         secret: 'webhook-secret-2',
       },
       adminPat: 'admin-pat-secret-2',
+      botPat: 'bot-pat-secret-2',
       commitAuthor: {
         name: 'Issue Flow Bot',
         email: 'issue-flow-bot@company.test',
@@ -300,6 +308,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(updated.webhook.secret, 'webhook-secret-2');
     assert.equal(updated.agentrixGitServerId, 'agentrix-main');
     assert.equal(updated.adminPat, 'admin-pat-secret-2');
+    assert.equal(updated.botPat, 'bot-pat-secret-2');
     assert.deepEqual(updated.commitAuthor, {
       name: 'Issue Flow Bot',
       email: 'issue-flow-bot@company.test',
@@ -1468,12 +1477,13 @@ test('API service exposes health and repository list over HTTP', async () => {
         webhook: { secret: 'post-webhook-secret' },
         agentrixGitServerId: 'agentrix-post',
         adminPat: 'post-admin-pat',
+        botPat: 'post-bot-pat',
       }),
     });
     assert.equal(createGitServer.status, 200);
     const createBody = await createGitServer.json();
     assert.equal(createBody.gitServer.id, 'gitlab-post');
-    assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat/);
+    assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat|post-bot-pat/);
 
     const updateGitServer = await fetch(`${baseUrl}/api/git-servers`, {
       method: 'POST',
@@ -1493,6 +1503,7 @@ test('API service exposes health and repository list over HTTP', async () => {
     assert.equal(saved.oauth.clientSecret, 'post-oauth-secret');
     assert.equal(saved.webhook.secret, 'post-webhook-secret');
     assert.equal(saved.adminPat, 'post-admin-pat');
+    assert.equal(saved.botPat, 'post-bot-pat');
 
     const deleteGitServer = await fetch(`${baseUrl}/api/git-servers/gitlab-post`, {
       method: 'DELETE',
@@ -1675,7 +1686,7 @@ test('GitLab project sync follows pagination before replacing repo access', asyn
   }
 });
 
-test('Agentrix private cloud creates a runner GitLab token without target repo', async () => {
+test('Agentrix private cloud uses the Git server Bot PAT without target repo', async () => {
   const { dir, store } = tempStore();
   const previousEnv = {
     ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
@@ -1685,32 +1696,13 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
   const gitlab = http.createServer((req, res) => {
     requests.push(req.url);
     if (req.url === '/api/v4/user' && req.method === 'GET') {
-      assert.equal(req.headers['private-token'], 'gl-admin-pat');
+      assert.equal(req.headers['private-token'], 'gl-bot-pat');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         id: 7,
         username: 'issue-flow-bot',
         name: 'Issue Flow Bot',
       }));
-      return;
-    }
-    if (req.url === '/api/v4/users/7/personal_access_tokens' && req.method === 'POST') {
-      assert.equal(req.headers['private-token'], 'gl-admin-pat');
-      let raw = '';
-      req.on('data', (chunk) => { raw += chunk; });
-      req.on('end', () => {
-        const body = JSON.parse(raw);
-        assert.match(body.name, /^issue-flow-runner-cloud-main-/);
-        assert.deepEqual(body.scopes, ['api', 'read_repository', 'write_repository']);
-        assert.equal(Boolean(body.expires_at), true);
-        res.writeHead(201, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          id: 9001,
-          token: 'gl-runner-token',
-          scopes: body.scopes,
-          expires_at: body.expires_at,
-        }));
-      });
       return;
     }
     res.writeHead(404);
@@ -1768,29 +1760,22 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
     });
     assert.equal(created.status, 200);
     const createdBody = await created.json();
-    assert.equal(createdBody.gitlabToken, 'gl-runner-token');
+    assert.equal(createdBody.gitlabToken, 'gl-bot-pat');
     assert.equal(createdBody.runnerGitlabToken.runnerId, 'cloud-main');
     assert.equal(createdBody.runnerGitlabToken.token, undefined);
-    assert.equal(createdBody.runnerGitlabToken.gitlabTokenId, '9001');
+    assert.equal(createdBody.runnerGitlabToken.gitlabTokenId, '');
     assert.equal(createdBody.llmProxy.baseUrl, 'https://llm.internal');
     assert.match(createdBody.dockerCommand, /AGENTRIX_API_KEY='agentrix-key'/);
     assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
-    assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-runner-token'/);
+    assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-bot-pat'/);
     assert.equal(requests.includes('/api/v4/user'), true);
-    assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), true);
+    assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), false);
     assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), false);
     assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), false);
     assert.equal(requests.includes('agentrix:/v1/private-clouds/cloud-main/runner-secret'), true);
 
-    const saved = await store.getRunnerGitlabToken({
-      userId: 'user-alice',
-      gitServerId: 'gitlab-main',
-      runnerId: 'cloud-main',
-      includeSecret: true,
-    });
-    assert.equal(saved.token, 'gl-runner-token');
-    assert.equal(saved.gitlabUserId, '7');
-    assert.equal(saved.gitlabUsername, 'issue-flow-bot');
+    assert.equal(createdBody.runnerGitlabToken.gitlabUserId, '7');
+    assert.equal(createdBody.runnerGitlabToken.gitlabUsername, 'issue-flow-bot');
     const defaults = await store.getUserAgentrixConfig('user:user-alice', { includeSecret: true });
     assert.equal(defaults.agentrix.runnerId, 'cloud-main');
     assert.equal(defaults.agentrix.apiKey, 'agentrix-key');
@@ -1800,8 +1785,7 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
     });
     assert.equal(config.status, 200);
     const configBody = await config.json();
-    assert.equal(configBody.runnerGitlabTokens.length, 1);
-    assert.equal(configBody.runnerGitlabTokens[0].token, undefined);
+    assert.equal(configBody.runnerGitlabTokens.length, 0);
     assert.equal(configBody.agentrix.serverUrl, 'https://agentrix.xmz.ai');
   } finally {
     await app.close();

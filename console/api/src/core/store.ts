@@ -120,6 +120,7 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     },
     agentrixGitServerId,
     adminPatFingerprint: fingerprints.adminPatFingerprint || "",
+    botPatFingerprint: fingerprints.botPatFingerprint || "",
     commitAuthor: {
       name: commitAuthorName,
       email: commitAuthorEmail,
@@ -371,6 +372,8 @@ class IssueFlowStore {
       },
       adminPat: undefined,
       adminPatFingerprint: server.adminPatFingerprint || "",
+      botPat: undefined,
+      botPatFingerprint: server.botPatFingerprint || "",
     }
   }
 
@@ -646,6 +649,7 @@ class IssueFlowStore {
     const oauthClientSecret = String(row.oauthClientSecret || "")
     const webhookSecret = String(row.webhookSecret || "")
     const adminPat = String(row.adminPat || "")
+    const botPat = String(row.botPat || "")
     const server = {
       id: row.id,
       type: row.type || "gitlab",
@@ -663,6 +667,7 @@ class IssueFlowStore {
       },
       agentrixGitServerId: row.agentrixGitServerId || row.agentrix_git_server_id || "",
       adminPatFingerprint: fingerprintSecret(adminPat),
+      botPatFingerprint: fingerprintSecret(botPat),
       commitAuthor: {
         name: row.commitAuthorName || row.commit_author_name || "issue-flow",
         email: row.commitAuthorEmail || row.commit_author_email || "",
@@ -674,6 +679,7 @@ class IssueFlowStore {
       server.oauth.clientSecret = oauthClientSecret
       server.webhook.secret = webhookSecret
       server.adminPat = adminPat
+      server.botPat = botPat
       return server
     }
     return this.publicGitServer(server)
@@ -709,6 +715,7 @@ class IssueFlowStore {
     const hasOauthSecret = Boolean(input.oauth && Object.prototype.hasOwnProperty.call(input.oauth, "clientSecret"))
     const hasWebhookSecret = Boolean(input.webhook && Object.prototype.hasOwnProperty.call(input.webhook, "secret"))
     const hasAdminPat = Object.prototype.hasOwnProperty.call(input, "adminPat") || Object.prototype.hasOwnProperty.call(input, "admin_pat")
+    const hasBotPat = Object.prototype.hasOwnProperty.call(input, "botPat") || Object.prototype.hasOwnProperty.call(input, "bot_pat")
     const hasAgentrixGitServerId = Object.prototype.hasOwnProperty.call(input, "agentrixGitServerId")
       || Object.prototype.hasOwnProperty.call(input, "agentrix_git_server_id")
       || Boolean(input.agentrix && Object.prototype.hasOwnProperty.call(input.agentrix, "gitServerId"))
@@ -722,6 +729,7 @@ class IssueFlowStore {
     const oauthClientSecret = hasOauthSecret ? (input.oauth && input.oauth.clientSecret || "") : (existing && existing.oauth && existing.oauth.clientSecret || "")
     const webhookSecret = hasWebhookSecret ? (input.webhook && input.webhook.secret || "") : (existing && existing.webhook && existing.webhook.secret || "")
     const adminPat = hasAdminPat ? (input.adminPat || input.admin_pat || "") : (existing && existing.adminPat || "")
+    const botPat = hasBotPat ? (input.botPat || input.bot_pat || "") : (existing && existing.botPat || "")
     const agentrixGitServerId = hasAgentrixGitServerId ? normalized.agentrixGitServerId : (existing && existing.agentrixGitServerId || normalized.agentrixGitServerId)
     const commitAuthor = hasCommitAuthor || !existing
       ? normalized.commitAuthor
@@ -743,6 +751,7 @@ class IssueFlowStore {
         webhookSecret,
         agentrixGitServerId,
         adminPat,
+        botPat,
         commitAuthorName: commitAuthor.name,
         commitAuthorEmail: commitAuthor.email,
         createdAt: now,
@@ -760,6 +769,7 @@ class IssueFlowStore {
         webhookSecret,
         agentrixGitServerId,
         adminPat,
+        botPat,
         commitAuthorName: commitAuthor.name,
         commitAuthorEmail: commitAuthor.email,
         updatedAt: now,

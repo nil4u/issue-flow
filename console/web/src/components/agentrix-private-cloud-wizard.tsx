@@ -25,8 +25,8 @@ const stepMeta: Record<StepId, { title: string; detail: string }> = {
     detail: "确认 runner 连接的 GitLab server。",
   },
   token: {
-    title: "Token",
-    detail: "自动生成 runner 专用 token。",
+    title: "Bot PAT",
+    detail: "使用管理员配置的 Bot PAT。",
   },
   command: {
     title: "Docker 命令",
@@ -58,6 +58,8 @@ export function AgentrixPrivateCloudWizard({
   const [command, setCommand] = useState("")
   const [generating, setGenerating] = useState(false)
   const connected = Boolean(gitServerId && linkedGitServerIds.has(gitServerId))
+  const selectedGitServer = selectableServers.find((server) => server.id === gitServerId)
+  const botPatConfigured = Boolean(selectedGitServer?.botPatFingerprint || config?.gitServer?.botPatFingerprint)
   const existingToken = (config?.runnerGitlabTokens || []).find((token) => token.runnerId === cloud.id)
   const activeIndex = stepOrder.indexOf(step)
   const availableStepIndex = highestAvailableStepIndex()
@@ -102,16 +104,16 @@ export function AgentrixPrivateCloudWizard({
       setCommand(body.dockerCommand || "")
       setConfig((current) => mergeTokenConfig(current, body))
       setStep("command")
-      toast.success("GitLab token 已生成")
+      toast.success("Docker 命令已生成")
     } catch (error) {
-      notifyError(error, "自动生成 GitLab token 失败")
+      notifyError(error, "生成 Docker 命令失败")
     } finally {
       setGenerating(false)
     }
   }
 
   function canGenerateToken() {
-    return connected && validRunnerId(cloud.id)
+    return connected && botPatConfigured && validRunnerId(cloud.id)
   }
 
   function stepReady(id: StepId) {
@@ -211,10 +213,10 @@ export function AgentrixPrivateCloudWizard({
 
           {step === "token" && (
             <div className="agentrix-step-body">
-              <ValidationLine ok={canGenerateToken()} text={canGenerateToken() ? tokenValidationText(existingToken) : "请先完成前面的步骤。"} />
+              <ValidationLine ok={canGenerateToken()} text={tokenValidationText({ connected, botPatConfigured, token: existingToken })} />
               <Button type="button" disabled={generating || !canGenerateToken()} onClick={() => void generateToken()}>
                 {generating ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-                生成
+                生成命令
               </Button>
             </div>
           )}
@@ -262,9 +264,19 @@ function ValidationLine({ ok, text }: { ok: boolean; text: string }) {
   )
 }
 
-function tokenValidationText(token?: RunnerGitlabToken) {
-  if (!token) return "可以生成"
-  return "已有 token，可重新生成"
+function tokenValidationText({
+  connected,
+  botPatConfigured,
+  token,
+}: {
+  connected: boolean
+  botPatConfigured: boolean
+  token?: RunnerGitlabToken
+}) {
+  if (!connected) return "请先完成前面的步骤。"
+  if (!botPatConfigured) return "Git server 未配置 Bot PAT"
+  if (!token) return "已配置"
+  return "已配置，可重新生成命令"
 }
 
 function validRunnerId(value = "") {

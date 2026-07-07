@@ -75,6 +75,8 @@ export type GitServer = {
   agentrixGitServerId?: string
   adminPat?: string
   adminPatFingerprint?: string
+  botPat?: string
+  botPatFingerprint?: string
   createdAt?: string
   updatedAt?: string
 }
