@@ -138,7 +138,7 @@ export function AgentrixPanel({
       }}>
         <DialogContent className="agentrix-deploy-dialog">
           <DialogHeader>
-            <DialogTitle>部署 private cloud runner</DialogTitle>
+            <DialogTitle>部署 runner</DialogTitle>
           </DialogHeader>
           {deployCloud ? (
             <AgentrixPrivateCloudWizard

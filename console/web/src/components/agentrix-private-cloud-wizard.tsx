@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Check, ChevronLeft, ChevronRight, CircleAlert, Cloud, Copy, KeyRound, Loader2, RefreshCw, Server, Terminal } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, CircleAlert, Copy, KeyRound, Loader2, Server, Terminal } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,26 +15,22 @@ import {
 } from "@/issue-flow-model"
 import { notifyError } from "@/lib/errors"
 
-type StepId = "target" | "git" | "token" | "command"
+type StepId = "git" | "token" | "command"
 
-const stepOrder: StepId[] = ["target", "git", "token", "command"]
+const stepOrder: StepId[] = ["git", "token", "command"]
 
 const stepMeta: Record<StepId, { title: string; detail: string }> = {
-  target: {
-    title: "确认 Private Cloud",
-    detail: "Cloud ID 和 runner secret 会从 Agentrix 自动读取。",
-  },
   git: {
-    title: "确认 Git 身份",
-    detail: "选择一个已经关联到当前账号的 GitLab server。",
+    title: "Git 账号",
+    detail: "选择 runner 使用的 GitLab 身份。",
   },
   token: {
-    title: "生成 GitLab Token",
-    detail: "issue-flow 自动为当前 GitLab 用户生成 runner 专用 token。",
+    title: "Token",
+    detail: "自动生成 runner 专用 token。",
   },
   command: {
-    title: "复制 Docker 命令",
-    detail: "把命令粘贴到 Linux 服务器执行，runner 会自动注册到 Agentrix。",
+    title: "Docker 命令",
+    detail: "复制后在服务器执行。",
   },
 }
 
@@ -57,11 +53,10 @@ export function AgentrixPrivateCloudWizard({
   const selectableServers = gitServers.filter((server) => server.type === "gitlab")
   const firstLinkedServer = selectableServers.find((server) => linkedGitServerIds.has(server.id))
   const [gitServerId, setGitServerId] = useState(firstLinkedServer?.id || selectableServers[0]?.id || "")
-  const [step, setStep] = useState<StepId>("target")
+  const [step, setStep] = useState<StepId>("git")
   const [config, setConfig] = useState<AgentrixPrivateCloudConfig>()
   const [command, setCommand] = useState("")
   const [generating, setGenerating] = useState(false)
-  const [loadingConfig, setLoadingConfig] = useState(false)
   const connected = Boolean(gitServerId && linkedGitServerIds.has(gitServerId))
   const existingToken = (config?.runnerGitlabTokens || []).find((token) => token.runnerId === cloud.id)
   const activeIndex = stepOrder.indexOf(step)
@@ -83,7 +78,6 @@ export function AgentrixPrivateCloudWizard({
   }, [activeIndex, availableStepIndex])
 
   async function loadConfig(nextGitServerId = gitServerId) {
-    setLoadingConfig(true)
     try {
       const body = await api<AgentrixPrivateCloudConfig>(`/api/agentrix/private-cloud?gitServerId=${encodeURIComponent(nextGitServerId)}`)
       setConfig(body)
@@ -91,8 +85,6 @@ export function AgentrixPrivateCloudWizard({
     } catch (error) {
       notifyError(error, "加载 Agentrix runner 配置失败")
       throw error
-    } finally {
-      setLoadingConfig(false)
     }
   }
 
@@ -123,7 +115,6 @@ export function AgentrixPrivateCloudWizard({
   }
 
   function stepReady(id: StepId) {
-    if (id === "target") return validRunnerId(cloud.id)
     if (id === "git") return connected
     if (id === "token") return Boolean(command)
     if (id === "command") return Boolean(command)
@@ -161,13 +152,6 @@ export function AgentrixPrivateCloudWizard({
   return (
     <div className="agentrix-wizard">
       <aside className="agentrix-wizard-steps" aria-label="Agentrix Private Cloud setup steps">
-        <header>
-          <span className="account-provider-icon"><Cloud className="size-4" /></span>
-          <span>
-            <strong>Deploy runner</strong>
-            <small>{cloud.name || cloud.id}</small>
-          </span>
-        </header>
         {stepOrder.map((id, index) => {
           const locked = index > availableStepIndex
           return (
@@ -195,29 +179,9 @@ export function AgentrixPrivateCloudWizard({
             <strong>{stepMeta[step].title}</strong>
             <small>{stepMeta[step].detail}</small>
           </span>
-          <Button type="button" size="sm" variant="outline" disabled={!gitServerId || loadingConfig} onClick={() => void loadConfig()}>
-            {loadingConfig ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-            刷新
-          </Button>
         </header>
 
         <div className="agentrix-panel-body">
-          {step === "target" && (
-            <div className="agentrix-step-body">
-              <div className="agentrix-autofill">
-                <span>Cloud</span>
-                <strong>{cloud.name || cloud.id}</strong>
-                <small>{cloud.role || "member"} · 在线机器 {cloud.onlineMachineCount ?? 0}/{cloud.machineCount ?? 0}</small>
-              </div>
-              <div className="agentrix-autofill">
-                <span>Cloud ID</span>
-                <strong>{cloud.id}</strong>
-                <small>从 Agentrix private cloud 列表自动带入。</small>
-              </div>
-              <ValidationLine ok={validRunnerId(cloud.id)} text={validRunnerId(cloud.id) ? "Cloud ID 格式正确。" : "Cloud ID 应该以 cloud- 开头。"} />
-            </div>
-          )}
-
           {step === "git" && (
             <div className="agentrix-step-body">
               {selectableServers.length ? (
@@ -232,14 +196,14 @@ export function AgentrixPrivateCloudWizard({
               ) : (
                 <div className="agentrix-guide">
                   <strong>还没有可用 GitLab server</strong>
-                  <p>需要先配置 GitLab server，用户才能为自己的账号启动 runner。</p>
+                  <p>需要先配置 GitLab server。</p>
                 </div>
               )}
-              <ValidationLine ok={connected} text={connected ? "当前账号已关联这个 Git server。" : "当前账号还没有关联这个 Git server。"} />
+              <ValidationLine ok={connected} text={connected ? "已关联" : "未关联"} />
               {!connected && gitServerId ? (
                 <Button type="button" variant="outline" onClick={() => onConnectGitServer(gitServerId)}>
                   <Server className="size-4" />
-                  关联 Git server
+                  关联
                 </Button>
               ) : null}
             </div>
@@ -247,28 +211,20 @@ export function AgentrixPrivateCloudWizard({
 
           {step === "token" && (
             <div className="agentrix-step-body">
-              <div className="agentrix-guide">
-                <strong>自动生成 GitLab token</strong>
-                <p>issue-flow 会读取已保存的 Agentrix API key 和当前 private cloud secret，再使用 Git server admin PAT 为当前 GitLab 用户创建 runner 专用 token。</p>
-              </div>
               <ValidationLine ok={canGenerateToken()} text={canGenerateToken() ? tokenValidationText(existingToken) : "请先完成前面的步骤。"} />
               <Button type="button" disabled={generating || !canGenerateToken()} onClick={() => void generateToken()}>
                 {generating ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-                自动生成并生成命令
+                生成
               </Button>
             </div>
           )}
 
           {step === "command" && (
             <div className="agentrix-step-body command-step">
-              <div className="agentrix-guide">
-                <strong>复制到 Linux 服务器执行</strong>
-                <p>容器启动后会注册到 Agentrix Private Cloud，并把当前 runner 作为 GitLab proxy node 使用。</p>
-              </div>
               <Textarea readOnly value={command || ""} />
               <Button type="button" disabled={!command} onClick={() => void copyCommand()}>
                 <Copy className="size-4" />
-                复制 Docker 命令
+                复制
               </Button>
             </div>
           )}
@@ -307,8 +263,8 @@ function ValidationLine({ ok, text }: { ok: boolean; text: string }) {
 }
 
 function tokenValidationText(token?: RunnerGitlabToken) {
-  if (!token) return "前置输入已通过，可以生成 token。"
-  return `已存在 token ${token.tokenFingerprint || token.source || ""}，这次会创建一把新 token。`
+  if (!token) return "可以生成"
+  return "已有 token，可重新生成"
 }
 
 function validRunnerId(value = "") {

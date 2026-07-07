@@ -1109,37 +1109,6 @@
   .agentrix-guide ol {
     padding-left: 1.125rem;
   }
-  .agentrix-autofill {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
-    gap: 0.25rem 0.75rem;
-    align-items: center;
-    padding: 0.675rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--if-color-surface-high) 70%, var(--if-color-surface));
-  }
-  .agentrix-autofill span,
-  .agentrix-autofill strong,
-  .agentrix-autofill small {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .agentrix-autofill span {
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-    font-weight: 700;
-  }
-  .agentrix-autofill strong {
-    font-size: 0.875rem;
-    font-family: var(--font-mono);
-  }
-  .agentrix-autofill small {
-    grid-column: 2;
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-  }
   .agentrix-validation {
     min-height: 2rem;
     display: inline-flex;
@@ -1830,12 +1799,6 @@
   }
   .agentrix-panel-head button {
     justify-self: start;
-  }
-  .agentrix-autofill {
-    grid-template-columns: 1fr;
-  }
-  .agentrix-autofill small {
-    grid-column: auto;
   }
   .agentrix-panel-actions {
     justify-content: flex-start;
