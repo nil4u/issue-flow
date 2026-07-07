@@ -12,8 +12,16 @@ import {
   metricsResultFromRows,
 } from "./metrics-sql.js"
 import { fingerprintSecret } from "./sanitize.js"
+import { normalizeTaskAction } from "./task-projection.js"
 
 const DEFAULT_STATE_DIR = ".issue-flow-service"
+const TASK_TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"])
+const TASK_SPAN_FLOW_BY_ACTION = {
+  triage: "triage",
+  plan: "plan",
+  build: "build",
+  review: "approve",
+}
 
 function nowIso() {
   return new Date().toISOString()
@@ -77,6 +85,10 @@ function normalizeAgentrix(input = {}, apiKeyFingerprint = "") {
   }
 }
 
+function normalizeRunnerId(value = "") {
+  return String(value || "").trim()
+}
+
 function normalizeGitServer(input = {}, fingerprints = {}) {
   const type = input.type || "gitlab"
   const id = String(input.id || "").trim()
@@ -108,6 +120,7 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     },
     agentrixGitServerId,
     adminPatFingerprint: fingerprints.adminPatFingerprint || "",
+    botPatFingerprint: fingerprints.botPatFingerprint || "",
     commitAuthor: {
       name: commitAuthorName,
       email: commitAuthorEmail,
@@ -319,6 +332,30 @@ class IssueFlowStore {
     }
   }
 
+  publicRepositorySummary(row) {
+    if (!row) return undefined
+    const fullName = row.fullName || ""
+    const split = splitRepoFullName(fullName)
+    return this.publicRepository({
+      id: row.id,
+      gitServerId: row.gitServerId || "",
+      serverRepoId: row.serverRepoId || "",
+      projectId: row.serverRepoId || "",
+      owner: row.owner || split.owner,
+      name: row.name || split.name,
+      fullName,
+      projectPath: fullName,
+      pathWithNamespace: fullName,
+      defaultBranch: row.defaultBranch || "",
+      url: row.url || "",
+      webUrl: row.url || "",
+      settings: undefined,
+      webhook: {},
+      createdAt: timestampValue(row.createdAt),
+      updatedAt: timestampValue(row.updatedAt),
+    })
+  }
+
   publicGitServer(server) {
     if (!server) return undefined
     return {
@@ -335,6 +372,8 @@ class IssueFlowStore {
       },
       adminPat: undefined,
       adminPatFingerprint: server.adminPatFingerprint || "",
+      botPat: undefined,
+      botPatFingerprint: server.botPatFingerprint || "",
     }
   }
 
@@ -610,6 +649,7 @@ class IssueFlowStore {
     const oauthClientSecret = String(row.oauthClientSecret || "")
     const webhookSecret = String(row.webhookSecret || "")
     const adminPat = String(row.adminPat || "")
+    const botPat = String(row.botPat || "")
     const server = {
       id: row.id,
       type: row.type || "gitlab",
@@ -627,6 +667,7 @@ class IssueFlowStore {
       },
       agentrixGitServerId: row.agentrixGitServerId || row.agentrix_git_server_id || "",
       adminPatFingerprint: fingerprintSecret(adminPat),
+      botPatFingerprint: fingerprintSecret(botPat),
       commitAuthor: {
         name: row.commitAuthorName || row.commit_author_name || "issue-flow",
         email: row.commitAuthorEmail || row.commit_author_email || "",
@@ -638,6 +679,7 @@ class IssueFlowStore {
       server.oauth.clientSecret = oauthClientSecret
       server.webhook.secret = webhookSecret
       server.adminPat = adminPat
+      server.botPat = botPat
       return server
     }
     return this.publicGitServer(server)
@@ -673,6 +715,7 @@ class IssueFlowStore {
     const hasOauthSecret = Boolean(input.oauth && Object.prototype.hasOwnProperty.call(input.oauth, "clientSecret"))
     const hasWebhookSecret = Boolean(input.webhook && Object.prototype.hasOwnProperty.call(input.webhook, "secret"))
     const hasAdminPat = Object.prototype.hasOwnProperty.call(input, "adminPat") || Object.prototype.hasOwnProperty.call(input, "admin_pat")
+    const hasBotPat = Object.prototype.hasOwnProperty.call(input, "botPat") || Object.prototype.hasOwnProperty.call(input, "bot_pat")
     const hasAgentrixGitServerId = Object.prototype.hasOwnProperty.call(input, "agentrixGitServerId")
       || Object.prototype.hasOwnProperty.call(input, "agentrix_git_server_id")
       || Boolean(input.agentrix && Object.prototype.hasOwnProperty.call(input.agentrix, "gitServerId"))
@@ -686,6 +729,7 @@ class IssueFlowStore {
     const oauthClientSecret = hasOauthSecret ? (input.oauth && input.oauth.clientSecret || "") : (existing && existing.oauth && existing.oauth.clientSecret || "")
     const webhookSecret = hasWebhookSecret ? (input.webhook && input.webhook.secret || "") : (existing && existing.webhook && existing.webhook.secret || "")
     const adminPat = hasAdminPat ? (input.adminPat || input.admin_pat || "") : (existing && existing.adminPat || "")
+    const botPat = hasBotPat ? (input.botPat || input.bot_pat || "") : (existing && existing.botPat || "")
     const agentrixGitServerId = hasAgentrixGitServerId ? normalized.agentrixGitServerId : (existing && existing.agentrixGitServerId || normalized.agentrixGitServerId)
     const commitAuthor = hasCommitAuthor || !existing
       ? normalized.commitAuthor
@@ -707,6 +751,7 @@ class IssueFlowStore {
         webhookSecret,
         agentrixGitServerId,
         adminPat,
+        botPat,
         commitAuthorName: commitAuthor.name,
         commitAuthorEmail: commitAuthor.email,
         createdAt: now,
@@ -724,6 +769,7 @@ class IssueFlowStore {
         webhookSecret,
         agentrixGitServerId,
         adminPat,
+        botPat,
         commitAuthorName: commitAuthor.name,
         commitAuthorEmail: commitAuthor.email,
         updatedAt: now,
@@ -1073,7 +1119,12 @@ class IssueFlowStore {
   async listRepositories(options = {}) {
     await this.ready
     const userId = String(options.userId || "").trim()
-    if (!userId) return []
+    const page = Math.max(1, Number(options.page || 1) || 1)
+    const perPage = Math.min(100, Math.max(10, Number(options.perPage || 50) || 50))
+    if (!userId) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
+    const q = String(options.q || "").trim()
+    const owner = String(options.owner || "").trim()
+    const selectedProjectId = String(options.selectedProjectId || "").trim()
     const accessRows = await this.db.userRepoAccess.findMany({
       where: {
         userId,
@@ -1082,23 +1133,53 @@ class IssueFlowStore {
       select: { repoId: true },
     })
     const repoIds = accessRows.map((row) => row.repoId)
-    if (!repoIds.length) return []
+    if (!repoIds.length) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const where = {
       id: { in: repoIds },
       ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+      ...(owner && owner !== "all" ? { owner } : {}),
+      ...(q ? { fullName: { contains: q } } : {}),
     }
-    const rows = await this.db.repo.findMany({ where, orderBy: { fullName: "asc" } })
-    const settingRows = rows.length
-      ? await this.db.repoSettingItem.findMany({ where: { repoId: { in: rows.map((row) => row.id) } } })
-      : []
-    const settingsById = new Map()
-    for (const item of settingRows) {
-      if (!settingsById.has(item.repoId)) settingsById.set(item.repoId, [])
-      settingsById.get(item.repoId).push(item)
+    const [pageRows, total, ownerRows] = await Promise.all([
+      this.db.repo.findMany({
+        where,
+        orderBy: { fullName: "asc" },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.db.repo.count({ where }),
+      this.db.repo.findMany({
+        where: {
+          id: { in: repoIds },
+          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+        },
+        select: { owner: true, fullName: true },
+        orderBy: { owner: "asc" },
+      }),
+    ])
+    let rows = pageRows
+    if (selectedProjectId && !rows.some((row) => row.id === selectedProjectId || row.serverRepoId === selectedProjectId)) {
+      const selected = await this.db.repo.findFirst({
+        where: {
+          id: { in: repoIds },
+          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+          OR: [
+            { id: selectedProjectId },
+            { serverRepoId: selectedProjectId },
+          ],
+        },
+      })
+      if (selected) rows = [selected, ...rows]
     }
-    const gitServers = await this.listGitServers()
-    const serverById = new Map(gitServers.map((server) => [server.id, server]))
-    return rows.map((row) => this.repoFromRecord(row, settingsById.get(row.id), serverById.get(row.gitServerId || "")))
+    const owners = Array.from(new Set(ownerRows.map((row) => row.owner || splitRepoFullName(row.fullName).owner).filter(Boolean))).sort((a, b) => a.localeCompare(b))
+    return {
+      repositories: rows.map((row) => this.publicRepositorySummary(row)),
+      owners,
+      page,
+      perPage,
+      total,
+      hasMore: page * perPage < total,
+    }
   }
 
   async getRepository(id) {
@@ -1618,6 +1699,279 @@ class IssueFlowStore {
     return { pullRequest: this.pullRequestFromRecord(row), applied: true }
   }
 
+  taskFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId || "",
+      repositoryId: row.repositoryId || "",
+      repositoryFullName: row.repositoryFullName || "",
+      issueId: row.issueId || "",
+      issueNumber: row.issueNumber || 0,
+      issueSpanRowId: row.issueSpanRowId || "",
+      taskId: row.taskId,
+      action: row.action || "",
+      agent: row.agent || "",
+      model: row.model || "",
+      turns: row.turns || 0,
+      modelUsage: row.modelUsage ?? undefined,
+      status: row.status || "queued",
+      result: row.result || "",
+      queuedAt: timestampValue(row.queuedAt),
+      startedAt: timestampValue(row.startedAt),
+      finishedAt: timestampValue(row.finishedAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+  }
+
+  taskEventFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      gitServerId: row.gitServerId || "",
+      repositoryId: row.repositoryId || "",
+      repositoryFullName: row.repositoryFullName || "",
+      issueId: row.issueId || "",
+      issueNumber: row.issueNumber || 0,
+      taskId: row.taskId,
+      chatId: row.chatId || "",
+      eventId: row.eventId,
+      sequence: row.sequence,
+      eventType: row.eventType,
+      eventData: row.eventData,
+      createdAt: timestampValue(row.createdAt),
+    }
+  }
+
+  async resolveTaskIssueSpan(row, client = this.db) {
+    if (!row || row.issueSpanRowId) return row
+    if (!row.gitServerId || !row.repositoryId || !row.issueId) return row
+    const at = row.startedAt || row.queuedAt
+    if (!at) return row
+    const spans = await client.issueSpan.findMany({
+      where: {
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        issueId: row.issueId,
+        enteredAt: { lte: at },
+        OR: [
+          { exitedAt: null },
+          { exitedAt: { gte: at } },
+        ],
+      },
+      orderBy: { enteredAt: "desc" },
+    })
+    if (!spans.length) return row
+    const span = spans.find((item) => item.flow === TASK_SPAN_FLOW_BY_ACTION[row.action]) || spans[0]
+    return client.task.update({
+      where: { id: row.id },
+      data: { issueSpanRowId: span.id, updatedAt: new Date() },
+    })
+  }
+
+  async upsertTaskLink(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    if (!taskId) return { task: undefined, applied: false }
+    let gitServerId = String(input.gitServerId || "").trim()
+    if (!gitServerId && input.agentrixGitServerId) {
+      const server = await client.gitServer.findFirst({
+        where: { agentrixGitServerId: String(input.agentrixGitServerId).trim() },
+      })
+      if (server) gitServerId = server.id
+    }
+    const repositoryId = String(input.repositoryId || "").trim()
+    const issueNumber = Number(input.issueNumber || 0)
+    const issue = gitServerId && repositoryId && issueNumber
+      ? await client.issue.findUnique({
+        where: {
+          gitServerId_repositoryId_issueNumber: { gitServerId, repositoryId, issueNumber },
+        },
+      })
+      : undefined
+
+    const existing = await client.task.findUnique({ where: { taskId } })
+    const data = {
+      gitServerId: gitServerId || existing && existing.gitServerId || "",
+      repositoryId: repositoryId || existing && existing.repositoryId || "",
+      repositoryFullName: issue && issue.repositoryFullName || existing && existing.repositoryFullName || "",
+      issueId: issue && issue.issueId || existing && existing.issueId || "",
+      issueNumber: issueNumber || existing && existing.issueNumber || 0,
+      action: normalizeTaskAction(input.action) || existing && existing.action || "",
+      queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
+      updatedAt: new Date(),
+    }
+    let row = await client.task.upsert({
+      where: { taskId },
+      create: {
+        id: input.id || randomId("task"),
+        taskId,
+        ...data,
+      },
+      update: data,
+    })
+    row = await this.resolveTaskIssueSpan(row, client)
+    if (row.issueId) {
+      await client.taskEvent.updateMany({
+        where: { taskId, issueId: "" },
+        data: {
+          gitServerId: row.gitServerId,
+          repositoryId: row.repositoryId,
+          repositoryFullName: row.repositoryFullName,
+          issueId: row.issueId,
+          issueNumber: row.issueNumber,
+        },
+      })
+      this.scheduleIssueStatsRebuild({
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        issueId: row.issueId,
+      })
+    }
+    return { task: this.taskFromRecord(row), applied: true }
+  }
+
+  async upsertTaskRuntime(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    if (!taskId) return { task: undefined, applied: false }
+    const existing = await client.task.findUnique({ where: { taskId } })
+    if (input.weakStatus && existing && TASK_TERMINAL_STATUSES.has(existing.status)) {
+      return { task: this.taskFromRecord(existing), applied: false }
+    }
+    const data = {
+      agent: existing && existing.agent || String(input.agent || ""),
+      model: existing && existing.model || String(input.model || ""),
+      turns: Math.max(existing && existing.turns || 0, Number(input.turns || 0)),
+      status: String(input.status || existing && existing.status || "queued"),
+      queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
+      startedAt: existing && existing.startedAt || nullableDate(input.startedAt),
+      finishedAt: nullableDate(input.finishedAt) || existing && existing.finishedAt || null,
+      updatedAt: new Date(),
+    }
+    if (input.modelUsage !== undefined) {
+      data.modelUsage = input.modelUsage
+    }
+    let row = await client.task.upsert({
+      where: { taskId },
+      create: {
+        id: input.id || randomId("task"),
+        taskId,
+        ...data,
+      },
+      update: data,
+    })
+    row = await this.resolveTaskIssueSpan(row, client)
+    if (row.issueId) {
+      this.scheduleIssueStatsRebuild({
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        issueId: row.issueId,
+      })
+    }
+    return { task: this.taskFromRecord(row), applied: true }
+  }
+
+  async appendTaskEvent(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    const eventId = String(input.eventId || "").trim()
+    const eventType = String(input.eventType || "").trim()
+    if (!taskId || !eventId || !eventType) return { taskEvent: undefined, applied: false }
+    const existing = await client.taskEvent.findUnique({ where: { eventId } })
+    if (existing) return { taskEvent: this.taskEventFromRecord(existing), applied: false }
+    const task = await client.task.findUnique({ where: { taskId } })
+    for (let attempt = 0; ; attempt += 1) {
+      const last = await client.taskEvent.findFirst({
+        where: { taskId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      })
+      try {
+        const row = await client.taskEvent.create({
+          data: {
+            id: input.id || randomId("task_event"),
+            gitServerId: task && task.gitServerId || "",
+            repositoryId: task && task.repositoryId || "",
+            repositoryFullName: task && task.repositoryFullName || "",
+            issueId: task && task.issueId || "",
+            issueNumber: task && task.issueNumber || 0,
+            taskId,
+            chatId: String(input.chatId || ""),
+            eventId,
+            sequence: (last && last.sequence || 0) + 1,
+            eventType,
+            eventData: input.eventData ?? {},
+            createdAt: asDate(input.createdAt || nowIso()),
+          },
+        })
+        return { taskEvent: this.taskEventFromRecord(row), applied: true }
+      } catch (error) {
+        if (error && error.code === "P2002" && attempt < 3) {
+          const duplicate = await client.taskEvent.findUnique({ where: { eventId } })
+          if (duplicate) return { taskEvent: this.taskEventFromRecord(duplicate), applied: false }
+          continue
+        }
+        throw error
+      }
+    }
+  }
+
+  async getTask(taskId) {
+    await this.ready
+    if (!taskId) return undefined
+    const row = await this.db.task.findUnique({ where: { taskId: String(taskId) } })
+    return this.taskFromRecord(row)
+  }
+
+  async listTaskEvents(taskId) {
+    await this.ready
+    if (!taskId) return []
+    const rows = await this.db.taskEvent.findMany({
+      where: { taskId: String(taskId) },
+      orderBy: { sequence: "asc" },
+    })
+    return rows.map((row) => this.taskEventFromRecord(row))
+  }
+
+  // Cursor routes mirror agentrix machine identity: machineId (deviceId) is
+  // only unique within a cloud, so cursors key on `${cloudId}:${machineId}`.
+  agentrixForwardRouteId(route = {}) {
+    const machineId = String(route.machineId || "").trim()
+    if (!machineId) return ""
+    const cloudId = String(route.cloudId || "").trim()
+    return `${cloudId}:${machineId}`
+  }
+
+  async getAgentrixForwardCursor(route = {}) {
+    await this.ready
+    const routeId = this.agentrixForwardRouteId(route)
+    if (!routeId) return 0
+    const row = await this.db.agentrixForwardCursor.findUnique({ where: { routeId } })
+    return row ? Number(row.cursor) : 0
+  }
+
+  async setAgentrixForwardCursor(route = {}, cursor) {
+    await this.ready
+    const routeId = this.agentrixForwardRouteId(route)
+    const value = Math.max(0, Math.floor(Number(cursor) || 0))
+    if (!routeId || !value) return this.getAgentrixForwardCursor(route)
+    const existing = await this.db.agentrixForwardCursor.findUnique({ where: { routeId } })
+    if (existing && Number(existing.cursor) >= value) return Number(existing.cursor)
+    const row = await this.db.agentrixForwardCursor.upsert({
+      where: { routeId },
+      create: {
+        routeId,
+        cloudId: String(route.cloudId || "").trim(),
+        machineId: String(route.machineId || "").trim(),
+        cursor: BigInt(value),
+        updatedAt: new Date(),
+      },
+      update: { cursor: BigInt(value), updatedAt: new Date() },
+    })
+    return Number(row.cursor)
+  }
+
   issueStatFromRecord(row) {
     if (!row) return undefined
     return {
@@ -1719,8 +2073,25 @@ class IssueFlowStore {
         ],
       },
     })
+    const tasks = await client.task.findMany({
+      where: { gitServerId, repositoryId, issueId },
+    })
+    const taskSeconds = { triage: 0, plan: 0, build: 0, review: 0 }
+    const taskTurns = { triage: 0, plan: 0, build: 0, review: 0 }
+    let cycleStartedAt = null
+    for (const task of tasks) {
+      if (task.startedAt && (!cycleStartedAt || task.startedAt < cycleStartedAt)) {
+        cycleStartedAt = task.startedAt
+      }
+      if (!(task.action in taskSeconds)) continue
+      if (task.startedAt && task.finishedAt) {
+        taskSeconds[task.action] += Math.max(0, Math.round((task.finishedAt.getTime() - task.startedAt.getTime()) / 1000))
+      }
+      taskTurns[task.action] += task.turns || 0
+    }
     const data = {
       openedAt: issue.openedAt,
+      cycleStartedAt,
       closedAt: issue.closedAt,
       doneAt: issue.status === "done" ? issue.closedAt : null,
       dropAt: issue.status === "drop" ? issue.closedAt : null,
@@ -1730,6 +2101,14 @@ class IssueFlowStore {
       clarifySpanSeconds: spanSeconds.clarify,
       approveSpanSeconds: spanSeconds.approve,
       suspendSpanSeconds: spanSeconds.suspend,
+      triageTaskSeconds: taskSeconds.triage,
+      planTaskSeconds: taskSeconds.plan,
+      buildTaskSeconds: taskSeconds.build,
+      reviewTaskSeconds: taskSeconds.review,
+      triageTaskTurns: taskTurns.triage,
+      planTaskTurns: taskTurns.plan,
+      buildTaskTurns: taskTurns.build,
+      reviewTaskTurns: taskTurns.review,
       pullRequestCount,
       updatedAt: new Date(),
     }
@@ -2126,6 +2505,8 @@ class IssueFlowStore {
     const apiKey = input.agentrix && input.agentrix.apiKey
       ? String(input.agentrix.apiKey)
       : existing && existing.agentrix && existing.agentrix.apiKey || ""
+    const publicAgentrixInput = { ...(input.agentrix || {}) }
+    delete publicAgentrixInput.apiKey
     const now = nowIso()
     const config = {
       userKey,
@@ -2134,6 +2515,8 @@ class IssueFlowStore {
         ...(input.automation || {}),
       }),
       agentrix: {
+        ...(existing && existing.agentrix || {}),
+        ...publicAgentrixInput,
         baseUrl: normalizeBaseUrl(input.agentrix && input.agentrix.baseUrl || existing && existing.agentrix && existing.agentrix.baseUrl || ""),
         runnerId: input.agentrix && input.agentrix.runnerId !== undefined
           ? input.agentrix.runnerId || ""
@@ -2159,6 +2542,108 @@ class IssueFlowStore {
       },
     })
     return this.publicUserAgentrixConfig(config)
+  }
+
+  publicRunnerGitlabToken(row, options = {}) {
+    if (!row) return undefined
+    const result = {
+      id: row.id,
+      userId: row.userId,
+      gitServerId: row.gitServerId,
+      runnerId: row.runnerId,
+      gitlabUserId: row.gitlabUserId || "",
+      gitlabUsername: row.gitlabUsername || "",
+      gitlabTokenId: row.gitlabTokenId || "",
+      tokenFingerprint: row.tokenFingerprint || "",
+      scopes: row.scopes || [],
+      source: row.source || "",
+      expiresAt: timestampValue(row.expiresAt),
+      revokedAt: timestampValue(row.revokedAt),
+      createdAt: timestampValue(row.createdAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+    if (options.includeSecret) {
+      result.token = this.decrypt(row.tokenCiphertext || "")
+    }
+    return result
+  }
+
+  async listRunnerGitlabTokens(options = {}) {
+    await this.ready
+    const userId = String(options.userId || "").trim()
+    const gitServerId = String(options.gitServerId || "").trim()
+    if (!userId) return []
+    const rows = await this.db.runnerGitlabToken.findMany({
+      where: {
+        userId,
+        ...(gitServerId ? { gitServerId } : {}),
+      },
+      orderBy: { updatedAt: "desc" },
+    })
+    return rows.map((row) => this.publicRunnerGitlabToken(row))
+  }
+
+  async getRunnerGitlabToken(options = {}) {
+    await this.ready
+    const userId = String(options.userId || "").trim()
+    const gitServerId = String(options.gitServerId || "").trim()
+    const runnerId = normalizeRunnerId(options.runnerId)
+    if (!userId || !gitServerId || !runnerId) return undefined
+    const row = await this.db.runnerGitlabToken.findUnique({
+      where: {
+        userId_gitServerId_runnerId: { userId, gitServerId, runnerId },
+      },
+    })
+    return this.publicRunnerGitlabToken(row, options)
+  }
+
+  async saveRunnerGitlabToken(input = {}) {
+    await this.ready
+    const userId = String(input.userId || "").trim()
+    const gitServerId = String(input.gitServerId || "").trim()
+    const runnerId = normalizeRunnerId(input.runnerId)
+    const token = String(input.token || "")
+    if (!userId || !gitServerId || !runnerId || !token) {
+      const error = new Error("runner GitLab token requires user, git server, runner id, and token")
+      error.status = 400
+      throw error
+    }
+    const now = nowIso()
+    const saved = await this.db.runnerGitlabToken.upsert({
+      where: {
+        userId_gitServerId_runnerId: { userId, gitServerId, runnerId },
+      },
+      create: {
+        id: randomId("runner_gitlab_token"),
+        userId,
+        gitServerId,
+        runnerId,
+        gitlabUserId: String(input.gitlabUserId || ""),
+        gitlabUsername: String(input.gitlabUsername || ""),
+        gitlabTokenId: String(input.gitlabTokenId || ""),
+        tokenCiphertext: this.encrypt(token),
+        tokenFingerprint: fingerprintSecret(token),
+        scopes: input.scopes || [],
+        source: input.source || "",
+        expiresAt: input.expiresAt ? asDate(input.expiresAt) : null,
+        revokedAt: input.revokedAt ? asDate(input.revokedAt) : null,
+        createdAt: asDate(now),
+        updatedAt: asDate(now),
+      },
+      update: {
+        gitlabUserId: String(input.gitlabUserId || ""),
+        gitlabUsername: String(input.gitlabUsername || ""),
+        gitlabTokenId: String(input.gitlabTokenId || ""),
+        tokenCiphertext: this.encrypt(token),
+        tokenFingerprint: fingerprintSecret(token),
+        scopes: input.scopes || [],
+        source: input.source || "",
+        expiresAt: input.expiresAt ? asDate(input.expiresAt) : null,
+        revokedAt: input.revokedAt ? asDate(input.revokedAt) : null,
+        updatedAt: asDate(now),
+      },
+    })
+    return this.publicRunnerGitlabToken(saved, { includeSecret: true })
   }
 }
 

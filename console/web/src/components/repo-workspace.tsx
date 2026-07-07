@@ -65,6 +65,7 @@ function OverviewTab({
   user,
   project,
   repository,
+  loadingRepositoryDetails,
   onLogin,
   onOpenSettings,
 }: RepoWorkspaceProps & { onOpenSettings: () => void }) {
@@ -77,6 +78,9 @@ function OverviewTab({
     )
   }
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
+  if (repository && !repository.settings && loadingRepositoryDetails) {
+    return <EmptyPanel icon={<Loader2 className="size-6 animate-spin" />} title="正在加载仓库详情" detail="正在读取安装状态。" />
+  }
   const plugin = repository?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")
   if (!repository || !plugin?.installed) {
     return (
@@ -100,6 +104,7 @@ function OverviewTab({
 function InstallConsole({
   project,
   repository,
+  loadingRepositoryDetails,
   defaults,
   installCheck,
   checkProgress,
@@ -123,9 +128,10 @@ function InstallConsole({
   const [helpTopicId, setHelpTopicId] = useState<AgentrixHelpTopicId>()
   const installInput = useMemo(() => installForm, [installForm])
   const groups = useMemo(() => buildInstallGroups({
+    defaults,
     installCheck,
     repository,
-  }), [installCheck, repository])
+  }), [defaults, installCheck, repository])
   const canManage = Boolean(projectAccess?.canManage)
   const accessKnown = projectAccess?.accessLevelKnown === true
   const readOnly = !canManage
@@ -152,8 +158,17 @@ function InstallConsole({
     }
   }
 
-  function openVariableDialog(row: CheckRow) {
+  async function openVariableDialog(row: CheckRow) {
     if (!row.variable || !canManage) return
+    if (row.variable.key === "AGENTRIX_API_KEY" && defaults?.agentrix?.apiKeyFingerprint) {
+      setActionRowId(row.id)
+      try {
+        await onSetVariable(row.variable.key, installInput)
+      } finally {
+        setActionRowId("")
+      }
+      return
+    }
     setEditingRow(row)
     setEditingValue(variableDialogValue(row, installForm))
   }
@@ -201,6 +216,9 @@ function InstallConsole({
   }
 
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="先从左侧选择一个 repo。" />
+  if (repository && !repository.settings && loadingRepositoryDetails) {
+    return <EmptyPanel icon={<Loader2 className="size-6 animate-spin" />} title="正在加载仓库详情" detail="正在读取设置项。" />
+  }
 
   return (
     <div className="install-console">
@@ -318,9 +336,11 @@ type InstallForm = {
 }
 
 function buildInstallGroups({
+  defaults,
   installCheck,
   repository,
 }: {
+  defaults?: RepoWorkspaceProps["defaults"]
   installCheck?: RepoWorkspaceProps["installCheck"]
   repository?: Repository
 }): CheckGroup[] {
@@ -350,13 +370,16 @@ function buildInstallGroups({
       const cached = Boolean(checkedVariable)
       const exists = checkedVariable?.exists ?? cached
       const status = checkedVariable?.status || (cached ? "passed" : "unknown")
+      const accountAgentrixKey = item.name === "AGENTRIX_API_KEY" && Boolean(defaults?.agentrix?.apiKeyFingerprint)
       const variable = {
         key: item.name,
         label: item.name,
-        description: item.description,
+        description: accountAgentrixKey && !checkedVariable
+          ? "使用账户页已校验的 Agentrix API key 写入 GitLab CI 变量。"
+          : item.description,
         ...(checkedVariable || {}),
         exists,
-        status: status as CheckStatus,
+        status: accountAgentrixKey && !checkedVariable ? "needs_action" as CheckStatus : status as CheckStatus,
         control: checkedVariable?.control || item.control,
       }
       return {
@@ -365,7 +388,9 @@ function buildInstallGroups({
         description: item.description,
         kind: "api",
         status: variable.status || "unknown",
-        detail: variableDetail(variable, item.description),
+        detail: accountAgentrixKey && !checkedVariable
+          ? `账户级 key 已校验 ${defaults?.agentrix?.apiKeyFingerprint || ""}`
+          : variableDetail(variable, item.description),
         variable,
         configItem: item,
       }

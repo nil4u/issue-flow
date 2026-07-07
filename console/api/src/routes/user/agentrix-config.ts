@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify"
 
 import {
   getUserAgentrixConfig,
+  getUserAgentrixResources,
   updateUserAgentrixConfig,
 } from "../../core/user-agentrix-config.js"
 import { contextFromRequest, sessionFromRequest } from "../../services/issue-flow.js"
@@ -11,6 +12,16 @@ export async function userAgentrixConfigRoutes(app: FastifyInstance) {
     const gitServerId = String((request.query as Record<string, unknown>).gitServerId || "")
     const session = await sessionFromRequest(request, gitServerId)
     const result = await getUserAgentrixConfig({
+      ...contextFromRequest(request),
+      session,
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.get("/api/user/agentrix-resources", async (request, reply) => {
+    const gitServerId = String((request.query as Record<string, unknown>).gitServerId || "")
+    const session = await sessionFromRequest(request, gitServerId)
+    const result = await getUserAgentrixResources({
       ...contextFromRequest(request),
       session,
     })

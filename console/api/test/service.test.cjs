@@ -162,6 +162,7 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     },
     agentrixGitServerId: options.agentrixGitServerId || 'agentrix-gitlab-main',
     adminPat: options.adminPat || 'gl-admin-pat',
+    botPat: options.botPat || 'gl-bot-pat',
   });
 }
 
@@ -236,6 +237,7 @@ test('service store keeps Git server config in columns and public reads hide sec
       },
       agentrixGitServerId: 'agentrix-main',
       adminPat: 'admin-pat-secret',
+      botPat: 'bot-pat-secret',
       commitAuthor: {
         name: 'Issue Flow',
         email: 'issue-flow@company.test',
@@ -247,6 +249,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(server.webhook.secret, 'webhook-secret');
     assert.equal(server.agentrixGitServerId, 'agentrix-main');
     assert.equal(server.adminPat, 'admin-pat-secret');
+    assert.equal(server.botPat, 'bot-pat-secret');
 
     const row = await store.db.gitServer.findUnique({ where: { id: 'gitlab-main' } });
     const raw = JSON.stringify(row);
@@ -256,16 +259,19 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(row.oauthScopes, 'api read_repository write_repository openid profile email');
     assert.equal(row.agentrixGitServerId, 'agentrix-main');
     assert.equal(row.adminPat, 'admin-pat-secret');
+    assert.equal(row.botPat, 'bot-pat-secret');
     assert.equal(row.commitAuthorName, 'Issue Flow');
     assert.equal(row.commitAuthorEmail, 'issue-flow@company.test');
     assert.match(raw, /oauth-secret/);
     assert.match(raw, /webhook-secret/);
     assert.match(raw, /admin-pat-secret/);
+    assert.match(raw, /bot-pat-secret/);
 
     const publicServer = await store.getGitServer('gitlab-main');
     assert.equal(publicServer.oauth.clientSecret, undefined);
     assert.equal(publicServer.webhook.secret, undefined);
     assert.equal(publicServer.adminPat, undefined);
+    assert.equal(publicServer.botPat, undefined);
     assert.deepEqual(publicServer.commitAuthor, {
       name: 'Issue Flow',
       email: 'issue-flow@company.test',
@@ -273,6 +279,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(publicServer.oauth.clientSecretFingerprint.length, 12);
     assert.equal(publicServer.webhook.secretFingerprint.length, 12);
     assert.equal(publicServer.adminPatFingerprint.length, 12);
+    assert.equal(publicServer.botPatFingerprint.length, 12);
 
     await store.ensureGitServer({
       id: 'gitlab-main',
@@ -290,6 +297,7 @@ test('service store keeps Git server config in columns and public reads hide sec
         secret: 'webhook-secret-2',
       },
       adminPat: 'admin-pat-secret-2',
+      botPat: 'bot-pat-secret-2',
       commitAuthor: {
         name: 'Issue Flow Bot',
         email: 'issue-flow-bot@company.test',
@@ -300,6 +308,7 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(updated.webhook.secret, 'webhook-secret-2');
     assert.equal(updated.agentrixGitServerId, 'agentrix-main');
     assert.equal(updated.adminPat, 'admin-pat-secret-2');
+    assert.equal(updated.botPat, 'bot-pat-secret-2');
     assert.deepEqual(updated.commitAuthor, {
       name: 'Issue Flow Bot',
       email: 'issue-flow-bot@company.test',
@@ -375,6 +384,112 @@ test('user Agentrix defaults return triage until saved', async () => {
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('user Agentrix config validates key and loads resources', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+  };
+  const requests = [];
+  const agentrix = http.createServer((req, res) => {
+    requests.push(req.url);
+    assert.equal(req.headers.authorization, 'Bearer agentrix-key');
+    if (req.url === '/v1/auth/me') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        user: {
+          id: 'agx-user-1',
+          username: 'alice',
+          email: 'alice@agentrix.test',
+          avatar: null,
+          role: 'user',
+          encryptedSecret: null,
+          secretSalt: null,
+          stripeCustomerId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      }));
+      return;
+    }
+    if (req.url === '/v1/private-clouds') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        clouds: [{ id: 'cloud-main', name: 'Main cloud', type: 'private', status: 'active', role: 'owner', onlineMachineCount: 1, machineCount: 2, createdAt: '', updatedAt: '', owner: 'agx-user-1' }],
+        entitlement: { enabled: true, maxPrivateClouds: 3, maxMachinesPerPrivateCloud: 5, maxPrivateCloudMembers: 8, currentPrivateCloudCount: 1 },
+      }));
+      return;
+    }
+    if (req.url === '/v1/machines') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        clouds: [],
+        localMachines: [{ id: 'machine-main', owner: 'agx-user-1', status: 'online', metadata: null, approval: 'approved', dataEncryptionKey: '', controlPort: 17321, createdAt: '', updatedAt: '' }],
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const agentrixBase = await listen(agentrix);
+  process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: 'https://gitlab.example.com' },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const cookie = `issue_flow_session_gitlab-main=${session.id}`;
+    const saved = await fetch(`${baseUrl}/api/user/agentrix-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        agentrix: { apiKey: 'agentrix-key' },
+      }),
+    });
+    assert.equal(saved.status, 200);
+    const savedBody = await saved.json();
+    assert.equal(savedBody.config.agentrix.user.username, 'alice');
+    assert.equal(savedBody.config.agentrix.apiKey, undefined);
+    assert.equal(savedBody.config.agentrix.apiKeyFingerprint.length, 12);
+
+    const resources = await fetch(`${baseUrl}/api/user/agentrix-resources?gitServerId=gitlab-main`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(resources.status, 200);
+    const resourceBody = await resources.json();
+    assert.equal(resourceBody.configured, true);
+    assert.equal(resourceBody.privateClouds[0].id, 'cloud-main');
+    assert.equal(resourceBody.localMachines[0].id, 'machine-main');
+    assert.equal(requests.filter((item) => item === '/v1/auth/me').length, 2);
+    assert.equal(requests.includes('/v1/private-clouds'), true);
+    assert.equal(requests.includes('/v1/machines'), true);
+  } finally {
+    await app.close();
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 });
 
@@ -490,7 +605,7 @@ test('setup initialize configures first git server and returns OAuth authorize U
     });
     assert.equal(rejected.status, 401);
 
-    const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
+    const incomplete = await fetch(`${baseUrl}/api/setup/initialize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -505,6 +620,28 @@ test('setup initialize configures first git server and returns OAuth authorize U
         adminPat: 'admin-pat',
       }),
     });
+    assert.equal(incomplete.status, 400);
+    const incompleteBody = await incomplete.json();
+    assert.equal(incompleteBody.error, 'git_server_incomplete');
+    assert.deepEqual(incompleteBody.missing, ['botPat']);
+    assert.equal(await store.getGitServer('gitlab-gitlab-example-com'), undefined);
+
+    const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        setupCode: 'test-setup-code',
+        type: 'gitlab',
+        baseUrl: 'https://gitlab.example.com',
+        oauth: {
+          clientId: 'oauth-client',
+          clientSecret: 'oauth-secret',
+        },
+        agentrixGitServerId: 'agentrix-main',
+        adminPat: 'admin-pat',
+        botPat: 'bot-pat',
+      }),
+    });
     assert.equal(initialized.status, 201);
     assert.equal(initialized.headers.get('set-cookie'), null);
     const body = await initialized.json();
@@ -516,12 +653,13 @@ test('setup initialize configures first git server and returns OAuth authorize U
       name: 'issue-flow',
       email: 'issue-flow@example.com',
     });
-    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat/);
+    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat|bot-pat/);
 
     const savedServer = await store.getGitServer('gitlab-gitlab-example-com', { includeSecret: true });
     assert.equal(Object.hasOwn(savedServer.oauth, 'redirectUri'), false);
     assert.equal(savedServer.oauth.scopes, 'api read_repository write_repository openid profile email');
     assert.match(savedServer.webhook.secret, /^[a-f0-9]{64}$/);
+    assert.equal(savedServer.botPat, 'bot-pat');
     assert.deepEqual(savedServer.commitAuthor, {
       name: 'issue-flow',
       email: 'issue-flow@example.com',
@@ -545,6 +683,45 @@ test('setup initialize configures first git server and returns OAuth authorize U
     } else {
       process.env.ISSUE_FLOW_APP_URL = previousAppUrl;
     }
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setup status does not force setup when an existing Git server lacks Bot PAT', async () => {
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.ensureGitServer({
+      id: 'gitlab-main',
+      type: 'gitlab',
+      name: 'GitLab Main',
+      baseUrl: 'https://gitlab.example.com',
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      oauth: {
+        clientId: 'oauth-client',
+        clientSecret: 'oauth-secret',
+      },
+      webhook: {
+        secret: 'webhook-secret',
+      },
+      agentrixGitServerId: 'agentrix-main',
+      adminPat: 'admin-pat',
+      commitAuthor: {
+        name: 'issue-flow',
+        email: 'issue-flow@example.com',
+      },
+    });
+
+    const status = await fetch(`${baseUrl}/api/setup/status`);
+    assert.equal(status.status, 200);
+    const body = await status.json();
+    assert.equal(body.initialized, true);
+    assert.equal(body.needsSetup, false);
+    assert.equal(body.state, 'configured');
+    assert.deepEqual(body.missing, []);
+  } finally {
     await app.close();
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1201,6 +1378,105 @@ test('GitLab merge request close webhook clears pending plugin MR', async () => 
   }
 });
 
+test('GitLab merge request merge webhook marks pending plugin as installed without reading manifest', async () => {
+  const { dir, store } = tempStore();
+  const calls = [];
+  const gitlab = http.createServer((req, res) => {
+    calls.push({ method: req.method, url: req.url });
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 501, token: 'pipeline-trigger-token-1234567890' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/trigger/pipeline' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 8001, status: 'created' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  try {
+    await seedGitlabServer(store, gitlabBase, {
+      adminPat: 'gl-admin-pat',
+      agentrixGitServerId: 'agentrix-gitlab-main',
+      webhookSecret: 'backend-webhook-secret',
+    });
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: gitlabBase,
+      projectPath: 'team/app',
+      automation: { reviewEnabled: false },
+    }, { status: 'unchecked', projectId: '42', defaultBranch: 'main' });
+    await store.updateRepositorySettingsCache(created.repo.id, {
+      plugins: {
+        items: [{
+          key: 'issue-flow',
+          installed: false,
+          latestVersion: packageVersion,
+          targetVersion: packageVersion,
+          needsUpgrade: true,
+          pendingMergeRequest: {
+            iid: '9',
+            webUrl: `${gitlabBase}/team/app/-/merge_requests/9`,
+            sourceBranch: 'issue-flow/install-123',
+            targetBranch: 'main',
+          },
+        }],
+        checkedAt: new Date().toISOString(),
+      },
+    });
+
+    const accepted = await handleGitlabWebhook({
+      store,
+      repoId: created.repo.id,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'backend-webhook-secret',
+        'X-Gitlab-Event': 'Merge Request Hook',
+        'X-Gitlab-Event-UUID': 'delivery-merge-1',
+      },
+      rawBody: JSON.stringify({
+        object_kind: 'merge_request',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        object_attributes: {
+          id: 1009,
+          iid: 9,
+          action: 'merge',
+          state: 'merged',
+          source_branch: 'issue-flow/install-123',
+          target_branch: 'main',
+        },
+      }),
+    });
+
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.deliveries.some((delivery) => {
+      return delivery.target === 'issue-flow-business'
+        && delivery.status === 'delivered'
+        && delivery.handled.includes('plugin_merge_refreshed');
+    }), true);
+    assert.equal(calls.some((call) => call.url && call.url.includes('/repository/files/')), false);
+    const repo = await store.getRepository(created.repo.id);
+    const plugin = repo.settings.plugins.items.find((item) => item.key === 'issue-flow');
+    assert.equal(plugin.pendingMergeRequest, undefined);
+    assert.equal(plugin.installed, true);
+    assert.equal(plugin.installedVersion, packageVersion);
+    assert.equal(plugin.targetVersion, undefined);
+    assert.equal(plugin.status, 'passed');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('API service exposes health and repository list over HTTP', async () => {
   const { dir, store } = tempStore();
   const { app, baseUrl } = await listenApp(store);
@@ -1211,7 +1487,14 @@ test('API service exposes health and repository list over HTTP', async () => {
 
     const repositories = await fetch(`${baseUrl}/api/repositories`);
     assert.equal(repositories.status, 200);
-    assert.deepEqual(await repositories.json(), { repositories: [] });
+    assert.deepEqual(await repositories.json(), {
+      repositories: [],
+      owners: [],
+      page: 1,
+      perPage: 50,
+      total: 0,
+      hasMore: false,
+    });
 
     await store.ensureGitServer({
       id: 'gitlab-main',
@@ -1256,12 +1539,13 @@ test('API service exposes health and repository list over HTTP', async () => {
         webhook: { secret: 'post-webhook-secret' },
         agentrixGitServerId: 'agentrix-post',
         adminPat: 'post-admin-pat',
+        botPat: 'post-bot-pat',
       }),
     });
     assert.equal(createGitServer.status, 200);
     const createBody = await createGitServer.json();
     assert.equal(createBody.gitServer.id, 'gitlab-post');
-    assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat/);
+    assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat|post-bot-pat/);
 
     const updateGitServer = await fetch(`${baseUrl}/api/git-servers`, {
       method: 'POST',
@@ -1281,6 +1565,7 @@ test('API service exposes health and repository list over HTTP', async () => {
     assert.equal(saved.oauth.clientSecret, 'post-oauth-secret');
     assert.equal(saved.webhook.secret, 'post-webhook-secret');
     assert.equal(saved.adminPat, 'post-admin-pat');
+    assert.equal(saved.botPat, 'post-bot-pat');
 
     const deleteGitServer = await fetch(`${baseUrl}/api/git-servers/gitlab-post`, {
       method: 'DELETE',
@@ -1340,7 +1625,7 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
     assert.equal(synced.status, 200);
     assert.equal(synced.body.projects[0].canInstall, true);
 
-    const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
+    const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
     assert.equal(repos.length, 1);
     assert.equal(repos[0].projectId, '42');
     assert.equal(repos[0].projectPath, 'team/app');
@@ -1360,7 +1645,7 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
       },
     });
     assert.equal(refreshed.status, 200);
-    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 0);
+    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).repositories.length, 0);
     assert.ok(await store.db.repo.findUnique({ where: { id: repos[0].id } }));
 
     const created = await store.createRepository({
@@ -1375,7 +1660,7 @@ test('GitLab project sync persists repo cache and install reuses repo id', async
       defaultBranch: 'main',
     });
     assert.equal(created.repo.id, repos[0].id);
-    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).length, 1);
+    assert.equal((await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id })).repositories.length, 1);
     assert.equal(await store.db.repoSettingItem.count({
       where: { repoId: repos[0].id, kind: 'webhook', key: 'issue-flow' },
     }), 0);
@@ -1454,9 +1739,347 @@ test('GitLab project sync follows pagination before replacing repo access', asyn
       '/api/v4/projects?membership=true&page=2&per_page=100',
     ]);
 
-    const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
+    const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
     assert.deepEqual(repos.map((repo) => repo.projectPath), ['team/api', 'team/app']);
   } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Agentrix private cloud uses the Git server Bot PAT without target repo', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+    ISSUE_FLOW_AGENTRIX_CLI_IMAGE: process.env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE,
+    ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN: process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN,
+    LLM_PROXY_BASE_URL: process.env.LLM_PROXY_BASE_URL,
+  };
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 7,
+        username: 'issue-flow-bot',
+        name: 'Issue Flow Bot',
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  const agentrix = http.createServer((req, res) => {
+    requests.push(`agentrix:${req.url}`);
+    if (req.url === '/v1/private-clouds/cloud-main/runner-secret' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer agentrix-key');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ secret: 'cloud-secret' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const agentrixBase = await listen(agentrix);
+  await seedGitlabServer(store, gitlabBase);
+  process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+  process.env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE = 'registry.internal/agentrix/agentrix-cli:2026.07';
+  process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN = 'forward-token';
+  process.env.LLM_PROXY_BASE_URL = 'https://llm.internal';
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    await store.saveUserAgentrixConfig('user:user-alice', {
+      agentrix: {
+        apiKey: 'agentrix-key',
+        user: { id: 'agentrix-user-1', username: 'alice' },
+      },
+    });
+    const cookie = `issue_flow_session_gitlab-main=${session.id}`;
+    const created = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
+      }),
+    });
+    assert.equal(created.status, 200);
+    const createdBody = await created.json();
+    assert.equal(createdBody.gitlabToken, 'gl-bot-pat');
+    assert.equal(createdBody.runnerGitlabToken.runnerId, 'cloud-main');
+    assert.equal(createdBody.runnerGitlabToken.token, undefined);
+    assert.equal(createdBody.runnerGitlabToken.gitlabTokenId, '');
+    assert.equal(createdBody.llmProxy.baseUrl, 'https://llm.internal');
+    assert.equal(createdBody.llmProxy.apiKey, 'llm-proxy-key');
+    assert.match(createdBody.dockerCommand, /AGENTRIX_API_KEY='llm-proxy-key'/);
+    assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
+    assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_WS_URL='wss:\/\/issue-flow\.internal\/webhooks\/agentrix\/forward'/);
+    assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_TOKEN='forward-token'/);
+    assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-bot-pat'/);
+    assert.match(createdBody.dockerCommand, /-v agentrix-home:\/home\/agentrix\/\.agentrix/);
+    assert.doesNotMatch(createdBody.dockerCommand, /agentrix-workspaces/);
+    assert.doesNotMatch(createdBody.dockerCommand, /\/home\/agentrix\/\.agentrix\/workspaces/);
+    assert.match(createdBody.dockerCommand, /registry\.internal\/agentrix\/agentrix-cli:2026\.07'$/);
+    assert.equal(requests.includes('/api/v4/user'), true);
+    assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), false);
+    assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), false);
+    assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), false);
+    assert.equal(requests.includes('agentrix:/v1/private-clouds/cloud-main/runner-secret'), true);
+
+    assert.equal(createdBody.runnerGitlabToken.gitlabUserId, '7');
+    assert.equal(createdBody.runnerGitlabToken.gitlabUsername, 'issue-flow-bot');
+    const defaults = await store.getUserAgentrixConfig('user:user-alice', { includeSecret: true });
+    assert.equal(defaults.agentrix.runnerId, 'cloud-main');
+    assert.equal(defaults.agentrix.apiKey, 'agentrix-key');
+
+    const config = await fetch(`${baseUrl}/api/agentrix/private-cloud?gitServerId=gitlab-main`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(config.status, 200);
+    const configBody = await config.json();
+    assert.equal(configBody.runnerGitlabTokens.length, 0);
+    assert.equal(configBody.agentrix.serverUrl, 'https://agentrix.xmz.ai');
+    assert.equal(configBody.agentrix.cliImage, 'registry.internal/agentrix/agentrix-cli:2026.07');
+    assert.equal(configBody.llmProxy.apiKey, '');
+  } finally {
+    await app.close();
+    await close(gitlab);
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud requires event forward token before fetching runner secret', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN: process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN,
+  };
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 7,
+        username: 'issue-flow-bot',
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  delete process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN;
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
+      }),
+    });
+    assert.equal(rejected.status, 400);
+    const body = await rejected.json();
+    assert.equal(body.error, 'agentrix_forward_token_required');
+    assert.deepEqual(requests, ['/api/v4/user']);
+  } finally {
+    await app.close();
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud validates Bot PAT before fetching runner secret', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+  };
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'bad-bot-pat');
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: '403 Forbidden' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  const agentrix = http.createServer((req, res) => {
+    requests.push(`agentrix:${req.url}`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ secret: 'should-not-be-used' }));
+  });
+  const agentrixBase = await listen(agentrix);
+  await seedGitlabServer(store, gitlabBase, { botPat: 'bad-bot-pat' });
+  process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const checked = await fetch(`${baseUrl}/api/agentrix/private-cloud/git-server/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+      }),
+    });
+    assert.equal(checked.status, 400);
+    assert.equal((await checked.json()).error, 'runner_gitlab_bot_pat_invalid');
+    assert.deepEqual(requests, ['/api/v4/user']);
+    requests.length = 0;
+
+    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
+      }),
+    });
+    assert.equal(rejected.status, 400);
+    const body = await rejected.json();
+    assert.equal(body.error, 'runner_gitlab_bot_pat_invalid');
+    assert.deepEqual(requests, ['/api/v4/user']);
+    assert.equal((await store.listRunnerGitlabTokens({ userId: 'user-alice', gitServerId: 'gitlab-main' })).length, 0);
+  } finally {
+    await app.close();
+    await close(gitlab);
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud rejects manual GitLab token input', async () => {
+  const { dir, store } = tempStore();
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase, { adminPat: '' });
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        token: 'manual-token',
+      }),
+    });
+    assert.equal(rejected.status, 400);
+    const body = await rejected.json();
+    assert.equal(body.error, 'runner_gitlab_token_manual_unsupported');
+    assert.deepEqual(requests, []);
+    assert.equal((await store.listRunnerGitlabTokens({ userId: 'user-alice', gitServerId: 'gitlab-main' })).length, 0);
+  } finally {
+    await app.close();
     await close(gitlab);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -2704,7 +3327,7 @@ test('GitLab OAuth callback does not wait for repository sync', async () => {
 
     const user = await store.db.user.findFirst({ where: { displayName: 'Alice' } });
     await waitFor(async () => {
-      const repos = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user && user.id });
+      const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user && user.id });
       return repos.length === 1 && repos[0].projectPath === 'team/app';
     });
   } finally {

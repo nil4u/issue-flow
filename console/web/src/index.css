@@ -655,6 +655,12 @@
     background: var(--if-color-surface-high);
     color: var(--if-color-text);
   }
+  .account-provider-icon.connected {
+    color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  }
+  .account-provider-icon.unlinked {
+    color: var(--muted-foreground);
+  }
   .account-row-copy {
     min-width: 0;
     display: grid;
@@ -678,6 +684,28 @@
     min-height: 3rem;
     display: grid;
     place-items: center;
+  }
+  .agentrix-account-group {
+    margin-bottom: 0.875rem;
+  }
+  .agentrix-account-row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+  .agentrix-account-action {
+    min-width: 4rem;
+  }
+  .agentrix-account-dialog {
+    max-width: min(30rem, calc(100% - 2rem));
+  }
+  .agentrix-account-dialog-body {
+    min-width: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .agentrix-account-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
   }
   .git-server-admin {
     justify-items: stretch;
@@ -789,6 +817,273 @@
     border-color: var(--if-color-focus-border);
     outline: 0;
   }
+  .agentrix-cloud {
+    justify-items: stretch;
+  }
+  .agentrix-panel {
+    justify-items: center;
+  }
+  .agentrix-inline-alert {
+    width: min(100%, var(--if-content-max-width));
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--destructive) 25%, var(--border));
+    border-radius: 8px;
+    color: var(--destructive);
+    background: color-mix(in srgb, var(--destructive) 7%, var(--if-color-surface));
+    font-size: 0.8125rem;
+  }
+  .agentrix-resource-grid {
+    width: min(100%, var(--if-content-max-width));
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 0.875rem;
+  }
+  .agentrix-resource-section {
+    min-width: 0;
+    display: grid;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--if-color-surface);
+    overflow: hidden;
+  }
+  .agentrix-resource-section > header {
+    min-height: 2.625rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--if-color-surface-high);
+  }
+  .agentrix-resource-section > header strong,
+  .agentrix-resource-section > header small {
+    display: block;
+  }
+  .agentrix-resource-section > header strong {
+    font-size: 0.875rem;
+  }
+  .agentrix-resource-section > header small {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  .agentrix-resource-list {
+    min-width: 0;
+    display: grid;
+  }
+  .agentrix-resource-row {
+    min-width: 0;
+    min-height: 3.5rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .agentrix-resource-row:last-child {
+    border-bottom: 0;
+  }
+  .agentrix-resource-copy {
+    min-width: 0;
+    display: grid;
+    gap: 0.125rem;
+  }
+  .agentrix-resource-copy strong,
+  .agentrix-resource-copy small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agentrix-resource-copy strong {
+    font-size: 0.875rem;
+  }
+  .agentrix-resource-copy small,
+  .agentrix-empty-row {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  .agentrix-empty-row {
+    min-height: 3.5rem;
+    display: grid;
+    place-items: center;
+  }
+  .agentrix-empty-state {
+    width: min(100%, var(--if-content-max-width));
+    min-height: 14rem;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--if-color-surface);
+    color: var(--muted-foreground);
+    text-align: center;
+    padding: 1.25rem;
+  }
+  .agentrix-empty-state strong {
+    color: var(--if-color-text);
+    font-size: 0.95rem;
+  }
+  .agentrix-status-dot {
+    min-width: 4rem;
+    justify-self: end;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    text-align: center;
+    font-size: 0.75rem;
+  }
+  .agentrix-status-dot.online {
+    border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+    color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  }
+  .agentrix-deploy-dialog {
+    max-width: min(46rem, calc(100% - 2rem));
+    padding: 0;
+    overflow: hidden;
+  }
+  .agentrix-deploy-dialog .agentrix-wizard {
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+  .agentrix-deploy-dialog input:focus-visible,
+  .agentrix-deploy-dialog select:focus-visible,
+  .agentrix-deploy-dialog textarea:focus-visible {
+    border-color: var(--if-color-focus-border) !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+  }
+  .agentrix-wizard {
+    width: min(100%, var(--if-content-max-width));
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--if-color-surface);
+    overflow: hidden;
+  }
+  .agentrix-panel-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+  .agentrix-wizard-panel {
+    min-width: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    background: var(--if-color-surface);
+  }
+  .agentrix-panel-head {
+    min-height: 3.375rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 3rem 0.875rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--if-color-surface);
+  }
+  .agentrix-panel-body {
+    min-width: 0;
+    min-height: 10rem;
+    padding: 0.875rem 1rem;
+  }
+  .agentrix-step-body {
+    width: min(100%, 42rem);
+    min-width: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .agentrix-guide {
+    min-width: 0;
+    display: grid;
+    gap: 0.375rem;
+    padding: 0.75rem;
+    border-left: 3px solid var(--if-color-focus-border);
+    border-radius: 8px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text);
+  }
+  .agentrix-guide strong {
+    font-size: 0.875rem;
+  }
+  .agentrix-guide p,
+  .agentrix-guide ol {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+  .agentrix-guide ol {
+    padding-left: 1.125rem;
+  }
+  .agentrix-validation {
+    min-height: 2rem;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+  .agentrix-validation svg {
+    flex: 0 0 auto;
+    margin-top: 0.125rem;
+  }
+  .agentrix-validation.ok {
+    color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  }
+  .agentrix-validation.error {
+    color: var(--destructive);
+  }
+  .agentrix-validation.loading {
+    color: var(--muted-foreground);
+  }
+  .agentrix-secret-input {
+    font-family: var(--font-mono);
+    -webkit-text-security: disc;
+  }
+  .agentrix-panel-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    border-top: 1px solid var(--border);
+    background: var(--if-color-surface-high);
+  }
+  .agentrix-primary-action {
+    margin-left: auto;
+  }
+  .command-step textarea {
+    min-height: 24rem;
+    max-width: 100%;
+    background: var(--if-color-surface);
+    color: var(--if-color-text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
   .workspace-tabs {
     height: 100%;
     min-height: 0;
@@ -865,7 +1160,7 @@
     min-width: 0;
     min-height: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0.9rem;
   }
   .issue-board-toolbar {
@@ -875,8 +1170,30 @@
     justify-content: space-between;
     gap: 0.75rem;
   }
+  .issue-board-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: 0.5rem;
+  }
+  .issue-view-switch {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.125rem;
+    border-radius: 8px;
+    background: var(--if-color-surface-high);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 76%, transparent);
+  }
+  .issue-view-switch [data-slot="button"] {
+    min-width: 4.25rem;
+  }
   .issue-board-toolbar > div {
     min-width: 0;
+  }
+  .issue-board-toolbar > div:first-child {
     display: inline-grid;
     gap: 0.125rem;
   }
@@ -893,6 +1210,7 @@
     font-size: 0.78rem;
   }
   .issue-board-lanes {
+    grid-row: 2 / -1;
     min-width: 0;
     min-height: 0;
     display: grid;
@@ -1021,6 +1339,148 @@
     padding: 0 0.4rem;
     border-radius: 999px;
     background: var(--if-color-surface-high);
+    white-space: nowrap;
+  }
+  .issue-list-filters {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--if-color-surface-high) 62%, var(--card));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
+  }
+  .issue-search-field {
+    min-width: min(18rem, 100%);
+    flex: 1 1 18rem;
+    min-height: 2.25rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--if-color-surface);
+    transition: border-color 120ms ease, background-color 120ms ease;
+  }
+  .issue-search-field:focus-within {
+    border-color: var(--if-color-focus-border);
+    background: var(--if-color-surface);
+  }
+  .issue-search-field svg {
+    color: var(--if-color-text-secondary);
+  }
+  .issue-search-field input {
+    width: 100%;
+    min-width: 0;
+    height: 2.125rem;
+    border: 0;
+    outline: 0;
+    background: var(--if-color-transparent);
+    box-shadow: none;
+    padding: 0;
+    color: var(--if-color-text);
+    font-size: 0.875rem;
+  }
+  .issue-search-field input::placeholder {
+    color: var(--if-color-text-secondary);
+  }
+  .issue-filter-select {
+    min-width: 7.25rem;
+    background: var(--card);
+  }
+  .issue-list-panel,
+  .issue-list-empty {
+    min-width: 0;
+    min-height: 0;
+    border-radius: 8px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
+  }
+  .issue-list-panel {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent;
+  }
+  .issue-list-panel::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .issue-list-panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .issue-list-panel::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
+  }
+  .issue-list-empty {
+    display: grid;
+    place-items: center;
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+  }
+  .issue-list-table {
+    width: 100%;
+    min-width: 52rem;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+  }
+  .issue-list-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .issue-list-table td {
+    min-height: 3rem;
+    padding: 0.7rem 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    color: var(--if-color-text-secondary);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+  .issue-list-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .issue-list-table tbody tr:hover {
+    background: color-mix(in srgb, var(--if-color-surface-high) 72%, transparent);
+  }
+  .issue-list-title {
+    min-width: 0;
+    display: grid;
+    gap: 0.18rem;
+  }
+  .issue-list-title strong {
+    color: var(--if-color-text-secondary);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .issue-list-title span {
+    max-width: 48rem;
+    color: var(--if-color-text);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .issue-flow-pill {
+    min-height: 1.45rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text-secondary);
+    font-size: 0.75rem;
     white-space: nowrap;
   }
   .install-empty,
@@ -1243,8 +1703,45 @@
   .activity-row,
   .git-server-layout,
   .git-server-fields,
+  .agentrix-resource-grid,
   .account-row {
     grid-template-columns: 1fr;
+  }
+  .agentrix-account-row,
+  .agentrix-resource-row,
+  .agentrix-inline-alert {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .agentrix-account-row > button,
+  .agentrix-resource-row > button,
+  .agentrix-inline-alert > button,
+  .agentrix-status-dot {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .agentrix-account-row .account-status {
+    grid-column: 2;
+  }
+  .agentrix-wizard {
+    grid-template-columns: 1fr;
+  }
+  .agentrix-panel-head {
+    grid-template-columns: 1fr;
+    min-height: 0;
+    align-items: start;
+  }
+  .agentrix-panel-head button {
+    justify-self: start;
+  }
+  .agentrix-panel-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .agentrix-primary-action {
+    margin-left: 0;
+  }
+  .command-step textarea {
+    min-height: 14rem;
   }
   .git-server-form > header {
     min-height: 4.5rem;

@@ -264,7 +264,7 @@ docker compose -f console/docker-compose.prod.yml up --build
 
 Release tags matching `console-v*` automatically publish the image to GitHub Container Registry as `ghcr.io/nil4u/issue-flow-console`.
 
-Minimal production variables:
+Common production variables:
 
 ```bash
 ISSUE_FLOW_BASE_URL=https://issue-flow.internal \
@@ -272,10 +272,40 @@ ISSUE_FLOW_WEB_API_BASE_URL=https://issue-flow.internal \
 ISSUE_FLOW_APP_URL=https://issue-flow-console.internal \
 DATABASE_URL=postgres://issue_flow:issue_flow@postgres.internal:5432/issue_flow \
 ISSUE_FLOW_SERVICE_KEY_FILE=/var/lib/issue-flow/key \
+ISSUE_FLOW_PLUGIN_DIR=/opt/issue-flow/plugin \
+ISSUE_FLOW_SETUP_CODE=change-me-setup-code \
 ISSUE_FLOW_AGENTRIX_BASE_URL=https://agentrix.xmz.ai \
+LLM_PROXY_BASE_URL=https://api.xmz.ai \
+ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN=change-me-forward-token \
+ISSUE_FLOW_AGENTRIX_CLI_IMAGE=ghcr.io/xmz-ai/agentrix/agentrix-cli:latest \
+ISSUE_FLOW_API_HOST=0.0.0.0 \
 ISSUE_FLOW_API_PORT=8788 \
 npm run api
 ```
+
+Startup environment reference:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string used by Prisma. |
+| `ISSUE_FLOW_BASE_URL` | Yes | Public API origin. GitLab OAuth callback and Agentrix event-forward WebSocket URLs are derived from this value. |
+| `ISSUE_FLOW_APP_URL` | Production | Web console origin used for CORS and post-login redirects. Multiple origins can be comma-separated; the first one is used as the redirect target. |
+| `ISSUE_FLOW_WEB_API_BASE_URL` | Web build/dev | Browser-facing API origin injected into the web console. |
+| `ISSUE_FLOW_SERVICE_KEY` / `ISSUE_FLOW_SERVICE_KEY_FILE` | Production | Stable encryption key for OAuth sessions and stored Agentrix secrets. Prefer `ISSUE_FLOW_SERVICE_KEY_FILE` with persistent storage. |
+| `ISSUE_FLOW_SERVICE_STATE_DIR` | Optional | Directory for generated service state such as the encryption key file when `ISSUE_FLOW_SERVICE_KEY_FILE` is not set. Defaults to `.issue-flow-service`. |
+| `ISSUE_FLOW_SETUP_CODE` | Production | First-run setup code. If omitted, the API generates a temporary code and logs it at startup. |
+| `ISSUE_FLOW_PLUGIN_DIR` | Container/custom installs | Path to the bundled issue-flow plugin source used when installing into target repositories. The console image sets this to `/opt/issue-flow/plugin`. |
+| `ISSUE_FLOW_AGENTRIX_BASE_URL` | Optional | Agentrix control-plane API used by issue-flow. Defaults to `https://agentrix.xmz.ai`. |
+| `LLM_PROXY_BASE_URL` | Optional | Default model proxy URL copied into generated Agentrix Private Cloud runner commands as `AGENTRIX_BASE_URL`. Defaults to `https://api.xmz.ai`. |
+| `ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN` | Private Cloud runner deploy | Bearer token used by Agentrix CLI event forwarding. The receiver path is fixed at `/webhooks/agentrix/forward`, and the deploy wizard refuses to generate a runner command without this token. |
+| `ISSUE_FLOW_AGENTRIX_CLI_IMAGE` | Optional | Docker image used at the end of generated runner commands. Defaults to `ghcr.io/xmz-ai/agentrix/agentrix-cli:latest`. |
+| `ISSUE_FLOW_API_HOST` / `ISSUE_FLOW_API_PORT` | Optional | API listen address. Defaults to `127.0.0.1:8788`; `HOST` / `PORT` are accepted as fallbacks. |
+| `ISSUE_FLOW_ENV_FILE` | Optional | Overrides the env file loaded by `console/api/src/main.ts`. Defaults to `.env.dev` in development and `.env` in production. |
+| `ISSUE_FLOW_WEB_DIST_DIR` | Optional | Directory served by the API for the built web console. The console Docker image sets this automatically. |
+| `ISSUE_FLOW_LOG_LEVEL` | Optional | Fastify log level; defaults to `info`. |
+| `ISSUE_FLOW_DB_SCHEMA` | Optional | Optional metrics schema override. |
+| `ISSUE_FLOW_STATS_DEBOUNCE_MS` | Optional | Debounce interval for async issue stats rebuilds; defaults to `2000`. |
+| `NODE_ENV` | Optional | `npm run api` sets this to `production`; it controls the default env file and Prisma log verbosity. |
 
 `npm run api` starts the compiled API from `console/api/dist/main.js` with `NODE_ENV=production`; build it first with `npm run api:build`. `console/api/src/main.ts` loads the selected env file through `dotenv.config()`, defaulting to the repository-root `.env` in production. For container or Kubernetes deployments, mount the production `.env` file into the working directory before running the API, or inject the same variables through the platform's Secret/ConfigMap mechanism. Existing platform environment variables take precedence over values in `.env`.
 

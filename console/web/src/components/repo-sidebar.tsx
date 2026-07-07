@@ -41,9 +41,13 @@ export function RepoSidebar(props: {
   owners: string[]
   filter: string
   loading: boolean
+  loadingMore?: boolean
+  hasMore?: boolean
+  loadingLabel?: string
   onSelectGitServer: (id: string) => void
   onOwner: (value: string) => void
   onFilter: (value: string) => void
+  onLoadMore: () => void
   onSelectProject: (id: string) => void
   onLoginCurrent: () => void
   onRefresh: (gitServerId?: string) => void | Promise<void>
@@ -64,9 +68,13 @@ export function RepoSidebar(props: {
     owners,
     filter,
     loading,
+    loadingMore,
+    hasMore,
+    loadingLabel,
     onSelectGitServer,
     onOwner,
     onFilter,
+    onLoadMore,
     onSelectProject,
     onLoginCurrent,
     onRefresh,
@@ -233,9 +241,13 @@ export function RepoSidebar(props: {
         </div>
       )}
 
-      <ScrollArea className="repo-list-scroll">
+      <ScrollArea className="repo-list-scroll" viewportProps={{ onScroll: (event) => {
+        const target = event.currentTarget
+        if (!hasMore || loading || loadingMore) return
+        if (target.scrollHeight - target.scrollTop - target.clientHeight < 96) onLoadMore()
+      } }}>
         <div className="repo-list">
-          {currentUser && loading && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> 同步仓库...</div>}
+          {currentUser && loading && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> {loadingLabel || "加载仓库..."}</div>}
           {currentUser && !loading && projects.length === 0 && <div className="repo-row muted">没有匹配仓库</div>}
           {projects.map((project) => {
             return (
@@ -253,6 +265,8 @@ export function RepoSidebar(props: {
               </button>
             )
           })}
+          {currentUser && loadingMore && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> 加载更多...</div>}
+          {currentUser && !loading && !loadingMore && hasMore && <div className="repo-row muted">继续向下滚动加载更多</div>}
         </div>
       </ScrollArea>
 

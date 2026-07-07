@@ -33,6 +33,8 @@ npm test               # 根 release-config + plugin 单测 + console 测试(con
 
 脚本约定:根 package.json 只做 workspace 委托与编排;`.env`/`.env.dev` 留在仓库根,workspace 内脚本用 `../../.env*` 相对引用。
 
+数据库迁移纪律:`console/api/prisma/migrations/` 下已经存在的 Prisma migration 是追加式历史,开发中禁止修改旧迁移文件;任何 schema 变化必须新增一个后续 migration 文件承接。
+
 插件脚本是 CommonJS(.cjs),除 Node.js 内置模块外无外部依赖。Provider 操作走 `gh`/`glab` CLI 或 Node 内置 fetch 直连 HTTP。
 
 ## Key Conventions

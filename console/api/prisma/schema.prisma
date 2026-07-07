@@ -19,6 +19,7 @@ model GitServer {
   webhookSecret     String   @default("") @map("webhook_secret")
   agentrixGitServerId String   @default("") @map("agentrix_git_server_id")
   adminPat            String   @default("") @map("admin_pat")
+  botPat              String   @default("") @map("bot_pat")
   commitAuthorName    String   @default("issue-flow") @map("commit_author_name")
   commitAuthorEmail   String   @default("") @map("commit_author_email")
   createdAt           DateTime @default(now()) @map("created_at")
@@ -26,6 +27,7 @@ model GitServer {
 
   repos        Repo[]
   userAccounts UserGitAccount[]
+  runnerGitlabTokens RunnerGitlabToken[]
 
   @@index([type, createdAt])
   @@map("git_servers")
@@ -43,6 +45,7 @@ model User {
 
   gitAccounts UserGitAccount[]
   sessions    OAuthSession[]
+  runnerGitlabTokens RunnerGitlabToken[]
 
   @@map("users")
 }
@@ -188,6 +191,63 @@ model PullRequest {
   @@unique([gitServerId, repositoryId, prNumber])
   @@index([gitServerId, repositoryId, issueId])
   @@map("pull_requests")
+}
+
+model Task {
+  id                 String    @id
+  gitServerId        String    @default("") @map("git_server_id")
+  repositoryId       String    @default("") @map("repository_id")
+  repositoryFullName String    @default("") @map("repository_full_name")
+  issueId            String    @default("") @map("issue_id")
+  issueNumber        Int       @default(0) @map("issue_number")
+  issueSpanRowId     String    @default("") @map("issue_span_row_id")
+  taskId             String    @unique @map("task_id")
+  action             String    @default("")
+  agent              String    @default("")
+  model              String    @default("")
+  turns              Int       @default(0)
+  modelUsage         Json?     @map("model_usage")
+  status             String    @default("queued")
+  result             String    @default("")
+  queuedAt           DateTime? @map("queued_at")
+  startedAt          DateTime? @map("started_at")
+  finishedAt         DateTime? @map("finished_at")
+  updatedAt          DateTime  @map("updated_at")
+
+  @@index([gitServerId, repositoryId, issueId])
+  @@index([action, startedAt])
+  @@index([status])
+  @@map("tasks")
+}
+
+model TaskEvent {
+  id                 String   @id
+  gitServerId        String   @default("") @map("git_server_id")
+  repositoryId       String   @default("") @map("repository_id")
+  repositoryFullName String   @default("") @map("repository_full_name")
+  issueId            String   @default("") @map("issue_id")
+  issueNumber        Int      @default(0) @map("issue_number")
+  taskId             String   @map("task_id")
+  chatId             String   @default("") @map("chat_id")
+  eventId            String   @unique @map("event_id")
+  sequence           Int
+  eventType          String   @map("event_type")
+  eventData          Json     @map("event_data")
+  createdAt          DateTime @map("created_at")
+
+  @@unique([taskId, sequence])
+  @@index([gitServerId, repositoryId, issueId])
+  @@map("task_events")
+}
+
+model AgentrixForwardCursor {
+  routeId   String   @id @map("route_id")
+  cloudId   String   @default("") @map("cloud_id")
+  machineId String   @map("machine_id")
+  cursor    BigInt   @default(0)
+  updatedAt DateTime @map("updated_at")
+
+  @@map("agentrix_forward_cursors")
 }
 
 model IssueStat {
@@ -340,4 +400,30 @@ model UserAgentrixConfig {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("user_agentrix_configs")
+}
+
+model RunnerGitlabToken {
+  id               String    @id
+  userId           String    @map("user_id")
+  gitServerId      String    @map("git_server_id")
+  runnerId         String    @map("runner_id")
+  gitlabUserId     String    @default("") @map("gitlab_user_id")
+  gitlabUsername   String    @default("") @map("gitlab_username")
+  gitlabTokenId    String    @default("") @map("gitlab_token_id")
+  tokenCiphertext  String    @default("") @map("token_ciphertext")
+  tokenFingerprint String    @default("") @map("token_fingerprint")
+  scopes           String[]  @default([])
+  source           String    @default("")
+  expiresAt        DateTime? @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gitServer GitServer @relation(fields: [gitServerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gitServerId, runnerId])
+  @@index([gitServerId, runnerId])
+  @@index([userId])
+  @@map("runner_gitlab_tokens")
 }

@@ -3,6 +3,7 @@ import path from "node:path"
 import Fastify, { type FastifyRequest } from "fastify"
 import cors from "@fastify/cors"
 
+import { agentrixPrivateCloudRoutes } from "./routes/agentrix-private-cloud.js"
 import { gitlabAuthRoutes } from "./routes/auth/gitlab.js"
 import { dashboardRoutes } from "./routes/dashboards.js"
 import { gitServerRoutes } from "./routes/git-servers.js"
@@ -13,6 +14,7 @@ import { sessionRoutes } from "./routes/session.js"
 import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
+import { attachAgentrixForwardServer } from "./core/agentrix-forward.js"
 import { errorResponse } from "./core/responses.js"
 import { ensureSetupCode } from "./core/setup.js"
 import { createIssueFlowStore, type IssueFlowStore } from "./storage/store.js"
@@ -140,6 +142,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(sessionRoutes)
   await app.register(gitServerRoutes)
   await app.register(gitlabAuthRoutes)
+  await app.register(agentrixPrivateCloudRoutes)
   await app.register(userAgentrixConfigRoutes)
   await app.register(repositoryRoutes)
   await app.register(dashboardRoutes)
@@ -152,6 +155,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   }))
 
   app.get("/*", sendStaticWeb)
+
+  attachAgentrixForwardServer(app)
 
   if (app.issueFlowStore.ready) {
     await app.issueFlowStore.ready
