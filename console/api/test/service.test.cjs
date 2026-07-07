@@ -1694,7 +1694,7 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
       }));
       return;
     }
-    if (req.url === '/api/v4/users/7/impersonation_tokens' && req.method === 'POST') {
+    if (req.url === '/api/v4/users/7/personal_access_tokens' && req.method === 'POST') {
       assert.equal(req.headers['private-token'], 'gl-admin-pat');
       let raw = '';
       req.on('data', (chunk) => { raw += chunk; });
@@ -1777,7 +1777,8 @@ test('Agentrix private cloud creates a runner GitLab token without target repo',
     assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
     assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-runner-token'/);
     assert.equal(requests.includes('/api/v4/user'), true);
-    assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), true);
+    assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), true);
+    assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), false);
     assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), false);
     assert.equal(requests.includes('agentrix:/v1/private-clouds/cloud-main/runner-secret'), true);
 

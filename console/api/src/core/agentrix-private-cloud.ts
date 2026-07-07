@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { llmProxyConfig, resolveGitServer, sessionUserKey } from './common.js'
 import {
-  createGitlabUserImpersonationToken,
+  createGitlabUserPersonalAccessToken,
   getGitlabCurrentUser,
 } from './gitlab.js'
 import { getAgentrixPrivateCloudRunnerSecret } from './agentrix-api.js'
@@ -154,7 +154,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
         },
       }
     }
-    const created = await createGitlabUserImpersonationToken({
+    const created = await createGitlabUserPersonalAccessToken({
       apiUrl: config.apiUrl,
       token: config.adminPat,
       authType: 'private-token',
