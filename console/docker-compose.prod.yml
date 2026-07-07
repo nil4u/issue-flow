@@ -14,6 +14,7 @@ services:
       ISSUE_FLOW_BASE_URL: http://127.0.0.1:8788
       ISSUE_FLOW_APP_URL: http://127.0.0.1:8788
       ISSUE_FLOW_AGENTRIX_BASE_URL: https://agentrix.xmz.ai
+      LLM_PROXY_BASE_URL: https://api.xmz.ai
       ISSUE_FLOW_SETUP_CODE: ${ISSUE_FLOW_SETUP_CODE:-}
       ISSUE_FLOW_SERVICE_KEY_FILE: /var/lib/issue-flow/key
       ISSUE_FLOW_PLUGIN_DIR: /opt/issue-flow/plugin

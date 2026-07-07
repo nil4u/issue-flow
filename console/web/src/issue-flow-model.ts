@@ -232,6 +232,98 @@ export type AgentrixDefaults = {
     baseUrl?: string
     runnerId?: string
     apiKeyFingerprint?: string
+    checkedAt?: string
+    user?: AgentrixUserProfile
+  }
+}
+
+export type AgentrixUserProfile = {
+  id?: string
+  username?: string
+  email?: string
+  avatar?: string
+  role?: string
+  createdAt?: string
+}
+
+export type RunnerGitlabToken = {
+  id: string
+  userId?: string
+  gitServerId: string
+  runnerId: string
+  gitlabUserId?: string
+  gitlabUsername?: string
+  gitlabTokenId?: string
+  tokenFingerprint?: string
+  scopes?: string[]
+  source?: string
+  expiresAt?: string
+  revokedAt?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type AgentrixPrivateCloudConfig = {
+  agentrix: {
+    serverUrl: string
+    webappUrl: string
+  }
+  llmProxy: {
+    baseUrl: string
+  }
+  gitServer?: GitServer
+  defaults?: AgentrixDefaults
+  runnerGitlabTokens?: RunnerGitlabToken[]
+}
+
+export type RunnerGitlabTokenResult = AgentrixPrivateCloudConfig & {
+  runnerGitlabToken: RunnerGitlabToken
+  gitlabToken: string
+  cloudAuthToken?: string
+  dockerCommand?: string
+}
+
+export type AgentrixCloud = {
+  id: string
+  name?: string
+  type?: string
+  status?: string
+  role?: string
+  userStatus?: string
+  machineCount?: number
+  onlineMachineCount?: number
+  memberCount?: number
+  maxMachineCount?: number
+  maxMemberCount?: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type AgentrixLocalMachine = {
+  id: string
+  owner?: string
+  status?: string
+  metadata?: string | null
+  approval?: string
+  controlPort?: number | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type AgentrixResources = {
+  configured: boolean
+  error?: string
+  detail?: string
+  agentrix: AgentrixDefaults["agentrix"]
+  privateClouds: AgentrixCloud[]
+  clouds?: AgentrixCloud[]
+  localMachines: AgentrixLocalMachine[]
+  entitlement?: {
+    enabled?: boolean
+    maxPrivateClouds?: number
+    maxMachinesPerPrivateCloud?: number
+    maxPrivateCloudMembers?: number
+    currentPrivateCloudCount?: number
   }
 }
 

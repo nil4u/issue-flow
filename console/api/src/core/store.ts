@@ -85,6 +85,10 @@ function normalizeAgentrix(input = {}, apiKeyFingerprint = "") {
   }
 }
 
+function normalizeRunnerId(value = "") {
+  return String(value || "").trim()
+}
+
 function normalizeGitServer(input = {}, fingerprints = {}) {
   const type = input.type || "gitlab"
   const id = String(input.id || "").trim()
@@ -2491,6 +2495,8 @@ class IssueFlowStore {
     const apiKey = input.agentrix && input.agentrix.apiKey
       ? String(input.agentrix.apiKey)
       : existing && existing.agentrix && existing.agentrix.apiKey || ""
+    const publicAgentrixInput = { ...(input.agentrix || {}) }
+    delete publicAgentrixInput.apiKey
     const now = nowIso()
     const config = {
       userKey,
@@ -2499,6 +2505,8 @@ class IssueFlowStore {
         ...(input.automation || {}),
       }),
       agentrix: {
+        ...(existing && existing.agentrix || {}),
+        ...publicAgentrixInput,
         baseUrl: normalizeBaseUrl(input.agentrix && input.agentrix.baseUrl || existing && existing.agentrix && existing.agentrix.baseUrl || ""),
         runnerId: input.agentrix && input.agentrix.runnerId !== undefined
           ? input.agentrix.runnerId || ""
@@ -2524,6 +2532,108 @@ class IssueFlowStore {
       },
     })
     return this.publicUserAgentrixConfig(config)
+  }
+
+  publicRunnerGitlabToken(row, options = {}) {
+    if (!row) return undefined
+    const result = {
+      id: row.id,
+      userId: row.userId,
+      gitServerId: row.gitServerId,
+      runnerId: row.runnerId,
+      gitlabUserId: row.gitlabUserId || "",
+      gitlabUsername: row.gitlabUsername || "",
+      gitlabTokenId: row.gitlabTokenId || "",
+      tokenFingerprint: row.tokenFingerprint || "",
+      scopes: row.scopes || [],
+      source: row.source || "",
+      expiresAt: timestampValue(row.expiresAt),
+      revokedAt: timestampValue(row.revokedAt),
+      createdAt: timestampValue(row.createdAt),
+      updatedAt: timestampValue(row.updatedAt),
+    }
+    if (options.includeSecret) {
+      result.token = this.decrypt(row.tokenCiphertext || "")
+    }
+    return result
+  }
+
+  async listRunnerGitlabTokens(options = {}) {
+    await this.ready
+    const userId = String(options.userId || "").trim()
+    const gitServerId = String(options.gitServerId || "").trim()
+    if (!userId) return []
+    const rows = await this.db.runnerGitlabToken.findMany({
+      where: {
+        userId,
+        ...(gitServerId ? { gitServerId } : {}),
+      },
+      orderBy: { updatedAt: "desc" },
+    })
+    return rows.map((row) => this.publicRunnerGitlabToken(row))
+  }
+
+  async getRunnerGitlabToken(options = {}) {
+    await this.ready
+    const userId = String(options.userId || "").trim()
+    const gitServerId = String(options.gitServerId || "").trim()
+    const runnerId = normalizeRunnerId(options.runnerId)
+    if (!userId || !gitServerId || !runnerId) return undefined
+    const row = await this.db.runnerGitlabToken.findUnique({
+      where: {
+        userId_gitServerId_runnerId: { userId, gitServerId, runnerId },
+      },
+    })
+    return this.publicRunnerGitlabToken(row, options)
+  }
+
+  async saveRunnerGitlabToken(input = {}) {
+    await this.ready
+    const userId = String(input.userId || "").trim()
+    const gitServerId = String(input.gitServerId || "").trim()
+    const runnerId = normalizeRunnerId(input.runnerId)
+    const token = String(input.token || "")
+    if (!userId || !gitServerId || !runnerId || !token) {
+      const error = new Error("runner GitLab token requires user, git server, runner id, and token")
+      error.status = 400
+      throw error
+    }
+    const now = nowIso()
+    const saved = await this.db.runnerGitlabToken.upsert({
+      where: {
+        userId_gitServerId_runnerId: { userId, gitServerId, runnerId },
+      },
+      create: {
+        id: randomId("runner_gitlab_token"),
+        userId,
+        gitServerId,
+        runnerId,
+        gitlabUserId: String(input.gitlabUserId || ""),
+        gitlabUsername: String(input.gitlabUsername || ""),
+        gitlabTokenId: String(input.gitlabTokenId || ""),
+        tokenCiphertext: this.encrypt(token),
+        tokenFingerprint: fingerprintSecret(token),
+        scopes: input.scopes || [],
+        source: input.source || "",
+        expiresAt: input.expiresAt ? asDate(input.expiresAt) : null,
+        revokedAt: input.revokedAt ? asDate(input.revokedAt) : null,
+        createdAt: asDate(now),
+        updatedAt: asDate(now),
+      },
+      update: {
+        gitlabUserId: String(input.gitlabUserId || ""),
+        gitlabUsername: String(input.gitlabUsername || ""),
+        gitlabTokenId: String(input.gitlabTokenId || ""),
+        tokenCiphertext: this.encrypt(token),
+        tokenFingerprint: fingerprintSecret(token),
+        scopes: input.scopes || [],
+        source: input.source || "",
+        expiresAt: input.expiresAt ? asDate(input.expiresAt) : null,
+        revokedAt: input.revokedAt ? asDate(input.revokedAt) : null,
+        updatedAt: asDate(now),
+      },
+    })
+    return this.publicRunnerGitlabToken(saved, { includeSecret: true })
   }
 }
 

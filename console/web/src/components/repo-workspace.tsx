@@ -128,9 +128,10 @@ function InstallConsole({
   const [helpTopicId, setHelpTopicId] = useState<AgentrixHelpTopicId>()
   const installInput = useMemo(() => installForm, [installForm])
   const groups = useMemo(() => buildInstallGroups({
+    defaults,
     installCheck,
     repository,
-  }), [installCheck, repository])
+  }), [defaults, installCheck, repository])
   const canManage = Boolean(projectAccess?.canManage)
   const accessKnown = projectAccess?.accessLevelKnown === true
   const readOnly = !canManage
@@ -157,8 +158,17 @@ function InstallConsole({
     }
   }
 
-  function openVariableDialog(row: CheckRow) {
+  async function openVariableDialog(row: CheckRow) {
     if (!row.variable || !canManage) return
+    if (row.variable.key === "AGENTRIX_API_KEY" && defaults?.agentrix?.apiKeyFingerprint) {
+      setActionRowId(row.id)
+      try {
+        await onSetVariable(row.variable.key, installInput)
+      } finally {
+        setActionRowId("")
+      }
+      return
+    }
     setEditingRow(row)
     setEditingValue(variableDialogValue(row, installForm))
   }
@@ -326,9 +336,11 @@ type InstallForm = {
 }
 
 function buildInstallGroups({
+  defaults,
   installCheck,
   repository,
 }: {
+  defaults?: RepoWorkspaceProps["defaults"]
   installCheck?: RepoWorkspaceProps["installCheck"]
   repository?: Repository
 }): CheckGroup[] {
@@ -358,13 +370,16 @@ function buildInstallGroups({
       const cached = Boolean(checkedVariable)
       const exists = checkedVariable?.exists ?? cached
       const status = checkedVariable?.status || (cached ? "passed" : "unknown")
+      const accountAgentrixKey = item.name === "AGENTRIX_API_KEY" && Boolean(defaults?.agentrix?.apiKeyFingerprint)
       const variable = {
         key: item.name,
         label: item.name,
-        description: item.description,
+        description: accountAgentrixKey && !checkedVariable
+          ? "使用账户页已校验的 Agentrix API key 写入 GitLab CI 变量。"
+          : item.description,
         ...(checkedVariable || {}),
         exists,
-        status: status as CheckStatus,
+        status: accountAgentrixKey && !checkedVariable ? "needs_action" as CheckStatus : status as CheckStatus,
         control: checkedVariable?.control || item.control,
       }
       return {
@@ -373,7 +388,9 @@ function buildInstallGroups({
         description: item.description,
         kind: "api",
         status: variable.status || "unknown",
-        detail: variableDetail(variable, item.description),
+        detail: accountAgentrixKey && !checkedVariable
+          ? `账户级 key 已校验 ${defaults?.agentrix?.apiKeyFingerprint || ""}`
+          : variableDetail(variable, item.description),
         variable,
         configItem: item,
       }

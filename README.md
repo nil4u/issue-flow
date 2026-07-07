@@ -273,9 +273,12 @@ ISSUE_FLOW_APP_URL=https://issue-flow-console.internal \
 DATABASE_URL=postgres://issue_flow:issue_flow@postgres.internal:5432/issue_flow \
 ISSUE_FLOW_SERVICE_KEY_FILE=/var/lib/issue-flow/key \
 ISSUE_FLOW_AGENTRIX_BASE_URL=https://agentrix.xmz.ai \
+LLM_PROXY_BASE_URL=https://api.xmz.ai \
 ISSUE_FLOW_API_PORT=8788 \
 npm run api
 ```
+
+`ISSUE_FLOW_AGENTRIX_BASE_URL` is the Agentrix control-plane API used by issue-flow. `LLM_PROXY_BASE_URL` is passed into generated Agentrix Private Cloud runner commands as `AGENTRIX_BASE_URL`.
 
 `npm run api` starts the compiled API from `console/api/dist/main.js` with `NODE_ENV=production`; build it first with `npm run api:build`. `console/api/src/main.ts` loads the selected env file through `dotenv.config()`, defaulting to the repository-root `.env` in production. For container or Kubernetes deployments, mount the production `.env` file into the working directory before running the API, or inject the same variables through the platform's Secret/ConfigMap mechanism. Existing platform environment variables take precedence over values in `.env`.
 

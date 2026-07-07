@@ -378,6 +378,112 @@ test('user Agentrix defaults return triage until saved', async () => {
   }
 });
 
+test('user Agentrix config validates key and loads resources', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+  };
+  const requests = [];
+  const agentrix = http.createServer((req, res) => {
+    requests.push(req.url);
+    assert.equal(req.headers.authorization, 'Bearer agentrix-key');
+    if (req.url === '/v1/auth/me') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        user: {
+          id: 'agx-user-1',
+          username: 'alice',
+          email: 'alice@agentrix.test',
+          avatar: null,
+          role: 'user',
+          encryptedSecret: null,
+          secretSalt: null,
+          stripeCustomerId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      }));
+      return;
+    }
+    if (req.url === '/v1/private-clouds') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        clouds: [{ id: 'cloud-main', name: 'Main cloud', type: 'private', status: 'active', role: 'owner', onlineMachineCount: 1, machineCount: 2, createdAt: '', updatedAt: '', owner: 'agx-user-1' }],
+        entitlement: { enabled: true, maxPrivateClouds: 3, maxMachinesPerPrivateCloud: 5, maxPrivateCloudMembers: 8, currentPrivateCloudCount: 1 },
+      }));
+      return;
+    }
+    if (req.url === '/v1/machines') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        clouds: [],
+        localMachines: [{ id: 'machine-main', owner: 'agx-user-1', status: 'online', metadata: null, approval: 'approved', dataEncryptionKey: '', controlPort: 17321, createdAt: '', updatedAt: '' }],
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const agentrixBase = await listen(agentrix);
+  process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: 'https://gitlab.example.com' },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const cookie = `issue_flow_session_gitlab-main=${session.id}`;
+    const saved = await fetch(`${baseUrl}/api/user/agentrix-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        agentrix: { apiKey: 'agentrix-key' },
+      }),
+    });
+    assert.equal(saved.status, 200);
+    const savedBody = await saved.json();
+    assert.equal(savedBody.config.agentrix.user.username, 'alice');
+    assert.equal(savedBody.config.agentrix.apiKey, undefined);
+    assert.equal(savedBody.config.agentrix.apiKeyFingerprint.length, 12);
+
+    const resources = await fetch(`${baseUrl}/api/user/agentrix-resources?gitServerId=gitlab-main`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(resources.status, 200);
+    const resourceBody = await resources.json();
+    assert.equal(resourceBody.configured, true);
+    assert.equal(resourceBody.privateClouds[0].id, 'cloud-main');
+    assert.equal(resourceBody.localMachines[0].id, 'machine-main');
+    assert.equal(requests.filter((item) => item === '/v1/auth/me').length, 2);
+    assert.equal(requests.includes('/v1/private-clouds'), true);
+    assert.equal(requests.includes('/v1/machines'), true);
+  } finally {
+    await app.close();
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test('OAuth session upsert keeps one current session per user and Git server', async () => {
   const { dir, store } = tempStore();
   try {
@@ -1563,6 +1669,186 @@ test('GitLab project sync follows pagination before replacing repo access', asyn
     const { repositories: repos } = await store.listRepositories({ gitServerId: 'gitlab-main', userId: user.id });
     assert.deepEqual(repos.map((repo) => repo.projectPath), ['team/api', 'team/app']);
   } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Agentrix private cloud creates a runner GitLab token without target repo', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+    LLM_PROXY_BASE_URL: process.env.LLM_PROXY_BASE_URL,
+  };
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.url === '/api/v4/users/101/impersonation_tokens' && req.method === 'POST') {
+      assert.equal(req.headers['private-token'], 'gl-admin-pat');
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        assert.match(body.name, /^issue-flow-runner-cloud-main-/);
+        assert.deepEqual(body.scopes, ['api', 'read_repository', 'write_repository']);
+        assert.equal(Boolean(body.expires_at), true);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 9001,
+          token: 'gl-runner-token',
+          scopes: body.scopes,
+          expires_at: body.expires_at,
+        }));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  const agentrix = http.createServer((req, res) => {
+    requests.push(`agentrix:${req.url}`);
+    if (req.url === '/v1/private-clouds/cloud-main/runner-secret' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer agentrix-key');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ secret: 'cloud-secret' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const agentrixBase = await listen(agentrix);
+  await seedGitlabServer(store, gitlabBase);
+  process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
+  process.env.LLM_PROXY_BASE_URL = 'https://llm.internal';
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    await store.saveUserAgentrixConfig('user:user-alice', {
+      agentrix: {
+        apiKey: 'agentrix-key',
+        user: { id: 'agentrix-user-1', username: 'alice' },
+      },
+    });
+    const cookie = `issue_flow_session_gitlab-main=${session.id}`;
+    const created = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+      }),
+    });
+    assert.equal(created.status, 200);
+    const createdBody = await created.json();
+    assert.equal(createdBody.gitlabToken, 'gl-runner-token');
+    assert.equal(createdBody.runnerGitlabToken.runnerId, 'cloud-main');
+    assert.equal(createdBody.runnerGitlabToken.token, undefined);
+    assert.equal(createdBody.runnerGitlabToken.gitlabTokenId, '9001');
+    assert.equal(createdBody.llmProxy.baseUrl, 'https://llm.internal');
+    assert.match(createdBody.dockerCommand, /AGENTRIX_API_KEY='agentrix-key'/);
+    assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
+    assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-runner-token'/);
+    assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), true);
+    assert.equal(requests.includes('agentrix:/v1/private-clouds/cloud-main/runner-secret'), true);
+
+    const saved = await store.getRunnerGitlabToken({
+      userId: 'user-alice',
+      gitServerId: 'gitlab-main',
+      runnerId: 'cloud-main',
+      includeSecret: true,
+    });
+    assert.equal(saved.token, 'gl-runner-token');
+    assert.equal(saved.gitlabUsername, 'alice');
+    const defaults = await store.getUserAgentrixConfig('user:user-alice', { includeSecret: true });
+    assert.equal(defaults.agentrix.runnerId, 'cloud-main');
+    assert.equal(defaults.agentrix.apiKey, 'agentrix-key');
+
+    const config = await fetch(`${baseUrl}/api/agentrix/private-cloud?gitServerId=gitlab-main`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(config.status, 200);
+    const configBody = await config.json();
+    assert.equal(configBody.runnerGitlabTokens.length, 1);
+    assert.equal(configBody.runnerGitlabTokens[0].token, undefined);
+    assert.equal(configBody.agentrix.serverUrl, 'https://agentrix.xmz.ai');
+  } finally {
+    await app.close();
+    await close(gitlab);
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud rejects manual GitLab token input', async () => {
+  const { dir, store } = tempStore();
+  const requests = [];
+  const gitlab = http.createServer((req, res) => {
+    requests.push(req.url);
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase, { adminPat: '' });
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '101', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '101',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `issue_flow_session_gitlab-main=${session.id}` },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        token: 'manual-token',
+      }),
+    });
+    assert.equal(rejected.status, 400);
+    const body = await rejected.json();
+    assert.equal(body.error, 'runner_gitlab_token_manual_unsupported');
+    assert.deepEqual(requests, []);
+    assert.equal((await store.listRunnerGitlabTokens({ userId: 'user-alice', gitServerId: 'gitlab-main' })).length, 0);
+  } finally {
+    await app.close();
     await close(gitlab);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });

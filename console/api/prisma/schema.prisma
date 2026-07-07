@@ -26,6 +26,7 @@ model GitServer {
 
   repos        Repo[]
   userAccounts UserGitAccount[]
+  runnerGitlabTokens RunnerGitlabToken[]
 
   @@index([type, createdAt])
   @@map("git_servers")
@@ -43,6 +44,7 @@ model User {
 
   gitAccounts UserGitAccount[]
   sessions    OAuthSession[]
+  runnerGitlabTokens RunnerGitlabToken[]
 
   @@map("users")
 }
@@ -397,4 +399,30 @@ model UserAgentrixConfig {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("user_agentrix_configs")
+}
+
+model RunnerGitlabToken {
+  id               String    @id
+  userId           String    @map("user_id")
+  gitServerId      String    @map("git_server_id")
+  runnerId         String    @map("runner_id")
+  gitlabUserId     String    @default("") @map("gitlab_user_id")
+  gitlabUsername   String    @default("") @map("gitlab_username")
+  gitlabTokenId    String    @default("") @map("gitlab_token_id")
+  tokenCiphertext  String    @default("") @map("token_ciphertext")
+  tokenFingerprint String    @default("") @map("token_fingerprint")
+  scopes           String[]  @default([])
+  source           String    @default("")
+  expiresAt        DateTime? @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gitServer GitServer @relation(fields: [gitServerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gitServerId, runnerId])
+  @@index([gitServerId, runnerId])
+  @@index([userId])
+  @@map("runner_gitlab_tokens")
 }

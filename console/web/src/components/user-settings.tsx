@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { Check, GitBranch, Link2, Loader2, Plus, Save, Server, Trash2 } from "lucide-react"
+import { Check, GitBranch, KeyRound, Link2, Loader2, Plus, Save, Server, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 
+import { AgentrixPanel } from "@/components/agentrix-panel"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import type { GitServer, UserGitAccount, UserSession } from "@/issue-flow-model"
+import { api, type AgentrixDefaults, type GitServer, type UserGitAccount, type UserSession } from "@/issue-flow-model"
+import { notifyError } from "@/lib/errors"
 
-type SettingsSection = "account" | "git-servers"
+type SettingsSection = "account" | "agentrix" | "git-servers"
 
 type GitServerForm = {
   id: string
@@ -65,13 +69,14 @@ export function UserSettings({
   onDeleteGitServer: (gitServerId: string) => Promise<unknown>
 }) {
   const isAdmin = userSession.user && !("username" in userSession.user) && userSession.user.role === "admin"
-  const section = isAdmin ? activeSection : "account"
+  const section = !isAdmin && activeSection === "git-servers" ? "account" : activeSection
 
   return (
     <div className="settings-panel">
       <header className="settings-titlebar">
         <div className="settings-tabs" role="tablist" aria-label="用户设置">
           <button type="button" className={`settings-tab ${section === "account" ? "active" : ""}`} onClick={() => onSelectSection("account")}>账户</button>
+          <button type="button" className={`settings-tab ${section === "agentrix" ? "active" : ""}`} onClick={() => onSelectSection("agentrix")}>Agentrix</button>
           {isAdmin && (
             <button type="button" className={`settings-tab ${section === "git-servers" ? "active" : ""}`} onClick={() => onSelectSection("git-servers")}>Git servers</button>
           )}
@@ -86,6 +91,13 @@ export function UserSettings({
             deletingGitServerId={deletingGitServerId}
             onSaveGitServer={onSaveGitServer}
             onDeleteGitServer={onDeleteGitServer}
+          />
+        ) : section === "agentrix" ? (
+          <AgentrixPanel
+            userSession={userSession}
+            gitServers={gitServers}
+            onConnectGitServer={onConnectGitServer}
+            onOpenAccount={() => onSelectSection("account")}
           />
         ) : (
           <AccountSettings
@@ -129,6 +141,8 @@ function AccountSettings({
         </span>
       </div>
 
+      <AgentrixAccountGroup userSession={userSession} gitServers={gitServers} />
+
       <div className="account-group">
         <header>
           <strong>关联 Git 账号</strong>
@@ -168,6 +182,141 @@ function AccountSettings({
         </div>
       </div>
     </section>
+  )
+}
+
+function AgentrixAccountGroup({
+  gitServers,
+  userSession,
+}: {
+  gitServers: GitServer[]
+  userSession: UserSession
+}) {
+  const gitServerId = agentrixContextGitServerId(userSession, gitServers)
+  const [config, setConfig] = useState<AgentrixDefaults>()
+  const [apiKey, setApiKey] = useState("")
+  const [editingApiKey, setEditingApiKey] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const agentrix = config?.agentrix
+  const user = agentrix?.user
+  const connected = Boolean(agentrix?.apiKeyFingerprint)
+  const title = connected ? user?.username || user?.email || user?.id || "Agentrix" : "Agentrix API key"
+  const detail = connected ? user?.email || "" : ""
+
+  useEffect(() => {
+    if (!gitServerId) {
+      setConfig(undefined)
+      setEditingApiKey(false)
+      return
+    }
+    void loadConfig()
+  }, [gitServerId])
+
+  function setEditing(open: boolean) {
+    setEditingApiKey(open)
+    if (open) setApiKey("")
+  }
+
+  async function loadConfig() {
+    if (!gitServerId) return
+    setLoading(true)
+    try {
+      const body = await api<{ config: AgentrixDefaults }>(`/api/user/agentrix-config?gitServerId=${encodeURIComponent(gitServerId)}`)
+      setConfig(body.config)
+    } catch (error) {
+      notifyError(error, "加载 Agentrix 账号失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function saveApiKey() {
+    if (!gitServerId || !apiKey.trim()) return
+    setSaving(true)
+    try {
+      const body = await api<{ config: AgentrixDefaults }>("/api/user/agentrix-config", {
+        method: "POST",
+        body: JSON.stringify({
+          gitServerId,
+          agentrix: {
+            apiKey: apiKey.trim(),
+          },
+        }),
+      })
+      setConfig(body.config)
+      setApiKey("")
+      setEditing(false)
+      toast.success("Agentrix API key 已校验并保存")
+    } catch (error) {
+      notifyError(error, "Agentrix API key 校验失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="account-group agentrix-account-group">
+      <header>
+        <strong>Agentrix 账号</strong>
+      </header>
+      <div className="account-list">
+        {!gitServerId ? (
+          <div className="account-empty">先关联一个 GitLab 账号后再设置 Agentrix API key</div>
+        ) : (
+          <div className={`account-row agentrix-account-row ${connected ? "linked" : "unlinked"}`}>
+            <span className={`account-provider-icon ${connected ? "connected" : "unlinked"}`}>
+              {connected ? <KeyRound className="size-4" /> : <Link2 className="size-4" />}
+            </span>
+            <span className="account-row-copy">
+              <strong>{title}</strong>
+              {detail ? <small>{detail}</small> : null}
+            </span>
+            <span className={`account-status ${connected ? "connected" : ""}`}>
+              {loading ? <Loader2 className="size-3.5 animate-spin" /> : connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
+              {connected ? "已校验" : "未关联"}
+            </span>
+            <Button
+              type="button"
+              className="agentrix-account-action"
+              size="sm"
+              variant={connected ? "outline" : "default"}
+              disabled={loading}
+              onClick={() => setEditing(true)}
+            >
+              设置
+            </Button>
+          </div>
+        )}
+      </div>
+      <Dialog open={editingApiKey} onOpenChange={setEditing}>
+        <DialogContent className="agentrix-account-dialog">
+          <DialogHeader>
+            <DialogTitle>Agentrix API key</DialogTitle>
+          </DialogHeader>
+          <form className="agentrix-account-dialog-body" onSubmit={(event) => {
+            event.preventDefault()
+            void saveApiKey()
+          }}>
+            <Input
+              autoFocus
+              aria-label="Agentrix API key"
+              className="agentrix-account-input"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.currentTarget.value)}
+              placeholder="粘贴 Agentrix API key"
+            />
+            <div className="agentrix-account-dialog-actions">
+              <Button type="submit" disabled={saving || !apiKey.trim()}>
+                {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+                保存
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 
@@ -414,6 +563,13 @@ function userEmail(user: UserSession["user"]) {
 
 function connectedCount(accounts: Map<string, UserGitAccount | undefined>, gitServers: GitServer[]) {
   return gitServers.filter((server) => accounts.has(server.id)).length
+}
+
+function agentrixContextGitServerId(userSession: UserSession, gitServers: GitServer[]) {
+  const gitlabServerIds = new Set(gitServers.filter((server) => server.type === "gitlab").map((server) => server.id))
+  return (userSession.accounts || [])
+    .map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "")
+    .find((id) => gitlabServerIds.has(id)) || ""
 }
 
 function providerIcon(type: string) {

@@ -32,6 +32,7 @@ import {
   mergeAgentrixInstallInput,
   savedAgentrixDefaults,
 } from './user-agentrix-config.js'
+import { validateAgentrixApiKey } from './agentrix-api.js'
 import {
   ISSUE_FLOW_MANIFEST_PATH,
   ISSUE_FLOW_PLUGIN_KEY,
@@ -1070,6 +1071,19 @@ async function setGitlabProjectInstallVariable({ store, input = {}, session, env
     if (nextValue === undefined || nextValue === '') {
       if (key) return { status: 400, body: { error: 'gitlab_variable_value_required' } };
       continue;
+    }
+    if (definition.key === 'AGENTRIX_API_KEY') {
+      try {
+        await validateAgentrixApiKey({ env, apiKey: String(nextValue) });
+      } catch (error) {
+        return {
+          status: error && error.status || 400,
+          body: {
+            error: error && error.code || 'agentrix_api_key_invalid',
+            detail: error && error.message || '',
+          },
+        };
+      }
     }
     await upsertGitlabProjectVariable(apiInput, {
       ...definition,

@@ -3,10 +3,17 @@ import { normalizeApiUrl, normalizeBaseUrl } from './store.js'
 import { webhookUrl } from './gitlab-webhook.js'
 
 const DEFAULT_AGENTRIX_BASE_URL = 'https://agentrix.xmz.ai';
+const DEFAULT_LLM_PROXY_BASE_URL = 'https://api.xmz.ai';
 
 function agentrixServiceConfig(env = process.env) {
   return {
     baseUrl: normalizeBaseUrl(env.ISSUE_FLOW_AGENTRIX_BASE_URL || DEFAULT_AGENTRIX_BASE_URL),
+  };
+}
+
+function llmProxyConfig(env = process.env) {
+  return {
+    baseUrl: normalizeBaseUrl(env.LLM_PROXY_BASE_URL || DEFAULT_LLM_PROXY_BASE_URL),
   };
 }
 
@@ -129,6 +136,7 @@ export {
   agentrixConfigFromEnv,
   agentrixServiceConfig,
   gitlabConfigFromServer,
+  llmProxyConfig,
   publicSession,
   repoWithWebhook,
   requireRepo,

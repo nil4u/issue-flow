@@ -3,6 +3,7 @@ import path from "node:path"
 import Fastify, { type FastifyRequest } from "fastify"
 import cors from "@fastify/cors"
 
+import { agentrixPrivateCloudRoutes } from "./routes/agentrix-private-cloud.js"
 import { gitlabAuthRoutes } from "./routes/auth/gitlab.js"
 import { dashboardRoutes } from "./routes/dashboards.js"
 import { gitServerRoutes } from "./routes/git-servers.js"
@@ -141,6 +142,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(sessionRoutes)
   await app.register(gitServerRoutes)
   await app.register(gitlabAuthRoutes)
+  await app.register(agentrixPrivateCloudRoutes)
   await app.register(userAgentrixConfigRoutes)
   await app.register(repositoryRoutes)
   await app.register(dashboardRoutes)
