@@ -1861,24 +1861,39 @@ class IssueFlowStore {
     return rows.map((row) => this.taskEventFromRecord(row))
   }
 
-  async getAgentrixForwardCursor(machineId) {
+  // Cursor routes mirror agentrix machine identity: machineId (deviceId) is
+  // only unique within a cloud, so cursors key on `${cloudId}:${machineId}`.
+  agentrixForwardRouteId(route = {}) {
+    const machineId = String(route.machineId || "").trim()
+    if (!machineId) return ""
+    const cloudId = String(route.cloudId || "").trim()
+    return `${cloudId}:${machineId}`
+  }
+
+  async getAgentrixForwardCursor(route = {}) {
     await this.ready
-    const id = String(machineId || "").trim()
-    if (!id) return 0
-    const row = await this.db.agentrixForwardCursor.findUnique({ where: { machineId: id } })
+    const routeId = this.agentrixForwardRouteId(route)
+    if (!routeId) return 0
+    const row = await this.db.agentrixForwardCursor.findUnique({ where: { routeId } })
     return row ? Number(row.cursor) : 0
   }
 
-  async setAgentrixForwardCursor(machineId, cursor) {
+  async setAgentrixForwardCursor(route = {}, cursor) {
     await this.ready
-    const id = String(machineId || "").trim()
+    const routeId = this.agentrixForwardRouteId(route)
     const value = Math.max(0, Math.floor(Number(cursor) || 0))
-    if (!id || !value) return this.getAgentrixForwardCursor(id)
-    const existing = await this.db.agentrixForwardCursor.findUnique({ where: { machineId: id } })
+    if (!routeId || !value) return this.getAgentrixForwardCursor(route)
+    const existing = await this.db.agentrixForwardCursor.findUnique({ where: { routeId } })
     if (existing && Number(existing.cursor) >= value) return Number(existing.cursor)
     const row = await this.db.agentrixForwardCursor.upsert({
-      where: { machineId: id },
-      create: { machineId: id, cursor: BigInt(value), updatedAt: new Date() },
+      where: { routeId },
+      create: {
+        routeId,
+        cloudId: String(route.cloudId || "").trim(),
+        machineId: String(route.machineId || "").trim(),
+        cursor: BigInt(value),
+        updatedAt: new Date(),
+      },
       update: { cursor: BigInt(value), updatedAt: new Date() },
     })
     return Number(row.cursor)

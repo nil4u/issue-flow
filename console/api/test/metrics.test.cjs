@@ -455,11 +455,17 @@ order by flow`,
     assert.equal(Number(buildFlow.task_seconds), 1800 + 600, 'build span carries build + review task time');
     assert.equal(Number(buildFlow.wait_seconds), 2 * 3600 - 2400);
 
-    assert.equal(await store.getAgentrixForwardCursor('runner-1'), 0);
-    await store.setAgentrixForwardCursor('runner-1', 42);
-    assert.equal(await store.getAgentrixForwardCursor('runner-1'), 42);
-    await store.setAgentrixForwardCursor('runner-1', 7);
-    assert.equal(await store.getAgentrixForwardCursor('runner-1'), 42, 'forward cursors only move forward');
+    const route = { machineId: 'runner-1' };
+    assert.equal(await store.getAgentrixForwardCursor(route), 0);
+    await store.setAgentrixForwardCursor(route, 42);
+    assert.equal(await store.getAgentrixForwardCursor(route), 42);
+    await store.setAgentrixForwardCursor(route, 7);
+    assert.equal(await store.getAgentrixForwardCursor(route), 42, 'forward cursors only move forward');
+    const cloudRoute = { machineId: 'runner-1', cloudId: 'cloud-a' };
+    assert.equal(await store.getAgentrixForwardCursor(cloudRoute), 0, 'the same machine id in another cloud has its own cursor');
+    await store.setAgentrixForwardCursor(cloudRoute, 10);
+    assert.equal(await store.getAgentrixForwardCursor(cloudRoute), 10);
+    assert.equal(await store.getAgentrixForwardCursor(route), 42, 'routes do not stomp each other');
   } finally {
     await store.close();
   }
@@ -722,7 +728,7 @@ test('agentrix forward websocket receives task events end to end', async () => {
     const task = await store.getTask('task-e2e');
     assert.equal(task.status, 'queued');
     assert.equal(task.model, 'claude-sonnet-5');
-    assert.equal(await store.getAgentrixForwardCursor('runner-e2e'), 3);
+    assert.equal(await store.getAgentrixForwardCursor({ machineId: 'runner-e2e' }), 3);
     client.close();
   } finally {
     delete process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN;

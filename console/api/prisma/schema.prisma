@@ -238,7 +238,9 @@ model TaskEvent {
 }
 
 model AgentrixForwardCursor {
-  machineId String   @id @map("machine_id")
+  routeId   String   @id @map("route_id")
+  cloudId   String   @default("") @map("cloud_id")
+  machineId String   @map("machine_id")
   cursor    BigInt   @default(0)
   updatedAt DateTime @map("updated_at")
 

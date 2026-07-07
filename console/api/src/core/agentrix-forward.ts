@@ -20,7 +20,10 @@ function forwardServerConfig(env = process.env) {
 }
 
 function createForwardSession({ store, logger, send, close }) {
-  let machineId = ""
+  // Runner identity mirrors agentrix machine identity: machineId (deviceId)
+  // is only unique within a cloud, so cursors key on the (cloudId, machineId)
+  // route — colliding machineIds across clouds must not share a cursor.
+  let route = { machineId: "", cloudId: "" }
   let handshaken = false
   let queue = Promise.resolve()
 
@@ -29,13 +32,14 @@ function createForwardSession({ store, logger, send, close }) {
       close(4400, "unsupported_protocol_version")
       return
     }
-    machineId = String(frame.machineId || "").trim()
+    const machineId = String(frame.machineId || "").trim()
     if (!machineId) {
       close(4400, "machine_id_required")
       return
     }
+    route = { machineId, cloudId: String(frame.cloudId || "").trim() }
     handshaken = true
-    const cursor = await store.getAgentrixForwardCursor(machineId)
+    const cursor = await store.getAgentrixForwardCursor(route)
     send({ type: "hello-ack", ...(cursor > 0 ? { resumeFromCursor: cursor } : {}) })
   }
 
@@ -45,7 +49,7 @@ function createForwardSession({ store, logger, send, close }) {
       return
     }
     if (frame.droppedBeforeCursor) {
-      logger?.warn?.({ machineId, droppedBeforeCursor: frame.droppedBeforeCursor }, "agentrix forward reported dropped events")
+      logger?.warn?.({ ...route, droppedBeforeCursor: frame.droppedBeforeCursor }, "agentrix forward reported dropped events")
     }
     const events = Array.isArray(frame.events) ? frame.events : []
     let cursor = 0
@@ -56,7 +60,7 @@ function createForwardSession({ store, logger, send, close }) {
       if (eventCursor > cursor) cursor = eventCursor
     }
     if (cursor > 0) {
-      await store.setAgentrixForwardCursor(machineId, cursor)
+      await store.setAgentrixForwardCursor(route, cursor)
       send({ type: "ack", cursor })
     }
   }
@@ -75,7 +79,7 @@ function createForwardSession({ store, logger, send, close }) {
       if (frame.type === "events") return handleEvents(frame)
       return undefined
     }).catch((error) => {
-      logger?.error?.({ err: error, machineId }, "agentrix forward processing failed")
+      logger?.error?.({ err: error, ...route }, "agentrix forward processing failed")
       close(1011, "processing_failed")
     })
     return queue
@@ -83,7 +87,8 @@ function createForwardSession({ store, logger, send, close }) {
 
   return {
     handleMessage,
-    machineId: () => machineId,
+    machineId: () => route.machineId,
+    route: () => ({ ...route }),
   }
 }
 

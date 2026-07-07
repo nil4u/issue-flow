@@ -12,12 +12,12 @@ function fakeStore(overrides = {}) {
   const calls = [];
   return {
     calls,
-    async getAgentrixForwardCursor(machineId) {
-      calls.push(['getCursor', machineId]);
+    async getAgentrixForwardCursor(route) {
+      calls.push(['getCursor', route]);
       return overrides.cursor || 0;
     },
-    async setAgentrixForwardCursor(machineId, cursor) {
-      calls.push(['setCursor', machineId, cursor]);
+    async setAgentrixForwardCursor(route, cursor) {
+      calls.push(['setCursor', route, cursor]);
       return cursor;
     },
     async upsertTaskRuntime(input) {
@@ -63,6 +63,34 @@ test('session answers hello with the stored resume cursor', async () => {
   await forward.handleMessage(JSON.stringify({ type: 'hello', protocolVersion: 1, machineId: 'runner-1', hostname: 'ci' }));
   assert.deepEqual(sent, [{ type: 'hello-ack', resumeFromCursor: 41 }]);
   assert.equal(forward.machineId(), 'runner-1');
+  assert.deepEqual(store.calls[0], ['getCursor', { machineId: 'runner-1', cloudId: '' }]);
+});
+
+test('session keys the cursor route on cloudId plus machineId', async () => {
+  const store = fakeStore();
+  const sent = [];
+  const forward = session(store, sent);
+  await forward.handleMessage(JSON.stringify({
+    type: 'hello',
+    protocolVersion: 1,
+    machineId: 'runner-1',
+    cloudId: 'cloud-a',
+    hostname: 'ci',
+  }));
+  assert.deepEqual(forward.route(), { machineId: 'runner-1', cloudId: 'cloud-a' });
+  await forward.handleMessage(JSON.stringify({
+    type: 'events',
+    events: [{
+      cursor: 3,
+      eventId: 'evt-1',
+      taskId: 'task-abc',
+      eventType: 'worker-running',
+      direction: 'outbound',
+      eventData: {},
+      createdAt: '2026-07-01T08:00:00Z',
+    }],
+  }));
+  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', { machineId: 'runner-1', cloudId: 'cloud-a' }, 3]);
 });
 
 test('session omits resumeFromCursor when no cursor is stored', async () => {
@@ -119,7 +147,7 @@ test('session projects event batches and acknowledges the highest cursor', async
   const eventCalls = store.calls.filter(([kind]) => kind === 'event');
   assert.equal(eventCalls.length, 1);
   assert.equal(eventCalls[0][1].eventType, 'agent_result');
-  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', 'runner-1', 8]);
+  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', { machineId: 'runner-1', cloudId: '' }, 8]);
 });
 
 test('session closes without acking when event projection fails', async () => {
