@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { AlertCircle, Cloud, Loader2, RefreshCw, Server, Settings, Wrench } from "lucide-react"
+import { AlertCircle, Cloud, Server, Settings, Wrench } from "lucide-react"
 
 import { AgentrixPrivateCloudWizard } from "@/components/agentrix-private-cloud-wizard"
 import { Button } from "@/components/ui/button"
@@ -26,11 +26,9 @@ export function AgentrixPanel({
 }) {
   const gitServerId = useAgentrixContextGitServerId(userSession, gitServers)
   const [resources, setResources] = useState<AgentrixResources>()
-  const [loading, setLoading] = useState(false)
   const [deployCloud, setDeployCloud] = useState<AgentrixCloud>()
   const privateClouds = resources?.privateClouds || []
   const localMachines = resources?.localMachines || []
-  const user = resources?.agentrix?.user
 
   useEffect(() => {
     if (!gitServerId) return
@@ -39,14 +37,11 @@ export function AgentrixPanel({
 
   async function loadResources() {
     if (!gitServerId) return
-    setLoading(true)
     try {
       const body = await api<AgentrixResources>(`/api/user/agentrix-resources?gitServerId=${encodeURIComponent(gitServerId)}`)
       setResources(body)
     } catch (error) {
       notifyError(error, "加载 Agentrix 资源失败")
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -77,17 +72,6 @@ export function AgentrixPanel({
 
   return (
     <section className="settings-content agentrix-panel">
-      <header className="agentrix-resource-head">
-        <span>
-          <strong>Agentrix</strong>
-          <small>{user ? `${user.username || user.email || user.id} · ${resources?.agentrix?.baseUrl || ""}` : resources?.agentrix?.baseUrl || "https://agentrix.xmz.ai"}</small>
-        </span>
-        <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void loadResources()}>
-          {loading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          刷新
-        </Button>
-      </header>
-
       {resources?.error ? (
         <div className="agentrix-inline-alert">
           <AlertCircle className="size-4" />

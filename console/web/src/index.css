@@ -833,30 +833,6 @@
   .agentrix-panel {
     justify-items: center;
   }
-  .agentrix-resource-head {
-    width: min(100%, var(--if-content-max-width));
-    min-height: 3.375rem;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.125rem 0;
-  }
-  .agentrix-resource-head strong,
-  .agentrix-resource-head small {
-    display: block;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .agentrix-resource-head strong {
-    font-size: 0.875rem;
-  }
-  .agentrix-resource-head small {
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-  }
   .agentrix-inline-alert {
     width: min(100%, var(--if-content-max-width));
     min-width: 0;
