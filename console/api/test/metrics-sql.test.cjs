@@ -20,11 +20,11 @@ const STARTED_ISSUE_DISTRIBUTION_SQL = `select
   done_bucket,
   issue_count,
   weighted_count,
-  triage_p50_days,
-  build_p75_days,
-  approve_p85_days
+  duration_p80_days
 from weekly_issue_metrics
-where week >= date_trunc('week', now()) - (:weeks::int - 1) * interval '1 week'
+where git_server_id = :git_server_id
+  and repository_id = :repository_id
+  and week >= date_trunc('week', now()) - (:weeks::int - 1) * interval '1 week'
 order by week, done_bucket`;
 
 test('assertReadOnlyMetricsSql allows the seeded panel queries', () => {
@@ -82,9 +82,13 @@ test('assertReadOnlyMetricsSql blocks pg_ functions and non-select statements', 
 });
 
 test('bindMetricsParams rewrites named params to positional placeholders', () => {
-  const bound = bindMetricsParams(STARTED_ISSUE_DISTRIBUTION_SQL, { weeks: 8 });
-  assert.match(bound.text, /\(\$1::int - 1\)/);
-  assert.deepEqual(bound.values, [8]);
+  const bound = bindMetricsParams(STARTED_ISSUE_DISTRIBUTION_SQL, {
+    git_server_id: 'gitlab-main',
+    repository_id: '42',
+    weeks: 8,
+  });
+  assert.match(bound.text, /\(\$3::int - 1\)/);
+  assert.deepEqual(bound.values, ['gitlab-main', '42', 8]);
 
   const range = bindMetricsParams('select 1 from issue_flow_metrics where started_at >= :from and started_at < :to and ended_at < :to', {
     from: '2026-06-01T00:00:00.000Z',

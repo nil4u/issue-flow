@@ -91,10 +91,15 @@ function baseOption(panel: DashboardPanel, xs: string[]): EChartsOption {
   }
 }
 
+function fieldLabel(panel: DashboardPanel, field: string) {
+  const fieldLabels = (panel.visualConfig?.fieldLabels || {}) as Record<string, string>
+  return fieldLabels[field] || field
+}
+
 function y2LineSeries(panel: DashboardPanel, rows: MetricsQueryResult["rows"], xs: string[], xField: string) {
   return (panel.y2Fields || []).map((field, index) => ({
     id: `line:${field}`,
-    name: field,
+    name: fieldLabel(panel, field),
     type: "line",
     yAxisIndex: 1,
     symbol: "circle",
@@ -255,7 +260,7 @@ function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EC
       icon: "roundRect",
       itemWidth: 12,
       itemHeight: 8,
-      data: [...stacks, ...(panel.y2Fields || [])],
+      data: [...stacks, ...(panel.y2Fields || []).map((field) => fieldLabel(panel, field))],
     },
     tooltip: {
       trigger: "item",

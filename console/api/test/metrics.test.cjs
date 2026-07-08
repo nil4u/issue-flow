@@ -549,11 +549,17 @@ test('metric views and the read-only executor answer the seeded panel queries', 
 
     const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
     const distribution = dashboard.panels.find((panel) => panel.id === 'dashpanel_started_issue_distribution');
+    assert.deepEqual(distribution.y2Fields, ['duration_p80_days']);
+    assert.equal(distribution.visualConfig.fieldLabels.duration_p80_days, 'P80 耗时');
     const distributionResult = await store.runMetricsQuery(distribution.querySql, { ...repoParams, weeks: 8 });
     assert.ok(distributionResult.rows.length >= 2);
     assert.deepEqual(
       distributionResult.columns.map((column) => column.name),
-      ['week', 'done_bucket', 'issue_count', 'weighted_count', 'triage_p50_days', 'build_p75_days', 'approve_p85_days'],
+      ['week', 'done_bucket', 'issue_count', 'weighted_count', 'duration_p80_days'],
+    );
+    assert.ok(
+      distributionResult.rows.some((row) => Number(row.duration_p80_days) > 0),
+      'completion duration P80 is computed from done/drop issues',
     );
 
     const otherRepo = await store.runMetricsQuery(distribution.querySql, {
