@@ -21,6 +21,15 @@ const ISSUE_TYPE_COLORS: Record<string, string> = {
   "未分类": "#64748b",
 }
 
+const TASK_TURN_COLORS: Record<string, string> = {
+  "0": "#94a3b8",
+  "1-3": "#22c55e",
+  "4-6": "#84cc16",
+  "7-10": "#f59e0b",
+  "11-20": "#f97316",
+  "20+": "#dc2626",
+}
+
 const LINE_COLORS = ["#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"]
 const BAR_COLORS = ["#6366f1", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"]
 const FALLBACK_STACK_COLOR = "#999"
@@ -138,7 +147,7 @@ function breakdownKey(x: string, field: string) {
 }
 
 function stackColor(value: string) {
-  return COMPLETION_BUCKET_COLORS[value] || ISSUE_TYPE_COLORS[value] || FALLBACK_STACK_COLOR
+  return COMPLETION_BUCKET_COLORS[value] || ISSUE_TYPE_COLORS[value] || TASK_TURN_COLORS[value] || FALLBACK_STACK_COLOR
 }
 
 function bucketMarker(bucket: string) {

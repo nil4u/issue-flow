@@ -514,6 +514,37 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     });
     await store.flushIssueStatsRebuilds();
 
+    const doneIssueRow = await findIssueRow(store, issueSnapshot());
+    const openIssueRow = await findIssueRow(store, openIssue);
+    const droppedIssueRow = await findIssueRow(store, droppedIssue);
+    await store.db.issueStat.update({
+      where: { id: doneIssueRow.id },
+      data: {
+        triageTaskTurns: 1,
+        planTaskTurns: 2,
+        buildTaskTurns: 3,
+        reviewTaskTurns: 1,
+      },
+    });
+    await store.db.issueStat.update({
+      where: { id: openIssueRow.id },
+      data: {
+        triageTaskTurns: 0,
+        planTaskTurns: 0,
+        buildTaskTurns: 0,
+        reviewTaskTurns: 0,
+      },
+    });
+    await store.db.issueStat.update({
+      where: { id: droppedIssueRow.id },
+      data: {
+        triageTaskTurns: 0,
+        planTaskTurns: 8,
+        buildTaskTurns: 9,
+        reviewTaskTurns: 4,
+      },
+    });
+
     const weekly = await store.runMetricsQuery(
       'select week, done_bucket, issue_count, weighted_count from weekly_issue_metrics order by done_bucket',
       {},
@@ -546,6 +577,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.deepEqual(
       dashboard.panels.map((panel) => panel.id).sort(),
       [
+        'dashpanel_issue_task_turns_distribution',
         'dashpanel_issue_type_distribution',
         'dashpanel_started_issue_distribution',
         'dashpanel_task_execution_trend',
@@ -598,6 +630,35 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       weeks: 8,
     });
     assert.equal(otherRepoTypes.rows.length, 0, 'type panel query is scoped to the requested repository');
+
+    const taskTurns = dashboard.panels.find((panel) => panel.id === 'dashpanel_issue_task_turns_distribution');
+    assert.equal(taskTurns.chartType, 'stacked_bar_with_lines');
+    assert.deepEqual(taskTurns.yFields, ['issue_count', 'weighted_count']);
+    assert.deepEqual(taskTurns.y2Fields, ['task_turns_p80']);
+    assert.equal(taskTurns.visualConfig.fieldLabels.task_turns_p80, 'P80 轮次');
+    const turnsResult = await store.runMetricsQuery(taskTurns.querySql, { ...repoParams, weeks: 8 });
+    assert.deepEqual(
+      turnsResult.columns.map((column) => column.name),
+      ['week', 'turns_bucket', 'issue_count', 'weighted_count', 'task_turns_p80'],
+    );
+    const turnsBuckets = new Map(turnsResult.rows.map((row) => [row.turns_bucket, row]));
+    assert.equal(turnsBuckets.get('0').issue_count, 1);
+    assert.equal(Number(turnsBuckets.get('0').weighted_count), 1);
+    assert.equal(turnsBuckets.get('7-10').issue_count, 1);
+    assert.equal(Number(turnsBuckets.get('7-10').weighted_count), 2);
+    assert.equal(turnsBuckets.get('20+').issue_count, 1);
+    assert.equal(Number(turnsBuckets.get('20+').weighted_count), 2);
+    assert.ok(
+      turnsResult.rows.some((row) => Math.abs(Number(row.task_turns_p80) - 15.4) < 0.001),
+      'task turns P80 is computed from summed issue_stats task turns',
+    );
+
+    const otherRepoTurns = await store.runMetricsQuery(taskTurns.querySql, {
+      ...repoParams,
+      repository_id: 'other-repo',
+      weeks: 8,
+    });
+    assert.equal(otherRepoTurns.rows.length, 0, 'task turns panel query is scoped to the requested repository');
 
     const trend = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_execution_trend');
     const trendResult = await store.runMetricsQuery(trend.querySql, {
@@ -674,7 +735,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const detailResponse = await fetch(`${baseUrl}/api/dashboards/agent-first-overview`, { headers: { cookie } });
     assert.equal(detailResponse.status, 200);
     const detailBody = await detailResponse.json();
-    assert.equal(detailBody.dashboard.panels.length, 3);
+    assert.equal(detailBody.dashboard.panels.length, 4);
 
     const queryResponse = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',
