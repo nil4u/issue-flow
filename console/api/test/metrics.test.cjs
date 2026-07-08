@@ -580,10 +580,12 @@ test('metric views and the read-only executor answer the seeded panel queries', 
         'dashpanel_issue_task_turns_distribution',
         'dashpanel_issue_type_distribution',
         'dashpanel_started_issue_distribution',
-        'dashpanel_task_execution_trend',
       ],
     );
     assert.deepEqual(dashboard.variables.map((variable) => variable.name), ['weeks', 'from', 'to']);
+    const weeksVariable = dashboard.variables.find((variable) => variable.name === 'weeks');
+    assert.equal(weeksVariable.defaultValue.value, 8);
+    assert.deepEqual(weeksVariable.defaultValue.options, [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]);
 
     const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
     const distribution = dashboard.panels.find((panel) => panel.id === 'dashpanel_started_issue_distribution');
@@ -660,14 +662,6 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     });
     assert.equal(otherRepoTurns.rows.length, 0, 'task turns panel query is scoped to the requested repository');
 
-    const trend = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_execution_trend');
-    const trendResult = await store.runMetricsQuery(trend.querySql, {
-      ...repoParams,
-      from: at(-30 * DAY_MS),
-      to: at(30 * DAY_MS),
-    });
-    assert.equal(trendResult.rows.length, 0, 'trend panel SQL passes the executor without task rows');
-
     const flowWaitSql = `select
   flow,
   sum(wait_seconds) as wait_total_seconds
@@ -735,7 +729,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const detailResponse = await fetch(`${baseUrl}/api/dashboards/agent-first-overview`, { headers: { cookie } });
     assert.equal(detailResponse.status, 200);
     const detailBody = await detailResponse.json();
-    assert.equal(detailBody.dashboard.panels.length, 4);
+    assert.equal(detailBody.dashboard.panels.length, 3);
 
     const queryResponse = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',

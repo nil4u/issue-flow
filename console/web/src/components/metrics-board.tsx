@@ -22,6 +22,7 @@ import {
 import { notifyError } from "@/lib/errors"
 
 const OVERVIEW_DASHBOARD_SLUG = "agent-first-overview"
+const DEFAULT_WEEK_OPTIONS = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
 
 type PanelParams = {
   weeks: number
@@ -56,7 +57,7 @@ export function MetricsBoard({ repository }: { repository: Repository }) {
     const weeksDefault = dashboard?.variables.find((item) => item.name === "weeks")?.defaultValue as
       | { options?: number[] }
       | undefined
-    return weeksDefault?.options?.length ? weeksDefault.options : [4, 8, 12]
+    return weeksDefault?.options?.length ? weeksDefault.options : DEFAULT_WEEK_OPTIONS
   }, [dashboard])
 
   const params = useMemo<PanelParams>(() => {
