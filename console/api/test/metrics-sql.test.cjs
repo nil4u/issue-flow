@@ -27,8 +27,32 @@ where git_server_id = :git_server_id
   and week >= date_trunc('week', now()) - (:weeks::int - 1) * interval '1 week'
 order by week, done_bucket`;
 
+const ISSUE_TYPE_DISTRIBUTION_SQL = `with typed as (
+  select
+    (date_trunc('week', i."opened_at"))::date as week,
+    case
+      when i."type" = '' then '未分类'
+      else 'type::' || i."type"
+    end as issue_type,
+    coalesce(w."weight", 1) as weight
+  from issues i
+  left join metric_size_weights w on w."size" = i."size"
+  where i."git_server_id" = :git_server_id
+    and i."repository_id" = :repository_id
+    and i."opened_at" >= date_trunc('week', now()) - (:weeks::int - 1) * interval '1 week'
+)
+select
+  week,
+  issue_type,
+  count(*)::int as issue_count,
+  sum(weight)::numeric as weighted_count
+from typed
+group by week, issue_type
+order by week, issue_type`;
+
 test('assertReadOnlyMetricsSql allows the seeded panel queries', () => {
   assert.equal(typeof assertReadOnlyMetricsSql(STARTED_ISSUE_DISTRIBUTION_SQL), 'string');
+  assert.equal(typeof assertReadOnlyMetricsSql(ISSUE_TYPE_DISTRIBUTION_SQL), 'string');
   assert.ok(assertReadOnlyMetricsSql(`select
     flow,
     percentile_cont(0.85) within group (order by wait_seconds) as wait_p85_seconds,

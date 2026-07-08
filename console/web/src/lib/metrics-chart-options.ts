@@ -1,6 +1,6 @@
 import type { DashboardPanel, MetricsQueryResult } from "@/issue-flow-model"
 
-const BUCKET_COLORS: Record<string, string> = {
+const COMPLETION_BUCKET_COLORS: Record<string, string> = {
   "1d": "#22c55e",
   "2d": "#4ade80",
   "3d": "#a3e635",
@@ -13,8 +13,17 @@ const BUCKET_COLORS: Record<string, string> = {
   drop: "#1f2937",
 }
 
+const ISSUE_TYPE_COLORS: Record<string, string> = {
+  "type::feature": "#2563eb",
+  "type::bug": "#dc2626",
+  "type::debt": "#9333ea",
+  "type::ops": "#0f766e",
+  "未分类": "#64748b",
+}
+
 const LINE_COLORS = ["#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"]
 const BAR_COLORS = ["#6366f1", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"]
+const FALLBACK_STACK_COLOR = "#999"
 
 export function formatSeconds(value: unknown) {
   const seconds = Number(value)
@@ -128,8 +137,12 @@ function breakdownKey(x: string, field: string) {
   return `${x}::${field}`
 }
 
+function stackColor(value: string) {
+  return COMPLETION_BUCKET_COLORS[value] || ISSUE_TYPE_COLORS[value] || FALLBACK_STACK_COLOR
+}
+
 function bucketMarker(bucket: string) {
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${BUCKET_COLORS[bucket] || "#999"};"></span>`
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${stackColor(bucket)};"></span>`
 }
 
 function stackedItemTooltipFormatter(panel: DashboardPanel, breakdown: StackBreakdown) {
@@ -149,7 +162,8 @@ function stackedItemTooltipFormatter(panel: DashboardPanel, breakdown: StackBrea
       ].join("")
     }
     if (!id.startsWith("bar:")) return ""
-    const [, field, hoveredBucket] = id.split(":")
+    const [, field] = id.split(":")
+    const hoveredBucket = String(params.seriesName || "")
     const entries = breakdown.get(breakdownKey(x, field)) || []
     const total = entries.reduce((sum, entry) => sum + entry.value, 0)
     const label = fieldLabels[field] || field
@@ -214,7 +228,7 @@ function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EC
   const series: SeriesEntry[] = []
   const breakdown: StackBreakdown = new Map()
   for (const field of yFields) {
-    for (const stackValue of stacks) {
+    for (const [stackIndex, stackValue] of stacks.entries()) {
       const data = xs.map((x) => {
         let total = 0
         let found = false
@@ -235,12 +249,12 @@ function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EC
         breakdown.get(key)?.push({ bucket: stackValue, value })
       })
       series.push({
-        id: `bar:${field}:${stackValue}`,
+        id: `bar:${field}:${stackIndex}`,
         name: stackValue,
         type: "bar",
         stack: field,
         barMaxWidth: 28,
-        color: BUCKET_COLORS[stackValue],
+        color: stackColor(stackValue),
         emphasis: { focus: "series" },
         data,
       })

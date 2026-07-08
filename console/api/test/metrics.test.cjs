@@ -488,6 +488,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       issueId: '4208',
       issueNumber: 8,
       title: 'Open metrics issue',
+      type: 'bug',
       size: 'S',
       openedAt: at(HOUR_MS),
       updatedAt: at(HOUR_MS),
@@ -498,6 +499,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       issueId: '4209',
       issueNumber: 9,
       title: 'Dropped metrics issue',
+      type: '',
       openedAt: at(2 * HOUR_MS),
       updatedAt: at(2 * HOUR_MS),
     });
@@ -542,8 +544,12 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.ok(dashboard, 'system dashboard seeded');
     assert.equal(dashboard.isSystem, true);
     assert.deepEqual(
-      dashboard.panels.map((panel) => panel.id),
-      ['dashpanel_started_issue_distribution', 'dashpanel_task_execution_trend'],
+      dashboard.panels.map((panel) => panel.id).sort(),
+      [
+        'dashpanel_issue_type_distribution',
+        'dashpanel_started_issue_distribution',
+        'dashpanel_task_execution_trend',
+      ],
     );
     assert.deepEqual(dashboard.variables.map((variable) => variable.name), ['weeks', 'from', 'to']);
 
@@ -568,6 +574,30 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       weeks: 8,
     });
     assert.equal(otherRepo.rows.length, 0, 'panel queries are scoped to the requested repository');
+
+    const issueType = dashboard.panels.find((panel) => panel.id === 'dashpanel_issue_type_distribution');
+    assert.equal(issueType.chartType, 'stacked_bar');
+    assert.deepEqual(issueType.yFields, ['issue_count', 'weighted_count']);
+    assert.deepEqual(issueType.visualConfig.stackOrder, ['type::feature', 'type::bug', 'type::debt', 'type::ops', '未分类']);
+    const typeResult = await store.runMetricsQuery(issueType.querySql, { ...repoParams, weeks: 8 });
+    assert.deepEqual(
+      typeResult.columns.map((column) => column.name),
+      ['week', 'issue_type', 'issue_count', 'weighted_count'],
+    );
+    const typeBuckets = new Map(typeResult.rows.map((row) => [row.issue_type, row]));
+    assert.equal(typeBuckets.get('type::feature').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('type::feature').weighted_count), 2);
+    assert.equal(typeBuckets.get('type::bug').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('type::bug').weighted_count), 1);
+    assert.equal(typeBuckets.get('未分类').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('未分类').weighted_count), 2);
+
+    const otherRepoTypes = await store.runMetricsQuery(issueType.querySql, {
+      ...repoParams,
+      repository_id: 'other-repo',
+      weeks: 8,
+    });
+    assert.equal(otherRepoTypes.rows.length, 0, 'type panel query is scoped to the requested repository');
 
     const trend = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_execution_trend');
     const trendResult = await store.runMetricsQuery(trend.querySql, {
@@ -644,7 +674,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const detailResponse = await fetch(`${baseUrl}/api/dashboards/agent-first-overview`, { headers: { cookie } });
     assert.equal(detailResponse.status, 200);
     const detailBody = await detailResponse.json();
-    assert.equal(detailBody.dashboard.panels.length, 2);
+    assert.equal(detailBody.dashboard.panels.length, 3);
 
     const queryResponse = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',
