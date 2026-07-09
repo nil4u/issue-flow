@@ -30,6 +30,10 @@ function dockerCommand(input = {}) {
     `  -e GITLAB_BASE_URL=${shellQuote(input.gitServer && input.gitServer.baseUrl || '')} \\`,
     ...(input.gitServer && input.gitServer.apiUrl ? [`  -e GITLAB_API_URL=${shellQuote(input.gitServer.apiUrl)} \\`] : []),
     `  -e GITLAB_TOKEN=${shellQuote(input.gitlabToken)} \\`,
+    `  -e GIT_AUTHOR_NAME=${shellQuote(input.commitAuthor && input.commitAuthor.name || '')} \\`,
+    `  -e GIT_AUTHOR_EMAIL=${shellQuote(input.commitAuthor && input.commitAuthor.email || '')} \\`,
+    `  -e GIT_COMMITTER_NAME=${shellQuote(input.commitAuthor && input.commitAuthor.name || '')} \\`,
+    `  -e GIT_COMMITTER_EMAIL=${shellQuote(input.commitAuthor && input.commitAuthor.email || '')} \\`,
     '  -v agentrix-home:/home/agentrix/.agentrix \\',
     `  ${shellQuote(input.cliImage || DEFAULT_AGENTRIX_CLI_IMAGE)}`,
   ]
@@ -57,6 +61,10 @@ function publicGitServer(server = {}) {
     name: server.name || '',
     baseUrl: server.baseUrl || '',
     apiUrl: server.apiUrl || '',
+    commitAuthor: {
+      name: server.commitAuthor && server.commitAuthor.name || 'issue-flow',
+      email: server.commitAuthor && server.commitAuthor.email || '',
+    },
     botPatFingerprint: server.botPatFingerprint || '',
   }
 }
@@ -71,6 +79,14 @@ function llmProxyInput(input = {}, env = process.env) {
 
 function agentrixCliImage(env = process.env) {
   return String(env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE || '').trim() || DEFAULT_AGENTRIX_CLI_IMAGE
+}
+
+function commitAuthorInput(input = {}, config = {}) {
+  const author = input.commitAuthor || {}
+  return {
+    name: String(author.name || input.commitAuthorName || config.commitAuthor && config.commitAuthor.name || 'issue-flow').trim() || 'issue-flow',
+    email: String(author.email || input.commitAuthorEmail || config.commitAuthor && config.commitAuthor.email || '').trim(),
+  }
 }
 
 function websocketUrl(basePublicUrl = '', path = '') {
@@ -190,6 +206,10 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
   }
 
   const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
+  const commitAuthor = commitAuthorInput(input, config)
+  if (!commitAuthor.email) {
+    return { status: 400, body: { error: 'commit_author_email_required' } }
+  }
   const llmProxy = llmProxyInput(input, env)
   if (!llmProxy.baseUrl) {
     return { status: 400, body: { error: 'llm_proxy_base_url_required' } }
@@ -280,6 +300,7 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
         cliImage: agentrixCliImage(env),
       },
       llmProxy,
+      commitAuthor,
       cloudAuthToken,
       dockerCommand: dockerCommand({
         cloudAuthToken,
@@ -288,6 +309,7 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
         llmProxyApiKey: llmProxy.apiKey,
         gitlabToken: tokenValue,
         gitServer: server,
+        commitAuthor,
         llmProxyBaseUrl: llmProxy.baseUrl,
         cliImage: agentrixCliImage(env),
       }),

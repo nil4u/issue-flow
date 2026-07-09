@@ -694,7 +694,8 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const address = app.server.address();
     const baseUrl = `http://127.0.0.1:${address.port}`;
     const user = await store.createUser({ displayName: 'Metrics Tester' });
-    const cookie = `issue_flow_user=${user.id}`;
+    const { token } = await store.createConsoleSession({ userId: user.id });
+    const cookie = `issue_flow_sid=${token}`;
     await store.ensureGitServer({
       id: 'gitlab-main',
       type: 'gitlab',
@@ -741,9 +742,11 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     assert.ok(Array.isArray(queryBody.result.columns));
     assert.ok(Array.isArray(queryBody.result.rows));
 
+    const outsider = await store.createUser({ displayName: 'Metrics Outsider' });
+    const { token: outsiderToken } = await store.createConsoleSession({ userId: outsider.id });
     const noAccess = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: 'issue_flow_user=user_forged' },
+      headers: { 'Content-Type': 'application/json', cookie: `issue_flow_sid=${outsiderToken}` },
       body: JSON.stringify({ params: { weeks: 8 } }),
     });
     assert.equal(noAccess.status, 404, 'users without repo access cannot query repo panels');

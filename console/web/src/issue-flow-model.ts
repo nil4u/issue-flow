@@ -287,6 +287,10 @@ export type AgentrixPrivateCloudConfig = {
 export type RunnerGitlabTokenResult = AgentrixPrivateCloudConfig & {
   runnerGitlabToken: RunnerGitlabToken
   gitlabToken: string
+  commitAuthor?: {
+    name?: string
+    email?: string
+  }
   cloudAuthToken?: string
   dockerCommand?: string
 }

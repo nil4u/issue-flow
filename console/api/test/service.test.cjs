@@ -168,6 +168,7 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     agentrixGitServerId: options.agentrixGitServerId || 'agentrix-gitlab-main',
     adminPat: options.adminPat || 'gl-admin-pat',
     botPat: options.botPat || 'gl-bot-pat',
+    ...(options.commitAuthor ? { commitAuthor: options.commitAuthor } : {}),
   });
 }
 
@@ -1837,7 +1838,12 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     res.end();
   });
   const agentrixBase = await listen(agentrix);
-  await seedGitlabServer(store, gitlabBase);
+  await seedGitlabServer(store, gitlabBase, {
+    commitAuthor: {
+      name: 'Issue Flow Bot',
+      email: 'issue-flow-bot@gitlab.test',
+    },
+  });
   process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
   process.env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE = 'registry.internal/agentrix/agentrix-cli:2026.07';
   process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN = 'forward-token';
@@ -1875,6 +1881,14 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_WS_URL='wss:\/\/issue-flow\.internal\/webhooks\/agentrix\/forward'/);
     assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_TOKEN='forward-token'/);
     assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-bot-pat'/);
+    assert.match(createdBody.dockerCommand, /GIT_AUTHOR_NAME='Issue Flow Bot'/);
+    assert.match(createdBody.dockerCommand, /GIT_AUTHOR_EMAIL='issue-flow-bot@gitlab\.test'/);
+    assert.match(createdBody.dockerCommand, /GIT_COMMITTER_NAME='Issue Flow Bot'/);
+    assert.match(createdBody.dockerCommand, /GIT_COMMITTER_EMAIL='issue-flow-bot@gitlab\.test'/);
+    assert.deepEqual(createdBody.gitServer.commitAuthor, {
+      name: 'Issue Flow Bot',
+      email: 'issue-flow-bot@gitlab.test',
+    });
     assert.match(createdBody.dockerCommand, /-v agentrix-home:\/home\/agentrix\/\.agentrix/);
     assert.doesNotMatch(createdBody.dockerCommand, /agentrix-workspaces/);
     assert.doesNotMatch(createdBody.dockerCommand, /\/home\/agentrix\/\.agentrix\/workspaces/);
@@ -1899,11 +1913,86 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     assert.equal(configBody.runnerGitlabTokens.length, 0);
     assert.equal(configBody.agentrix.serverUrl, 'https://agentrix.xmz.ai');
     assert.equal(configBody.agentrix.cliImage, 'registry.internal/agentrix/agentrix-cli:2026.07');
+    assert.deepEqual(configBody.gitServer.commitAuthor, {
+      name: 'Issue Flow Bot',
+      email: 'issue-flow-bot@gitlab.test',
+    });
     assert.equal(configBody.llmProxy.apiKey, '');
   } finally {
     await app.close();
     await close(gitlab);
     await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Agentrix private cloud docker command accepts custom commit author', async () => {
+  const { dir, store } = tempStore();
+  const previousEnv = {
+    ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
+    ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN: process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN,
+    LLM_PROXY_BASE_URL: process.env.LLM_PROXY_BASE_URL,
+  };
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 7, username: 'issue-flow-bot' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase, {
+    commitAuthor: {
+      name: 'Default Bot',
+      email: 'default-bot@gitlab.test',
+    },
+  });
+  process.env.ISSUE_FLOW_AGENTRIX_FORWARD_TOKEN = 'forward-token';
+  process.env.LLM_PROXY_BASE_URL = 'https://llm.internal';
+
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    const cookie = await consoleSidCookie(store, 'user-alice');
+    const created = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        gitServerId: 'gitlab-main',
+        runnerId: 'cloud-main',
+        llmProxyApiKey: 'llm-proxy-key',
+        cloudAuthToken: 'manual-cloud-secret',
+        commitAuthor: {
+          name: 'Custom Bot',
+          email: 'custom-bot@gitlab.test',
+        },
+      }),
+    });
+    assert.equal(created.status, 200);
+    const body = await created.json();
+    assert.deepEqual(body.commitAuthor, {
+      name: 'Custom Bot',
+      email: 'custom-bot@gitlab.test',
+    });
+    assert.match(body.dockerCommand, /GIT_AUTHOR_NAME='Custom Bot'/);
+    assert.match(body.dockerCommand, /GIT_AUTHOR_EMAIL='custom-bot@gitlab\.test'/);
+    assert.match(body.dockerCommand, /GIT_COMMITTER_NAME='Custom Bot'/);
+    assert.match(body.dockerCommand, /GIT_COMMITTER_EMAIL='custom-bot@gitlab\.test'/);
+    assert.doesNotMatch(body.dockerCommand, /Default Bot/);
+  } finally {
+    await app.close();
+    await close(gitlab);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
     for (const [key, value] of Object.entries(previousEnv)) {
