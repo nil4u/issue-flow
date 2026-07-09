@@ -73,11 +73,6 @@ export function consoleSessionCookieName() {
   return "issue_flow_sid"
 }
 
-export function sessionCookieName(gitServerId = "") {
-  const safe = String(gitServerId || "default").replace(/[^a-zA-Z0-9_-]/g, "_")
-  return `issue_flow_session_${safe}`
-}
-
 // legacy, 仅用于清除旧明文 cookie,绝不读取
 export function userCookieName() {
   return "issue_flow_user"

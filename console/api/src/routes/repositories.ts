@@ -10,22 +10,19 @@ import {
   syncIssuesSnapshot,
   validateRepositoryToken,
 } from "../core/repositories.js"
-import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.js"
-import { userCookieName } from "../utils/http.js"
+import { contextFromRequest, currentUserIdFromRequest } from "../services/issue-flow.js"
 
-async function userIdFromRequest(request: Parameters<typeof contextFromRequest>[0], gitServerId = "") {
-  const session = gitServerId ? await sessionFromRequest(request, gitServerId) : undefined
-  return session?.userId || request.cookies[userCookieName()] || ""
+async function userIdFromRequest(request: Parameters<typeof contextFromRequest>[0]) {
+  return currentUserIdFromRequest(request)
 }
 
 export async function repositoryRoutes(app: FastifyInstance) {
   app.get("/api/repositories", async (request, reply) => {
     const input = (request.query || {}) as Record<string, unknown>
-    const gitServerId = String(input.gitServerId || "")
     const result = await listRepositories({
       ...contextFromRequest(request),
       input,
-      userId: await userIdFromRequest(request, gitServerId),
+      userId: await userIdFromRequest(request),
     })
     return reply.code(result.status).send(result.body)
   })
@@ -35,7 +32,7 @@ export async function repositoryRoutes(app: FastifyInstance) {
     const result = await createRepository({
       ...contextFromRequest(request),
       input,
-      userId: await userIdFromRequest(request, String(input.gitServerId || "")),
+      userId: await userIdFromRequest(request),
     })
     return reply.code(result.status).send(result.body)
   })

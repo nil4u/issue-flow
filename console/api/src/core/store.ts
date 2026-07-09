@@ -2427,36 +2427,6 @@ class IssueFlowStore {
     return this.getSession(id, { allowExpired: true })
   }
 
-  async updateSessionIdentity(id, identity = {}) {
-    await this.ready
-    const existing = await this.getSession(id, { allowExpired: true })
-    if (!existing) return undefined
-    const updatedAt = nowIso()
-    const session = {
-      ...existing,
-      userId: identity.userId || existing.userId || "",
-      provider: identity.provider || existing.provider || "gitlab",
-      gitServerId: identity.gitServerId || existing.gitServerId || "",
-      user: identity.user || existing.user || {},
-      account: identity.account || existing.account || {},
-      updatedAt,
-    }
-    delete session.token
-    delete session.accessToken
-    delete session.refreshToken
-    await this.db.oAuthSession.update({
-      where: { id },
-      data: {
-        userId: session.userId || null,
-        provider: session.provider,
-        gitServerId: session.gitServerId,
-        data: session,
-        updatedAt: asDate(updatedAt),
-      },
-    })
-    return this.getSession(id, { allowExpired: true })
-  }
-
   async deleteSession(id) {
     await this.ready
     if (!id) return

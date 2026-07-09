@@ -1,18 +1,17 @@
 import type { FastifyInstance } from "fastify"
 
 import { getDashboard, listDashboards, queryRepositoryDashboardPanel } from "../core/dashboards.js"
-import { contextFromRequest } from "../services/issue-flow.js"
-import { userCookieName } from "../utils/http.js"
+import { contextFromRequest, currentUserIdFromRequest } from "../services/issue-flow.js"
 
-function userIdFromRequest(request: Parameters<typeof contextFromRequest>[0]) {
-  return request.cookies[userCookieName()] || ""
+async function userIdFromRequest(request: Parameters<typeof contextFromRequest>[0]) {
+  return currentUserIdFromRequest(request)
 }
 
 export async function dashboardRoutes(app: FastifyInstance) {
   app.get("/api/dashboards", async (request, reply) => {
     const result = await listDashboards({
       ...contextFromRequest(request),
-      userId: userIdFromRequest(request),
+      userId: await userIdFromRequest(request),
     })
     return reply.code(result.status).send(result.body)
   })
@@ -22,7 +21,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const result = await getDashboard({
       ...contextFromRequest(request),
       slug,
-      userId: userIdFromRequest(request),
+      userId: await userIdFromRequest(request),
     })
     return reply.code(result.status).send(result.body)
   })
@@ -35,7 +34,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       slug,
       panelId,
       input: (request.body || {}) as Record<string, unknown>,
-      userId: userIdFromRequest(request),
+      userId: await userIdFromRequest(request),
     })
     return reply.code(result.status).send(result.body)
   })
