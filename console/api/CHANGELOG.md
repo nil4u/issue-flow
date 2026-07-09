@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.0](https://github.com/nil4u/issue-flow/compare/console-v0.4.0...console-v0.5.0) (2026-07-09)
+
+
+### Features
+
+* **console:** add console session model and store methods ([03f808f](https://github.com/nil4u/issue-flow/commit/03f808fb19a9162137c2743d2c33df3b7043f603))
+* **console:** add issue task turns distribution chart ([0231c38](https://github.com/nil4u/issue-flow/commit/0231c3830ae7f58ab1c684f4c9e9ce583eb00baf))
+* **console:** add issue type distribution chart ([b8932f7](https://github.com/nil4u/issue-flow/commit/b8932f7c542dc7632ededbab28a89719b0c42fb9))
+* **console:** add runner commit author configuration ([714d57b](https://github.com/nil4u/issue-flow/commit/714d57b227325c73da93f222419d04ebae1c5204))
+* **console:** decouple agentrix config from git sessions ([0577eee](https://github.com/nil4u/issue-flow/commit/0577eee934ee3b26c381d42b22d7b05d23ee89a0))
+* **console:** issue console sessions on oauth login ([3651d80](https://github.com/nil4u/issue-flow/commit/3651d808e6dbe8af9d149b4aa6cf02fece4f5f2e))
+* **console:** log external service calls ([1d7dd1d](https://github.com/nil4u/issue-flow/commit/1d7dd1dcc4dbbacc5e50c7fe96c900b214d74a82))
+* **console:** refine overview dashboard panels ([f814d93](https://github.com/nil4u/issue-flow/commit/f814d93abb3e8e228afd757e1d4e15747fe9a980))
+* **console:** resolve identity from console session in routes ([c097fa1](https://github.com/nil4u/issue-flow/commit/c097fa1e2a3fc241d8e07a836f0ee89cb1e61812))
+* **metrics:** show issue duration p80 ([7284a1b](https://github.com/nil4u/issue-flow/commit/7284a1bbe59427eceda92bb28498228a8df5be24))
+
+
+### Bug Fixes
+
+* **console:** auto-configure GitLab install variables ([1c5e991](https://github.com/nil4u/issue-flow/commit/1c5e9916210f93d013feb06092ad2a65dd62d400))
+* **console:** ignore owner during repository search ([a255d8e](https://github.com/nil4u/issue-flow/commit/a255d8e14022739720f051285a3fe06a4ba31e61))
+* **console:** preserve logger receiver for external calls ([701fa59](https://github.com/nil4u/issue-flow/commit/701fa59a6cdf1ee7ad67bec826bb87ffc9df0887))
+
 ## [0.4.0](https://github.com/nil4u/issue-flow/compare/console-v0.3.1...console-v0.4.0) (2026-07-07)
 
 
