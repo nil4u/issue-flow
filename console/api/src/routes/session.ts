@@ -12,7 +12,7 @@ async function userSessionsFromRequest(request: FastifyRequest) {
   let currentUserId = request.cookies[userCookieName()] || ""
   for (const server of gitServers) {
     const sessionId = request.cookies[sessionCookieName(server.id)] || ""
-    let session = await resolveFreshSession({ store, sessionId, gitServerId: server.id })
+    let session = await resolveFreshSession({ store, sessionId, gitServerId: server.id, logger: request.log })
     if (session && (!session.userId || !session.account?.gitServerId)) {
       const identity = await store.resolveUserForGitAccount({
         currentUserId,

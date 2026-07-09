@@ -96,7 +96,7 @@ function eventForwardInput({ basePublicUrl = '', env = process.env } = {}) {
   }
 }
 
-async function validateBotPat(config = {}) {
+async function validateBotPat(config = {}, logger = undefined) {
   if (!config.botPat) {
     return {
       status: 400,
@@ -110,6 +110,7 @@ async function validateBotPat(config = {}) {
     apiUrl: config.apiUrl,
     token: config.botPat,
     authType: 'private-token',
+    logger,
   })
   if (validation.status !== 'valid') {
     return {
@@ -148,11 +149,11 @@ async function getAgentrixPrivateCloudConfig({ store, input = {}, session, env =
   }
 }
 
-async function validatePrivateCloudGitServer({ store, input = {}, session }) {
+async function validatePrivateCloudGitServer({ store, input = {}, session, logger = undefined }) {
   const current = requireSession(session)
   const { server, config } = await resolveGitServer(store, input, current, 'gitlab')
   try {
-    const result = await validateBotPat(config)
+    const result = await validateBotPat(config, logger)
     if (result.status !== 200) return result
     return {
       status: 200,
@@ -177,7 +178,7 @@ async function validatePrivateCloudGitServer({ store, input = {}, session }) {
   }
 }
 
-async function createRunnerGitlabToken({ store, input = {}, session, env = process.env, basePublicUrl = '' }) {
+async function createRunnerGitlabToken({ store, input = {}, session, env = process.env, basePublicUrl = '', logger = undefined }) {
   const current = requireSession(session)
   const runnerId = runnerIdFrom(input)
   if (!runnerId) {
@@ -198,7 +199,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
   }
   let validation
   try {
-    const result = await validateBotPat(config)
+    const result = await validateBotPat(config, logger)
     if (result.status !== 200) return result
     validation = result.validation
   } catch (error) {
@@ -226,6 +227,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
         env,
         apiKey: agentrixApiKey,
         cloudId: runnerId,
+        logger,
       })
     } catch (error) {
       return {

@@ -8,6 +8,7 @@ export type ServiceContext = {
   store: IssueFlowStore
   basePublicUrl: string
   appUrl: string
+  logger?: FastifyRequest["log"]
 }
 
 export function contextFromRequest(request: FastifyRequest): ServiceContext {
@@ -15,6 +16,7 @@ export function contextFromRequest(request: FastifyRequest): ServiceContext {
     store: request.server.issueFlowStore,
     basePublicUrl: publicBaseUrl(),
     appUrl: appBaseUrl(),
+    logger: request.log,
   }
 }
 
@@ -24,5 +26,6 @@ export function sessionFromRequest(request: FastifyRequest, gitServerId = "") {
     store: request.server.issueFlowStore,
     sessionId,
     gitServerId,
+    logger: request.log,
   })
 }

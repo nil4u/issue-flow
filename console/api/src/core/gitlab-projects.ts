@@ -422,6 +422,7 @@ async function validateIssueFlowGitlabTokenVariable(apiInput) {
     projectIdOrPath: apiInput.projectIdOrPath,
     token: variable.secretValue,
     authType: 'private-token',
+    logger: apiInput.logger,
   });
   return {
     variable,
@@ -495,6 +496,7 @@ async function createIssueFlowGitlabTokenVariable({ config, project, apiInput })
     token: config.adminPat,
     authType: 'private-token',
     projectIdOrPath: apiInput.projectIdOrPath,
+    logger: apiInput.logger,
     name: issueFlowGitlabTokenName(project),
     scopes: ['api'],
     accessLevel: 40,
@@ -601,6 +603,7 @@ async function checkGitlabAdminPatPermission({ store, config, project, existing,
     apiUrl: config.apiUrl,
     token: config.adminPat,
     authType: adminAuthType,
+    logger: apiInput.logger,
   })
   if (adminUser.status !== 'valid') {
     const cache = adminPermissionCache({ memberUrl })
@@ -642,10 +645,10 @@ async function checkGitlabAdminPatPermission({ store, config, project, existing,
   return adminPermissionStep(cache)
 }
 
-async function setGitlabProjectInstallPermission({ store, input = {}, session, env = process.env }) {
+async function setGitlabProjectInstallPermission({ store, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
-    context = await gitlabInstallContext({ store, input, session, env });
+    context = await gitlabInstallContext({ store, input, session, env, logger });
   } catch (error) {
     return {
       status: error && error.status || 500,
@@ -672,6 +675,7 @@ async function setGitlabProjectInstallPermission({ store, input = {}, session, e
     apiUrl: config.apiUrl,
     token: config.adminPat,
     authType: 'private-token',
+    logger: apiInput.logger,
   });
   if (adminUser.status !== 'valid' || !adminUser.id) {
     return { status: 400, body: { error: 'git_server_admin_pat_invalid', validation: adminUser } };
@@ -792,7 +796,7 @@ async function readGitlabIssueFlowManifest(apiInput, branch) {
   return JSON.parse(content)
 }
 
-async function gitlabInstallContext({ store, input = {}, session, env = process.env }) {
+async function gitlabInstallContext({ store, input = {}, session, env = process.env, logger = undefined }) {
   const { server, config } = await resolveGitServer(store, input, session, 'gitlab');
   const token = sessionToken(input, session);
   const authType = input.token ? config.tokenAuth : 'bearer';
@@ -807,6 +811,7 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
     apiUrl: config.apiUrl,
     token,
     authType,
+    logger,
   });
   if (user.status !== 'valid') {
     const error = new Error('gitlab_login_required');
@@ -826,6 +831,7 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
     token,
     authType,
     projectIdOrPath,
+    logger,
   });
   const existing = await store.findRepositoryByProject({
     gitServerId: server.id,
@@ -854,6 +860,7 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
     authType,
     projectIdOrPath: project.id || project.pathWithNamespace,
     projectPath: project.pathWithNamespace,
+    logger,
   };
   return {
     server,
@@ -868,7 +875,7 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
   };
 }
 
-async function listGitlabProjectsWithInstallStatus({ store, input = {}, session }) {
+async function listGitlabProjectsWithInstallStatus({ store, input = {}, session, logger = undefined }) {
   const { server, config } = await resolveGitServer(store, input, session, 'gitlab');
   const token = sessionToken(input, session);
   const authType = input.token ? config.tokenAuth : 'bearer';
@@ -876,6 +883,7 @@ async function listGitlabProjectsWithInstallStatus({ store, input = {}, session 
     apiUrl: config.apiUrl,
     token,
     authType,
+    logger,
   });
   if (user.status !== 'valid') {
     return { status: 401, body: { error: 'gitlab_login_required', validation: user } };
@@ -884,6 +892,7 @@ async function listGitlabProjectsWithInstallStatus({ store, input = {}, session 
     apiUrl: config.apiUrl,
     token,
     authType,
+    logger,
   });
   await store.syncRepositories({
     gitServerId: server.id,
@@ -901,9 +910,9 @@ async function listGitlabProjectsWithInstallStatus({ store, input = {}, session 
   };
 }
 
-async function getGitlabProjectRole({ store, input = {}, session, env = process.env }) {
+async function getGitlabProjectRole({ store, input = {}, session, env = process.env, logger = undefined }) {
   try {
-    const { server, project, apiInput, user } = await gitlabInstallContext({ store, input, session, env });
+    const { server, project, apiInput, user } = await gitlabInstallContext({ store, input, session, env, logger });
     const access = await resolveGitlabProjectAccess({ project, apiInput, user });
     return {
       status: 200,
@@ -925,12 +934,12 @@ async function getGitlabProjectRole({ store, input = {}, session, env = process.
   }
 }
 
-async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, session, env = process.env }) {
+async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, session, env = process.env, logger = undefined }) {
   const steps = [];
 
   let context;
   try {
-    context = await gitlabInstallContext({ store, input, session, env });
+    context = await gitlabInstallContext({ store, input, session, env, logger });
   } catch (error) {
     return {
       status: error && error.status || 500,
@@ -1103,7 +1112,7 @@ async function writeInstallVariable({ definition, input = {}, key = '', config, 
     throw error;
   }
   if (definition.key === 'AGENTRIX_API_KEY') {
-    await validateAgentrixApiKey({ env, apiKey: String(nextValue) });
+    await validateAgentrixApiKey({ env, apiKey: String(nextValue), logger: apiInput.logger });
   }
   await upsertGitlabProjectVariable(apiInput, {
     ...definition,
@@ -1112,10 +1121,10 @@ async function writeInstallVariable({ definition, input = {}, key = '', config, 
   });
 }
 
-async function setGitlabProjectInstallVariable({ store, input = {}, session, env = process.env }) {
+async function setGitlabProjectInstallVariable({ store, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
-    context = await gitlabInstallContext({ store, input, session, env });
+    context = await gitlabInstallContext({ store, input, session, env, logger });
   } catch (error) {
     return {
       status: error && error.status || 500,
@@ -1183,10 +1192,10 @@ async function setGitlabProjectInstallVariable({ store, input = {}, session, env
   };
 }
 
-async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}, session, env = process.env }) {
+async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
-    context = await gitlabInstallContext({ store, input, session, env });
+    context = await gitlabInstallContext({ store, input, session, env, logger });
   } catch (error) {
     return {
       status: error && error.status || 500,
@@ -1250,10 +1259,10 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
   };
 }
 
-async function setGitlabProjectInstallRunner({ store, input = {}, session, env = process.env }) {
+async function setGitlabProjectInstallRunner({ store, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
-    context = await gitlabInstallContext({ store, input, session, env });
+    context = await gitlabInstallContext({ store, input, session, env, logger });
   } catch (error) {
     return {
       status: error && error.status || 500,
@@ -1308,10 +1317,10 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
   return { status: 200, body: { repository: existing ? await store.getRepository(existing.id) : null, access, project: currentProject, step, steps: [step], installable: false } };
 }
 
-async function installGitlabProjectPlugin({ store, input = {}, session, env = process.env }) {
+async function installGitlabProjectPlugin({ store, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
-    context = await gitlabInstallContext({ store, input, session, env });
+    context = await gitlabInstallContext({ store, input, session, env, logger });
   } catch (error) {
     return {
       status: error && error.status || 500,
@@ -1367,6 +1376,7 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
       apiUrl: config.apiUrl,
       token: apiInput.token,
       authType: apiInput.authType,
+      logger: apiInput.logger,
       projectIdOrPath: apiInput.projectIdOrPath,
       baseUrl: config.baseUrl,
       projectPath: project.pathWithNamespace,

@@ -216,6 +216,7 @@ async function installGitlabPluginMergeRequest(input = {}) {
       apiUrl: input.apiUrl,
       token,
       authType: input.authType,
+      logger: input.logger,
       projectIdOrPath: input.projectIdOrPath,
       sourceBranch,
       targetBranch,

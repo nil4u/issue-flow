@@ -62,12 +62,13 @@ function verifyOAuthState(store, value = '') {
   }
 }
 
-async function connectGitlabSession({ store, input = {} }) {
+async function connectGitlabSession({ store, input = {}, logger = undefined }) {
   const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab');
   const validation = await getGitlabCurrentUser({
     apiUrl: config.apiUrl,
     token: input.token || '',
     authType: config.tokenAuth,
+    logger,
   });
   if (validation.status !== 'valid') {
     return {
@@ -121,7 +122,7 @@ async function startGitlabOAuth({ store, basePublicUrl, appUrl, input = {} }) {
   };
 }
 
-async function finishGitlabOAuth({ store, basePublicUrl, appUrl, query = {} }) {
+async function finishGitlabOAuth({ store, basePublicUrl, appUrl, query = {}, logger = undefined }) {
   const state = verifyOAuthState(store, query.state);
   if (!state) {
     return { status: 401, body: { error: 'gitlab_oauth_state_invalid' } };
@@ -131,12 +132,13 @@ async function finishGitlabOAuth({ store, basePublicUrl, appUrl, query = {} }) {
   if (!code) {
     return { status: 400, body: { error: 'gitlab_oauth_code_required' } };
   }
-  const tokenResult = await exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl });
+  const tokenResult = await exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl, logger });
   const token = tokenResult.access_token || '';
   const validation = await getGitlabCurrentUser({
     apiUrl: config.apiUrl,
     token,
     authType: 'bearer',
+    logger,
   });
   if (validation.status !== 'valid') {
     return { status: 401, body: { error: 'gitlab_login_failed', validation } };
@@ -190,6 +192,7 @@ async function finishGitlabOAuth({ store, basePublicUrl, appUrl, query = {} }) {
       server,
       token,
       userId: identity.user.id,
+      logger,
     });
   }
   return {
@@ -209,6 +212,7 @@ function syncRepositoriesAfterGitlabOAuth(input = {}) {
         apiUrl: config.apiUrl,
         token,
         authType: 'bearer',
+        logger: input.logger,
       });
       await store.syncRepositories({
         gitServerId: server.id,

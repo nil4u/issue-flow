@@ -45,7 +45,7 @@ async function listRepositories({ store, basePublicUrl, input = {}, userId = '' 
   };
 }
 
-async function createRepository({ store, basePublicUrl, input = {}, userId = '', env = process.env }) {
+async function createRepository({ store, basePublicUrl, input = {}, userId = '', env = process.env, logger = undefined }) {
   const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab');
   const baseUrl = normalizeBaseUrl(input.baseUrl || config.baseUrl);
   const apiUrl = normalizeApiUrl(baseUrl, input.apiUrl || config.apiUrl);
@@ -60,6 +60,7 @@ async function createRepository({ store, basePublicUrl, input = {}, userId = '',
       apiUrl,
       projectPath,
       token: input.token || '',
+      logger,
     });
   if (input.validateToken !== false && validation.status !== 'valid') {
     return {
@@ -121,7 +122,7 @@ async function listIssues({ store, repoId, userId = '' }) {
   return { status: 200, body: { issues: await store.listIssues(repoId) } };
 }
 
-async function syncIssuesSnapshot({ store, repoId, userId = '' }) {
+async function syncIssuesSnapshot({ store, repoId, userId = '', logger = undefined }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
   const { config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab');
   if (!config.adminPat) {
@@ -132,6 +133,7 @@ async function syncIssuesSnapshot({ store, repoId, userId = '' }) {
     token: config.adminPat,
     authType: config.tokenAuth,
     projectIdOrPath: repo.projectId || repo.projectPath,
+    logger,
   });
   const projected = [];
   for (const issue of issues) {
@@ -141,7 +143,7 @@ async function syncIssuesSnapshot({ store, repoId, userId = '' }) {
   return { status: 200, body: { issues: await store.listIssues(repoId), count: projected.length } };
 }
 
-async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '' }) {
+async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '', logger = undefined }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
   const session = repo.oauthSessionId
     ? await store.getSession(repo.oauthSessionId, { allowExpired: true })
@@ -151,6 +153,7 @@ async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = 
     projectPath: repo.projectId || repo.projectPath,
     token: session && session.token || '',
     authType: repo.tokenAuth || 'bearer',
+    logger,
   });
   const updated = await store.updateTokenValidation(repoId, validation);
   return {

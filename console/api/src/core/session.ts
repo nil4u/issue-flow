@@ -22,7 +22,7 @@ function scopesFromTokenResult(result = {}, fallback = []) {
   return scopes.length ? scopes : fallback
 }
 
-async function resolveFreshSession({ store, sessionId, gitServerId = '' }) {
+async function resolveFreshSession({ store, sessionId, gitServerId = '', logger = undefined }) {
   const session = await store.getSession(sessionId, { allowExpired: true })
   if (!session) return undefined
   if (!shouldRefreshSession(session)) return session
@@ -37,6 +37,7 @@ async function resolveFreshSession({ store, sessionId, gitServerId = '' }) {
     const result = await refreshGitlabOAuthToken({
       config,
       refreshToken: session.refreshToken,
+      logger,
     })
     const expiresAt = result.expires_in
       ? new Date(Date.now() + Number(result.expires_in) * 1000).toISOString()
@@ -52,8 +53,8 @@ async function resolveFreshSession({ store, sessionId, gitServerId = '' }) {
   }
 }
 
-async function getSession({ store, sessionId, gitServerId = '' }) {
-  const session = await resolveFreshSession({ store, sessionId, gitServerId });
+async function getSession({ store, sessionId, gitServerId = '', logger = undefined }) {
+  const session = await resolveFreshSession({ store, sessionId, gitServerId, logger });
   return {
     status: 200,
     body: session

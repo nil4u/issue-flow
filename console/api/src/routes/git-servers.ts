@@ -14,6 +14,7 @@ async function adminUserIdFromRequest(request: FastifyRequest) {
       store,
       sessionId: request.cookies[sessionCookieName(server.id)] || "",
       gitServerId: server.id,
+      logger: request.log,
     })
     const userId = session?.userId || ""
     if (!userId || hintedUserId && userId !== hintedUserId) continue

@@ -1,5 +1,9 @@
 // @ts-nocheck
 import { nowIso } from './store.js'
+import {
+  externalServiceCallStarted,
+  logExternalServiceCall,
+} from './external-service-log.js'
 
 function projectApiPath(projectPath) {
   return `/projects/${encodeURIComponent(projectPath)}`;
@@ -27,15 +31,30 @@ function tokenHeaders(token, authType = 'bearer') {
 }
 
 async function fetchJson(method, apiUrl, path, token, options = {}) {
-  const response = await fetch(`${apiUrl.replace(/\/+$/, '')}${path}`, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...tokenHeaders(token, options.authType),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const url = `${apiUrl.replace(/\/+$/, '')}${path}`;
+  const call = externalServiceCallStarted();
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...tokenHeaders(token, options.authType),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (error) {
+    logExternalServiceCall({
+      logger: options.logger,
+      service: 'gitlab',
+      method,
+      url,
+      call,
+      error,
+    });
+    throw error;
+  }
   const text = await response.text();
   let parsed;
   try {
@@ -49,8 +68,25 @@ async function fetchJson(method, apiUrl, path, token, options = {}) {
       : `GitLab API HTTP ${response.status}`;
     const error = new Error(message);
     error.status = response.status;
+    logExternalServiceCall({
+      logger: options.logger,
+      service: 'gitlab',
+      method,
+      url,
+      call,
+      status: response.status,
+      error,
+    });
     throw error;
   }
+  logExternalServiceCall({
+    logger: options.logger,
+    service: 'gitlab',
+    method,
+    url,
+    call,
+    status: response.status,
+  });
   return { parsed, headers: response.headers };
 }
 
@@ -104,6 +140,7 @@ async function listGitlabProjectsPage(input = {}, extraParams = {}) {
   });
   const result = await fetchJson('GET', input.apiUrl, `/projects?${params}`, input.token, {
     authType: input.authType,
+    logger: input.logger,
   });
   return {
     projects: Array.isArray(result.parsed) ? result.parsed.map(normalizeProject) : [],
@@ -126,7 +163,7 @@ async function listGitlabIssues(input = {}) {
       input.apiUrl,
       `${projectApiPath(input.projectIdOrPath)}/issues?${params}`,
       input.token,
-      { authType: input.authType }
+      { authType: input.authType, logger: input.logger }
     );
     if (Array.isArray(result.parsed)) {
       issues.push(...result.parsed.map(normalizeIssue));
@@ -160,7 +197,7 @@ function gitlabOAuthAuthorizeUrl({ config, state, basePublicUrl, appUrl }) {
   return url.toString();
 }
 
-async function exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl }) {
+async function exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl, logger }) {
   if (!config.oauthClientId || !config.oauthClientSecret) {
     const error = new Error('GitLab OAuth client is not configured');
     error.status = 400;
@@ -173,14 +210,29 @@ async function exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl }) 
     grant_type: 'authorization_code',
     redirect_uri: gitlabOAuthRedirectUri(config, basePublicUrl),
   });
-  const response = await fetch(new URL('/oauth/token', config.baseUrl), {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
+  const url = new URL('/oauth/token', config.baseUrl);
+  const call = externalServiceCallStarted();
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+  } catch (error) {
+    logExternalServiceCall({
+      logger,
+      service: 'gitlab',
+      method: 'POST',
+      url,
+      call,
+      error,
+    });
+    throw error;
+  }
   const text = await response.text();
   let parsed;
   try {
@@ -191,12 +243,29 @@ async function exchangeGitlabOAuthCode({ config, code, basePublicUrl, appUrl }) 
   if (!response.ok) {
     const error = new Error('GitLab OAuth token exchange failed');
     error.status = response.status;
+    logExternalServiceCall({
+      logger,
+      service: 'gitlab',
+      method: 'POST',
+      url,
+      call,
+      status: response.status,
+      error,
+    });
     throw error;
   }
+  logExternalServiceCall({
+    logger,
+    service: 'gitlab',
+    method: 'POST',
+    url,
+    call,
+    status: response.status,
+  });
   return parsed || {};
 }
 
-async function refreshGitlabOAuthToken({ config, refreshToken }) {
+async function refreshGitlabOAuthToken({ config, refreshToken, logger }) {
   if (!config.oauthClientId || !config.oauthClientSecret) {
     const error = new Error('GitLab OAuth client is not configured');
     error.status = 400;
@@ -213,14 +282,29 @@ async function refreshGitlabOAuthToken({ config, refreshToken }) {
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
   });
-  const response = await fetch(new URL('/oauth/token', config.baseUrl), {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
+  const url = new URL('/oauth/token', config.baseUrl);
+  const call = externalServiceCallStarted();
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+  } catch (error) {
+    logExternalServiceCall({
+      logger,
+      service: 'gitlab',
+      method: 'POST',
+      url,
+      call,
+      error,
+    });
+    throw error;
+  }
   const text = await response.text();
   let parsed;
   try {
@@ -231,8 +315,25 @@ async function refreshGitlabOAuthToken({ config, refreshToken }) {
   if (!response.ok) {
     const error = new Error('GitLab OAuth token refresh failed');
     error.status = response.status;
+    logExternalServiceCall({
+      logger,
+      service: 'gitlab',
+      method: 'POST',
+      url,
+      call,
+      status: response.status,
+      error,
+    });
     throw error;
   }
+  logExternalServiceCall({
+    logger,
+    service: 'gitlab',
+    method: 'POST',
+    url,
+    call,
+    status: response.status,
+  });
   return parsed || {};
 }
 
@@ -246,7 +347,10 @@ async function getGitlabCurrentUser(input = {}) {
     };
   }
   try {
-    const user = await fetchJson('GET', input.apiUrl, '/user', token, { authType: input.authType });
+    const user = await fetchJson('GET', input.apiUrl, '/user', token, {
+      authType: input.authType,
+      logger: input.logger,
+    });
     return {
       status: 'valid',
       id: user.parsed && user.parsed.id !== undefined ? String(user.parsed.id) : '',
@@ -290,6 +394,7 @@ async function listGitlabProjects(input = {}) {
         apiUrl: input.apiUrl,
         token: input.token,
         authType: input.authType,
+        logger: input.logger,
         projectIdOrPath: project.id,
       });
       return detailed;
@@ -302,6 +407,7 @@ async function listGitlabProjects(input = {}) {
 async function getGitlabProjectForInstall(input = {}) {
   const result = await fetchJson('GET', input.apiUrl, projectApiPath(input.projectIdOrPath), input.token, {
     authType: input.authType,
+    logger: input.logger,
   });
   return normalizeProject(result.parsed || {});
 }
@@ -315,7 +421,7 @@ async function getGitlabProjectMember(input = {}) {
       input.apiUrl,
       `${projectApiPath(input.projectIdOrPath)}/members/all/${encodeURIComponent(userId)}`,
       input.token,
-      { authType: input.authType }
+      { authType: input.authType, logger: input.logger }
     );
     return result.parsed || {};
   } catch (error) {
@@ -334,6 +440,7 @@ async function addGitlabProjectMember(input = {}) {
     input.token,
     {
       authType: input.authType,
+      logger: input.logger,
       body: {
         user_id: input.userId,
         access_level: Number(input.accessLevel || 40),
@@ -351,6 +458,7 @@ async function updateGitlabProjectMember(input = {}) {
     input.token,
     {
       authType: input.authType,
+      logger: input.logger,
       body: {
         access_level: Number(input.accessLevel || 40),
       },
@@ -390,7 +498,7 @@ async function installGitlabWebhook(input = {}) {
     input.apiUrl,
     `${projectApiPath(input.projectIdOrPath)}/hooks`,
     input.token,
-    { authType: input.authType, body }
+    { authType: input.authType, logger: input.logger, body }
   );
   return result.parsed || {};
 }
@@ -402,7 +510,7 @@ async function updateGitlabWebhook(input = {}) {
     input.apiUrl,
     `${projectApiPath(input.projectIdOrPath)}/hooks/${encodeURIComponent(input.hookId)}`,
     input.token,
-    { authType: input.authType, body }
+    { authType: input.authType, logger: input.logger, body }
   );
   return result.parsed || {};
 }
@@ -413,7 +521,7 @@ async function listGitlabWebhooks(input = {}) {
     input.apiUrl,
     `${projectApiPath(input.projectIdOrPath)}/hooks`,
     input.token,
-    { authType: input.authType }
+    { authType: input.authType, logger: input.logger }
   );
   return Array.isArray(result.parsed) ? result.parsed : [];
 }
@@ -426,6 +534,7 @@ async function createGitlabMergeRequest(input = {}) {
     input.token,
     {
       authType: input.authType,
+      logger: input.logger,
       body: {
         source_branch: input.sourceBranch,
         target_branch: input.targetBranch,
@@ -447,7 +556,7 @@ async function getGitlabMergeRequest(input = {}) {
       input.apiUrl,
       `${projectApiPath(input.projectIdOrPath)}/merge_requests/${encodeURIComponent(iid)}`,
       input.token,
-      { authType: input.authType }
+      { authType: input.authType, logger: input.logger }
     );
     return result.parsed || {};
   } catch (error) {
@@ -486,7 +595,7 @@ async function getGitlabProjectVariable(input = {}, key = '') {
       input.apiUrl,
       `${projectApiPath(input.projectIdOrPath)}/variables/${encodeURIComponent(key)}`,
       input.token,
-      { authType: input.authType }
+      { authType: input.authType, logger: input.logger }
     );
     return result.parsed || {};
   } catch (error) {
@@ -505,7 +614,7 @@ async function getGitlabGroupVariable(input = {}, groupPath = '', key = '') {
       input.apiUrl,
       `/groups/${encodeURIComponent(groupPath)}/variables/${encodeURIComponent(key)}`,
       input.token,
-      { authType: input.authType }
+      { authType: input.authType, logger: input.logger }
     );
     return result.parsed || {};
   } catch (error) {
@@ -600,7 +709,7 @@ async function upsertGitlabProjectVariable(input = {}, variable = {}) {
       input.apiUrl,
       `${projectApiPath(input.projectIdOrPath)}/variables/${encodeURIComponent(key)}`,
       input.token,
-      { authType: input.authType, body }
+      { authType: input.authType, logger: input.logger, body }
     );
     return result.parsed || {};
   } catch (error) {
@@ -612,7 +721,7 @@ async function upsertGitlabProjectVariable(input = {}, variable = {}) {
       input.apiUrl,
       `${projectApiPath(input.projectIdOrPath)}/variables`,
       input.token,
-      { authType: input.authType, body }
+      { authType: input.authType, logger: input.logger, body }
     );
     return result.parsed || {};
   }
@@ -632,6 +741,7 @@ async function createGitlabProjectAccessToken(input = {}) {
     input.token,
     {
       authType: input.authType,
+      logger: input.logger,
       body: {
         name: input.name || `issue-flow-${Date.now()}`,
         scopes: input.scopes || ['api'],
@@ -657,6 +767,7 @@ async function createGitlabUserImpersonationToken(input = {}) {
     input.token,
     {
       authType: input.authType || 'private-token',
+      logger: input.logger,
       body: {
         name: input.name || `issue-flow-runner-${Date.now()}`,
         scopes: input.scopes || ['api'],
@@ -683,6 +794,7 @@ async function validateGitlabProjectApiToken(input = {}) {
     try {
       const result = await fetchJson(method, input.apiUrl, path, token, {
         authType: input.authType || 'private-token',
+        logger: input.logger,
         body,
       });
       checks.push({ id, label, status: 'passed' });
@@ -757,7 +869,7 @@ async function listGitlabProjectRunners(input = {}) {
     input.apiUrl,
     `${projectApiPath(input.projectIdOrPath)}/runners`,
     input.token,
-    { authType: input.authType }
+    { authType: input.authType, logger: input.logger }
   );
   return Array.isArray(result.parsed) ? result.parsed.map(normalizeGitlabRunner) : [];
 }
@@ -768,7 +880,7 @@ async function getGitlabRunner(input = {}, runnerId = '') {
     input.apiUrl,
     `/runners/${encodeURIComponent(runnerId)}`,
     input.token,
-    { authType: input.authType }
+    { authType: input.authType, logger: input.logger }
   );
   return normalizeGitlabRunner(result.parsed || {});
 }
@@ -783,7 +895,7 @@ async function listGitlabRunners(input = {}, params = {}) {
     input.apiUrl,
     `/runners?${query}`,
     input.token,
-    { authType: input.authType }
+    { authType: input.authType, logger: input.logger }
   );
   return Array.isArray(result.parsed) ? result.parsed.map(normalizeGitlabRunner) : [];
 }
@@ -794,7 +906,7 @@ async function enableGitlabRunnerForProject(input = {}, runnerId = '') {
     input.apiUrl,
     `${projectApiPath(input.projectIdOrPath)}/runners`,
     input.token,
-    { authType: input.authType, body: { runner_id: runnerId } }
+    { authType: input.authType, logger: input.logger, body: { runner_id: runnerId } }
   );
   return result.parsed || {};
 }
@@ -808,7 +920,7 @@ async function updateGitlabProjectRunnerSettings(input = {}, settings = {}) {
     input.apiUrl,
     projectApiPath(input.projectIdOrPath),
     input.token,
-    { authType: input.authType, body }
+    { authType: input.authType, logger: input.logger, body }
   );
   return normalizeProject(result.parsed || {});
 }
@@ -823,7 +935,7 @@ async function getGitlabRepositoryFile(input = {}) {
       input.apiUrl,
       `${projectFileApiPath(input.projectIdOrPath, input.filePath)}?${params}`,
       input.token,
-      { authType: input.authType }
+      { authType: input.authType, logger: input.logger }
     );
     return result.parsed || {};
   } catch (error) {
@@ -842,6 +954,7 @@ async function createGitlabRepositoryCommit(input = {}) {
     input.token,
     {
       authType: input.authType,
+      logger: input.logger,
       body: {
         branch: input.branch,
         commit_message: input.commitMessage,
@@ -863,9 +976,13 @@ async function validateGitlabToken(input = {}) {
   }
 
   try {
-    const user = await fetchJson('GET', input.apiUrl, '/user', token, { authType: input.authType || 'private-token' });
+    const user = await fetchJson('GET', input.apiUrl, '/user', token, {
+      authType: input.authType || 'private-token',
+      logger: input.logger,
+    });
     const project = await fetchJson('GET', input.apiUrl, projectApiPath(input.projectPath), token, {
       authType: input.authType || 'private-token',
+      logger: input.logger,
     });
     return {
       status: 'valid',

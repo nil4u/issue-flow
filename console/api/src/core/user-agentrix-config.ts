@@ -61,7 +61,7 @@ async function getUserAgentrixConfig({ store, session, env = process.env }) {
   };
 }
 
-async function updateUserAgentrixConfig({ store, session, input = {}, env = process.env }) {
+async function updateUserAgentrixConfig({ store, session, input = {}, env = process.env, logger = undefined }) {
   const userKey = sessionUserKey(session);
   if (!userKey) {
     return { status: 401, body: { error: 'gitlab_login_required' } };
@@ -70,7 +70,7 @@ async function updateUserAgentrixConfig({ store, session, input = {}, env = proc
   let validation
   if (nextApiKey) {
     try {
-      validation = await validateAgentrixApiKey({ env, apiKey: nextApiKey })
+      validation = await validateAgentrixApiKey({ env, apiKey: nextApiKey, logger })
     } catch (error) {
       return {
         status: error && error.status || 502,
@@ -105,7 +105,7 @@ async function updateUserAgentrixConfig({ store, session, input = {}, env = proc
   };
 }
 
-async function getUserAgentrixResources({ store, session, env = process.env }) {
+async function getUserAgentrixResources({ store, session, env = process.env, logger = undefined }) {
   const userKey = sessionUserKey(session);
   if (!userKey) {
     return { status: 401, body: { error: 'gitlab_login_required' } };
@@ -129,9 +129,9 @@ async function getUserAgentrixResources({ store, session, env = process.env }) {
   }
   try {
     const [validation, privateClouds, machines] = await Promise.all([
-      validateAgentrixApiKey({ env, apiKey }),
-      listAgentrixPrivateClouds({ env, apiKey }),
-      listAgentrixMachines({ env, apiKey }),
+      validateAgentrixApiKey({ env, apiKey, logger }),
+      listAgentrixPrivateClouds({ env, apiKey, logger }),
+      listAgentrixMachines({ env, apiKey, logger }),
     ]);
     const updated = await store.saveUserAgentrixConfig(userKey, {
       agentrix: {
