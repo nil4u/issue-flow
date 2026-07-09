@@ -1168,8 +1168,7 @@ class IssueFlowStore {
     if (selectedProjectId && !rows.some((row) => row.id === selectedProjectId || row.serverRepoId === selectedProjectId)) {
       const selected = await this.db.repo.findFirst({
         where: {
-          id: { in: repoIds },
-          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+          ...where,
           OR: [
             { id: selectedProjectId },
             { serverRepoId: selectedProjectId },
