@@ -5,6 +5,13 @@ import {
   logExternalServiceCall,
 } from './external-service-log.js'
 
+const DEFAULT_GITLAB_FETCH_TIMEOUT_MS = 30_000
+
+function gitlabFetchTimeoutMs(options = {}) {
+  const value = Number(options.timeoutMs || process.env.ISSUE_FLOW_GITLAB_FETCH_TIMEOUT_MS || DEFAULT_GITLAB_FETCH_TIMEOUT_MS)
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_GITLAB_FETCH_TIMEOUT_MS
+}
+
 function projectApiPath(projectPath) {
   return `/projects/${encodeURIComponent(projectPath)}`;
 }
@@ -33,10 +40,17 @@ function tokenHeaders(token, authType = 'bearer') {
 async function fetchJson(method, apiUrl, path, token, options = {}) {
   const url = `${apiUrl.replace(/\/+$/, '')}${path}`;
   const call = externalServiceCallStarted();
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, gitlabFetchTimeoutMs(options));
   let response;
   try {
     response = await fetch(url, {
       method,
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -45,15 +59,20 @@ async function fetchJson(method, apiUrl, path, token, options = {}) {
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
   } catch (error) {
+    const reportedError = timedOut
+      ? Object.assign(new Error('GitLab API request timed out'), { code: 'GITLAB_FETCH_TIMEOUT' })
+      : error;
     logExternalServiceCall({
       logger: options.logger,
       service: 'gitlab',
       method,
       url,
       call,
-      error,
+      error: reportedError,
     });
-    throw error;
+    throw reportedError;
+  } finally {
+    clearTimeout(timeoutId);
   }
   const text = await response.text();
   let parsed;
