@@ -217,6 +217,55 @@ test('service store creates repositories without repo credential storage', async
   }
 });
 
+test('repository search ignores owner filter while owner browsing still scopes results', async () => {
+  const { dir, store } = tempStore();
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const user = await store.createUser({
+      id: 'user-alice',
+      displayName: 'Alice',
+      email: 'alice@example.com',
+    });
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'platform/app',
+    }, { status: 'unchecked', projectId: '43' });
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/api',
+    }, { status: 'unchecked', projectId: '44' });
+
+    const ownerOnly = await store.listRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      owner: 'team',
+    });
+    assert.deepEqual(ownerOnly.repositories.map((repo) => repo.projectPath), ['team/api', 'team/app']);
+
+    const searched = await store.listRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      owner: 'team',
+      q: 'app',
+    });
+    assert.deepEqual(searched.repositories.map((repo) => repo.projectPath), ['platform/app', 'team/app']);
+    assert.equal(searched.total, 2);
+  } finally {
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('service store keeps Git server config in columns and public reads hide secrets', async () => {
   const { dir, store } = tempStore();
   try {

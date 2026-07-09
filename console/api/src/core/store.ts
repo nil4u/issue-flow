@@ -1124,6 +1124,7 @@ class IssueFlowStore {
     if (!userId) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const q = String(options.q || "").trim()
     const owner = String(options.owner || "").trim()
+    const activeOwner = q ? "" : owner
     const selectedProjectId = String(options.selectedProjectId || "").trim()
     const accessRows = await this.db.userRepoAccess.findMany({
       where: {
@@ -1137,7 +1138,7 @@ class IssueFlowStore {
     const where = {
       id: { in: repoIds },
       ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
-      ...(owner && owner !== "all" ? { owner } : {}),
+      ...(activeOwner && activeOwner !== "all" ? { owner: activeOwner } : {}),
       ...(q ? { fullName: { contains: q } } : {}),
     }
     const [pageRows, total, ownerRows] = await Promise.all([

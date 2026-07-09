@@ -157,6 +157,12 @@ export function useDashboardController() {
     setRepoHasMore(false)
   }
 
+  function updateOwner(nextOwner: string) {
+    if (owner === nextOwner) return
+    setFilter("")
+    setOwner(nextOwner)
+  }
+
   function applyRoute(normalized: WorkspaceRoute, mode: "push" | "replace" = "push") {
     const path = workspaceRoutePath(normalized)
     const currentPath = `${window.location.pathname}${window.location.search}`
@@ -271,9 +277,10 @@ export function useDashboardController() {
       page: String(page),
       perPage: "50",
     })
+    const q = filter.trim()
     if (selectedProjectId) params.set("selectedProjectId", selectedProjectId)
-    if (filter.trim()) params.set("q", filter.trim())
-    if (owner !== "all") params.set("owner", owner)
+    if (q) params.set("q", q)
+    if (!q && owner !== "all") params.set("owner", owner)
     const body = await api<{ repositories: Repository[]; owners?: string[]; page?: number; hasMore?: boolean }>(`/api/repositories?${params.toString()}`)
     const repos = body.repositories || []
     const nextRepos = options.append ? mergeRepositories(repositories, repos) : repos
@@ -793,7 +800,7 @@ export function useDashboardController() {
     setSelectedProjectId("")
     resetRepositoryState()
     setActiveTab("overview")
-    setOwner("all")
+    updateOwner("all")
     setFilter("")
     setInstallCheck(undefined)
     setProjectAccess(undefined)
@@ -806,7 +813,7 @@ export function useDashboardController() {
     setInstallCheck(undefined)
     setProjectAccess(undefined)
     const nextOwner = ownerOf(projects.find((project) => project.id === projectId))
-    if (nextOwner) setOwner(nextOwner)
+    if (nextOwner) updateOwner(nextOwner)
     navigateWorkspace({ gitServerId: selectedGitServerId, projectId, tab: "overview" })
   }
 
@@ -860,7 +867,7 @@ export function useDashboardController() {
 
   useEffect(() => {
     if (!selectedGitServerId || !userSession.authenticated) return
-    setOwner("all")
+    updateOwner("all")
     setInstallCheck(undefined)
     setProjectAccess(undefined)
     void loadGitServerState(selectedGitServerId)
@@ -886,7 +893,7 @@ export function useDashboardController() {
 
   useEffect(() => {
     const nextOwner = ownerOf(selectedProject)
-    if (nextOwner) setOwner(nextOwner)
+    if (nextOwner) updateOwner(nextOwner)
   }, [selectedProject?.id])
 
   useEffect(() => {
@@ -969,7 +976,7 @@ export function useDashboardController() {
       hasMore: repoHasMore,
       loadingLabel: projectLoadingLabel,
       onSelectGitServer: selectGitServer,
-      onOwner: setOwner,
+      onOwner: updateOwner,
       onFilter: setFilter,
       onLoadMore: loadMoreRepositories,
       onSelectProject: selectProject,
