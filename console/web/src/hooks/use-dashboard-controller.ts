@@ -163,6 +163,11 @@ export function useDashboardController() {
     setOwner(nextOwner)
   }
 
+  function updateFilter(nextFilter: string) {
+    setFilter(nextFilter)
+    if (nextFilter.trim() && owner !== "all") setOwner("all")
+  }
+
   function applyRoute(normalized: WorkspaceRoute, mode: "push" | "replace" = "push") {
     const path = workspaceRoutePath(normalized)
     const currentPath = `${window.location.pathname}${window.location.search}`
@@ -266,7 +271,7 @@ export function useDashboardController() {
     return Promise.all([loadGitServers(), loadUserSession()]).finally(() => setLoadingLoginState(false))
   }
 
-  async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean } = {}) {
+  async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean; includeSelectedProject?: boolean; fallbackProject?: "first" | "none" } = {}) {
     if (!gitServerId) {
       resetRepositoryState()
       return []
@@ -278,7 +283,7 @@ export function useDashboardController() {
       perPage: "50",
     })
     const q = filter.trim()
-    if (selectedProjectId) params.set("selectedProjectId", selectedProjectId)
+    if (options.includeSelectedProject && selectedProjectId) params.set("selectedProjectId", selectedProjectId)
     if (q) params.set("q", q)
     if (!q && owner !== "all") params.set("owner", owner)
     const body = await api<{ repositories: Repository[]; owners?: string[]; page?: number; hasMore?: boolean }>(`/api/repositories?${params.toString()}`)
@@ -300,6 +305,7 @@ export function useDashboardController() {
         return currentRoute.projectId
       }
       if (current && nextProjects.some((project) => project.id === current)) return current
+      if (options.fallbackProject === "none") return ""
       return nextProjects[0]?.id || ""
     })
     return nextRepos
@@ -344,8 +350,9 @@ export function useDashboardController() {
   }
 
   async function loadAgentrixDefaults(gitServerId = selectedGitServerId) {
-    if (!gitServerId) return setAgentrixDefaults(undefined)
-    const body = await api<{ config: AgentrixDefaults }>(`/api/user/agentrix-config?gitServerId=${encodeURIComponent(gitServerId)}`)
+    // 身份来自 console session,gitServerId 仅作兼容参数传递,后端已忽略。
+    const params = gitServerId ? `?gitServerId=${encodeURIComponent(gitServerId)}` : ""
+    const body = await api<{ config: AgentrixDefaults }>(`/api/user/agentrix-config${params}`)
     setAgentrixDefaults(body.config)
   }
 
@@ -364,7 +371,7 @@ export function useDashboardController() {
         method: "POST",
         body: JSON.stringify({ gitServerId }),
       })
-      await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId)])
+      await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId, { includeSelectedProject: true })])
     } catch (error) {
       notifyError(error, "同步仓库失败")
     } finally {
@@ -384,7 +391,7 @@ export function useDashboardController() {
         setAgentrixDefaults(undefined)
         return
       }
-      await loadRepositories(gitServerId)
+      await loadRepositories(gitServerId, { includeSelectedProject: true })
     } catch (error) {
       notifyError(error, "加载仓库失败")
     } finally {
@@ -498,7 +505,7 @@ export function useDashboardController() {
           break
         }
       }
-      await loadRepositories(selectedGitServerId)
+      await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
       setCheckProgress((current) => ({
         ...current,
         open: true,
@@ -597,7 +604,7 @@ export function useDashboardController() {
         }),
       })
       const nextCheck = applyInstallCheck(installCheck, body)
-      await loadRepositories(selectedGitServerId)
+      await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
       return nextCheck
     } catch (error) {
       notifyError(error, "设置变量失败")
@@ -625,7 +632,7 @@ export function useDashboardController() {
         }),
       })
       const nextCheck = applyInstallCheck(installCheck, body)
-      await loadRepositories(selectedGitServerId)
+      await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
       return nextCheck
     } catch (error) {
       notifyError(error, "配置 webhook 失败")
@@ -638,7 +645,7 @@ export function useDashboardController() {
     setChecking(true)
     try {
       const nextCheck = applyInstallCheck(installCheck, await autoConfigureInstallStep("runners"))
-      await loadRepositories(selectedGitServerId)
+      await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
       return nextCheck
     } catch (error) { notifyError(error, "配置 GitLab Runner 失败") } finally { setChecking(false) }
   }
@@ -727,7 +734,7 @@ export function useDashboardController() {
   }
   async function finishPluginInstall(body: InstallCheck, operationLabel: string) {
     const nextCheck = applyInstallCheck(installCheck, body)
-    await loadRepositories(selectedGitServerId)
+    await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
     setCheckProgress((current) => pluginInstallCompleteProgress(current, body, operationLabel))
     return nextCheck
   }
@@ -898,7 +905,7 @@ export function useDashboardController() {
 
   useEffect(() => {
     if (!selectedGitServerId || !userSession.authenticated) return
-    void loadRepositories(selectedGitServerId).catch((error) => notifyError(error, "加载仓库失败"))
+    void loadRepositories(selectedGitServerId, { fallbackProject: "none" }).catch((error) => notifyError(error, "加载仓库失败"))
   }, [filter, owner])
 
   useEffect(() => {
@@ -922,7 +929,7 @@ export function useDashboardController() {
     void (async () => {
       const body = await checkInstallStep("plugins")
       applyInstallCheck(installCheck, body)
-      await loadRepositories(selectedGitServerId)
+      await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
     })().catch((error) => notifyError(error, "刷新 MR 状态失败"))
   }, [activeTab, selectedGitServerId, selectedProject?.id, pendingPluginMergeRequestHref])
 
@@ -977,7 +984,7 @@ export function useDashboardController() {
       loadingLabel: projectLoadingLabel,
       onSelectGitServer: selectGitServer,
       onOwner: updateOwner,
-      onFilter: setFilter,
+      onFilter: updateFilter,
       onLoadMore: loadMoreRepositories,
       onSelectProject: selectProject,
       onLoginCurrent: () => loginGitLab(selectedGitServerId),
