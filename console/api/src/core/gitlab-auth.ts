@@ -225,8 +225,11 @@ function syncRepositoriesAfterGitlabOAuth(input = {}) {
   })();
 }
 
-async function logoutGitlabSession({ store, sessionId }) {
-  await store.deleteSession(sessionId);
+async function logoutGitlabSession({ store, userId, gitServerId }) {
+  const credential = await store.getGitCredential(userId, gitServerId, { allowExpired: true });
+  if (credential) {
+    await store.deleteSession(credential.id);
+  }
   return { status: 200, body: { ok: true } };
 }
 

@@ -22,8 +22,8 @@ function scopesFromTokenResult(result = {}, fallback = []) {
   return scopes.length ? scopes : fallback
 }
 
-async function resolveFreshSession({ store, sessionId, gitServerId = '', logger = undefined }) {
-  const session = await store.getSession(sessionId, { allowExpired: true })
+async function resolveFreshSession({ store, userId, gitServerId = '', logger = undefined }) {
+  const session = await store.getGitCredential(userId, gitServerId, { allowExpired: true })
   if (!session) return undefined
   if (!shouldRefreshSession(session)) return session
 
@@ -53,8 +53,8 @@ async function resolveFreshSession({ store, sessionId, gitServerId = '', logger 
   }
 }
 
-async function getSession({ store, sessionId, gitServerId = '', logger = undefined }) {
-  const session = await resolveFreshSession({ store, sessionId, gitServerId, logger });
+async function getSession({ store, userId, gitServerId = '', logger = undefined }) {
+  const session = await resolveFreshSession({ store, userId, gitServerId, logger });
   return {
     status: 200,
     body: session
