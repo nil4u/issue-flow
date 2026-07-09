@@ -27,7 +27,7 @@ import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
-import type { InstallStep, RepoWorkspaceProps, Repository } from "@/issue-flow-model"
+import type { InstallStep, RepoWorkspaceProps, Repository, VariableInstallStatus } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
 import type { AgentrixHelpTopicId } from "@/lib/agentrix-help"
 
@@ -152,7 +152,7 @@ function InstallConsole({
     if (!canManage) return
     setActionRowId("all")
     try {
-      await onCheck()
+      await onCheck(installInput)
     } finally {
       setActionRowId("")
     }
@@ -292,7 +292,7 @@ function InstallConsole({
   )
 }
 
-type CheckStatus = InstallStep["status"]
+type CheckStatus = InstallStep["status"] | VariableInstallStatus
 type CheckKind = InstallStep["kind"] | "local"
 
 type CheckRow = {
@@ -369,8 +369,9 @@ function buildInstallGroups({
       const checkedVariable = variableByKey.get(item.name)
       const cached = Boolean(checkedVariable)
       const exists = checkedVariable?.exists ?? cached
-      const status = checkedVariable?.status || (cached ? "passed" : "unknown")
       const accountAgentrixKey = item.name === "AGENTRIX_API_KEY" && Boolean(defaults?.agentrix?.apiKeyFingerprint)
+      const variableStatus = (checkedVariable?.status || (cached ? "passed" : "unchecked")) as VariableInstallStatus
+      const autoWritable = Boolean(checkedVariable?.autoWritable ?? checkedVariable?.writable ?? accountAgentrixKey)
       const variable = {
         key: item.name,
         label: item.name,
@@ -379,7 +380,11 @@ function buildInstallGroups({
           : item.description,
         ...(checkedVariable || {}),
         exists,
-        status: accountAgentrixKey && !checkedVariable ? "needs_action" as CheckStatus : status as CheckStatus,
+        status: variableStatus,
+        writable: autoWritable,
+        autoWritable,
+        manualRequired: checkedVariable?.manualRequired ?? checkedVariable?.needsInput ?? false,
+        blocker: checkedVariable?.blocker ?? false,
         control: checkedVariable?.control || item.control,
       }
       return {
@@ -388,9 +393,7 @@ function buildInstallGroups({
         description: item.description,
         kind: "api",
         status: variable.status || "unknown",
-        detail: accountAgentrixKey && !checkedVariable
-          ? `账户级 key 已校验 ${defaults?.agentrix?.apiKeyFingerprint || ""}`
-          : variableDetail(variable, item.description),
+        detail: variableDetail(variable),
         variable,
         configItem: item,
       }
@@ -525,11 +528,24 @@ function permissionValue(permission?: NonNullable<CheckRow["permission"]>) {
   return permission.role || "No access"
 }
 
-function variableDetail(variable: NonNullable<CheckRow["variable"]>, fallback: string) {
+function variableDetail(variable: NonNullable<CheckRow["variable"]>) {
+  const status = String(variable.status || "")
   if (variable.exists) {
-    return variable.value || fallback
+    return variable.value || ""
   }
-  return variable.detail || fallback
+  if (status === "unchecked" || status === "unknown") {
+    return ""
+  }
+  if (status === "manual_required" || status === "needs_input" || variable.manualRequired || variable.needsInput) {
+    return variable.detail || "需要填写后写入 GitLab"
+  }
+  if (status === "failed") {
+    return variable.detail || "自动写入失败"
+  }
+  if (status === "pending_auto" || status === "needs_action" && Boolean(variable.autoWritable ?? variable.writable)) {
+    return "待自动写入 GitLab"
+  }
+  return variable.detail || ""
 }
 
 function installFormFromDefaults(defaults?: RepoWorkspaceProps["defaults"]): InstallForm {
@@ -627,15 +643,21 @@ function CheckTableRow({
   const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
   const pluginUpgradeValue = showPluginAction && row.plugin ? pluginValue(row.plugin) : ""
   const helpTopicId = row.configItem?.helpTopicId
+  const rowStatus = String(row.status || "")
+  const pendingAuto = rowStatus === "pending_auto"
+    || rowStatus === "needs_action" && Boolean(row.variable?.autoWritable ?? row.variable?.writable) && !row.variable?.manualRequired && !row.variable?.needsInput
+  const blocked = rowStatus === "blocked" || rowStatus === "needs_input" || rowStatus === "manual_required" || rowStatus === "failed"
   const statusIcon = row.status === "passed"
     ? <CheckCircle2 className="size-4" />
-    : row.status === "unknown"
+    : rowStatus === "unknown" || rowStatus === "unchecked"
       ? <CircleDot className="size-4" />
-      : row.status === "blocked" || row.status === "needs_input"
-        ? <CircleX className="size-4" />
-        : <AlertCircle className="size-4" />
+      : pendingAuto
+        ? <RefreshCw className="size-4" />
+        : blocked
+          ? <CircleX className="size-4" />
+          : <AlertCircle className="size-4" />
   return (
-    <div className={`check-table-row ${row.status}${showPluginAction ? " action-visible" : ""}`}>
+    <div className={`check-table-row ${row.status}${pendingAuto ? " auto-writable" : ""}${showPluginAction ? " action-visible" : ""}`}>
       <div className="check-row-main">
         <span className="check-status-icon">{statusIcon}</span>
         <span className="check-row-copy">
@@ -771,11 +793,12 @@ function CheckProgressDialog({
 function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"]> }) {
   const scope = variable.scope || variable.environmentScope || ""
   const source = variable.source ? `${variable.source}${scope ? `:${scope}` : ""}` : scope
+  const status = String(variable.status || "")
   const value = variable.exists
     ? variable.masked || variable.hidden
       ? "*****"
       : String(variable.value || "-")
-    : "未设置"
+    : status === "unknown" || status === "unchecked" ? "未检查" : "未设置"
   return (
     <span className={`check-row-value ${variable.exists ? "" : "muted"}`}>
       <strong>{value}</strong>
@@ -785,8 +808,12 @@ function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"
 }
 
 function CheckRowMeta({ row }: { row: CheckRow }) {
+  const status = String(row.status || "")
+  if (status === "unknown" || status === "unchecked") {
+    return null
+  }
   if (row.status !== "passed" && row.detail) {
-    return <div className="check-row-meta warning">{row.detail}</div>
+    return <div className={`check-row-meta ${rowMetaTone(row)}`}>{row.detail}</div>
   }
   if (row.files?.length) {
     return (
@@ -800,4 +827,12 @@ function CheckRowMeta({ row }: { row: CheckRow }) {
     return <div className="check-row-meta chips">{row.missing.map((item) => <code key={item}>{item}</code>)}</div>
   }
   return null
+}
+
+function rowMetaTone(row: CheckRow) {
+  const status = String(row.status || "")
+  if (status === "blocked" || status === "needs_input" || status === "manual_required" || status === "failed") return "warning"
+  if (status === "pending_auto" || status === "needs_action" && Boolean(row.variable?.autoWritable ?? row.variable?.writable)) return "action"
+  if (status === "unknown" || status === "unchecked") return "muted"
+  return "warning"
 }

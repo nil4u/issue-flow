@@ -61,11 +61,17 @@
     color: var(--success);
   }
   .check-table-row.needs_input .check-status-icon,
-  .check-table-row.blocked .check-status-icon {
+  .check-table-row.blocked .check-status-icon,
+  .check-table-row.manual_required .check-status-icon,
+  .check-table-row.failed .check-status-icon {
     color: var(--destructive);
   }
   .check-table-row.needs_action .check-status-icon {
     color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
+  }
+  .check-table-row.pending_auto .check-status-icon,
+  .check-table-row.needs_action.auto-writable .check-status-icon {
+    color: var(--muted-foreground);
   }
   .check-row-main {
     position: relative;
@@ -602,6 +608,10 @@
   }
   .check-row-meta.warning {
     color: var(--destructive);
+    line-height: 1.25rem;
+  }
+  .check-row-meta.action {
+    color: var(--muted-foreground);
     line-height: 1.25rem;
   }
   .check-row-meta summary {

@@ -24,7 +24,7 @@ export function mergeInstallCheck(current: InstallCheck | undefined, next: Insta
     ...current,
     ...next,
     steps,
-    installable: steps.every((step) => step.status !== "blocked" && step.status !== "needs_input"),
+    installable: steps.every((step) => step.status !== "blocked" && step.status !== "needs_input" && step.status !== "failed"),
   }
 }
 

@@ -2086,6 +2086,131 @@ test('Agentrix private cloud rejects manual GitLab token input', async () => {
   }
 });
 
+function createAgentrixAuthServer() {
+  return http.createServer((req, res) => {
+    assert.equal(req.headers.authorization, 'Bearer agentrix-key');
+    if (req.url === '/v1/auth/me') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        user: {
+          id: 'agx-user-1',
+          username: 'alice',
+          email: 'alice@agentrix.test',
+          avatar: null,
+          role: 'user',
+          encryptedSecret: null,
+          secretSalt: null,
+          stripeCustomerId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+}
+
+function createInstallVariableGitlabServer({ variables = new Map(), writes = [], failKey = '' } = {}) {
+  function variableKey(url) {
+    return decodeURIComponent(String(url).split('/variables/')[1] || '');
+  }
+  function saveVariable(req, res, key) {
+    if (key === failKey) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: `${key} write failed` }));
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      const variableKeyValue = body.key || key;
+      writes.push({ key: variableKeyValue, value: body.value });
+      variables.set(variableKeyValue, {
+        key: variableKeyValue,
+        value: body.value,
+        environment_scope: body.environment_scope || '*',
+        variable_type: body.variable_type || 'env_var',
+        masked: Boolean(body.masked),
+      });
+      res.writeHead(req.method === 'POST' ? 201 : 200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(variables.get(variableKeyValue)));
+    });
+  }
+  return http.createServer((req, res) => {
+    if (req.url === '/api/v4/user' && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 701, username: 'project_42_bot' }));
+      return;
+    }
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 42, name: 'App', path_with_namespace: 'team/app', default_branch: 'main' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/701' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'glpat-issue-flow-token-1234567890');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 701, username: 'project_42_bot', access_level: 40 }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/access_tokens' && req.method === 'POST') {
+      assert.equal(req.headers['private-token'], 'gl-admin-pat');
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 701, name: 'issue-flow-test-token', token: 'glpat-issue-flow-token-1234567890' }));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/issues?')
+      || req.url.startsWith('/api/v4/projects/42/merge_requests?')
+      || req.url.startsWith('/api/v4/projects/42/labels?')
+      || req.url.startsWith('/api/v4/projects/42/variables?')) {
+      assert.equal(req.headers['private-token'], 'glpat-issue-flow-token-1234567890');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/variables/') && req.method === 'GET') {
+      const variable = variables.get(variableKey(req.url));
+      if (!variable) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: '404 Variable Not Found' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(variable));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/variables/') && req.method === 'PUT') {
+      saveVariable(req, res, variableKey(req.url));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/variables' && req.method === 'POST') {
+      saveVariable(req, res, '');
+      return;
+    }
+    if (req.url.startsWith('/api/v4/groups/') && req.method === 'GET') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: '404 Variable Not Found' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+}
+
 test('GitLab settings checks variables independently and caches safe metadata', async () => {
   const { dir, store } = tempStore();
   const variables = new Map([
@@ -2265,11 +2390,19 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(apiKey.detail, '已设置');
     assert.equal(apiKey.value, '*****');
     assert.equal(apiKey.scope, '*');
+    const token = checked.body.steps[0].variables.find((item) => item.key === 'ISSUE_FLOW_GITLAB_TOKEN');
+    assert.equal(token.status, 'pending_auto');
+    assert.equal(token.autoWritable, true);
+    assert.equal(token.blocker, false);
     const runnerId = checked.body.steps[0].variables.find((item) => item.key === 'AGENTRIX_RUNNER_ID');
-    assert.equal(runnerId.status, 'needs_input');
+    assert.equal(runnerId.status, 'manual_required');
     assert.equal(runnerId.required, true);
     assert.equal(runnerId.needsInput, true);
+    assert.equal(runnerId.manualRequired, true);
+    assert.equal(runnerId.blocker, true);
+    assert.deepEqual(checked.body.steps[0].missing, ['ISSUE_FLOW_GITLAB_TOKEN']);
     assert.deepEqual(checked.body.steps[0].inputRequired, ['AGENTRIX_RUNNER_ID']);
+    assert.deepEqual(checked.body.steps[0].blockers, ['AGENTRIX_RUNNER_ID']);
     assert.equal(checked.body.installable, false);
     const repo = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
     const cachedApiKey = repo.settings.variables.items.find((item) => item.key === 'AGENTRIX_API_KEY');
@@ -2289,6 +2422,10 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     });
     assert.equal(tokenCreated.status, 200);
     assert.equal(createdProjectToken, true);
+    assert.equal(tokenCreated.body.steps[0].status, 'needs_input');
+    assert.deepEqual(tokenCreated.body.steps[0].missing, []);
+    assert.deepEqual(tokenCreated.body.steps[0].inputRequired, ['AGENTRIX_RUNNER_ID']);
+    assert.deepEqual(tokenCreated.body.steps[0].blockers, ['AGENTRIX_RUNNER_ID']);
     assert.equal(tokenCreated.body.variable.status, 'passed');
     assert.equal(tokenCreated.body.variable.value, '*****');
     assert.equal(tokenCreated.body.variable.detail, '已验证 GitLab API 权限');
@@ -2315,6 +2452,163 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(persistedAuto.data.value, 'build');
   } finally {
     await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab install variables auto-configures writable rows before manual blockers', async () => {
+  const { dir, store } = tempStore();
+  const writes = [];
+  const gitlab = createInstallVariableGitlabServer({ writes });
+  const agentrix = createAgentrixAuthServer();
+  const gitlabBase = await listen(gitlab);
+  const agentrixBase = await listen(agentrix);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{ id: '42', name: 'App', pathWithNamespace: 'team/app', defaultBranch: 'main' }],
+    });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '100', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '100',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    await store.saveUserAgentrixConfig('user:user-alice', {
+      agentrix: { apiKey: 'agentrix-key' },
+    });
+
+    const result = await setGitlabProjectInstallVariable({
+      store,
+      session: await store.getSession(session.id),
+      env: { ...process.env, ISSUE_FLOW_AGENTRIX_BASE_URL: agentrixBase },
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+
+    assert.equal(result.status, 200);
+    const step = result.body.steps[0];
+    const byKey = new Map(step.variables.map((item) => [item.key, item]));
+    assert.equal(step.status, 'needs_input');
+    assert.deepEqual(step.missing, []);
+    assert.deepEqual(step.inputRequired, ['AGENTRIX_RUNNER_ID']);
+    assert.deepEqual(step.blockers, ['AGENTRIX_RUNNER_ID']);
+    assert.equal(result.body.installable, false);
+    for (const key of [
+      'ISSUE_FLOW_GITLAB_TOKEN',
+      'AGENTRIX_BASE_URL',
+      'AGENTRIX_API_KEY',
+      'AGENTRIX_ISSUE_FLOW_AGENT',
+      'ISSUE_FLOW_AUTO_DEFAULT',
+      'ISSUE_FLOW_REVIEW_ENABLED',
+    ]) {
+      assert.equal(byKey.get(key).status, 'passed', key);
+      assert.equal(byKey.get(key).blocker, false, key);
+    }
+    assert.equal(byKey.get('AGENTRIX_API_KEY').value, '*****');
+    assert.equal(byKey.get('ISSUE_FLOW_AUTO_DEFAULT').value, 'triage');
+    assert.equal(byKey.get('ISSUE_FLOW_REVIEW_ENABLED').value, 'false');
+    assert.equal(byKey.get('AGENTRIX_RUNNER_ID').status, 'manual_required');
+    assert.equal(byKey.get('AGENTRIX_RUNNER_ID').blocker, true);
+    assert.deepEqual(writes.map((item) => item.key).sort(), [
+      'AGENTRIX_API_KEY',
+      'AGENTRIX_BASE_URL',
+      'AGENTRIX_ISSUE_FLOW_AGENT',
+      'ISSUE_FLOW_AUTO_DEFAULT',
+      'ISSUE_FLOW_GITLAB_TOKEN',
+      'ISSUE_FLOW_REVIEW_ENABLED',
+    ].sort());
+  } finally {
+    await close(gitlab);
+    await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab install variable write failure marks only that row failed', async () => {
+  const { dir, store } = tempStore();
+  const writes = [];
+  const gitlab = createInstallVariableGitlabServer({ writes, failKey: 'AGENTRIX_BASE_URL' });
+  const agentrix = createAgentrixAuthServer();
+  const gitlabBase = await listen(gitlab);
+  const agentrixBase = await listen(agentrix);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const user = await store.createUser({ id: 'user-alice', displayName: 'Alice' });
+    await store.syncRepositories({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      projects: [{ id: '42', name: 'App', pathWithNamespace: 'team/app', defaultBranch: 'main' }],
+    });
+    const session = await store.createSession({
+      userId: 'user-alice',
+      provider: 'gitlab',
+      gitServerId: 'gitlab-main',
+      gitServer: { id: 'gitlab-main', type: 'gitlab', baseUrl: gitlabBase },
+      user: { id: '100', username: 'alice', name: 'Alice' },
+      account: {
+        provider: 'gitlab',
+        gitServerId: 'gitlab-main',
+        providerUserId: '100',
+        username: 'alice',
+        displayName: 'Alice',
+      },
+      token: 'gl-oauth-user-token',
+    });
+    await store.saveUserAgentrixConfig('user:user-alice', {
+      agentrix: { apiKey: 'agentrix-key', runnerId: 'cloud-main' },
+    });
+
+    const result = await setGitlabProjectInstallVariable({
+      store,
+      session: await store.getSession(session.id),
+      env: { ...process.env, ISSUE_FLOW_AGENTRIX_BASE_URL: agentrixBase },
+      input: {
+        gitServerId: 'gitlab-main',
+        token: 'gl-oauth-user-token',
+        projectId: '42',
+        agentrix: { runnerId: 'cloud-main' },
+      },
+    });
+
+    assert.equal(result.status, 200);
+    const step = result.body.steps[0];
+    const byKey = new Map(step.variables.map((item) => [item.key, item]));
+    assert.equal(step.status, 'failed');
+    assert.deepEqual(step.blockers, ['AGENTRIX_BASE_URL']);
+    assert.deepEqual(step.inputRequired, []);
+    assert.deepEqual(step.missing, []);
+    assert.equal(result.body.installable, false);
+    assert.equal(byKey.get('AGENTRIX_BASE_URL').status, 'failed');
+    assert.equal(byKey.get('AGENTRIX_BASE_URL').blocker, true);
+    assert.match(byKey.get('AGENTRIX_BASE_URL').detail, /HTTP_500/);
+    for (const key of [
+      'ISSUE_FLOW_GITLAB_TOKEN',
+      'AGENTRIX_API_KEY',
+      'AGENTRIX_RUNNER_ID',
+      'AGENTRIX_ISSUE_FLOW_AGENT',
+      'ISSUE_FLOW_AUTO_DEFAULT',
+      'ISSUE_FLOW_REVIEW_ENABLED',
+    ]) {
+      assert.equal(byKey.get(key).status, 'passed', key);
+      assert.equal(byKey.get(key).blocker, false, key);
+    }
+  } finally {
+    await close(gitlab);
+    await close(agentrix);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }

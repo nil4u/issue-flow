@@ -11,6 +11,7 @@ import {
   type GitLabUser,
   type GitServer,
   type InstallCheck,
+  type InstallStep,
   type InstallConflictDecision,
   type InstallConflictPlan,
   type InstallCheckProgress,
@@ -34,6 +35,37 @@ import {
   streamInstallPlugin,
 } from "@/lib/install-flow"
 import { initializeIssueFlowSetup, type SetupInitializeInput } from "@/lib/setup-flow"
+
+function hasPendingAutoVariables(step?: InstallStep) {
+  return Boolean(step?.variables?.some((variable) => {
+    const status = String(variable.status || "")
+    return status === "pending_auto"
+      || status === "needs_action" && Boolean(variable.autoWritable ?? variable.writable)
+  }))
+}
+
+function variableBlockers(step?: InstallStep) {
+  return (step?.variables || []).filter((variable) => {
+    const status = String(variable.status || "")
+    return Boolean(variable.blocker)
+      || status === "manual_required"
+      || status === "failed"
+      || status === "needs_input"
+  })
+}
+
+function variableBlockerDetail(step?: InstallStep) {
+  const blockers = variableBlockers(step)
+  if (!blockers.length) return step?.detail || ""
+  return blockers
+    .map((variable) => variable.detail || `${variable.key} 需要人工处理`)
+    .join("；")
+}
+
+function hasFailedVariables(step?: InstallStep) {
+  return Boolean(step?.variables?.some((variable) => String(variable.status || "") === "failed"))
+}
+
 export function useDashboardController() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
   const [booting, setBooting] = useState(true)
@@ -102,6 +134,18 @@ export function useDashboardController() {
     const merged = new Map(current.map((repo) => [repo.id, repo]))
     for (const repo of next) merged.set(repo.id, repo)
     return Array.from(merged.values())
+  }
+
+  function rememberRepositoryDetail(repository?: Repository | null) {
+    if (!repository?.id) return
+    setRepositoryDetails((current) => ({ ...current, [repository.id]: repository }))
+  }
+
+  function applyInstallCheck(current: InstallCheck | undefined, next: InstallCheck) {
+    const merged = mergeInstallCheck(current, next)
+    rememberRepositoryDetail(next.repository)
+    setInstallCheck(merged)
+    return merged
   }
 
   function resetRepositoryState() {
@@ -192,6 +236,17 @@ export function useDashboardController() {
   async function loadUserSession() {
     const body = await api<UserSession>("/api/user/session")
     setUserSession(body)
+    setSessions(Object.fromEntries((body.accounts || [])
+      .filter((account) => account.session?.gitServerId || account.gitServer?.id || account.account?.gitServerId)
+      .map((account) => {
+        const gitServerId = account.session?.gitServerId || account.gitServer?.id || account.account?.gitServerId || ""
+        return [gitServerId, {
+          authenticated: Boolean(account.session),
+          user: account.user,
+          gitServer: account.gitServer,
+          session: account.session,
+        }]
+      })))
     return body
   }
   async function loadSetupStatus() {
@@ -223,7 +278,10 @@ export function useDashboardController() {
     const repos = body.repositories || []
     const nextRepos = options.append ? mergeRepositories(repositories, repos) : repos
     setRepositories(nextRepos)
-    if (!options.append) setRepositoryDetails({})
+    if (!options.append) {
+      const nextRepoIds = new Set(nextRepos.map((repo) => repo.id))
+      setRepositoryDetails((current) => Object.fromEntries(Object.entries(current).filter(([repoId]) => nextRepoIds.has(repoId))))
+    }
     if (body.owners) setOwners(body.owners)
     setRepoPage(body.page || page)
     setRepoHasMore(Boolean(body.hasMore))
@@ -356,7 +414,7 @@ export function useDashboardController() {
     }
   }
 
-  async function runInstallCheck() {
+  async function runInstallCheck(input: Record<string, unknown> = {}) {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
       toast.warning("权限不足", {
@@ -370,25 +428,53 @@ export function useDashboardController() {
       detail: "",
       steps: installCheckProgressSteps.map((step) => ({ ...step, status: "pending" })),
     }
+    setInstallCheck(undefined)
     setCheckProgress(startProgress)
     setChecking(true)
-    let nextCheck = installCheck
+    let nextCheck: InstallCheck | undefined
     let interrupted = false
     try {
       for (const checkType of ["permissions", "webhook", "variables", "runners", "plugins"]) {
         setCheckProgressStep(checkType, "running", "正在检查")
-        let body = await checkInstallStep(checkType)
-        nextCheck = mergeInstallCheck(nextCheck, body)
-        setInstallCheck(nextCheck)
+        let body = await checkInstallStep(checkType, input)
+        nextCheck = applyInstallCheck(nextCheck, body)
         let checkedStep = body.steps.find((step) => step.id === checkType)
+        if (checkType === "variables") {
+          if (hasPendingAutoVariables(checkedStep)) {
+            setCheckProgressStep(checkType, "running", "正在自动写入")
+            const fixed = await autoConfigureInstallStep(checkType, input)
+            nextCheck = applyInstallCheck(nextCheck, fixed)
+            const fixedStep = fixed.steps.find((step) => step.id === checkType)
+            if (hasFailedVariables(fixedStep)) {
+              checkedStep = fixedStep
+            } else {
+              body = await checkInstallStep(checkType, input)
+              nextCheck = applyInstallCheck(nextCheck, body)
+              checkedStep = body.steps.find((step) => step.id === checkType)
+            }
+          }
+          const needsManual = variableBlockers(checkedStep).length > 0 || checkedStep?.status === "failed"
+          setCheckProgress((current) => ({
+            ...current,
+            title: needsManual ? "需要人工处理" : current.title,
+            detail: needsManual ? variableBlockerDetail(checkedStep) : current.detail,
+            steps: current.steps.map((step) => ({
+              ...step,
+              status: step.id === checkType ? needsManual ? "failed" : "passed" : step.status,
+            })),
+          }))
+          if (needsManual) {
+            interrupted = true
+            break
+          }
+          continue
+        }
         if (checkedStep && checkedStep.status !== "passed" && canAutoConfigureStep(checkType)) {
           setCheckProgressStep(checkType, "running", "自动配置")
-          const fixed = await autoConfigureInstallStep(checkType)
-          nextCheck = mergeInstallCheck(nextCheck, fixed)
-          setInstallCheck(nextCheck)
-          body = await checkInstallStep(checkType)
-          nextCheck = mergeInstallCheck(nextCheck, body)
-          setInstallCheck(nextCheck)
+          const fixed = await autoConfigureInstallStep(checkType, input)
+          nextCheck = applyInstallCheck(nextCheck, fixed)
+          body = await checkInstallStep(checkType, input)
+          nextCheck = applyInstallCheck(nextCheck, body)
           checkedStep = body.steps.find((step) => step.id === checkType)
         }
         const needsManual = Boolean(checkedStep && checkedStep.status !== "passed")
@@ -410,7 +496,7 @@ export function useDashboardController() {
         ...current,
         open: true,
         title: interrupted ? current.title : "检查完成",
-        detail: "",
+        detail: interrupted ? current.detail : "",
       }))
       return nextCheck
     } catch (error) {
@@ -430,7 +516,7 @@ export function useDashboardController() {
     }
   }
 
-  async function checkInstallStep(checkType: string) {
+  async function checkInstallStep(checkType: string, input: Record<string, unknown> = {}) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
     return api<InstallCheck>("/api/gitlab/install-check", {
       method: "POST",
@@ -438,6 +524,7 @@ export function useDashboardController() {
         gitServerId: selectedGitServerId,
         projectId: selectedProject.id,
         checkType,
+        ...input,
       }),
     })
   }
@@ -446,7 +533,7 @@ export function useDashboardController() {
     return ["permissions", "webhook", "variables", "runners"].includes(checkType)
   }
 
-  async function autoConfigureInstallStep(checkType: string) {
+  async function autoConfigureInstallStep(checkType: string, input: Record<string, unknown> = {}) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
     const paths: Record<string, string> = {
       permissions: "/api/gitlab/install-permission",
@@ -461,6 +548,7 @@ export function useDashboardController() {
       body: JSON.stringify({
         gitServerId: selectedGitServerId,
         projectId: selectedProject.id,
+        ...input,
       }),
     })
   }
@@ -501,8 +589,7 @@ export function useDashboardController() {
           ...input,
         }),
       })
-      const nextCheck = mergeInstallCheck(installCheck, body)
-      setInstallCheck(nextCheck)
+      const nextCheck = applyInstallCheck(installCheck, body)
       await loadRepositories(selectedGitServerId)
       return nextCheck
     } catch (error) {
@@ -530,8 +617,7 @@ export function useDashboardController() {
           ...input,
         }),
       })
-      const nextCheck = mergeInstallCheck(installCheck, body)
-      setInstallCheck(nextCheck)
+      const nextCheck = applyInstallCheck(installCheck, body)
       await loadRepositories(selectedGitServerId)
       return nextCheck
     } catch (error) {
@@ -544,8 +630,7 @@ export function useDashboardController() {
     if (!selectedProject || !selectedGitServerId) return
     setChecking(true)
     try {
-      const nextCheck = mergeInstallCheck(installCheck, await autoConfigureInstallStep("runners"))
-      setInstallCheck(nextCheck)
+      const nextCheck = applyInstallCheck(installCheck, await autoConfigureInstallStep("runners"))
       await loadRepositories(selectedGitServerId)
       return nextCheck
     } catch (error) { notifyError(error, "配置 GitLab Runner 失败") } finally { setChecking(false) }
@@ -634,8 +719,7 @@ export function useDashboardController() {
     }
   }
   async function finishPluginInstall(body: InstallCheck, operationLabel: string) {
-    const nextCheck = mergeInstallCheck(installCheck, body)
-    setInstallCheck(nextCheck)
+    const nextCheck = applyInstallCheck(installCheck, body)
     await loadRepositories(selectedGitServerId)
     setCheckProgress((current) => pluginInstallCompleteProgress(current, body, operationLabel))
     return nextCheck
@@ -830,7 +914,7 @@ export function useDashboardController() {
     if (activeTab !== "settings" || !selectedGitServerId || !selectedProject || !pendingPluginMergeRequestHref) return
     void (async () => {
       const body = await checkInstallStep("plugins")
-      setInstallCheck(mergeInstallCheck(installCheck, body))
+      applyInstallCheck(installCheck, body)
       await loadRepositories(selectedGitServerId)
     })().catch((error) => notifyError(error, "刷新 MR 状态失败"))
   }, [activeTab, selectedGitServerId, selectedProject?.id, pendingPluginMergeRequestHref])

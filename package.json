@@ -15,7 +15,7 @@
     "db:migrate:dev": "npm run db:migrate:dev -w issue-flow-console",
     "db:migrate": "npm run db:migrate -w issue-flow-console",
     "api": "npm run start -w issue-flow-console",
-    "api:dev": "npm run dev -w issue-flow-console",
+    "api:dev": "npm run web:build && npm run dev -w issue-flow-console",
     "api:build": "npm run build -w issue-flow-console",
     "web": "node --env-file-if-exists=.env.dev console/scripts/web.cjs dev",
     "web:build": "node --env-file-if-exists=.env console/scripts/web.cjs build",
