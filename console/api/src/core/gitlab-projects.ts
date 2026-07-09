@@ -838,7 +838,8 @@ async function gitlabInstallContext({ store, input = {}, session, env = process.
     projectId: project.id,
     projectPath: project.pathWithNamespace,
   });
-  const defaults = await savedAgentrixDefaults(store, session, env);
+  // 安装流程要求已登录,session 是真正的 git 凭证,userId 必有。
+  const defaults = await savedAgentrixDefaults(store, session && session.userId || '', env);
   let agentrixDefaults = defaults;
   if (existing) {
     agentrixDefaults = {

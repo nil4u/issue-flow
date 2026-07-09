@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { llmProxyConfig, resolveGitServer, sessionUserKey } from './common.js'
+import { llmProxyConfig, resolveGitServer } from './common.js'
 import {
   getGitlabCurrentUser,
 } from './gitlab.js'
 import { forwardServerConfig } from './agentrix-forward.js'
 import { getAgentrixPrivateCloudRunnerSecret } from './agentrix-api.js'
-import { savedAgentrixDefaults } from './user-agentrix-config.js'
+import { savedAgentrixDefaults, userAgentrixKey } from './user-agentrix-config.js'
 
 const AGENTRIX_SERVER_URL = 'https://agentrix.xmz.ai'
 const AGENTRIX_WEBAPP_URL = 'https://agentrix.xmz.ai'
@@ -36,14 +36,14 @@ function dockerCommand(input = {}) {
   return lines.join('\n')
 }
 
-function requireSession(session) {
-  if (!session || !session.userId) {
-    const error = new Error('gitlab login required')
+function requireUserId(userId) {
+  if (!userId) {
+    const error = new Error('console login required')
     error.status = 401
-    error.code = 'gitlab_login_required'
+    error.code = 'login_required'
     throw error
   }
-  return session
+  return userId
 }
 
 function runnerIdFrom(input = {}) {
@@ -124,13 +124,13 @@ async function validateBotPat(config = {}, logger = undefined) {
   return { status: 200, validation }
 }
 
-async function getAgentrixPrivateCloudConfig({ store, input = {}, session, env = process.env }) {
-  const current = requireSession(session)
-  const gitServerId = String(input.gitServerId || current.gitServerId || '').trim()
+async function getAgentrixPrivateCloudConfig({ store, input = {}, userId, env = process.env }) {
+  requireUserId(userId)
+  const gitServerId = String(input.gitServerId || '').trim()
   const gitServer = gitServerId ? await store.getGitServer(gitServerId) : undefined
-  const defaults = await savedAgentrixDefaults(store, current, env)
+  const defaults = await savedAgentrixDefaults(store, userId, env)
   const tokens = await store.listRunnerGitlabTokens({
-    userId: current.userId,
+    userId,
     gitServerId,
   })
   return {
@@ -142,16 +142,16 @@ async function getAgentrixPrivateCloudConfig({ store, input = {}, session, env =
         cliImage: agentrixCliImage(env),
       },
       llmProxy: llmProxyConfig(env),
-      gitServer: publicGitServer(gitServer || current.gitServer || {}),
+      gitServer: publicGitServer(gitServer || {}),
       defaults,
       runnerGitlabTokens: tokens,
     },
   }
 }
 
-async function validatePrivateCloudGitServer({ store, input = {}, session, logger = undefined }) {
-  const current = requireSession(session)
-  const { server, config } = await resolveGitServer(store, input, current, 'gitlab')
+async function validatePrivateCloudGitServer({ store, input = {}, userId, logger = undefined }) {
+  requireUserId(userId)
+  const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
   try {
     const result = await validateBotPat(config, logger)
     if (result.status !== 200) return result
@@ -178,8 +178,8 @@ async function validatePrivateCloudGitServer({ store, input = {}, session, logge
   }
 }
 
-async function createRunnerGitlabToken({ store, input = {}, session, env = process.env, basePublicUrl = '', logger = undefined }) {
-  const current = requireSession(session)
+async function createRunnerGitlabToken({ store, input = {}, userId, env = process.env, basePublicUrl = '', logger = undefined }) {
+  requireUserId(userId)
   const runnerId = runnerIdFrom(input)
   if (!runnerId) {
     return { status: 400, body: { error: 'runner_id_required' } }
@@ -189,7 +189,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     return { status: 400, body: { error: 'runner_gitlab_token_manual_unsupported' } }
   }
 
-  const { server, config } = await resolveGitServer(store, input, current, 'gitlab')
+  const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
   const llmProxy = llmProxyInput(input, env)
   if (!llmProxy.baseUrl) {
     return { status: 400, body: { error: 'llm_proxy_base_url_required' } }
@@ -218,7 +218,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
   const eventForward = eventForwardInput({ basePublicUrl, env })
   if (eventForward.status) return eventForward
 
-  const defaults = await savedAgentrixDefaults(store, current, env)
+  const defaults = await savedAgentrixDefaults(store, userId, env)
   const agentrixApiKey = input.agentrixApiKey || defaults.agentrix && defaults.agentrix.apiKey || ''
   let cloudAuthToken = String(input.cloudAuthToken || input.runnerSecret || '').trim()
   if (!cloudAuthToken) {
@@ -242,7 +242,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
 
   const runnerGitlabToken = {
     id: `bot_pat:${server.id}:${runnerId}`,
-    userId: current.userId,
+    userId,
     gitServerId: server.id,
     runnerId,
     gitlabUserId: validation.id || '',
@@ -257,7 +257,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     updatedAt: '',
   }
   if (input.saveDefaults !== false) {
-    await store.saveUserAgentrixConfig(sessionUserKey(current), {
+    await store.saveUserAgentrixConfig(userAgentrixKey(userId), {
       automation: {
         runnerId,
       },

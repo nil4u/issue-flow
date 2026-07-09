@@ -1,13 +1,43 @@
 // @ts-nocheck
-import { agentrixServiceConfig, sessionUserKey } from './common.js'
+import { agentrixServiceConfig } from './common.js'
 import {
   listAgentrixMachines,
   listAgentrixPrivateClouds,
   validateAgentrixApiKey,
 } from './agentrix-api.js'
 
-async function savedAgentrixDefaults(store, session, env = process.env) {
-  const userKey = sessionUserKey(session);
+function userAgentrixKey(userId) {
+  return userId ? `user:${userId}` : ''
+}
+
+// TODO(cleanup): 惰性键迁移,发布 2 个 minor 版本后删除。
+// 旧键格式为 `${gitServerId}:${username}`,命中后搬到 `user:<userId>` 并删除旧行。
+async function migrateLegacyUserAgentrixConfig(store, userId, user) {
+  for (const account of user && user.accounts || []) {
+    if (!account || !account.username) continue
+    const legacyKey = `${account.gitServerId || account.provider || 'git'}:${account.username}`
+    const legacy = await store.getUserAgentrixConfig(legacyKey, { includeSecret: true })
+    if (!legacy) continue
+    await store.saveUserAgentrixConfig(userAgentrixKey(userId), {
+      automation: legacy.automation || {},
+      agentrix: legacy.agentrix || {},
+    })
+    await store.deleteUserAgentrixConfig(legacyKey)
+    return true
+  }
+  return false
+}
+
+async function loadUserAgentrixConfig(store, userId, user, options = {}) {
+  const userKey = userAgentrixKey(userId)
+  const saved = await store.getUserAgentrixConfig(userKey, options)
+  if (saved) return saved
+  const migrated = await migrateLegacyUserAgentrixConfig(store, userId, user)
+  return migrated ? store.getUserAgentrixConfig(userKey, options) : undefined
+}
+
+async function savedAgentrixDefaults(store, userId, env = process.env) {
+  const userKey = userAgentrixKey(userId);
   const saved = userKey ? await store.getUserAgentrixConfig(userKey, { includeSecret: true }) : undefined;
   return {
     automation: saved && saved.automation || {},
@@ -34,12 +64,11 @@ function mergeAgentrixInstallInput(input = {}, defaults = {}, env = process.env)
   };
 }
 
-async function getUserAgentrixConfig({ store, session, env = process.env }) {
-  const userKey = sessionUserKey(session);
-  if (!userKey) {
-    return { status: 401, body: { error: 'gitlab_login_required' } };
+async function getUserAgentrixConfig({ store, userId, user, env = process.env }) {
+  if (!userId) {
+    return { status: 401, body: { error: 'login_required' } };
   }
-  const saved = await store.getUserAgentrixConfig(userKey);
+  const saved = await loadUserAgentrixConfig(store, userId, user);
   return {
     status: 200,
     body: {
@@ -61,10 +90,10 @@ async function getUserAgentrixConfig({ store, session, env = process.env }) {
   };
 }
 
-async function updateUserAgentrixConfig({ store, session, input = {}, env = process.env, logger = undefined }) {
-  const userKey = sessionUserKey(session);
+async function updateUserAgentrixConfig({ store, userId, input = {}, env = process.env, logger = undefined }) {
+  const userKey = userAgentrixKey(userId);
   if (!userKey) {
-    return { status: 401, body: { error: 'gitlab_login_required' } };
+    return { status: 401, body: { error: 'login_required' } };
   }
   const nextApiKey = input.agentrix && input.agentrix.apiKey
   let validation
@@ -105,12 +134,12 @@ async function updateUserAgentrixConfig({ store, session, input = {}, env = proc
   };
 }
 
-async function getUserAgentrixResources({ store, session, env = process.env, logger = undefined }) {
-  const userKey = sessionUserKey(session);
+async function getUserAgentrixResources({ store, userId, user, env = process.env, logger = undefined }) {
+  const userKey = userAgentrixKey(userId);
   if (!userKey) {
-    return { status: 401, body: { error: 'gitlab_login_required' } };
+    return { status: 401, body: { error: 'login_required' } };
   }
-  const saved = await store.getUserAgentrixConfig(userKey, { includeSecret: true });
+  const saved = await loadUserAgentrixConfig(store, userId, user, { includeSecret: true });
   const apiKey = saved && saved.agentrix && saved.agentrix.apiKey || '';
   if (!apiKey) {
     return {
@@ -179,4 +208,5 @@ export {
   mergeAgentrixInstallInput,
   savedAgentrixDefaults,
   updateUserAgentrixConfig,
+  userAgentrixKey,
 }

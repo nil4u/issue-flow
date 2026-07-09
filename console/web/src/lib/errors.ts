@@ -20,6 +20,9 @@ export function errorMessage(error: unknown) {
   if (code === "gitlab_login_required") {
     return "当前 Git server 授权已失效，请重新连接后再试。"
   }
+  if (code === "login_required") {
+    return "请先登录控制台。"
+  }
   if (code === "repository_not_found") {
     return "本地还没有这个仓库记录，请先同步仓库列表。"
   }

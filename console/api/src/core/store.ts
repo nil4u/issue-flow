@@ -2554,6 +2554,12 @@ class IssueFlowStore {
     return this.publicUserAgentrixConfig(config)
   }
 
+  async deleteUserAgentrixConfig(userKey) {
+    await this.ready
+    if (!userKey) return
+    await this.db.userAgentrixConfig.deleteMany({ where: { userKey } })
+  }
+
   async saveUserAgentrixConfig(userKey, input = {}) {
     await this.ready
     const existing = await this.getUserAgentrixConfig(userKey, { includeSecret: true })

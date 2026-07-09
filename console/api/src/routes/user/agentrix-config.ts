@@ -5,35 +5,38 @@ import {
   getUserAgentrixResources,
   updateUserAgentrixConfig,
 } from "../../core/user-agentrix-config.js"
-import { contextFromRequest, sessionFromRequest } from "../../services/issue-flow.js"
+import { contextFromRequest, currentUserIdFromRequest } from "../../services/issue-flow.js"
 
+// gitServerId query/body 参数不再参与身份解析:继续接受但忽略(前端兼容)。
 export async function userAgentrixConfigRoutes(app: FastifyInstance) {
   app.get("/api/user/agentrix-config", async (request, reply) => {
-    const gitServerId = String((request.query as Record<string, unknown>).gitServerId || "")
-    const session = await sessionFromRequest(request, gitServerId)
+    const userId = await currentUserIdFromRequest(request)
+    const user = userId ? await request.server.issueFlowStore.getUser(userId, { includeAccounts: true }) : undefined
     const result = await getUserAgentrixConfig({
       ...contextFromRequest(request),
-      session,
+      userId,
+      user,
     })
     return reply.code(result.status).send(result.body)
   })
 
   app.get("/api/user/agentrix-resources", async (request, reply) => {
-    const gitServerId = String((request.query as Record<string, unknown>).gitServerId || "")
-    const session = await sessionFromRequest(request, gitServerId)
+    const userId = await currentUserIdFromRequest(request)
+    const user = userId ? await request.server.issueFlowStore.getUser(userId, { includeAccounts: true }) : undefined
     const result = await getUserAgentrixResources({
       ...contextFromRequest(request),
-      session,
+      userId,
+      user,
     })
     return reply.code(result.status).send(result.body)
   })
 
   app.post("/api/user/agentrix-config", async (request, reply) => {
     const input = (request.body || {}) as Record<string, unknown>
-    const session = await sessionFromRequest(request, String(input.gitServerId || ""))
+    const userId = await currentUserIdFromRequest(request)
     const result = await updateUserAgentrixConfig({
       ...contextFromRequest(request),
-      session,
+      userId,
       input,
     })
     return reply.code(result.status).send(result.body)
