@@ -30,9 +30,28 @@ const TASK_TURN_COLORS: Record<string, string> = {
   "20+": "#dc2626",
 }
 
+const TASK_ACTION_COLORS: Record<string, string> = {
+  triage: "#0ea5e9",
+  plan: "#8b5cf6",
+  build: "#22c55e",
+  review: "#f59e0b",
+}
+
+const TIME_SHARE_COLORS: Record<string, string> = {
+  agent: "#2563eb",
+  wait: "#94a3b8",
+}
+
 const LINE_COLORS = ["#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"]
 const BAR_COLORS = ["#6366f1", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"]
 const FALLBACK_STACK_COLOR = "#999"
+
+function compactNumber(value: number) {
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
 
 export function formatSeconds(value: unknown) {
   const seconds = Number(value)
@@ -46,6 +65,14 @@ export function formatSeconds(value: unknown) {
 
 function formatMetricValue(value: unknown, unit: string) {
   if (unit === "seconds") return formatSeconds(value)
+  if (unit === "percent") {
+    const percent = Number(value)
+    return Number.isFinite(percent) ? `${percent.toFixed(1)}%` : String(value ?? "")
+  }
+  if (unit === "tokens") {
+    const tokens = Number(value)
+    return Number.isFinite(tokens) ? compactNumber(tokens) : String(value ?? "")
+  }
   if (unit === "days") {
     const days = Number(value)
     return Number.isFinite(days) ? `${days.toFixed(1)}d` : String(value ?? "")
@@ -147,7 +174,12 @@ function breakdownKey(x: string, field: string) {
 }
 
 function stackColor(value: string) {
-  return COMPLETION_BUCKET_COLORS[value] || ISSUE_TYPE_COLORS[value] || TASK_TURN_COLORS[value] || FALLBACK_STACK_COLOR
+  return COMPLETION_BUCKET_COLORS[value]
+    || ISSUE_TYPE_COLORS[value]
+    || TASK_TURN_COLORS[value]
+    || TASK_ACTION_COLORS[value]
+    || TIME_SHARE_COLORS[value]
+    || FALLBACK_STACK_COLOR
 }
 
 function bucketMarker(bucket: string) {
@@ -294,6 +326,182 @@ function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EC
   } as EChartsOption
 }
 
+function stackedAreaTooltipFormatter(panel: DashboardPanel) {
+  const yUnit = String(panel.visualConfig?.yUnit || "")
+  const y2Unit = String(panel.visualConfig?.y2Unit || "")
+  return (input: unknown) => {
+    const params = (Array.isArray(input) ? input : [input]) as Array<Record<string, unknown>>
+    const x = String(params[0]?.axisValueLabel || params[0]?.name || "")
+    const lines = [`<div style="margin-bottom:4px;font-weight:600;">${escapeHtml(x)}</div>`]
+    for (const item of params) {
+      const id = String(item.seriesId || "")
+      const value = numberOrNull(item.value)
+      if (value === null) continue
+      const unit = id.startsWith("line:") ? y2Unit : yUnit
+      lines.push(tooltipRow(item.marker, String(item.seriesName || ""), formatMetricValue(value, unit)))
+    }
+    return lines.join("")
+  }
+}
+
+function stackedAreaOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+  const rows = result.rows
+  const xField = panel.xField || ""
+  const stackField = panel.stackField || ""
+  const field = (panel.yFields || [])[0] || ""
+  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const stacks = stackOrderOf(panel, distinct(rows.map((row) => String(row[stackField] ?? ""))))
+  const series: SeriesEntry[] = stacks.map((stackValue) => ({
+    id: `area:${field}:${stackValue}`,
+    name: stackValue,
+    type: "line",
+    stack: field,
+    symbol: "circle",
+    symbolSize: 5,
+    showSymbol: false,
+    smooth: true,
+    connectNulls: true,
+    color: stackColor(stackValue),
+    areaStyle: { opacity: 0.18 },
+    lineStyle: { width: 2 },
+    emphasis: { focus: "series" },
+    data: xs.map((x) => {
+      let total = 0
+      let found = false
+      for (const row of rows) {
+        if (xLabel(row[xField]) !== x || String(row[stackField] ?? "") !== stackValue) continue
+        const value = numberOrNull(row[field])
+        if (value === null) continue
+        total += value
+        found = true
+      }
+      return found ? total : null
+    }),
+  }))
+  series.push(...y2LineSeries(panel, rows, xs, xField))
+  return {
+    ...baseOption(panel, xs),
+    legend: {
+      bottom: 0,
+      type: "scroll",
+      icon: "roundRect",
+      itemWidth: 12,
+      itemHeight: 8,
+      data: [...stacks, ...(panel.y2Fields || []).map((lineField) => fieldLabel(panel, lineField))],
+    },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: stackedAreaTooltipFormatter(panel),
+    },
+    series,
+  } as EChartsOption
+}
+
+function percentStackedTooltipFormatter(panel: DashboardPanel, breakdown: StackBreakdown) {
+  const yUnit = String(panel.visualConfig?.yUnit || "")
+  const y2Unit = String(panel.visualConfig?.y2Unit || "")
+  return (input: unknown) => {
+    const params = (Array.isArray(input) ? input : [input]) as Array<Record<string, unknown>>
+    const x = String(params[0]?.axisValueLabel || params[0]?.name || "")
+    const entries = breakdown.get(breakdownKey(x, "percent")) || []
+    const total = entries.reduce((sum, entry) => sum + entry.value, 0)
+    const lines = [`<div style="margin-bottom:4px;font-weight:600;">${escapeHtml(x)}</div>`]
+    for (const item of params) {
+      const id = String(item.seriesId || "")
+      const name = String(item.seriesName || "")
+      const value = numberOrNull(item.value)
+      if (value === null) continue
+      if (id.startsWith("line:")) {
+        lines.push(tooltipRow(item.marker, name, formatMetricValue(value, y2Unit)))
+        continue
+      }
+      const entry = entries.find((candidate) => candidate.bucket === name)
+      const raw = entry?.value ?? 0
+      lines.push(tooltipRow(item.marker, name, `${formatMetricValue(raw, yUnit)} · ${formatMetricValue(value, "percent")}`))
+    }
+    if (total > 0) {
+      lines.push(
+        `<div style="display:flex;gap:6px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(128,128,128,.35);"><span>整体</span><span style="margin-left:auto;font-weight:600;">${escapeHtml(formatMetricValue(total, yUnit))}</span></div>`,
+      )
+    }
+    return lines.join("")
+  }
+}
+
+function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+  const rows = result.rows
+  const xField = panel.xField || ""
+  const stackField = panel.stackField || ""
+  const field = (panel.yFields || [])[0] || ""
+  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const stacks = stackOrderOf(panel, distinct(rows.map((row) => String(row[stackField] ?? ""))))
+  const breakdown: StackBreakdown = new Map()
+  for (const x of xs) {
+    const entries = stacks
+      .map((stackValue) => {
+        let total = 0
+        for (const row of rows) {
+          if (xLabel(row[xField]) !== x || String(row[stackField] ?? "") !== stackValue) continue
+          total += numberOrNull(row[field]) || 0
+        }
+        return { bucket: stackValue, value: total }
+      })
+      .filter((entry) => entry.value > 0)
+    breakdown.set(breakdownKey(x, "percent"), entries)
+  }
+  const series: SeriesEntry[] = stacks.map((stackValue) => ({
+    id: `percent:${field}:${stackValue}`,
+    name: stackValue,
+    type: "bar",
+    stack: "percent",
+    barMaxWidth: 32,
+    color: stackColor(stackValue),
+    emphasis: { focus: "series" },
+    data: xs.map((x) => {
+      const entries = breakdown.get(breakdownKey(x, "percent")) || []
+      const total = entries.reduce((sum, entry) => sum + entry.value, 0)
+      const raw = entries.find((entry) => entry.bucket === stackValue)?.value || 0
+      return total > 0 ? Number(((raw / total) * 100).toFixed(2)) : 0
+    }),
+  }))
+  series.push(...y2LineSeries(panel, rows, xs, xField))
+  return {
+    ...baseOption(panel, xs),
+    legend: {
+      bottom: 0,
+      type: "scroll",
+      icon: "roundRect",
+      itemWidth: 12,
+      itemHeight: 8,
+      data: [...stacks, ...(panel.y2Fields || []).map((lineField) => fieldLabel(panel, lineField))],
+    },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      confine: true,
+      formatter: percentStackedTooltipFormatter(panel, breakdown),
+    },
+    yAxis: [
+      {
+        type: "value",
+        min: 0,
+        max: 100,
+        axisLabel: { formatter: (value: number) => formatMetricValue(value, "percent") },
+        splitLine: { lineStyle: { opacity: 0.4 } },
+      },
+      {
+        type: "value",
+        min: 0,
+        max: 100,
+        axisLabel: { formatter: (value: number) => formatMetricValue(value, "percent") },
+        splitLine: { show: false },
+      },
+    ],
+    series,
+  } as EChartsOption
+}
+
 function barOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
   const rows = result.rows
   const xField = panel.xField || ""
@@ -365,6 +573,12 @@ function lineOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsO
 }
 
 export function buildChartOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+  if (panel.chartType === "stacked_area_with_lines") {
+    return stackedAreaOption(panel, result)
+  }
+  if (panel.chartType === "percent_stacked_bar_with_lines") {
+    return percentStackedBarOption(panel, result)
+  }
   if (panel.chartType === "stacked_bar" || panel.chartType === "stacked_bar_with_lines") {
     return stackedBarOption(panel, result)
   }

@@ -107,10 +107,75 @@ join (
 group by b.week, b.turns_bucket, w.task_turns_p80
 order by b.week, b.turns_bucket`;
 
+const TOKEN_CONSUMPTION_TREND_SQL = `with scoped as (
+  select
+    (date_trunc('week', started_at))::date as week,
+    action,
+    total_tokens
+  from task_execution_metrics
+  where git_server_id = :git_server_id
+    and repository_id = :repository_id
+    and started_at >= :from
+    and started_at < :to
+    and total_tokens > 0
+)
+select
+  wa.week,
+  wa.action,
+  wa.total_tokens,
+  wp.task_token_p80
+from (
+  select
+    week,
+    action,
+    sum(total_tokens)::int as total_tokens
+  from scoped
+  group by week, action
+) wa
+join (
+  select
+    week,
+    percentile_cont(0.8) within group (order by total_tokens) as task_token_p80
+  from scoped
+  group by week
+) wp on wp.week = wa.week
+order by wa.week, wa.action`;
+
+const TASK_TIME_SHARE_SQL = `with weekly as (
+  select
+    (date_trunc('week', started_at))::date as week,
+    sum(task_seconds)::numeric as task_seconds,
+    sum(wait_seconds)::numeric as wait_seconds
+  from issue_flow_metrics
+  where git_server_id = :git_server_id
+    and repository_id = :repository_id
+    and started_at >= :from
+    and started_at < :to
+  group by week
+)
+select
+  week,
+  'agent' as component,
+  task_seconds as seconds,
+  case when task_seconds + wait_seconds > 0 then (task_seconds * 100.0 / (task_seconds + wait_seconds)) else 0 end as task_share_pct
+from weekly
+where task_seconds > 0
+union all
+select
+  week,
+  'wait' as component,
+  wait_seconds as seconds,
+  case when task_seconds + wait_seconds > 0 then (task_seconds * 100.0 / (task_seconds + wait_seconds)) else 0 end as task_share_pct
+from weekly
+where wait_seconds > 0
+order by week, component`;
+
 test('assertReadOnlyMetricsSql allows the seeded panel queries', () => {
   assert.equal(typeof assertReadOnlyMetricsSql(STARTED_ISSUE_DISTRIBUTION_SQL), 'string');
   assert.equal(typeof assertReadOnlyMetricsSql(ISSUE_TYPE_DISTRIBUTION_SQL), 'string');
   assert.equal(typeof assertReadOnlyMetricsSql(ISSUE_TASK_TURNS_DISTRIBUTION_SQL), 'string');
+  assert.equal(typeof assertReadOnlyMetricsSql(TOKEN_CONSUMPTION_TREND_SQL), 'string');
+  assert.equal(typeof assertReadOnlyMetricsSql(TASK_TIME_SHARE_SQL), 'string');
   assert.ok(assertReadOnlyMetricsSql(`select
     flow,
     percentile_cont(0.85) within group (order by wait_seconds) as wait_p85_seconds,
