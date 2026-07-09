@@ -514,15 +514,52 @@ export type EmptyPanelProps = {
   children?: ReactNode
 }
 
-export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  })
+type ApiRequestInit = RequestInit & {
+  timeoutMs?: number
+}
+
+const DEFAULT_API_TIMEOUT_MS = 60_000
+
+export async function api<T = any>(path: string, options: ApiRequestInit = {}): Promise<T> {
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, signal, ...requestOptions } = options
+  const controller = new AbortController()
+  let timedOut = false
+  let timeoutId: number | undefined
+  const abortFromCaller = () => controller.abort(signal?.reason)
+
+  if (signal?.aborted) {
+    controller.abort(signal.reason)
+  } else {
+    signal?.addEventListener("abort", abortFromCaller, { once: true })
+  }
+  if (timeoutMs > 0) {
+    timeoutId = window.setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...requestOptions,
+      credentials: "include",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(requestOptions.headers || {}),
+      },
+    })
+  } catch (error) {
+    if (timedOut) {
+      throw new Error("request_timeout")
+    }
+    throw error
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+    signal?.removeEventListener("abort", abortFromCaller)
+  }
+
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     const error = new Error(body.error || `HTTP ${response.status}`)

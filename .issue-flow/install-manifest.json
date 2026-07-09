@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "issueFlowVersion": "0.3.0",
+  "issueFlowVersion": "0.4.0",
   "provider": "github",
   "runtime": "agentrix",
   "files": {
     ".agentrix/plugins/issue-flow/.claude-plugin/plugin.json": {
       "source": ".claude-plugin/plugin.json",
       "mode": "managed",
-      "sha256": "9ffdce7e9e4f6824812739489eb156cd200c5e8d2f8adde777660aaafea7233c"
+      "sha256": "e749febbd2b5b4174d0a809ea26de33fe35805f20ee20fbb11e4597c03949a60"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "5effbbf5c731b743ce8cd9bd3c0f7f1ffe724c0ffa8da92737d06756fca6042e"
+      "sha256": "aaeb0a2fa2d5f708cb3fb1b0896e011d8a3952fa113c7cb00ffbf9d656c1f3a3"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md",
@@ -147,7 +147,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/providers.cjs": {
       "source": "skills/issue-flow/scripts/providers.cjs",
       "mode": "managed",
-      "sha256": "903ff9988534428fc4f81feb3f88bd97d18dd54559b63af4ada05fb21549e24a"
+      "sha256": "c99018836a17db1eaec1824d986febbe1b813d3dbeb2e93cb15571f3d46d83ac"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/resolve.cjs": {
       "source": "skills/issue-flow/scripts/resolve.cjs",
@@ -167,12 +167,12 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
       "mode": "managed",
-      "sha256": "4b31edee18eac9bab2e0bac2e78410bde5b1b4d712cad5e70f2cc330fb41723c"
+      "sha256": "7ceab7f605d392ba5fb5dd311c5ad7eb1821c770d344651edcc58828813ed86d"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
       "mode": "managed",
-      "sha256": "eefeb73f7774252cf093608cd2d4e8818ee815292474d04ced4ce8ff016e35aa"
+      "sha256": "615a6b66ad72f88ae77edfa97d606c5fe98929b9ed800437a57cd2f122534952"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs": {
       "source": "skills/issue-flow/scripts/sync-labels.cjs",

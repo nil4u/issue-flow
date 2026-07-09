@@ -451,19 +451,19 @@ export function useDashboardController() {
       for (const checkType of ["permissions", "webhook", "variables", "runners", "plugins"]) {
         setCheckProgressStep(checkType, "running", "正在检查")
         let body = await checkInstallStep(checkType, input)
-        nextCheck = applyInstallCheck(nextCheck, body)
         let checkedStep = body.steps.find((step) => step.id === checkType)
         if (checkType === "variables") {
           if (hasPendingAutoVariables(checkedStep)) {
             setCheckProgressStep(checkType, "running", "正在自动写入")
+            nextCheck = applyInstallCheck(nextCheck, body)
             const fixed = await autoConfigureInstallStep(checkType, input)
             nextCheck = applyInstallCheck(nextCheck, fixed)
             const fixedStep = fixed.steps.find((step) => step.id === checkType)
             if (hasFailedVariables(fixedStep)) {
+              body = fixed
               checkedStep = fixedStep
             } else {
               body = await checkInstallStep(checkType, input)
-              nextCheck = applyInstallCheck(nextCheck, body)
               checkedStep = body.steps.find((step) => step.id === checkType)
             }
           }
@@ -478,11 +478,14 @@ export function useDashboardController() {
             })),
           }))
           if (needsManual) {
+            nextCheck = applyInstallCheck(nextCheck, body)
             interrupted = true
             break
           }
+          nextCheck = applyInstallCheck(nextCheck, body)
           continue
         }
+        nextCheck = applyInstallCheck(nextCheck, body)
         if (checkedStep && checkedStep.status !== "passed" && canAutoConfigureStep(checkType)) {
           setCheckProgressStep(checkType, "running", "自动配置")
           const fixed = await autoConfigureInstallStep(checkType, input)

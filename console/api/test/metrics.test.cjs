@@ -544,7 +544,6 @@ test('metric views and the read-only executor answer the seeded panel queries', 
         reviewTaskTurns: 4,
       },
     });
-
     const weekly = await store.runMetricsQuery(
       'select week, done_bucket, issue_count, weighted_count from weekly_issue_metrics order by done_bucket',
       {},
@@ -580,6 +579,8 @@ test('metric views and the read-only executor answer the seeded panel queries', 
         'dashpanel_issue_task_turns_distribution',
         'dashpanel_issue_type_distribution',
         'dashpanel_started_issue_distribution',
+        'dashpanel_task_time_share',
+        'dashpanel_token_consumption_trend',
       ],
     );
     assert.deepEqual(dashboard.variables.map((variable) => variable.name), ['weeks', 'from', 'to']);
@@ -662,6 +663,9 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     });
     assert.equal(otherRepoTurns.rows.length, 0, 'task turns panel query is scoped to the requested repository');
 
+    assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').chartType, 'stacked_area_with_lines');
+    assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share').chartType, 'percent_stacked_bar_with_lines');
+
     const flowWaitSql = `select
   flow,
   sum(wait_seconds) as wait_total_seconds
@@ -730,7 +734,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const detailResponse = await fetch(`${baseUrl}/api/dashboards/agent-first-overview`, { headers: { cookie } });
     assert.equal(detailResponse.status, 200);
     const detailBody = await detailResponse.json();
-    assert.equal(detailBody.dashboard.panels.length, 3);
+    assert.equal(detailBody.dashboard.panels.length, 5);
 
     const queryResponse = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',
