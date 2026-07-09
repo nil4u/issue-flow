@@ -4,6 +4,8 @@ type ExternalServiceLogger = {
   error?: (payload: Record<string, unknown>, message?: string) => void
 }
 
+type ExternalServiceLogLevel = keyof ExternalServiceLogger
+
 type ExternalServiceCall = {
   startedAt: string
   startedAtMs: number
@@ -58,6 +60,21 @@ function externalServiceError(error: unknown) {
   }
 }
 
+function writeExternalServiceLog(
+  logger: ExternalServiceLogger,
+  levels: ExternalServiceLogLevel[],
+  payload: Record<string, unknown>,
+  message: string,
+) {
+  for (const level of levels) {
+    const write = logger[level]
+    if (write) {
+      write.call(logger, payload, message)
+      return
+    }
+  }
+}
+
 function logExternalServiceCall(input: ExternalServiceLogInput) {
   const logger = input.logger
   if (!logger) return
@@ -77,14 +94,16 @@ function logExternalServiceCall(input: ExternalServiceLogInput) {
     payload.error = externalServiceError(input.error)
     const status = Number(input.status || (payload.error as { status?: number }).status || 0)
     const level = status >= 400 && status < 500 ? "warn" : "error"
-    const write = level === "error"
-      ? logger.error || logger.warn || logger.info
-      : logger.warn || logger.info
-    write?.(payload, `${input.service} external call failed`)
+    writeExternalServiceLog(
+      logger,
+      level === "error" ? ["error", "warn", "info"] : ["warn", "info"],
+      payload,
+      `${input.service} external call failed`,
+    )
     return
   }
 
-  logger.info?.(payload, `${input.service} external call completed`)
+  writeExternalServiceLog(logger, ["info"], payload, `${input.service} external call completed`)
 }
 
 export {

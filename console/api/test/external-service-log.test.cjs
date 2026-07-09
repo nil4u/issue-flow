@@ -6,6 +6,10 @@ process.env.DATABASE_URL ||= 'postgresql://issue_flow_test:issue_flow_test@127.0
 require('tsx/cjs');
 
 const { validateAgentrixApiKey } = require('../src/core/agentrix-api.ts');
+const {
+  externalServiceCallStarted,
+  logExternalServiceCall,
+} = require('../src/core/external-service-log.ts');
 const { validateGitlabToken } = require('../src/core/gitlab.ts');
 
 function captureLogger() {
@@ -36,6 +40,32 @@ function listen(server) {
 function close(server) {
   return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
+
+test('external service logger calls preserve the logger receiver', () => {
+  const entries = [];
+  const logger = {
+    receiverId: 'logger-instance',
+    warn(payload, message) {
+      assert.equal(this.receiverId, 'logger-instance');
+      entries.push({ level: 'warn', payload, message });
+    },
+  };
+
+  logExternalServiceCall({
+    logger,
+    service: 'gitlab',
+    method: 'GET',
+    url: 'https://gitlab.example/api/v4/user?private_token=secret',
+    call: externalServiceCallStarted(),
+    status: 404,
+    error: Object.assign(new Error('missing'), { status: 404 }),
+  });
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].level, 'warn');
+  assert.equal(entries[0].message, 'gitlab external call failed');
+  assert.equal(entries[0].payload.path, '/api/v4/user?private_token=[redacted]');
+});
 
 test('GitLab API calls record safe external service metadata', async () => {
   const gitlab = http.createServer((req, res) => {
