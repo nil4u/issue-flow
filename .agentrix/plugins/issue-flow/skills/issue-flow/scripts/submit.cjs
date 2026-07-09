@@ -374,7 +374,7 @@ function gitPushTokenForProvider(providerName, env = process.env) {
     return env.GITHUB_TOKEN || env.GH_TOKEN || '';
   }
   if (providerName === 'gitlab') {
-    return env.GITLAB_TOKEN || env.GL_TOKEN || env.GITLAB_PRIVATE_TOKEN || env.CI_JOB_TOKEN || '';
+    return env.ISSUE_FLOW_GITLAB_TOKEN || env.GITLAB_TOKEN || env.GL_TOKEN || env.GITLAB_PRIVATE_TOKEN || env.CI_JOB_TOKEN || '';
   }
   return '';
 }

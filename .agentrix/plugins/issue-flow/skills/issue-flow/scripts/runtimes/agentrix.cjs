@@ -37,6 +37,7 @@ const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
 const PROVIDER_TOKEN_ENV_KEYS = [
   'GITHUB_TOKEN',
   'GH_TOKEN',
+  'ISSUE_FLOW_GITLAB_TOKEN',
   'GITLAB_TOKEN',
   'GL_TOKEN',
   'GITLAB_PRIVATE_TOKEN',
@@ -509,6 +510,31 @@ function appendOptionalArg(args, flag, value) {
   }
 }
 
+function shellQuote(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(text)) {
+    return text;
+  }
+  return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
+function redactedCommand(command, args) {
+  const redacted = [command];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    redacted.push(arg);
+    if (arg === '--api-key' && index + 1 < args.length) {
+      redacted.push('[redacted]');
+      index += 1;
+    }
+  }
+  return redacted.map(shellQuote).join(' ');
+}
+
+function logAgentrixRunCommand(args) {
+  console.log(`[issue-flow] Running Agentrix command: ${redactedCommand('npx', args)}`);
+}
+
 function buildAgentrixRepo(fullName, gitServerId) {
   const parts = String(fullName || '').split('/').filter(Boolean);
   if (parts.length < 2) {
@@ -675,6 +701,7 @@ function run(action, issue, options = {}, data = {}) {
   const resultFile = path.join(tempDir, 'result.json');
   const provider = resolveProvider(options, data.payload || {});
   const args = buildRunArgs(action, issue, options, data, prompt, resultFile);
+  logAgentrixRunCommand(args);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
@@ -710,6 +737,7 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
   const resultFile = path.join(tempDir, 'result.json');
   const provider = resolveProvider(options, data.payload || {});
   const args = buildResumeTaskArgs(taskId, instruction, options, data, resultFile);
+  logAgentrixRunCommand(args);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
@@ -906,7 +934,9 @@ module.exports = {
   resolveAgentrixConfig,
   resolvePlanTemplate,
   resolvePromptBaseBranch,
+  redactedCommand,
   run,
   resumeTask,
+  shellQuote,
   shouldAcknowledgeAutoIssue,
 };
