@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/nil4u/issue-flow/compare/console-v0.5.0...console-v0.6.0) (2026-07-09)
+
+
+### Features
+
+* **console:** add token and task time overview charts ([fb30efb](https://github.com/nil4u/issue-flow/commit/fb30efbd537e5aace0a722ca0744174fae3d9a71))
+
+
+### Bug Fixes
+
+* **console:** prevent install checks from hanging ([b170a2c](https://github.com/nil4u/issue-flow/commit/b170a2cc08da73b0ebf7d7abe954debec35f7cc2))
+
 ## [0.5.0](https://github.com/nil4u/issue-flow/compare/console-v0.4.0...console-v0.5.0) (2026-07-09)
 
 

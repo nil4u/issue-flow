@@ -1,7 +1,7 @@
 {
   "name": "issue-flow-console",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Issue Flow console: dashboard API for managed repositories and metrics.",
   "license": "MIT",
   "keywords": [
