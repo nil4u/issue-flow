@@ -274,7 +274,7 @@ test('install script auto target treats non-GitHub remotes as GitLab', () => {
   try {
     assert.equal(spawnSync('git', ['init'], { cwd: root, encoding: 'utf8' }).status, 0);
     assert.equal(
-      spawnSync('git', ['remote', 'add', 'origin', 'git@git.ke.com:wuling/test.git'], {
+      spawnSync('git', ['remote', 'add', 'origin', 'git@git.internal.example:team/project.git'], {
         cwd: root,
         encoding: 'utf8',
       }).status,

@@ -11,6 +11,12 @@ import {
   bindMetricsParams,
   metricsResultFromRows,
 } from "./metrics-sql.js"
+import {
+  CONSOLE_SESSION_TTL_MS,
+  TOUCH_INTERVAL_MS,
+  hashConsoleSessionToken,
+  newConsoleSessionToken,
+} from "./console-session.js"
 import { fingerprintSecret } from "./sanitize.js"
 import { normalizeTaskAction } from "./task-projection.js"
 
@@ -1124,6 +1130,7 @@ class IssueFlowStore {
     if (!userId) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const q = String(options.q || "").trim()
     const owner = String(options.owner || "").trim()
+    const activeOwner = q ? "" : owner
     const selectedProjectId = String(options.selectedProjectId || "").trim()
     const accessRows = await this.db.userRepoAccess.findMany({
       where: {
@@ -1137,7 +1144,7 @@ class IssueFlowStore {
     const where = {
       id: { in: repoIds },
       ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
-      ...(owner && owner !== "all" ? { owner } : {}),
+      ...(activeOwner && activeOwner !== "all" ? { owner: activeOwner } : {}),
       ...(q ? { fullName: { contains: q } } : {}),
     }
     const [pageRows, total, ownerRows] = await Promise.all([
@@ -1161,8 +1168,7 @@ class IssueFlowStore {
     if (selectedProjectId && !rows.some((row) => row.id === selectedProjectId || row.serverRepoId === selectedProjectId)) {
       const selected = await this.db.repo.findFirst({
         where: {
-          id: { in: repoIds },
-          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+          ...where,
           OR: [
             { id: selectedProjectId },
             { serverRepoId: selectedProjectId },
@@ -2420,42 +2426,90 @@ class IssueFlowStore {
     return this.getSession(id, { allowExpired: true })
   }
 
-  async updateSessionIdentity(id, identity = {}) {
-    await this.ready
-    const existing = await this.getSession(id, { allowExpired: true })
-    if (!existing) return undefined
-    const updatedAt = nowIso()
-    const session = {
-      ...existing,
-      userId: identity.userId || existing.userId || "",
-      provider: identity.provider || existing.provider || "gitlab",
-      gitServerId: identity.gitServerId || existing.gitServerId || "",
-      user: identity.user || existing.user || {},
-      account: identity.account || existing.account || {},
-      updatedAt,
-    }
-    delete session.token
-    delete session.accessToken
-    delete session.refreshToken
-    await this.db.oAuthSession.update({
-      where: { id },
-      data: {
-        userId: session.userId || null,
-        provider: session.provider,
-        gitServerId: session.gitServerId,
-        data: session,
-        updatedAt: asDate(updatedAt),
-      },
-    })
-    return this.getSession(id, { allowExpired: true })
-  }
-
   async deleteSession(id) {
     await this.ready
     if (!id) return
     await this.db.oAuthSession.delete({ where: { id } }).catch((error) => {
       if (error && error.code !== "P2025") throw error
     })
+  }
+
+  consoleSessionFromRecord(row) {
+    if (!row) return undefined
+    return {
+      id: row.id,
+      userId: row.userId,
+      expiresAt: timestampValue(row.expiresAt),
+      lastSeenAt: timestampValue(row.lastSeenAt),
+      createdAt: timestampValue(row.createdAt),
+    }
+  }
+
+  async createConsoleSession({ userId, userAgent = "", ip = "" }) {
+    await this.ready
+    // token 只在此处返回一次,数据库永远只存 hash。
+    const token = newConsoleSessionToken()
+    const now = Date.now()
+    const row = await this.db.consoleSession.create({
+      data: {
+        id: randomId("csess"),
+        tokenHash: hashConsoleSessionToken(token),
+        userId,
+        data: { userAgent: String(userAgent || ""), ip: String(ip || "") },
+        expiresAt: new Date(now + CONSOLE_SESSION_TTL_MS),
+        lastSeenAt: new Date(now),
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+      },
+    })
+    return { token, session: this.consoleSessionFromRecord(row) }
+  }
+
+  async getConsoleSessionByToken(token) {
+    await this.ready
+    if (!token) return undefined
+    const row = await this.db.consoleSession.findUnique({
+      where: { tokenHash: hashConsoleSessionToken(token) },
+    })
+    if (!row) return undefined
+    const now = Date.now()
+    if (!row.expiresAt || row.expiresAt.getTime() <= now) return undefined
+    let current = row
+    if (now - row.lastSeenAt.getTime() > TOUCH_INTERVAL_MS) {
+      // 滑动续期,按 TOUCH_INTERVAL_MS 节流写库。
+      current = await this.db.consoleSession.update({
+        where: { id: row.id },
+        data: {
+          lastSeenAt: new Date(now),
+          expiresAt: new Date(now + CONSOLE_SESSION_TTL_MS),
+          updatedAt: new Date(now),
+        },
+      })
+    }
+    return this.consoleSessionFromRecord(current)
+  }
+
+  async deleteConsoleSession(id) {
+    await this.ready
+    if (!id) return
+    await this.db.consoleSession.deleteMany({ where: { id } })
+  }
+
+  async deleteConsoleSessionsForUser(userId) {
+    await this.ready
+    if (!userId) return
+    await this.db.consoleSession.deleteMany({ where: { userId } })
+  }
+
+  async getGitCredential(userId, gitServerId, options = {}) {
+    await this.ready
+    if (!userId || !gitServerId) return undefined
+    const row = await this.db.oAuthSession.findUnique({
+      where: { userId_gitServerId: { userId, gitServerId } },
+      select: { id: true },
+    })
+    if (!row) return undefined
+    return this.getSession(row.id, options)
   }
 
   publicUserAgentrixConfig(config) {
@@ -2497,6 +2551,12 @@ class IssueFlowStore {
       }
     }
     return this.publicUserAgentrixConfig(config)
+  }
+
+  async deleteUserAgentrixConfig(userKey) {
+    await this.ready
+    if (!userKey) return
+    await this.db.userAgentrixConfig.deleteMany({ where: { userKey } })
   }
 
   async saveUserAgentrixConfig(userKey, input = {}) {

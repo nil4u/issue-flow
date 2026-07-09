@@ -1302,6 +1302,13 @@
     border-radius: 7px;
     background: var(--card);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 72%, var(--card));
+    transition: background-color 120ms ease, box-shadow 120ms ease;
+  }
+  .issue-card:hover {
+    background: color-mix(in srgb, var(--if-color-surface-high) 78%, var(--card));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--if-color-focus-border) 86%, var(--card)),
+      0 6px 16px color-mix(in srgb, var(--foreground) 8%, transparent);
   }
   .issue-card:last-child {
     margin-bottom: 0.45rem;

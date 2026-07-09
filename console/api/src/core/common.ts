@@ -104,15 +104,6 @@ async function requireRepo(store, id) {
   return repo;
 }
 
-function sessionUserKey(session) {
-  if (session && session.userId) {
-    return `user:${session.userId}`;
-  }
-  const username = session && session.user && session.user.username || '';
-  const gitServerId = session && session.gitServerId || session && session.gitServer && session.gitServer.id || '';
-  return username ? `${gitServerId || session.provider || 'git'}:${username}` : '';
-}
-
 function publicSession(session) {
   if (!session) {
     return undefined;
@@ -144,5 +135,4 @@ export {
   requireRepo,
   resolveGitServer,
   sessionToken,
-  sessionUserKey,
 }

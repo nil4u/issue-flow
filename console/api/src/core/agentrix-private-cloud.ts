@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { llmProxyConfig, resolveGitServer, sessionUserKey } from './common.js'
+import { llmProxyConfig, resolveGitServer } from './common.js'
 import {
   getGitlabCurrentUser,
 } from './gitlab.js'
 import { forwardServerConfig } from './agentrix-forward.js'
 import { getAgentrixPrivateCloudRunnerSecret } from './agentrix-api.js'
-import { savedAgentrixDefaults } from './user-agentrix-config.js'
+import { savedAgentrixDefaults, userAgentrixKey } from './user-agentrix-config.js'
 
 const AGENTRIX_SERVER_URL = 'https://agentrix.xmz.ai'
 const AGENTRIX_WEBAPP_URL = 'https://agentrix.xmz.ai'
@@ -30,20 +30,24 @@ function dockerCommand(input = {}) {
     `  -e GITLAB_BASE_URL=${shellQuote(input.gitServer && input.gitServer.baseUrl || '')} \\`,
     ...(input.gitServer && input.gitServer.apiUrl ? [`  -e GITLAB_API_URL=${shellQuote(input.gitServer.apiUrl)} \\`] : []),
     `  -e GITLAB_TOKEN=${shellQuote(input.gitlabToken)} \\`,
+    `  -e GIT_AUTHOR_NAME=${shellQuote(input.commitAuthor && input.commitAuthor.name || '')} \\`,
+    `  -e GIT_AUTHOR_EMAIL=${shellQuote(input.commitAuthor && input.commitAuthor.email || '')} \\`,
+    `  -e GIT_COMMITTER_NAME=${shellQuote(input.commitAuthor && input.commitAuthor.name || '')} \\`,
+    `  -e GIT_COMMITTER_EMAIL=${shellQuote(input.commitAuthor && input.commitAuthor.email || '')} \\`,
     '  -v agentrix-home:/home/agentrix/.agentrix \\',
     `  ${shellQuote(input.cliImage || DEFAULT_AGENTRIX_CLI_IMAGE)}`,
   ]
   return lines.join('\n')
 }
 
-function requireSession(session) {
-  if (!session || !session.userId) {
-    const error = new Error('gitlab login required')
+function requireUserId(userId) {
+  if (!userId) {
+    const error = new Error('console login required')
     error.status = 401
-    error.code = 'gitlab_login_required'
+    error.code = 'login_required'
     throw error
   }
-  return session
+  return userId
 }
 
 function runnerIdFrom(input = {}) {
@@ -57,6 +61,10 @@ function publicGitServer(server = {}) {
     name: server.name || '',
     baseUrl: server.baseUrl || '',
     apiUrl: server.apiUrl || '',
+    commitAuthor: {
+      name: server.commitAuthor && server.commitAuthor.name || 'issue-flow',
+      email: server.commitAuthor && server.commitAuthor.email || '',
+    },
     botPatFingerprint: server.botPatFingerprint || '',
   }
 }
@@ -71,6 +79,14 @@ function llmProxyInput(input = {}, env = process.env) {
 
 function agentrixCliImage(env = process.env) {
   return String(env.ISSUE_FLOW_AGENTRIX_CLI_IMAGE || '').trim() || DEFAULT_AGENTRIX_CLI_IMAGE
+}
+
+function commitAuthorInput(input = {}, config = {}) {
+  const author = input.commitAuthor || {}
+  return {
+    name: String(author.name || input.commitAuthorName || config.commitAuthor && config.commitAuthor.name || 'issue-flow').trim() || 'issue-flow',
+    email: String(author.email || input.commitAuthorEmail || config.commitAuthor && config.commitAuthor.email || '').trim(),
+  }
 }
 
 function websocketUrl(basePublicUrl = '', path = '') {
@@ -96,7 +112,7 @@ function eventForwardInput({ basePublicUrl = '', env = process.env } = {}) {
   }
 }
 
-async function validateBotPat(config = {}) {
+async function validateBotPat(config = {}, logger = undefined) {
   if (!config.botPat) {
     return {
       status: 400,
@@ -110,6 +126,7 @@ async function validateBotPat(config = {}) {
     apiUrl: config.apiUrl,
     token: config.botPat,
     authType: 'private-token',
+    logger,
   })
   if (validation.status !== 'valid') {
     return {
@@ -123,13 +140,13 @@ async function validateBotPat(config = {}) {
   return { status: 200, validation }
 }
 
-async function getAgentrixPrivateCloudConfig({ store, input = {}, session, env = process.env }) {
-  const current = requireSession(session)
-  const gitServerId = String(input.gitServerId || current.gitServerId || '').trim()
+async function getAgentrixPrivateCloudConfig({ store, input = {}, userId, env = process.env }) {
+  requireUserId(userId)
+  const gitServerId = String(input.gitServerId || '').trim()
   const gitServer = gitServerId ? await store.getGitServer(gitServerId) : undefined
-  const defaults = await savedAgentrixDefaults(store, current, env)
+  const defaults = await savedAgentrixDefaults(store, userId, env)
   const tokens = await store.listRunnerGitlabTokens({
-    userId: current.userId,
+    userId,
     gitServerId,
   })
   return {
@@ -141,18 +158,18 @@ async function getAgentrixPrivateCloudConfig({ store, input = {}, session, env =
         cliImage: agentrixCliImage(env),
       },
       llmProxy: llmProxyConfig(env),
-      gitServer: publicGitServer(gitServer || current.gitServer || {}),
+      gitServer: publicGitServer(gitServer || {}),
       defaults,
       runnerGitlabTokens: tokens,
     },
   }
 }
 
-async function validatePrivateCloudGitServer({ store, input = {}, session }) {
-  const current = requireSession(session)
-  const { server, config } = await resolveGitServer(store, input, current, 'gitlab')
+async function validatePrivateCloudGitServer({ store, input = {}, userId, logger = undefined }) {
+  requireUserId(userId)
+  const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
   try {
-    const result = await validateBotPat(config)
+    const result = await validateBotPat(config, logger)
     if (result.status !== 200) return result
     return {
       status: 200,
@@ -177,8 +194,8 @@ async function validatePrivateCloudGitServer({ store, input = {}, session }) {
   }
 }
 
-async function createRunnerGitlabToken({ store, input = {}, session, env = process.env, basePublicUrl = '' }) {
-  const current = requireSession(session)
+async function createRunnerGitlabToken({ store, input = {}, userId, env = process.env, basePublicUrl = '', logger = undefined }) {
+  requireUserId(userId)
   const runnerId = runnerIdFrom(input)
   if (!runnerId) {
     return { status: 400, body: { error: 'runner_id_required' } }
@@ -188,7 +205,11 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     return { status: 400, body: { error: 'runner_gitlab_token_manual_unsupported' } }
   }
 
-  const { server, config } = await resolveGitServer(store, input, current, 'gitlab')
+  const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
+  const commitAuthor = commitAuthorInput(input, config)
+  if (!commitAuthor.email) {
+    return { status: 400, body: { error: 'commit_author_email_required' } }
+  }
   const llmProxy = llmProxyInput(input, env)
   if (!llmProxy.baseUrl) {
     return { status: 400, body: { error: 'llm_proxy_base_url_required' } }
@@ -198,7 +219,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
   }
   let validation
   try {
-    const result = await validateBotPat(config)
+    const result = await validateBotPat(config, logger)
     if (result.status !== 200) return result
     validation = result.validation
   } catch (error) {
@@ -217,7 +238,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
   const eventForward = eventForwardInput({ basePublicUrl, env })
   if (eventForward.status) return eventForward
 
-  const defaults = await savedAgentrixDefaults(store, current, env)
+  const defaults = await savedAgentrixDefaults(store, userId, env)
   const agentrixApiKey = input.agentrixApiKey || defaults.agentrix && defaults.agentrix.apiKey || ''
   let cloudAuthToken = String(input.cloudAuthToken || input.runnerSecret || '').trim()
   if (!cloudAuthToken) {
@@ -226,6 +247,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
         env,
         apiKey: agentrixApiKey,
         cloudId: runnerId,
+        logger,
       })
     } catch (error) {
       return {
@@ -240,7 +262,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
 
   const runnerGitlabToken = {
     id: `bot_pat:${server.id}:${runnerId}`,
-    userId: current.userId,
+    userId,
     gitServerId: server.id,
     runnerId,
     gitlabUserId: validation.id || '',
@@ -255,7 +277,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
     updatedAt: '',
   }
   if (input.saveDefaults !== false) {
-    await store.saveUserAgentrixConfig(sessionUserKey(current), {
+    await store.saveUserAgentrixConfig(userAgentrixKey(userId), {
       automation: {
         runnerId,
       },
@@ -278,6 +300,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
         cliImage: agentrixCliImage(env),
       },
       llmProxy,
+      commitAuthor,
       cloudAuthToken,
       dockerCommand: dockerCommand({
         cloudAuthToken,
@@ -286,6 +309,7 @@ async function createRunnerGitlabToken({ store, input = {}, session, env = proce
         llmProxyApiKey: llmProxy.apiKey,
         gitlabToken: tokenValue,
         gitServer: server,
+        commitAuthor,
         llmProxyBaseUrl: llmProxy.baseUrl,
         cliImage: agentrixCliImage(env),
       }),

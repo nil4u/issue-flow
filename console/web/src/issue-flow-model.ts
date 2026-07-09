@@ -125,7 +125,8 @@ export type GitLabProject = {
   permissionStatus?: string
 }
 
-export type InstallStatus = "passed" | "needs_action" | "needs_input" | "blocked" | "unknown"
+export type InstallStatus = "passed" | "needs_action" | "needs_input" | "blocked" | "unknown" | "failed"
+export type VariableInstallStatus = "unchecked" | "passed" | "pending_auto" | "manual_required" | "failed"
 
 export type AgentrixVariable = {
   key: string
@@ -135,6 +136,7 @@ export type AgentrixVariable = {
   exists?: boolean
   required?: boolean
   writable?: boolean
+  autoWritable?: boolean
   masked?: boolean
   source?: string
   groupPath?: string
@@ -144,9 +146,11 @@ export type AgentrixVariable = {
   protected?: boolean
   raw?: boolean
   hidden?: boolean
-  status?: InstallStatus
+  status?: VariableInstallStatus
   detail?: string
   needsInput?: boolean
+  manualRequired?: boolean
+  blocker?: boolean
   control?: {
     path: string
     type: "text" | "password" | "select" | "checkbox"
@@ -283,6 +287,10 @@ export type AgentrixPrivateCloudConfig = {
 export type RunnerGitlabTokenResult = AgentrixPrivateCloudConfig & {
   runnerGitlabToken: RunnerGitlabToken
   gitlabToken: string
+  commitAuthor?: {
+    name?: string
+    email?: string
+  }
   cloudAuthToken?: string
   dockerCommand?: string
 }
@@ -340,6 +348,7 @@ export type InstallStep = {
   files?: string[]
   missing?: string[]
   inputRequired?: string[]
+  blockers?: string[]
   variables?: AgentrixVariable[]
   plugins?: PluginInstall[]
   permissions?: AdminPermission[]
@@ -488,7 +497,7 @@ export type RepoWorkspaceProps = {
   loadingIssues?: boolean
   onLogin: () => void
   onSyncIssues: () => Promise<void>
-  onCheck: () => Promise<InstallCheck | undefined>
+  onCheck: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onCloseCheckProgress: () => void
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>

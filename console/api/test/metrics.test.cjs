@@ -488,6 +488,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       issueId: '4208',
       issueNumber: 8,
       title: 'Open metrics issue',
+      type: 'bug',
       size: 'S',
       openedAt: at(HOUR_MS),
       updatedAt: at(HOUR_MS),
@@ -498,6 +499,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       issueId: '4209',
       issueNumber: 9,
       title: 'Dropped metrics issue',
+      type: '',
       openedAt: at(2 * HOUR_MS),
       updatedAt: at(2 * HOUR_MS),
     });
@@ -511,6 +513,37 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       updatedAt: at(4 * HOUR_MS),
     });
     await store.flushIssueStatsRebuilds();
+
+    const doneIssueRow = await findIssueRow(store, issueSnapshot());
+    const openIssueRow = await findIssueRow(store, openIssue);
+    const droppedIssueRow = await findIssueRow(store, droppedIssue);
+    await store.db.issueStat.update({
+      where: { id: doneIssueRow.id },
+      data: {
+        triageTaskTurns: 1,
+        planTaskTurns: 2,
+        buildTaskTurns: 3,
+        reviewTaskTurns: 1,
+      },
+    });
+    await store.db.issueStat.update({
+      where: { id: openIssueRow.id },
+      data: {
+        triageTaskTurns: 0,
+        planTaskTurns: 0,
+        buildTaskTurns: 0,
+        reviewTaskTurns: 0,
+      },
+    });
+    await store.db.issueStat.update({
+      where: { id: droppedIssueRow.id },
+      data: {
+        triageTaskTurns: 0,
+        planTaskTurns: 8,
+        buildTaskTurns: 9,
+        reviewTaskTurns: 4,
+      },
+    });
 
     const weekly = await store.runMetricsQuery(
       'select week, done_bucket, issue_count, weighted_count from weekly_issue_metrics order by done_bucket',
@@ -542,18 +575,31 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.ok(dashboard, 'system dashboard seeded');
     assert.equal(dashboard.isSystem, true);
     assert.deepEqual(
-      dashboard.panels.map((panel) => panel.id),
-      ['dashpanel_started_issue_distribution', 'dashpanel_task_execution_trend'],
+      dashboard.panels.map((panel) => panel.id).sort(),
+      [
+        'dashpanel_issue_task_turns_distribution',
+        'dashpanel_issue_type_distribution',
+        'dashpanel_started_issue_distribution',
+      ],
     );
     assert.deepEqual(dashboard.variables.map((variable) => variable.name), ['weeks', 'from', 'to']);
+    const weeksVariable = dashboard.variables.find((variable) => variable.name === 'weeks');
+    assert.equal(weeksVariable.defaultValue.value, 8);
+    assert.deepEqual(weeksVariable.defaultValue.options, [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]);
 
     const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
     const distribution = dashboard.panels.find((panel) => panel.id === 'dashpanel_started_issue_distribution');
+    assert.deepEqual(distribution.y2Fields, ['duration_p80_days']);
+    assert.equal(distribution.visualConfig.fieldLabels.duration_p80_days, 'P80 耗时');
     const distributionResult = await store.runMetricsQuery(distribution.querySql, { ...repoParams, weeks: 8 });
     assert.ok(distributionResult.rows.length >= 2);
     assert.deepEqual(
       distributionResult.columns.map((column) => column.name),
-      ['week', 'done_bucket', 'issue_count', 'weighted_count', 'triage_p50_days', 'build_p75_days', 'approve_p85_days'],
+      ['week', 'done_bucket', 'issue_count', 'weighted_count', 'duration_p80_days'],
+    );
+    assert.ok(
+      distributionResult.rows.some((row) => Number(row.duration_p80_days) > 0),
+      'completion duration P80 is computed from done/drop issues',
     );
 
     const otherRepo = await store.runMetricsQuery(distribution.querySql, {
@@ -563,13 +609,58 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     });
     assert.equal(otherRepo.rows.length, 0, 'panel queries are scoped to the requested repository');
 
-    const trend = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_execution_trend');
-    const trendResult = await store.runMetricsQuery(trend.querySql, {
+    const issueType = dashboard.panels.find((panel) => panel.id === 'dashpanel_issue_type_distribution');
+    assert.equal(issueType.chartType, 'stacked_bar');
+    assert.deepEqual(issueType.yFields, ['issue_count', 'weighted_count']);
+    assert.deepEqual(issueType.visualConfig.stackOrder, ['type::feature', 'type::bug', 'type::debt', 'type::ops', '未分类']);
+    const typeResult = await store.runMetricsQuery(issueType.querySql, { ...repoParams, weeks: 8 });
+    assert.deepEqual(
+      typeResult.columns.map((column) => column.name),
+      ['week', 'issue_type', 'issue_count', 'weighted_count'],
+    );
+    const typeBuckets = new Map(typeResult.rows.map((row) => [row.issue_type, row]));
+    assert.equal(typeBuckets.get('type::feature').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('type::feature').weighted_count), 2);
+    assert.equal(typeBuckets.get('type::bug').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('type::bug').weighted_count), 1);
+    assert.equal(typeBuckets.get('未分类').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('未分类').weighted_count), 2);
+
+    const otherRepoTypes = await store.runMetricsQuery(issueType.querySql, {
       ...repoParams,
-      from: at(-30 * DAY_MS),
-      to: at(30 * DAY_MS),
+      repository_id: 'other-repo',
+      weeks: 8,
     });
-    assert.equal(trendResult.rows.length, 0, 'trend panel SQL passes the executor without task rows');
+    assert.equal(otherRepoTypes.rows.length, 0, 'type panel query is scoped to the requested repository');
+
+    const taskTurns = dashboard.panels.find((panel) => panel.id === 'dashpanel_issue_task_turns_distribution');
+    assert.equal(taskTurns.chartType, 'stacked_bar_with_lines');
+    assert.deepEqual(taskTurns.yFields, ['issue_count', 'weighted_count']);
+    assert.deepEqual(taskTurns.y2Fields, ['task_turns_p80']);
+    assert.equal(taskTurns.visualConfig.fieldLabels.task_turns_p80, 'P80 轮次');
+    const turnsResult = await store.runMetricsQuery(taskTurns.querySql, { ...repoParams, weeks: 8 });
+    assert.deepEqual(
+      turnsResult.columns.map((column) => column.name),
+      ['week', 'turns_bucket', 'issue_count', 'weighted_count', 'task_turns_p80'],
+    );
+    const turnsBuckets = new Map(turnsResult.rows.map((row) => [row.turns_bucket, row]));
+    assert.equal(turnsBuckets.get('0').issue_count, 1);
+    assert.equal(Number(turnsBuckets.get('0').weighted_count), 1);
+    assert.equal(turnsBuckets.get('7-10').issue_count, 1);
+    assert.equal(Number(turnsBuckets.get('7-10').weighted_count), 2);
+    assert.equal(turnsBuckets.get('20+').issue_count, 1);
+    assert.equal(Number(turnsBuckets.get('20+').weighted_count), 2);
+    assert.ok(
+      turnsResult.rows.some((row) => Math.abs(Number(row.task_turns_p80) - 15.4) < 0.001),
+      'task turns P80 is computed from summed issue_stats task turns',
+    );
+
+    const otherRepoTurns = await store.runMetricsQuery(taskTurns.querySql, {
+      ...repoParams,
+      repository_id: 'other-repo',
+      weeks: 8,
+    });
+    assert.equal(otherRepoTurns.rows.length, 0, 'task turns panel query is scoped to the requested repository');
 
     const flowWaitSql = `select
   flow,
@@ -603,7 +694,8 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const address = app.server.address();
     const baseUrl = `http://127.0.0.1:${address.port}`;
     const user = await store.createUser({ displayName: 'Metrics Tester' });
-    const cookie = `issue_flow_user=${user.id}`;
+    const { token } = await store.createConsoleSession({ userId: user.id });
+    const cookie = `issue_flow_sid=${token}`;
     await store.ensureGitServer({
       id: 'gitlab-main',
       type: 'gitlab',
@@ -638,7 +730,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const detailResponse = await fetch(`${baseUrl}/api/dashboards/agent-first-overview`, { headers: { cookie } });
     assert.equal(detailResponse.status, 200);
     const detailBody = await detailResponse.json();
-    assert.equal(detailBody.dashboard.panels.length, 2);
+    assert.equal(detailBody.dashboard.panels.length, 3);
 
     const queryResponse = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',
@@ -650,9 +742,11 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     assert.ok(Array.isArray(queryBody.result.columns));
     assert.ok(Array.isArray(queryBody.result.rows));
 
+    const outsider = await store.createUser({ displayName: 'Metrics Outsider' });
+    const { token: outsiderToken } = await store.createConsoleSession({ userId: outsider.id });
     const noAccess = await fetch(`${baseUrl}${queryPath}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: 'issue_flow_user=user_forged' },
+      headers: { 'Content-Type': 'application/json', cookie: `issue_flow_sid=${outsiderToken}` },
       body: JSON.stringify({ params: { weeks: 8 } }),
     });
     assert.equal(noAccess.status, 404, 'users without repo access cannot query repo panels');

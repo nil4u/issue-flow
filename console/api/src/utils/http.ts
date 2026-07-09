@@ -69,11 +69,11 @@ export function cookie(name: string, value: string, options: { maxAge?: number; 
   return parts.join("; ")
 }
 
-export function sessionCookieName(gitServerId = "") {
-  const safe = String(gitServerId || "default").replace(/[^a-zA-Z0-9_-]/g, "_")
-  return `issue_flow_session_${safe}`
+export function consoleSessionCookieName() {
+  return "issue_flow_sid"
 }
 
+// legacy, 仅用于清除旧明文 cookie,绝不读取
 export function userCookieName() {
   return "issue_flow_user"
 }

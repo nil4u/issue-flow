@@ -44,7 +44,7 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
-start('api', npm, ['run', 'api:dev'], {
+start('api', npm, ['--workspace', 'issue-flow-console', 'run', 'dev'], {
   DATABASE_URL: databaseUrl,
   ISSUE_FLOW_BASE_URL: publicApiUrl,
   ISSUE_FLOW_APP_URL: appUrl,

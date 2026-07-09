@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type FocusEvent } from "react"
 import {
   AlertCircle,
   Check,
@@ -88,6 +88,18 @@ export function RepoSidebar(props: {
     setPickerOpen((current) => current === next ? null : next)
   }
 
+  function targetInPickerScope(target: EventTarget | null) {
+    return target instanceof HTMLElement && Boolean(target.closest("[data-sidebar-picker-scope]"))
+  }
+
+  function closePickerOnOutsideFocus(event: FocusEvent<HTMLElement>) {
+    if (!targetInPickerScope(event.target)) setPickerOpen(null)
+  }
+
+  function closePickerOnOutsideBlur(event: FocusEvent<HTMLElement>) {
+    if (!targetInPickerScope(event.relatedTarget)) setPickerOpen(null)
+  }
+
   if (collapsed) {
     return (
       <aside className="repo-sidebar collapsed">
@@ -132,7 +144,7 @@ export function RepoSidebar(props: {
   }
 
   return (
-    <aside className="repo-sidebar">
+    <aside className="repo-sidebar" onBlurCapture={closePickerOnOutsideBlur} onFocusCapture={closePickerOnOutsideFocus}>
       <div className="sidebar-titlebar">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -151,7 +163,7 @@ export function RepoSidebar(props: {
         <input value={filter} onChange={(event) => onFilter(event.currentTarget.value)} placeholder="Search repos..." disabled={!currentUser} />
       </div>
 
-      <div className="repo-switchers">
+      <div className="repo-switchers" data-sidebar-picker-scope>
         <button type="button" className="server-trigger" onClick={() => togglePicker("server")}>
           <GitBranch className="size-3.5" />
           <span>{selectedGitServer?.name || selectedGitServer?.id || "Git server"}</span>
@@ -166,7 +178,7 @@ export function RepoSidebar(props: {
       </div>
 
       {pickerOpen === "server" && (
-        <div className="sidebar-picker">
+        <div className="sidebar-picker" data-sidebar-picker-scope>
           {gitServers.map((server) => (
             <div
               className={`picker-row server-picker-row ${server.id === selectedGitServerId ? "active" : ""}`}
@@ -199,7 +211,7 @@ export function RepoSidebar(props: {
       )}
 
       {pickerOpen === "owner" && (
-        <div className="sidebar-picker">
+        <div className="sidebar-picker" data-sidebar-picker-scope>
           <button
             type="button"
             className={`picker-row ${owner === "all" ? "active" : ""}`}

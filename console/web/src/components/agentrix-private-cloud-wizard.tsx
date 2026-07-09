@@ -16,7 +16,7 @@ import {
 } from "@/issue-flow-model"
 import { errorMessage, notifyError } from "@/lib/errors"
 
-type StepId = "git" | "llm" | "command"
+type StepId = "git" | "llm" | "author" | "command"
 type WizardStatus = "idle" | "checking" | "ready" | "error"
 type LlmValidationStatus = "idle" | "checking" | "invalid"
 
@@ -47,6 +47,8 @@ export function AgentrixPrivateCloudWizard({
   const [command, setCommand] = useState("")
   const [llmProxyBaseUrl, setLlmProxyBaseUrl] = useState("")
   const [llmProxyApiKey, setLlmProxyApiKey] = useState("")
+  const [commitAuthorName, setCommitAuthorName] = useState("")
+  const [commitAuthorEmail, setCommitAuthorEmail] = useState("")
   const [generating, setGenerating] = useState(false)
   const [status, setStatus] = useState<WizardStatus>("idle")
   const [statusText, setStatusText] = useState("")
@@ -73,6 +75,7 @@ export function AgentrixPrivateCloudWizard({
       const body = await api<AgentrixPrivateCloudConfig>(`/api/agentrix/private-cloud?gitServerId=${encodeURIComponent(nextGitServerId)}`)
       setConfig(body)
       hydrateLlmProxy(body)
+      hydrateCommitAuthor(body)
       return body
     } catch (error) {
       if (options.notify !== false) notifyError(error, "加载 Agentrix runner 配置失败")
@@ -119,11 +122,11 @@ export function AgentrixPrivateCloudWizard({
     }
   }
 
-  async function generateCommand() {
-    if (!canGenerateCommand()) return
+  async function confirmLlmProxy() {
+    if (!canConfirmLlmProxy()) return
     setGenerating(true)
     setStatus("checking")
-    setStatusText(shouldContinueAfterLlmWarning() ? "正在生成 Docker 命令..." : "正在校验模型服务...")
+    setStatusText(shouldContinueAfterLlmWarning() ? "" : "正在校验模型服务...")
     try {
       if (!shouldContinueAfterLlmWarning()) {
         setLlmValidation({ status: "checking", message: "", key: llmValidationKey() })
@@ -136,6 +139,24 @@ export function AgentrixPrivateCloudWizard({
         }
         setLlmValidation({ status: "idle", message: "", key: "" })
       }
+      setStatus("ready")
+      setStatusText("")
+      setStep("author")
+    } catch (error) {
+      setStatus("error")
+      setStatusText(errorMessage(error))
+      notifyError(error, "校验模型服务失败")
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function generateCommand() {
+    if (!canGenerateCommand()) return
+    setGenerating(true)
+    setStatus("checking")
+    setStatusText("正在生成 Docker 命令...")
+    try {
       setStatusText("正在生成 Docker 命令...")
       const body = await api<RunnerGitlabTokenResult>("/api/agentrix/private-cloud/gitlab-token", {
         method: "POST",
@@ -144,6 +165,10 @@ export function AgentrixPrivateCloudWizard({
           runnerId: cloud.id,
           llmProxyBaseUrl: llmProxyBaseUrl.trim(),
           llmProxyApiKey: llmProxyApiKey.trim(),
+          commitAuthor: {
+            name: commitAuthorName.trim(),
+            email: commitAuthorEmail.trim(),
+          },
         }),
       })
       setCommand(body.dockerCommand || "")
@@ -201,8 +226,12 @@ export function AgentrixPrivateCloudWizard({
     return connected && validRunnerId(cloud.id)
   }
 
-  function canGenerateCommand() {
+  function canConfirmLlmProxy() {
     return canConfirmGitServer() && Boolean(llmProxyBaseUrl.trim() && llmProxyApiKey.trim())
+  }
+
+  function canGenerateCommand() {
+    return canConfirmLlmProxy() && Boolean(commitAuthorName.trim() && commitAuthorEmail.trim())
   }
 
   function shouldContinueAfterLlmWarning() {
@@ -227,10 +256,14 @@ export function AgentrixPrivateCloudWizard({
     resetLlmValidation()
   }
 
-  function generateButtonText() {
+  function llmButtonText() {
     if (generating && statusText.includes("校验")) return "校验中"
+    return shouldContinueAfterLlmWarning() ? "继续" : "下一步"
+  }
+
+  function generateButtonText() {
     if (generating) return "生成中"
-    return shouldContinueAfterLlmWarning() ? "继续生成" : "生成命令"
+    return "生成命令"
   }
 
   async function copyCommand() {
@@ -242,12 +275,19 @@ export function AgentrixPrivateCloudWizard({
   function selectGitServer(nextGitServerId: string) {
     setGitServerId(nextGitServerId)
     setCommand("")
+    setCommitAuthorName("")
+    setCommitAuthorEmail("")
     goToStep("git")
   }
 
   function hydrateLlmProxy(body?: AgentrixPrivateCloudConfig) {
     setLlmProxyBaseUrl((current) => current || body?.llmProxy?.baseUrl || "")
     setLlmProxyApiKey((current) => current || body?.llmProxy?.apiKey || "")
+  }
+
+  function hydrateCommitAuthor(body?: AgentrixPrivateCloudConfig) {
+    setCommitAuthorName((current) => current || body?.gitServer?.commitAuthor?.name || "issue-flow")
+    setCommitAuthorEmail((current) => current || body?.gitServer?.commitAuthor?.email || "")
   }
 
   function hasBotPat(latestConfig?: AgentrixPrivateCloudConfig) {
@@ -333,7 +373,34 @@ export function AgentrixPrivateCloudWizard({
               ) : status === "checking" ? (
                 <ValidationLine tone="loading" text={statusText} />
               ) : shouldContinueAfterLlmWarning() ? (
-                <ValidationLine tone="error" text={`${llmValidation.message} 如果确认无误，也可点击 "继续生成"。`} />
+                <ValidationLine tone="error" text={`${llmValidation.message} 如果确认无误，也可点击 "继续"。`} />
+              ) : null}
+            </div>
+          )}
+
+          {step === "author" && (
+            <div className="agentrix-step-body">
+              <label className="setup-field">
+                <span>Commit author name</span>
+                <Input
+                  value={commitAuthorName}
+                  onChange={(event) => setCommitAuthorName(event.currentTarget.value)}
+                  placeholder="issue-flow"
+                />
+              </label>
+              <label className="setup-field">
+                <span>Commit author email</span>
+                <Input
+                  type="email"
+                  value={commitAuthorEmail}
+                  onChange={(event) => setCommitAuthorEmail(event.currentTarget.value)}
+                  placeholder="issue-flow@example.com"
+                />
+              </label>
+              {status === "error" && statusText ? (
+                <ValidationLine tone="error" text={statusText} />
+              ) : status === "checking" ? (
+                <ValidationLine tone="loading" text={statusText} />
               ) : null}
             </div>
           )}
@@ -347,6 +414,12 @@ export function AgentrixPrivateCloudWizard({
 
         <footer className="agentrix-panel-actions">
           {step === "command" ? (
+            <Button type="button" variant="outline" onClick={() => goToStep("author")}>
+              <ChevronLeft className="size-4" />
+              上一步
+            </Button>
+          ) : null}
+          {step === "author" ? (
             <Button type="button" variant="outline" onClick={() => goToStep("llm")}>
               <ChevronLeft className="size-4" />
               上一步
@@ -365,6 +438,12 @@ export function AgentrixPrivateCloudWizard({
               {!generating ? <ChevronRight className="size-4" /> : null}
             </Button>
           ) : step === "llm" ? (
+            <Button type="button" className="agentrix-primary-action" disabled={generating || !canConfirmLlmProxy()} onClick={() => void confirmLlmProxy()}>
+              {generating ? <Loader2 className="size-4 animate-spin" /> : null}
+              {llmButtonText()}
+              {!generating ? <ChevronRight className="size-4" /> : null}
+            </Button>
+          ) : step === "author" ? (
             <Button type="button" className="agentrix-primary-action" disabled={generating || !canGenerateCommand()} onClick={() => void generateCommand()}>
               {generating ? <Loader2 className="size-4 animate-spin" /> : null}
               {generateButtonText()}
@@ -385,6 +464,7 @@ export function AgentrixPrivateCloudWizard({
 function stepTitle(step: StepId) {
   if (step === "git") return "确认 Git server"
   if (step === "llm") return "模型服务"
+  if (step === "author") return "提交作者"
   return "Docker 命令"
 }
 
