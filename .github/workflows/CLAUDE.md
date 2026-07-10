@@ -5,7 +5,6 @@
 docker-image.yml: console-v* tag/workflow_dispatch 入口，构建 console 单镜像并推送到 GitHub Container Registry。
 issue-flow-auto.yml: GitHub issue opened/labeled 入口，执行 intake 与自动路由。
 issue-flow-comment.yml: GitHub issue comment 入口，响应人工 `@agentrix` 触发。
-issue-flow-failure-intake.yml: GitHub workflow_run failure 入口，创建或更新 CI failure issue。
 issue-flow-labels.yml: GitHub push/workflow_dispatch 入口，同步 managed labels。
 issue-flow-pr-merged.yml: GitHub PR closed 入口，处理 plan/build PR merge 后的 source issue 流转。
 issue-flow-pr-review-comment.yml: GitHub PR review comment 入口，恢复已有 Agentrix review task。
