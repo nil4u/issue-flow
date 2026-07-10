@@ -224,7 +224,6 @@ model Task {
   agent              String    @default("")
   model              String    @default("")
   turns              Int       @default(0)
-  modelUsage         Json?     @map("model_usage")
   status             String    @default("queued")
   result             String    @default("")
   queuedAt           DateTime? @map("queued_at")
@@ -236,6 +235,23 @@ model Task {
   @@index([action, startedAt])
   @@index([status])
   @@map("tasks")
+}
+
+model TaskUsageReport {
+  taskId                   String   @map("task_id")
+  eventId                  String   @map("event_id")
+  model                    String
+  inputTokens              BigInt   @default(0) @map("input_tokens")
+  outputTokens             BigInt   @default(0) @map("output_tokens")
+  cacheReadInputTokens     BigInt   @default(0) @map("cache_read_input_tokens")
+  cacheCreationInputTokens BigInt   @default(0) @map("cache_creation_input_tokens")
+  webSearchRequests        BigInt   @default(0) @map("web_search_requests")
+  createdAt                DateTime @map("created_at")
+
+  @@id([eventId, model])
+  @@index([taskId])
+  @@index([taskId, model])
+  @@map("task_usage_reports")
 }
 
 model TaskEvent {

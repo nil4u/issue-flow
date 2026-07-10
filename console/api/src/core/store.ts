@@ -1720,7 +1720,6 @@ class IssueFlowStore {
       agent: row.agent || "",
       model: row.model || "",
       turns: row.turns || 0,
-      modelUsage: row.modelUsage ?? undefined,
       status: row.status || "queued",
       result: row.result || "",
       queuedAt: timestampValue(row.queuedAt),
@@ -1855,9 +1854,6 @@ class IssueFlowStore {
       finishedAt: nullableDate(input.finishedAt) || existing && existing.finishedAt || null,
       updatedAt: new Date(),
     }
-    if (input.modelUsage !== undefined) {
-      data.modelUsage = input.modelUsage
-    }
     let row = await client.task.upsert({
       where: { taskId },
       create: {
@@ -1876,6 +1872,31 @@ class IssueFlowStore {
       })
     }
     return { task: this.taskFromRecord(row), applied: true }
+  }
+
+  async appendTaskUsageReport(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    const eventId = String(input.eventId || "").trim()
+    const reports = Array.isArray(input.reports) ? input.reports : []
+    if (!taskId || !eventId || !reports.length) return { applied: false, count: 0 }
+    const createdAt = asDate(input.createdAt || nowIso())
+    const data = reports
+      .map((report) => ({
+        taskId,
+        eventId,
+        model: String(report.model || "").trim(),
+        inputTokens: BigInt(report.inputTokens || 0),
+        outputTokens: BigInt(report.outputTokens || 0),
+        cacheReadInputTokens: BigInt(report.cacheReadInputTokens || 0),
+        cacheCreationInputTokens: BigInt(report.cacheCreationInputTokens || 0),
+        webSearchRequests: BigInt(report.webSearchRequests || 0),
+        createdAt,
+      }))
+      .filter((report) => report.model)
+    if (!data.length) return { applied: false, count: 0 }
+    const result = await client.taskUsageReport.createMany({ data, skipDuplicates: true })
+    return { applied: result.count > 0, count: result.count }
   }
 
   async appendTaskEvent(input = {}, client = this.db) {
