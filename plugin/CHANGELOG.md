@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/nil4u/issue-flow/compare/v0.4.0...v0.4.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* disable automatic pipeline failure intake ([3f1f2fd](https://github.com/nil4u/issue-flow/commit/3f1f2fda442e2c01e08a5624cb5cb52d3e1b3f81))
+* **plugin:** add stable client task ids ([fb0470a](https://github.com/nil4u/issue-flow/commit/fb0470aacfb9b82d7d0392d0dbe22a2a99967e10))
+
 ## [0.4.0](https://github.com/nil4u/issue-flow/compare/v0.3.1...v0.4.0) (2026-07-06)
 
 
