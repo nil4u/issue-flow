@@ -8,7 +8,7 @@ export type WorkspaceRoute = {
   settingsSection: "account" | "agentrix" | "git-servers"
 }
 
-const tabs = new Set<WorkspaceTab>(["overview", "issues", "settings"])
+const tabs = new Set<WorkspaceTab>(["overview", "issues", "tasks", "settings"])
 
 export const setupRoute: WorkspaceRoute = {
   view: "setup",
@@ -85,6 +85,7 @@ export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
   const project = encodeURIComponent(route.projectId)
   if (route.tab === "settings") return `/repos/${server}/${project}/settings`
   if (route.tab === "issues") return `/repos/${server}/${project}/issues`
+  if (route.tab === "tasks") return `/repos/${server}/${project}/tasks`
   return `/repos/${server}/${project}`
 }
 

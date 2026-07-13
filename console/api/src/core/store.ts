@@ -1951,6 +1951,37 @@ class IssueFlowStore {
     return this.taskFromRecord(row)
   }
 
+  async listTasks(options = {}) {
+    await this.ready
+    const gitServerId = String(options.gitServerId || "").trim()
+    const repositoryId = String(options.repositoryId || "").trim()
+    const page = Math.max(1, Math.floor(Number(options.page || 1) || 1))
+    const perPage = Math.min(100, Math.max(10, Math.floor(Number(options.perPage || 20) || 20)))
+    if (!gitServerId || !repositoryId) {
+      return { tasks: [], page, perPage, total: 0, hasMore: false }
+    }
+    const where = { gitServerId, repositoryId }
+    const [rows, total] = await Promise.all([
+      this.db.task.findMany({
+        where,
+        orderBy: [
+          { updatedAt: "desc" },
+          { id: "desc" },
+        ],
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.db.task.count({ where }),
+    ])
+    return {
+      tasks: rows.map((row) => this.taskFromRecord(row)),
+      page,
+      perPage,
+      total,
+      hasMore: page * perPage < total,
+    }
+  }
+
   async listTaskEvents(taskId) {
     await this.ready
     if (!taskId) return []

@@ -9,6 +9,7 @@ import {
   GitBranch,
   GitMerge,
   Loader2,
+  ListChecks,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -23,6 +24,7 @@ import { EmptyPanel } from "@/components/empty-panel"
 import { GitRunnerValue } from "@/components/git-runner-value"
 import { InstallConflictWizard } from "@/components/install-conflict-wizard"
 import { IssuesBoard } from "@/components/issues-board"
+import { TasksBoard } from "@/components/tasks-board"
 import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
@@ -43,6 +45,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           <TabsList variant="line">
             <TabsTrigger value="overview"><ShieldCheck className="size-4" />Overview</TabsTrigger>
             <TabsTrigger value="issues" disabled={!props.project}><CircleDot className="size-4" />Issues</TabsTrigger>
+            <TabsTrigger value="tasks" disabled={!props.project}><ListChecks className="size-4" />Tasks</TabsTrigger>
             <TabsTrigger value="settings" disabled={!props.project}><Wrench className="size-4" />Settings</TabsTrigger>
           </TabsList>
         </div>
@@ -51,6 +54,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         </TabsContent>
         <TabsContent value="issues">
           <IssuesBoard {...props} />
+        </TabsContent>
+        <TabsContent value="tasks">
+          <TasksBoard key={props.repository?.id || "no-repository"} {...props} />
         </TabsContent>
         <TabsContent value="settings">
           <InstallConsole {...props} />

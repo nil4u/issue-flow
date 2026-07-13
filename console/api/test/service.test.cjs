@@ -288,6 +288,84 @@ test('repository search ignores owner filter while owner browsing still scopes r
   }
 });
 
+test('repository task API paginates tasks and preserves repo access boundaries', async () => {
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const owner = await store.createUser({ id: 'task-owner', displayName: 'Task Owner' });
+    const outsider = await store.createUser({ id: 'task-outsider', displayName: 'Task Outsider' });
+    const primary = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: owner.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: owner.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/other',
+    }, { status: 'unchecked', projectId: '43' });
+    await store.db.task.createMany({
+      data: [
+        ...Array.from({ length: 12 }, (_, index) => ({
+          id: `task-row-${index + 1}`,
+          taskId: `task-${index + 1}`,
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          action: index % 2 ? 'build' : 'plan',
+          status: 'succeeded',
+          updatedAt: new Date(Date.UTC(2026, 6, 1, 0, index)),
+        })),
+        {
+          id: 'task-row-other-repo',
+          taskId: 'task-other-repo',
+          gitServerId: 'gitlab-main',
+          repositoryId: '43',
+          status: 'succeeded',
+          updatedAt: new Date(Date.UTC(2026, 6, 2)),
+        },
+      ],
+    });
+
+    const ownerCookie = await consoleSidCookie(store, owner.id);
+    const first = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/tasks?page=1&perPage=10`, {
+      headers: { Cookie: ownerCookie },
+    });
+    assert.equal(first.status, 200);
+    const firstBody = await first.json();
+    assert.equal(firstBody.tasks.length, 10);
+    assert.equal(firstBody.total, 12);
+    assert.equal(firstBody.page, 1);
+    assert.equal(firstBody.perPage, 10);
+    assert.equal(firstBody.hasMore, true);
+    assert.ok(firstBody.agentrixBaseUrl.startsWith('https://'));
+    assert.deepEqual(firstBody.tasks.slice(0, 2).map((task) => task.taskId), ['task-12', 'task-11']);
+    assert.ok(firstBody.tasks.every((task) => task.repositoryId === '42'));
+
+    const second = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/tasks?page=2&perPage=10`, {
+      headers: { Cookie: ownerCookie },
+    });
+    const secondBody = await second.json();
+    assert.equal(secondBody.tasks.length, 2);
+    assert.equal(secondBody.hasMore, false);
+
+    const anonymous = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/tasks`);
+    assert.equal(anonymous.status, 401);
+
+    const outsiderCookie = await consoleSidCookie(store, outsider.id);
+    const forbidden = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/tasks`, {
+      headers: { Cookie: outsiderCookie },
+    });
+    assert.equal(forbidden.status, 404);
+  } finally {
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('service store keeps Git server config in columns and public reads hide secrets', async () => {
   const { dir, store } = tempStore();
   try {

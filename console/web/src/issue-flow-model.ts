@@ -476,7 +476,31 @@ export type MetricsQueryResult = {
   truncated?: boolean
 }
 
-export type WorkspaceTab = "overview" | "issues" | "settings"
+export type TaskRow = {
+  id: string
+  taskId: string
+  issueNumber: number
+  action: string
+  agent: string
+  model: string
+  turns: number
+  status: string
+  queuedAt: string
+  startedAt: string
+  finishedAt: string
+  updatedAt: string
+}
+
+export type TaskPage = {
+  tasks: TaskRow[]
+  agentrixBaseUrl: string
+  page: number
+  perPage: number
+  total: number
+  hasMore: boolean
+}
+
+export type WorkspaceTab = "overview" | "issues" | "tasks" | "settings"
 
 export type RepoWorkspaceProps = {
   tab: WorkspaceTab
