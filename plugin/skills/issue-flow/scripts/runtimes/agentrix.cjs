@@ -61,6 +61,17 @@ const TEMPLATE_FILES = {
 };
 
 const SUPPORTED_ACTIONS = ['triage', 'plan', 'build', 'general', 'review'];
+const CLIENT_TASK_ACTIONS = {
+  triage: 'triage',
+  plan: 'plan',
+  build: 'build',
+  general: 'general',
+  review: 'review',
+};
+const CLIENT_TASK_PROVIDERS = {
+  github: 'gh',
+  gitlab: 'gl',
+};
 
 function skillRootDir() {
   return path.resolve(__dirname, '..', '..');
@@ -510,6 +521,72 @@ function appendOptionalArg(args, flag, value) {
   }
 }
 
+function compactId(value, fallback = '') {
+  const normalized = String(value || '').trim();
+  if (!normalized) return fallback;
+  return normalized.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || fallback;
+}
+
+function firstNumericId(...values) {
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (/^\d+$/.test(normalized)) {
+      return normalized;
+    }
+  }
+  return '';
+}
+
+function hostFromUrl(value) {
+  try {
+    return new URL(String(value || '')).host;
+  } catch {
+    return '';
+  }
+}
+
+function resolveClientTaskServerId(options = {}, issue = {}) {
+  return compactId(
+    options.serverHost ||
+    process.env.CI_SERVER_HOST ||
+    hostFromUrl(options.serverUrl || process.env.CI_SERVER_URL || issue.htmlUrl) ||
+    options.gitServerId ||
+    issue.gitServerId ||
+    process.env.AGENTRIX_GIT_SERVER_ID,
+    '0'
+  );
+}
+
+function resolveClientTaskRepoId(options = {}, issue = {}) {
+  return firstNumericId(
+    issue.projectId,
+    issue.serverRepoId,
+    options.gitlabProject,
+    options.serverRepoId,
+    options.projectId,
+    process.env.CI_PROJECT_ID
+  ) || compactId(issue.repoFullName || options.repo, '0');
+}
+
+function buildClientTaskId(action, issue = {}, options = {}, data = {}) {
+  const actionKey = CLIENT_TASK_ACTIONS[action];
+  if (!actionKey || !issue.number) {
+    return '';
+  }
+  const provider = CLIENT_TASK_PROVIDERS[issue.provider] || CLIENT_TASK_PROVIDERS[options.provider] || compactId(issue.provider || options.provider, 'p');
+  const serverId = resolveClientTaskServerId(options, issue);
+  const repoId = resolveClientTaskRepoId(options, issue);
+  if (action === 'review') {
+    const head = compactId(issue.headSha || data.headSha || data.pullRequest && data.pullRequest.headSha);
+    return head ? `if:${provider}:s${serverId}:r${repoId}:pr${issue.number}:h${head.slice(0, 12)}:${actionKey}` : '';
+  }
+  if (action === 'general') {
+    const commentId = compactId(data.comment && data.comment.id);
+    return commentId ? `if:${provider}:s${serverId}:r${repoId}:i${issue.number}:c${commentId}:${actionKey}` : '';
+  }
+  return `if:${provider}:s${serverId}:r${repoId}:i${issue.number}:${actionKey}`;
+}
+
 function shellQuote(value) {
   const text = String(value);
   if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(text)) {
@@ -600,6 +677,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
     args.push('--metadata', `issue_flow_source_issue=${issue.repoFullName}#${sourceIssueNumber}`);
   }
 
+  appendOptionalArg(args, '--client-task-id', buildClientTaskId(action, issue, options, data));
   appendOptionalArg(args, '--base-url', options.baseUrl || process.env.AGENTRIX_BASE_URL);
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
   appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
@@ -912,6 +990,7 @@ module.exports = {
   buildPullRequestPrompt,
   buildAgentrixRepo,
   buildIssueCommentResumeInstruction,
+  buildClientTaskId,
   buildResumeTaskArgs,
   buildRunArgs,
   buildAgentrixRunEnv,

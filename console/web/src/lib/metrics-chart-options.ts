@@ -358,7 +358,6 @@ function stackedAreaOption(panel: DashboardPanel, result: MetricsQueryResult): E
     stack: field,
     symbol: "circle",
     symbolSize: 5,
-    showSymbol: false,
     smooth: true,
     connectNulls: true,
     color: stackColor(stackValue),
@@ -491,10 +490,12 @@ function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResu
         splitLine: { lineStyle: { opacity: 0.4 } },
       },
       {
+        // y2 lines (e.g. share percentage) auto-scale to their own range
         type: "value",
-        min: 0,
-        max: 100,
-        axisLabel: { formatter: (value: number) => formatMetricValue(value, "percent") },
+        scale: true,
+        axisLabel: {
+          formatter: (value: number) => formatMetricValue(value, String(panel.visualConfig?.y2Unit || "")),
+        },
         splitLine: { show: false },
       },
     ],

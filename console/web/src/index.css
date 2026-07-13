@@ -1109,11 +1109,13 @@
     width: min(100%, var(--if-content-max-width));
     margin-inline: auto;
   }
-  .workspace-tabs [data-slot="tabs-content"]:has(.issue-board) {
+  .workspace-tabs [data-slot="tabs-content"]:has(.issue-board),
+  .workspace-tabs [data-slot="tabs-content"]:has(.tasks-board) {
     padding-inline: clamp(0.65rem, 1.2vw, 1.35rem);
     overflow: hidden;
   }
-  .workspace-tabs [data-slot="tabs-content"] > .issue-board {
+  .workspace-tabs [data-slot="tabs-content"] > .issue-board,
+  .workspace-tabs [data-slot="tabs-content"] > .tasks-board {
     width: 100%;
     height: 100%;
     margin-inline: 0;
@@ -1490,6 +1492,194 @@
     font-size: 0.75rem;
     white-space: nowrap;
   }
+  .tasks-board {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 0.9rem;
+  }
+  .tasks-board-toolbar {
+    min-height: 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .tasks-board-toolbar > div {
+    min-width: 0;
+    display: grid;
+    gap: 0.125rem;
+  }
+  .tasks-board-toolbar strong {
+    font-size: 0.9rem;
+  }
+  .tasks-pagination > span {
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+  }
+  .tasks-list-panel,
+  .tasks-list-state {
+    min-width: 0;
+    min-height: 0;
+    border-radius: 8px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
+  }
+  .tasks-list-panel {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent;
+  }
+  .tasks-list-panel::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .tasks-list-panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .tasks-list-panel::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
+  }
+  .tasks-list-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+  }
+  .tasks-list-table {
+    width: 100%;
+    min-width: 59rem;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  .tasks-list-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .tasks-list-table td {
+    height: 3rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    color: var(--if-color-text-secondary);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .tasks-list-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .tasks-list-table tbody tr:hover {
+    background: color-mix(in srgb, var(--if-color-surface-high) 72%, transparent);
+  }
+  .tasks-list-table code {
+    color: var(--if-color-text);
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+  }
+  .task-model {
+    display: block;
+    max-width: 15rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .task-number {
+    font-variant-numeric: tabular-nums;
+  }
+  .task-link-cell {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    width: 3rem;
+    padding-inline: 0.5rem !important;
+    background: var(--card);
+    box-shadow: -1px 0 0 color-mix(in srgb, var(--border) 72%, transparent);
+    text-align: right !important;
+  }
+  .tasks-list-table th.task-link-cell {
+    z-index: 2;
+  }
+  .tasks-list-table tbody tr:hover .task-link-cell {
+    background: color-mix(in srgb, var(--if-color-surface-high) 72%, var(--card));
+  }
+  .task-external-link {
+    width: 2rem;
+    height: 2rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--if-color-text-secondary);
+    transition-property: background-color, color, transform;
+    transition-duration: 120ms;
+  }
+  .task-external-link:hover {
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text);
+  }
+  .task-external-link:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  .task-external-link:active {
+    transform: scale(0.95);
+  }
+  .task-status {
+    min-height: 1.45rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text-secondary);
+    font-size: 0.75rem;
+  }
+  .task-status i {
+    width: 0.38rem;
+    height: 0.38rem;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .task-status.success {
+    background: color-mix(in srgb, var(--success) 12%, var(--card));
+    color: color-mix(in srgb, var(--success) 72%, var(--if-color-text));
+  }
+  .task-status.failed {
+    background: color-mix(in srgb, var(--destructive) 12%, var(--card));
+    color: var(--destructive);
+  }
+  .task-status.running {
+    background: color-mix(in srgb, var(--if-color-text) 8%, var(--card));
+    color: var(--if-color-text);
+  }
+  .task-status.queued {
+    background: color-mix(in srgb, var(--warning) 12%, var(--card));
+    color: color-mix(in srgb, var(--warning) 72%, var(--if-color-text));
+  }
+  .tasks-pagination {
+    min-height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .tasks-pagination > div {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
   .install-empty,
   .empty-panel {
     min-height: 24rem;
@@ -1697,6 +1887,17 @@
     min-height: 70svh;
     height: auto;
     padding: 0.75rem;
+  }
+  .workspace-tabbar {
+    padding-inline: 0.25rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .workspace-tabbar::-webkit-scrollbar {
+    display: none;
+  }
+  .workspace-tabbar [data-slot="tabs-trigger"] svg {
+    display: none;
   }
   .setup-grid {
     grid-template-columns: 1fr;

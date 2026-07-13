@@ -334,19 +334,77 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
       eventData: {
         modelUsage: {
           'claude-sonnet-5': {
-            inputTokens: 1200,
+            inputTokens: 2147483000,
             outputTokens: 300,
             cacheReadInputTokens: 50,
             cacheCreationInputTokens: 25,
             webSearchRequests: 0,
+            costUSD: 0.42,
+            contextWindow: 200000,
+            maxOutputTokens: 32000,
           },
         },
       },
       createdAt: at(HOUR_MS + 40 * 60000),
     }));
+    // resumed run reports its own usage: per-task tokens sum across reports
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 7,
+      eventId: 'evt-usage-resume',
+      eventType: 'task-usage-report',
+      eventData: {
+        modelUsage: {
+          'claude-sonnet-5': {
+            inputTokens: 800,
+            outputTokens: 200,
+            cacheReadInputTokens: 25,
+            costUSD: 0.18,
+          },
+        },
+      },
+      createdAt: at(HOUR_MS + 50 * 60000),
+    }));
 
     const task = await store.getTask('task-abc');
     assert.equal(task.status, 'succeeded');
+    const usageReports = await store.db.taskUsageReport.findMany({
+      where: { taskId: 'task-abc' },
+      orderBy: { eventId: 'asc' },
+    });
+    assert.deepEqual(
+      usageReports.map((report) => ({
+        eventId: report.eventId,
+        model: report.model,
+        inputTokens: Number(report.inputTokens),
+        outputTokens: Number(report.outputTokens),
+        cacheReadInputTokens: Number(report.cacheReadInputTokens),
+        cacheCreationInputTokens: Number(report.cacheCreationInputTokens),
+        webSearchRequests: Number(report.webSearchRequests),
+      })),
+      [
+        {
+          eventId: 'evt-usage',
+          model: 'claude-sonnet-5',
+          inputTokens: 2147483000,
+          outputTokens: 300,
+          cacheReadInputTokens: 50,
+          cacheCreationInputTokens: 25,
+          webSearchRequests: 0,
+        },
+        {
+          eventId: 'evt-usage-resume',
+          model: 'claude-sonnet-5',
+          inputTokens: 800,
+          outputTokens: 200,
+          cacheReadInputTokens: 25,
+          cacheCreationInputTokens: 0,
+          webSearchRequests: 0,
+        },
+      ],
+      'each run is stored as a separate model usage row',
+    );
+    assert.equal('contextWindow' in usageReports[0], false, 'capacity fields are not persisted');
+    assert.equal('costUsd' in usageReports[0], false, 'cost metadata is not persisted');
     assert.equal(task.agent, 'claude');
     assert.equal(task.model, 'claude-sonnet-5');
     assert.equal(task.turns, 9);
@@ -368,16 +426,41 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
       createdAt: at(HOUR_MS + 40 * 60000),
     }));
     assert.ok(replay, 'redelivered events are handled');
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 6,
+      eventId: 'evt-usage',
+      eventType: 'task-usage-report',
+      eventData: {
+        modelUsage: {
+          'claude-sonnet-5': {
+            inputTokens: 2147483000,
+            outputTokens: 300,
+            cacheReadInputTokens: 50,
+            cacheCreationInputTokens: 25,
+            webSearchRequests: 0,
+            costUSD: 0.42,
+            contextWindow: 200000,
+            maxOutputTokens: 32000,
+          },
+        },
+      },
+      createdAt: at(HOUR_MS + 40 * 60000),
+    }));
+    assert.equal(
+      await store.db.taskUsageReport.count({ where: { taskId: 'task-abc' } }),
+      2,
+      'redelivered usage reports do not create duplicate rows',
+    );
 
     const events = await store.listTaskEvents('task-abc');
-    assert.equal(events.length, 3, 'task events dedupe by eventId');
+    assert.equal(events.length, 3, 'usage reports stay out of the conversation event stream');
     assert.deepEqual(events.map((event) => event.eventType), ['human_input', 'agent_message', 'agent_result']);
     assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3]);
     assert.ok(events.every((event) => event.issueId === '4207'), 'task events carry the issue linkage');
 
     // review task: dispatched with the source issue number and action=review metadata
     await applyForwardedEventToTaskFacts(store, forwardedEvent({
-      cursor: 7,
+      cursor: 8,
       eventId: 'evt-review-create',
       taskId: 'task-review-1',
       eventType: 'create-task',
@@ -390,14 +473,14 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
       createdAt: at(2 * HOUR_MS),
     }));
     await applyForwardedEventToTaskFacts(store, forwardedEvent({
-      cursor: 8,
+      cursor: 9,
       eventId: 'evt-review-run',
       taskId: 'task-review-1',
       eventType: 'worker-running',
       createdAt: at(2 * HOUR_MS + 10 * 60000),
     }));
     await applyForwardedEventToTaskFacts(store, forwardedEvent({
-      cursor: 9,
+      cursor: 10,
       eventId: 'evt-review-result',
       taskId: 'task-review-1',
       eventData: { message: { type: 'result', subtype: 'success', num_turns: 2 } },
@@ -438,9 +521,18 @@ order by action`,
     const buildRow = execution.rows[0];
     assert.equal(Number(buildRow.task_seconds), 1800);
     assert.equal(Number(buildRow.turns), 9);
-    assert.equal(Number(buildRow.input_tokens), 1200);
-    assert.equal(Number(buildRow.output_tokens), 300);
-    assert.equal(Number(buildRow.total_tokens), 1575);
+    assert.equal(Number(buildRow.input_tokens), 2147483800);
+    assert.equal(Number(buildRow.output_tokens), 500);
+    assert.equal(Number(buildRow.total_tokens), 2147484400);
+
+    const dashboard = await store.getDashboardBySlug('agent-first-overview');
+    const tokenPanel = dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend');
+    const tokenTrend = await store.runMetricsQuery(tokenPanel.querySql, {
+      ...repoParams,
+      from: at(-DAY_MS),
+      to: at(2 * DAY_MS),
+    });
+    assert.equal(Number(tokenTrend.rows[0].total_tokens), 2147484400, 'weekly token totals stay wider than INT');
 
     const flowMetrics = await store.runMetricsQuery(
       `select flow, span_seconds, task_seconds, wait_seconds
@@ -663,7 +755,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     });
     assert.equal(otherRepoTurns.rows.length, 0, 'task turns panel query is scoped to the requested repository');
 
-    assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').chartType, 'stacked_area_with_lines');
+    assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').chartType, 'stacked_bar_with_lines');
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share').chartType, 'percent_stacked_bar_with_lines');
 
     const flowWaitSql = `select

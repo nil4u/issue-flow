@@ -128,7 +128,7 @@ from (
   select
     week,
     action,
-    sum(total_tokens)::int as total_tokens
+    sum(total_tokens)::bigint as total_tokens
   from scoped
   group by week, action
 ) wa

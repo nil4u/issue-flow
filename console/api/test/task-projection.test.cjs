@@ -7,6 +7,7 @@ const {
   forwardedTaskEvent,
   forwardedTaskLink,
   forwardedTaskRuntime,
+  forwardedTaskUsageReport,
   normalizeTaskAction,
 } = require('../src/core/task-projection.ts');
 
@@ -122,12 +123,11 @@ test('forwardedTaskRuntime maps forward event types onto the task lifecycle', ()
   assert.equal(exit.status, 'cancelled');
   assert.equal(exit.weakStatus, true);
 
-  const usage = forwardedTaskRuntime({
+  assert.equal(forwardedTaskRuntime({
     taskId: 'task-abc',
     eventType: 'task-usage-report',
     eventData: { modelUsage: { 'claude-sonnet-5': { inputTokens: 100, outputTokens: 20 } } },
-  });
-  assert.deepEqual(usage.modelUsage, { 'claude-sonnet-5': { inputTokens: 100, outputTokens: 20 } });
+  }), undefined, 'usage reports flow through the dedicated usage table');
 
   assert.equal(forwardedTaskRuntime({ taskId: 'task-abc', eventType: 'task-slash-commands-update' }), undefined);
   assert.equal(forwardedTaskRuntime({ eventType: 'create-task' }), undefined, 'taskId is required');
@@ -175,4 +175,46 @@ test('forwardedTaskEvent stores every task-message frame as the conversation str
 
   assert.equal(forwardedTaskEvent({ taskId: 'task-abc', eventType: 'create-task', eventId: 'evt-5' }), undefined);
   assert.equal(forwardedTaskEvent({ taskId: 'task-abc', eventType: 'worker-running', eventId: 'evt-6' }), undefined);
+});
+
+test('forwardedTaskUsageReport keeps usage counters and drops metadata fields', () => {
+  const usage = forwardedTaskUsageReport({
+    taskId: 'task-abc',
+    eventId: 'evt-usage-1',
+    eventType: 'task-usage-report',
+    createdAt: '2026-07-01T08:40:00Z',
+    eventData: {
+      modelUsage: {
+        'claude-sonnet-5': {
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadInputTokens: null,
+          cacheCreationInputTokens: 4,
+          webSearchRequests: 2,
+          costUSD: 0.125,
+          contextWindow: 200000,
+          maxOutputTokens: 32000,
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    usage,
+    {
+      taskId: 'task-abc',
+      eventId: 'evt-usage-1',
+      reports: [{
+        model: 'claude-sonnet-5',
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 4,
+        webSearchRequests: 2,
+      }],
+      createdAt: '2026-07-01T08:40:00Z',
+    },
+  );
+
+  assert.equal(forwardedTaskEvent({ taskId: 'task-abc', eventId: 'evt-usage-1', eventType: 'task-usage-report' }), undefined);
+  assert.equal(forwardedTaskUsageReport({ taskId: 'task-abc', eventId: 'evt-usage-2', eventType: 'task-usage-report' }), undefined, 'reports without modelUsage are skipped');
 });

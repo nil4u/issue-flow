@@ -2,6 +2,7 @@
 import { normalizeApiUrl, normalizeBaseUrl } from './store.js'
 import {
   agentrixConfigFromEnv,
+  agentrixServiceConfig,
   repoWithWebhook,
   requireRepo,
   resolveGitServer,
@@ -122,6 +123,23 @@ async function listIssues({ store, repoId, userId = '' }) {
   return { status: 200, body: { issues: await store.listIssues(repoId) } };
 }
 
+async function listTasks({ store, repoId, input = {}, userId = '', env = process.env }) {
+  const repo = await requireAccessibleRepo(store, repoId, userId);
+  const result = await store.listTasks({
+    gitServerId: repo.gitServerId,
+    repositoryId: repo.serverRepoId || repo.projectId,
+    page: input.page,
+    perPage: input.perPage,
+  });
+  return {
+    status: 200,
+    body: {
+      ...result,
+      agentrixBaseUrl: agentrixServiceConfig(env).baseUrl,
+    },
+  };
+}
+
 async function syncIssuesSnapshot({ store, repoId, userId = '', logger = undefined }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
   const { config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab');
@@ -171,6 +189,7 @@ export {
   getRepository,
   listGitEvents,
   listIssues,
+  listTasks,
   listRepositories,
   requireAccessibleRepo,
   syncIssuesSnapshot,

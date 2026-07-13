@@ -189,11 +189,6 @@
       "mode": "managed",
       "sha256": "ccefc6c0a85f9520f9b8691737dc0872f7def8641f25fd3ba3661ea3bc778f52"
     },
-    ".github/workflows/issue-flow-failure-intake.yml": {
-      "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-failure-intake.yml",
-      "mode": "managed",
-      "sha256": "027e468ae75ae069f73dfc7d56aca438dc19711c1b274b23fcc7f9d93f41f097"
-    },
     ".github/workflows/issue-flow-labels.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-labels.yml",
       "mode": "managed",

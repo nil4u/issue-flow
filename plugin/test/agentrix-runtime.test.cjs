@@ -495,12 +495,15 @@ test('agentrix run args pass git server repo context to agentrix-run', () => {
   const args = agentrix.buildRunArgs(
     'build',
     {
+      provider: 'gitlab',
       number: 42,
       repoFullName: 'team/app',
+      projectId: '123',
       title: 'Fix auth',
     },
     {
       gitServerId: 'gitlab-main',
+      serverHost: 'git.lianjia.com',
       gitlabProject: '123',
       responseMode: 'async',
     },
@@ -513,6 +516,73 @@ test('agentrix run args pass git server repo context to agentrix-run', () => {
   assert.equal(repo.serverRepoId, '123');
   assert.equal(repo.owner, 'team');
   assert.equal(repo.name, 'app');
+  assert.equal(args[args.indexOf('--client-task-id') + 1], 'if:gl:sgit-lianjia-com:r123:i42:build');
+});
+
+test('agentrix client task ids stay semantic and compact', () => {
+  assert.equal(
+    agentrix.buildClientTaskId(
+      'triage',
+      {
+        provider: 'gitlab',
+        projectId: '43326',
+        number: 12,
+        repoFullName: 'wuling/test',
+        htmlUrl: 'https://git.lianjia.com/wuling/test/-/issues/12',
+      },
+      {}
+    ),
+    'if:gl:sgit-lianjia-com:r43326:i12:triage'
+  );
+  assert.equal(
+    agentrix.buildClientTaskId(
+      'review',
+      {
+        provider: 'gitlab',
+        projectId: '43326',
+        number: 15,
+        repoFullName: 'wuling/test',
+        headSha: '537ab1a19ecab1aca934c8a5fc66660f71b90f6b',
+      },
+      {
+        serverHost: 'git.lianjia.com',
+      }
+    ),
+    'if:gl:sgit-lianjia-com:r43326:pr15:h537ab1a19eca:review'
+  );
+  assert.equal(
+    agentrix.buildClientTaskId(
+      'general',
+      {
+        provider: 'gitlab',
+        projectId: '43326',
+        number: 12,
+        repoFullName: 'wuling/test',
+      },
+      {
+        serverHost: 'git.lianjia.com',
+      }
+    ),
+    ''
+  );
+  assert.equal(
+    agentrix.buildClientTaskId(
+      'general',
+      {
+        provider: 'gitlab',
+        projectId: '43326',
+        number: 12,
+        repoFullName: 'wuling/test',
+      },
+      {
+        serverHost: 'git.lianjia.com',
+      },
+      {
+        comment: { id: 5088825 },
+      }
+    ),
+    'if:gl:sgit-lianjia-com:r43326:i12:c5088825:general'
+  );
 });
 
 test('agentrix run args keep GitLab subgroup namespace as repo owner', () => {

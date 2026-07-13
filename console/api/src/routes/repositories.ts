@@ -6,6 +6,7 @@ import {
   getRepository,
   listGitEvents,
   listIssues,
+  listTasks,
   listRepositories,
   syncIssuesSnapshot,
   validateRepositoryToken,
@@ -62,6 +63,17 @@ export async function repositoryRoutes(app: FastifyInstance) {
     const result = await listIssues({
       ...contextFromRequest(request),
       repoId,
+      userId: await userIdFromRequest(request),
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.get("/api/repositories/:repoId/tasks", async (request, reply) => {
+    const { repoId } = request.params as { repoId: string }
+    const result = await listTasks({
+      ...contextFromRequest(request),
+      repoId,
+      input: (request.query || {}) as Record<string, unknown>,
       userId: await userIdFromRequest(request),
     })
     return reply.code(result.status).send(result.body)

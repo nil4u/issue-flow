@@ -33,6 +33,10 @@ function fakeStore(overrides = {}) {
       calls.push(['event', input]);
       return { taskEvent: { eventId: input.eventId }, applied: true };
     },
+    async appendTaskUsageReport(input) {
+      calls.push(['usage', input]);
+      return { applied: true, count: input.reports.length };
+    },
   };
 }
 
@@ -137,16 +141,28 @@ test('session projects event batches and acknowledges the highest cursor', async
         eventData: { message: { type: 'result', subtype: 'success', num_turns: 3 } },
         createdAt: '2026-07-01T08:30:00Z',
       },
+      {
+        cursor: 9,
+        eventId: 'evt-3',
+        taskId: 'task-abc',
+        eventType: 'task-usage-report',
+        direction: 'outbound',
+        eventData: { modelUsage: { 'claude-sonnet-5': { inputTokens: 100, outputTokens: 20 } } },
+        createdAt: '2026-07-01T08:30:00Z',
+      },
     ],
   }));
-  assert.deepEqual(sent[sent.length - 1], { type: 'ack', cursor: 8 });
+  assert.deepEqual(sent[sent.length - 1], { type: 'ack', cursor: 9 });
   const runtimeCalls = store.calls.filter(([kind]) => kind === 'runtime');
   assert.equal(runtimeCalls.length, 2);
   assert.equal(runtimeCalls[1][1].status, 'succeeded');
   const eventCalls = store.calls.filter(([kind]) => kind === 'event');
   assert.equal(eventCalls.length, 1);
   assert.equal(eventCalls[0][1].eventType, 'agent_result');
-  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', { machineId: 'runner-1', cloudId: '' }, 8]);
+  const usageCalls = store.calls.filter(([kind]) => kind === 'usage');
+  assert.equal(usageCalls.length, 1);
+  assert.equal(usageCalls[0][1].reports[0].inputTokens, 100);
+  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', { machineId: 'runner-1', cloudId: '' }, 9]);
 });
 
 test('session closes without acking when event projection fails', async () => {

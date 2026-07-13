@@ -24,6 +24,10 @@ function forwardedAgent(eventData = {}) {
   return String(eventData.agent || "")
 }
 
+function usageCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+}
+
 function forwardedMetadata(eventData = {}) {
   const metadata = eventData.metadata
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}
@@ -72,10 +76,6 @@ function forwardedTaskRuntime(forwarded = {}) {
   if (eventType === "worker-exit") {
     return { taskId, status: "cancelled", weakStatus: true, finishedAt: at }
   }
-  if (eventType === "task-usage-report") {
-    // modelUsage is numeric usage data; sanitize() would redact *Tokens keys.
-    return eventData.modelUsage ? { taskId, modelUsage: compactNulls(eventData.modelUsage) } : undefined
-  }
   if (eventType === "task-message" && forwarded.direction === "outbound") {
     const message = eventData.message || {}
     if (message.type !== "result") return undefined
@@ -117,6 +117,28 @@ function forwardedTaskEvent(forwarded = {}) {
   }
 }
 
+function forwardedTaskUsageReport(forwarded = {}) {
+  if (String(forwarded.eventType || "") !== "task-usage-report") return undefined
+  const taskId = String(forwarded.taskId || "").trim()
+  const eventId = String(forwarded.eventId || "").trim()
+  const modelUsage = (forwarded.eventData || {}).modelUsage
+  if (!taskId || !eventId || !modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) {
+    return undefined
+  }
+  const reports = Object.entries(modelUsage)
+    .filter(([model, usage]) => model.trim() && usage && typeof usage === "object" && !Array.isArray(usage))
+    .map(([model, usage]) => ({
+      model: model.trim(),
+      inputTokens: usageCount(usage.inputTokens),
+      outputTokens: usageCount(usage.outputTokens),
+      cacheReadInputTokens: usageCount(usage.cacheReadInputTokens),
+      cacheCreationInputTokens: usageCount(usage.cacheCreationInputTokens),
+      webSearchRequests: usageCount(usage.webSearchRequests),
+    }))
+  if (!reports.length) return undefined
+  return { taskId, eventId, reports, createdAt: forwarded.createdAt }
+}
+
 async function applyForwardedEventToTaskFacts(store, forwarded = {}) {
   const runtime = forwardedTaskRuntime(forwarded)
   if (runtime) {
@@ -130,7 +152,11 @@ async function applyForwardedEventToTaskFacts(store, forwarded = {}) {
   if (event) {
     await store.appendTaskEvent(event)
   }
-  return Boolean(runtime || link || event)
+  const usageReport = forwardedTaskUsageReport(forwarded)
+  if (usageReport) {
+    await store.appendTaskUsageReport(usageReport)
+  }
+  return Boolean(runtime || link || event || usageReport)
 }
 
 export {
@@ -138,5 +164,6 @@ export {
   forwardedTaskEvent,
   forwardedTaskLink,
   forwardedTaskRuntime,
+  forwardedTaskUsageReport,
   normalizeTaskAction,
 }

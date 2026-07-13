@@ -106,14 +106,13 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 - `.github/workflows/issue-flow-pr-review.yml` - optional PR/MR automatic review checks
 - `.github/workflows/issue-flow-pr-review-comment.yml` - resumes the PR/MR Agentrix task when a new review comment is added
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions
-- `.github/workflows/issue-flow-failure-intake.yml` - failed workflow analysis and deduped build issue intake
 - `.issue-flow/config.json` - issue-flow runtime path config
 - `.issue-flow/install-manifest.json` - reinstall tracking metadata
 - `.issue-flow/prompts/` - default prompt files you can edit
 - `.issue-flow/templates/` - default plan templates you can edit
 - `.issue-flow/issues/` - generated issue plan workspace
 
-For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files. The GitLab include contains an Agentrix daemon webhook bridge `issue-flow-failure-intake` job for failed pipeline events.
+For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` instead of GitHub workflow files.
 
 ## Prompt Principles
 
@@ -139,7 +138,7 @@ GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`. Provide
 
 Review comment resume is separate from `ISSUE_FLOW_REVIEW_ENABLED`: when an open issue-flow PR/MR body contains `<!-- issue-flow:agentrix:task=<id> -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, adds an `eyes` reaction to acknowledge the trigger, and resumes that existing Agentrix task with the comment link. The task should reply through `issue-flow pr review-comments reply` and resolve the thread when supported.
 
-GitHub failure intake listens to `workflow_run` completed failures. During the first install, issue-flow scans `.github/workflows/*.yml` and `.github/workflows/*.yaml` and generates the explicit upstream workflow list required by GitHub Actions. Reinstalls preserve the configured list instead of adding newly discovered workflows, so manual exclusions stay intact. To include a new workflow later, edit `.github/workflows/issue-flow-failure-intake.yml` and add it under `workflow_run.workflows`. It uses `GITHUB_TOKEN` with `actions: read` and `issues: write` to inspect failed jobs and create or update a deduped issue with `type::ops`, `failure::ci`, `flow::build`, and `automation::build`. Because issues created by `GITHUB_TOKEN` do not trigger another `issues` workflow, the failure-intake job directly resumes the normal automatic route after intake succeeds. CI failure issues still run the `build` action, but Agentrix uses the dedicated `build-ci-failure.prompt.md` template to diagnose the root cause before deciding whether to keep ops, switch to bug for a repository regression, change code, workflow config, labels, or comments.
+Automatic pipeline failure intake is currently disabled. The low-level `dispatch pipeline-failed` command and its dedicated build prompt remain available, but the installer does not create a GitHub `workflow_run` trigger for it.
 
 ## GitLab Configuration
 
@@ -342,7 +341,7 @@ Set these CI variables as needed:
 
 GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `GITLAB_TOKEN`, `GL_TOKEN`, `GITLAB_PRIVATE_TOKEN`, or `CI_JOB_TOKEN`. Provider tokens are only for issue-flow routing jobs; when issue-flow starts or resumes an Agentrix task, it does not forward GitLab provider token env vars into the Agentrix task environment.
 
-GitLab failure intake is triggered by the Agentrix daemon webhook bridge for failed pipeline events. The current bridge default maps GitLab pipeline failures to `workflow_run` / `completed` events with `GITLAB_BRIDGE_WORKFLOW_RUN_CONCLUSION=failure`; older `AGENTRIX_*` bridge variables are still accepted. The failure-intake job directly resumes the build route after creating or updating the deduped issue; the GitLab auto job ignores bridge issue events that either include `failure::ci` labels or use the generated `Fix CI failure:` title so the follow-up issue webhook does not spend another runner job on duplicate routing.
+Automatic GitLab failure intake through the generated CI include is currently disabled because the include has no failure-intake job. Console webhook ingestion and the low-level dispatch implementation remain unchanged.
 
 GitLab review comment resume is handled by the `issue-flow-review-comment` job for Agentrix bridge `pull_request_review_comment` events and native MR note events. The dispatch command safely skips non-MR notes, closed MRs, and missing task markers, then acknowledges the trigger with an `eyes` reaction before resuming the existing Agentrix task.
 
