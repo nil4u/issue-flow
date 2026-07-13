@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/nil4u/issue-flow/compare/console-v0.6.0...console-v0.7.0) (2026-07-13)
+
+
+### Features
+
+* **console:** add repository task list ([a69fb99](https://github.com/nil4u/issue-flow/commit/a69fb990af03a6372fbd3d50c4ed3116f01892f7))
+* **console:** normalize task usage metrics ([7f16b8f](https://github.com/nil4u/issue-flow/commit/7f16b8fb7010230c73ab680d24b13dcd8b0600a3))
+
 ## [0.6.0](https://github.com/nil4u/issue-flow/compare/console-v0.5.0...console-v0.6.0) (2026-07-09)
 
 
