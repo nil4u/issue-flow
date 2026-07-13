@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Search, X } from "lucide-react"
+import { ExternalLink, Search, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -14,12 +14,14 @@ export function IssuesList({
   options,
   activeFilterCount,
   onFilters,
+  issueHref,
 }: {
   issues: IssueRow[]
   filters: IssueFilters
   options: { type: string[]; priority: string[]; size: string[] }
   activeFilterCount: number
   onFilters: (filters: IssueFilters) => void
+  issueHref: (issueNumber: number) => string
 }) {
   return (
     <>
@@ -29,7 +31,7 @@ export function IssuesList({
         activeFilterCount={activeFilterCount}
         onFilters={onFilters}
       />
-      <IssueListTable issues={issues} />
+      <IssueListTable issues={issues} issueHref={issueHref} />
     </>
   )
 }
@@ -101,7 +103,7 @@ function IssueSelect({
   )
 }
 
-function IssueListTable({ issues }: { issues: IssueRow[] }) {
+function IssueListTable({ issues, issueHref }: { issues: IssueRow[]; issueHref: (issueNumber: number) => string }) {
   if (issues.length === 0) {
     return <div className="issue-list-empty">没有匹配的 issue</div>
   }
@@ -117,17 +119,18 @@ function IssueListTable({ issues }: { issues: IssueRow[] }) {
             <th>Priority</th>
             <th>Size</th>
             <th>Updated</th>
+            <th className="issue-link-cell"><span className="sr-only">Open</span></th>
           </tr>
         </thead>
         <tbody>
-          {issues.map((issue) => <IssueListRow key={issue.id} issue={issue} />)}
+          {issues.map((issue) => <IssueListRow key={issue.id} issue={issue} href={issueHref(issue.issueNumber)} />)}
         </tbody>
       </table>
     </div>
   )
 }
 
-function IssueListRow({ issue }: { issue: IssueRow }) {
+function IssueListRow({ issue, href }: { issue: IssueRow; href: string }) {
   const lane = issueLane(issue)
 
   return (
@@ -143,6 +146,18 @@ function IssueListRow({ issue }: { issue: IssueRow }) {
       <td>{issue.priority || "-"}</td>
       <td>{issue.size || "-"}</td>
       <td>{formatWhen(issue.updatedAt || issue.openedAt || "") || "-"}</td>
+      <td className="issue-link-cell">
+        <a
+          className="issue-external-link"
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`在 Git server 中打开 issue #${issue.issueNumber}`}
+          title="在 Git server 中打开"
+        >
+          <ExternalLink className="size-4" />
+        </a>
+      </td>
     </tr>
   )
 }

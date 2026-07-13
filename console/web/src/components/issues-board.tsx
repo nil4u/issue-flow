@@ -10,6 +10,7 @@ import {
   filterIssues,
   groupIssuesByLane,
   issueFilterOptions,
+  issueWebUrl,
   openActiveIssues,
   sortIssuesByUpdatedDesc,
   type IssueFilters,
@@ -49,6 +50,12 @@ export function IssuesBoard({
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
   if (!repository) return <EmptyPanel icon={<CircleDot className="size-6" />} title="还没有仓库记录" detail="先同步仓库列表后再查看 issue 看板。" />
 
+  const gitBaseUrl = (repository.baseUrl || gitServer.baseUrl || "").replace(/\/+$/, "")
+  const projectPath = project.pathWithNamespace || repository.projectPath
+  const projectWebUrl = project.webUrl || repository.webUrl || repository.url
+    || (gitBaseUrl && projectPath ? `${gitBaseUrl}/${projectPath.replace(/^\/+/, "")}` : "")
+  const issueHref = (issueNumber: number) => issueWebUrl(projectWebUrl, gitServer.type, issueNumber)
+
   return (
     <div className="issue-board">
       <header className="issue-board-toolbar">
@@ -73,7 +80,7 @@ export function IssuesBoard({
         </div>
       </header>
       {viewMode === "board" ? (
-        <IssuesKanban groupedIssues={grouped} />
+        <IssuesKanban groupedIssues={grouped} issueHref={issueHref} />
       ) : (
         <IssuesList
           issues={filteredIssues}
@@ -81,6 +88,7 @@ export function IssuesBoard({
           options={filterOptions}
           activeFilterCount={activeFilterCount}
           onFilters={setFilters}
+          issueHref={issueHref}
         />
       )}
     </div>

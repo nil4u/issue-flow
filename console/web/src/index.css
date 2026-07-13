@@ -1231,7 +1231,7 @@
     background: color-mix(in srgb, var(--if-color-surface-high) 62%, var(--card));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 82%, var(--card));
   }
-  .issue-lane header {
+  .issue-lane > header {
     min-height: 3rem;
     display: flex;
     align-items: center;
@@ -1240,19 +1240,19 @@
     padding: 0 0.75rem;
     border-bottom: 1px solid var(--border);
   }
-  .issue-lane header span {
+  .issue-lane > header > span {
     min-width: 0;
     display: grid;
     gap: 0.08rem;
   }
-  .issue-lane header strong,
-  .issue-lane header small {
+  .issue-lane > header strong,
+  .issue-lane > header small {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .issue-lane header b {
+  .issue-lane > header b {
     min-width: 1.5rem;
     height: 1.5rem;
     display: inline-grid;
@@ -1328,6 +1328,12 @@
     color: var(--if-color-text-secondary);
     font-size: 0.78rem;
     font-variant-numeric: tabular-nums;
+  }
+  .issue-card-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
   }
   .issue-card p {
     margin: 0;
@@ -1463,6 +1469,22 @@
   }
   .issue-list-table tbody tr:hover {
     background: color-mix(in srgb, var(--if-color-surface-high) 72%, transparent);
+  }
+  .issue-link-cell {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    width: 3rem;
+    padding-inline: 0.5rem !important;
+    background: var(--card);
+    box-shadow: -1px 0 0 color-mix(in srgb, var(--border) 72%, transparent);
+    text-align: right !important;
+  }
+  .issue-list-table th.issue-link-cell {
+    z-index: 2;
+  }
+  .issue-list-table tbody tr:hover .issue-link-cell {
+    background: color-mix(in srgb, var(--if-color-surface-high) 72%, var(--card));
   }
   .issue-list-title {
     min-width: 0;
@@ -1614,24 +1636,29 @@
   .tasks-list-table tbody tr:hover .task-link-cell {
     background: color-mix(in srgb, var(--if-color-surface-high) 72%, var(--card));
   }
+  .issue-external-link,
   .task-external-link {
     width: 2rem;
     height: 2rem;
     display: inline-grid;
+    flex: 0 0 auto;
     place-items: center;
     border-radius: 8px;
     color: var(--if-color-text-secondary);
     transition-property: background-color, color, transform;
     transition-duration: 120ms;
   }
+  .issue-external-link:hover,
   .task-external-link:hover {
     background: var(--if-color-surface-high);
     color: var(--if-color-text);
   }
+  .issue-external-link:focus-visible,
   .task-external-link:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 1px;
   }
+  .issue-external-link:active,
   .task-external-link:active {
     transform: scale(0.95);
   }
