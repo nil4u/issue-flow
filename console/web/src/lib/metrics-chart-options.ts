@@ -45,6 +45,39 @@ const TIME_SHARE_COLORS: Record<string, string> = {
 const LINE_COLORS = ["#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"]
 const BAR_COLORS = ["#6366f1", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"]
 const FALLBACK_STACK_COLOR = "#999"
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const LEGEND_STYLE = {
+  bottom: 0,
+  type: "scroll",
+  icon: "roundRect",
+  itemWidth: 10,
+  itemHeight: 6,
+  itemGap: 16,
+  textStyle: { color: "#64748b", fontSize: 11 },
+}
+const TOOLTIP_STYLE = {
+  confine: true,
+  backgroundColor: "rgba(255, 255, 255, 0.96)",
+  borderColor: "#e2e8f0",
+  borderWidth: 1,
+  padding: [8, 10],
+  textStyle: { color: "#0f172a", fontSize: 12 },
+  extraCssText: "border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,.12);",
+}
+
+export function buildWeeklyAxis(weeks: number, to: string) {
+  const count = Math.max(1, Math.trunc(weeks))
+  const end = new Date(to)
+  if (Number.isNaN(end.getTime())) return []
+
+  end.setUTCHours(0, 0, 0, 0)
+  end.setUTCDate(end.getUTCDate() - ((end.getUTCDay() + 6) % 7))
+
+  return Array.from({ length: count }, (_, index) => {
+    const week = new Date(end.getTime() - (count - index - 1) * WEEK_MS)
+    return week.toISOString().slice(0, 10)
+  })
+}
 
 function compactNumber(value: number) {
   const abs = Math.abs(value)
@@ -92,6 +125,10 @@ function distinct(values: string[]) {
   return Array.from(new Set(values))
 }
 
+function xValues(rows: MetricsQueryResult["rows"], xField: string, sharedXs?: string[]) {
+  return sharedXs?.length ? sharedXs : distinct(rows.map((row) => xLabel(row[xField])))
+}
+
 function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null
   const num = Number(value)
@@ -115,20 +152,51 @@ function baseOption(panel: DashboardPanel, xs: string[]): EChartsOption {
   const y2Unit = String(panel.visualConfig?.y2Unit || "")
   const hasY2 = (panel.y2Fields || []).length > 0
   return {
-    tooltip: { trigger: "axis", confine: true },
-    legend: { bottom: 0, type: "scroll", icon: "roundRect", itemWidth: 12, itemHeight: 8 },
-    grid: { left: 48, right: hasY2 ? 56 : 24, top: 36, bottom: 44, containLabel: false },
-    xAxis: { type: "category", data: xs, axisTick: { show: false } },
+    tooltip: { ...TOOLTIP_STYLE, trigger: "axis" },
+    legend: LEGEND_STYLE,
+    grid: { left: 56, right: 56, top: 32, bottom: 48, containLabel: false },
+    xAxis: {
+      type: "category",
+      data: xs,
+      boundaryGap: true,
+      axisLine: { lineStyle: { color: "#cbd5e1" } },
+      axisTick: {
+        show: true,
+        alignWithLabel: true,
+        interval: 0,
+        length: 4,
+        lineStyle: { color: "#cbd5e1" },
+      },
+      axisLabel: {
+        color: "#64748b",
+        fontSize: 11,
+        margin: 10,
+        hideOverlap: true,
+        formatter: (value: string) => value.slice(5).replace("-", "/"),
+      },
+    },
     yAxis: [
       {
         type: "value",
-        axisLabel: { formatter: (value: number) => formatMetricValue(value, yUnit) },
-        splitLine: { lineStyle: { opacity: 0.4 } },
+        axisLabel: {
+          color: "#64748b",
+          fontSize: 11,
+          formatter: (value: number) => formatMetricValue(value, yUnit),
+        },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: "#e2e8f0", opacity: 0.7 } },
       },
       ...(hasY2
         ? [{
           type: "value" as const,
-          axisLabel: { formatter: (value: number) => formatMetricValue(value, y2Unit) },
+          axisLabel: {
+            color: "#64748b",
+            fontSize: 11,
+            formatter: (value: number) => formatMetricValue(value, y2Unit),
+          },
+          axisLine: { show: false },
+          axisTick: { show: false },
           splitLine: { show: false },
         }]
         : []),
@@ -259,11 +327,11 @@ function stackTotalLabelSeries(xs: string[], totals: number[], field: string) {
   }
 }
 
-function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult, sharedXs?: string[]): EChartsOption {
   const rows = result.rows
   const xField = panel.xField || ""
   const stackField = panel.stackField || ""
-  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const xs = xValues(rows, xField, sharedXs)
   const stacks = stackOrderOf(panel, distinct(rows.map((row) => String(row[stackField] ?? ""))))
   const yFields = panel.yFields || []
   const series: SeriesEntry[] = []
@@ -310,16 +378,12 @@ function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EC
   return {
     ...baseOption(panel, xs),
     legend: {
-      bottom: 0,
-      type: "scroll",
-      icon: "roundRect",
-      itemWidth: 12,
-      itemHeight: 8,
+      ...LEGEND_STYLE,
       data: [...stacks, ...(panel.y2Fields || []).map((field) => fieldLabel(panel, field))],
     },
     tooltip: {
+      ...TOOLTIP_STYLE,
       trigger: "item",
-      confine: true,
       formatter: stackedItemTooltipFormatter(panel, breakdown),
     },
     series,
@@ -344,12 +408,12 @@ function stackedAreaTooltipFormatter(panel: DashboardPanel) {
   }
 }
 
-function stackedAreaOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+function stackedAreaOption(panel: DashboardPanel, result: MetricsQueryResult, sharedXs?: string[]): EChartsOption {
   const rows = result.rows
   const xField = panel.xField || ""
   const stackField = panel.stackField || ""
   const field = (panel.yFields || [])[0] || ""
-  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const xs = xValues(rows, xField, sharedXs)
   const stacks = stackOrderOf(panel, distinct(rows.map((row) => String(row[stackField] ?? ""))))
   const series: SeriesEntry[] = stacks.map((stackValue) => ({
     id: `area:${field}:${stackValue}`,
@@ -381,16 +445,12 @@ function stackedAreaOption(panel: DashboardPanel, result: MetricsQueryResult): E
   return {
     ...baseOption(panel, xs),
     legend: {
-      bottom: 0,
-      type: "scroll",
-      icon: "roundRect",
-      itemWidth: 12,
-      itemHeight: 8,
+      ...LEGEND_STYLE,
       data: [...stacks, ...(panel.y2Fields || []).map((lineField) => fieldLabel(panel, lineField))],
     },
     tooltip: {
+      ...TOOLTIP_STYLE,
       trigger: "axis",
-      confine: true,
       formatter: stackedAreaTooltipFormatter(panel),
     },
     series,
@@ -428,12 +488,12 @@ function percentStackedTooltipFormatter(panel: DashboardPanel, breakdown: StackB
   }
 }
 
-function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResult, sharedXs?: string[]): EChartsOption {
   const rows = result.rows
   const xField = panel.xField || ""
   const stackField = panel.stackField || ""
   const field = (panel.yFields || [])[0] || ""
-  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const xs = xValues(rows, xField, sharedXs)
   const stacks = stackOrderOf(panel, distinct(rows.map((row) => String(row[stackField] ?? ""))))
   const breakdown: StackBreakdown = new Map()
   for (const x of xs) {
@@ -468,17 +528,13 @@ function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResu
   return {
     ...baseOption(panel, xs),
     legend: {
-      bottom: 0,
-      type: "scroll",
-      icon: "roundRect",
-      itemWidth: 12,
-      itemHeight: 8,
+      ...LEGEND_STYLE,
       data: [...stacks, ...(panel.y2Fields || []).map((lineField) => fieldLabel(panel, lineField))],
     },
     tooltip: {
+      ...TOOLTIP_STYLE,
       trigger: "axis",
       axisPointer: { type: "shadow" },
-      confine: true,
       formatter: percentStackedTooltipFormatter(panel, breakdown),
     },
     yAxis: [
@@ -486,16 +542,26 @@ function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResu
         type: "value",
         min: 0,
         max: 100,
-        axisLabel: { formatter: (value: number) => formatMetricValue(value, "percent") },
-        splitLine: { lineStyle: { opacity: 0.4 } },
+        axisLabel: {
+          color: "#64748b",
+          fontSize: 11,
+          formatter: (value: number) => formatMetricValue(value, "percent"),
+        },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: "#e2e8f0", opacity: 0.7 } },
       },
       {
         // y2 lines (e.g. share percentage) auto-scale to their own range
         type: "value",
         scale: true,
         axisLabel: {
+          color: "#64748b",
+          fontSize: 11,
           formatter: (value: number) => formatMetricValue(value, String(panel.visualConfig?.y2Unit || "")),
         },
+        axisLine: { show: false },
+        axisTick: { show: false },
         splitLine: { show: false },
       },
     ],
@@ -503,10 +569,10 @@ function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResu
   } as EChartsOption
 }
 
-function barOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+function barOption(panel: DashboardPanel, result: MetricsQueryResult, sharedXs?: string[]): EChartsOption {
   const rows = result.rows
   const xField = panel.xField || ""
-  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const xs = xValues(rows, xField, sharedXs)
   const yUnit = String(panel.visualConfig?.yUnit || "")
   const series: SeriesEntry[] = (panel.yFields || []).map((field, index) => ({
     name: field,
@@ -523,20 +589,20 @@ function barOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOp
   return {
     ...option,
     tooltip: {
+      ...TOOLTIP_STYLE,
       trigger: "axis",
       axisPointer: { type: "shadow" },
-      confine: true,
       valueFormatter: (value: unknown) => formatMetricValue(value, yUnit),
     },
     series,
   } as EChartsOption
 }
 
-function lineOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+function lineOption(panel: DashboardPanel, result: MetricsQueryResult, sharedXs?: string[]): EChartsOption {
   const rows = result.rows
   const xField = panel.xField || ""
   const seriesField = panel.seriesField || ""
-  const xs = distinct(rows.map((row) => xLabel(row[xField])))
+  const xs = xValues(rows, xField, sharedXs)
   const series: SeriesEntry[] = []
   if (seriesField) {
     const groups = distinct(rows.map((row) => String(row[seriesField] ?? "")))
@@ -573,18 +639,18 @@ function lineOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsO
   return { ...baseOption(panel, xs), series } as EChartsOption
 }
 
-export function buildChartOption(panel: DashboardPanel, result: MetricsQueryResult): EChartsOption {
+export function buildChartOption(panel: DashboardPanel, result: MetricsQueryResult, sharedXs?: string[]): EChartsOption {
   if (panel.chartType === "stacked_area_with_lines") {
-    return stackedAreaOption(panel, result)
+    return stackedAreaOption(panel, result, sharedXs)
   }
   if (panel.chartType === "percent_stacked_bar_with_lines") {
-    return percentStackedBarOption(panel, result)
+    return percentStackedBarOption(panel, result, sharedXs)
   }
   if (panel.chartType === "stacked_bar" || panel.chartType === "stacked_bar_with_lines") {
-    return stackedBarOption(panel, result)
+    return stackedBarOption(panel, result, sharedXs)
   }
   if (panel.chartType === "line") {
-    return lineOption(panel, result)
+    return lineOption(panel, result, sharedXs)
   }
-  return barOption(panel, result)
+  return barOption(panel, result, sharedXs)
 }
