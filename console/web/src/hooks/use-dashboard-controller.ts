@@ -118,12 +118,18 @@ export function useDashboardController() {
   const selectedGitServer = gitServers.find((server) => server.id === selectedGitServerId)
   const currentSession = sessions[selectedGitServerId]
   const currentUser = currentSession?.authenticated ? currentSession.user : undefined
-  const selectedProject = projects.find((project) => project.id === selectedProjectId)
+  const selectedProject = projects.find((project) => (
+    project.id === selectedProjectId
+    && (!project.gitServerId || project.gitServerId === selectedGitServerId)
+  ))
   const selectedRepoSummary = selectedProject
     ? repositories.find((repo) => (
-      repo.id === selectedProject.id
-      || String(repo.projectId || "") === String(selectedProject.id)
-      || repo.projectPath === selectedProject.pathWithNamespace
+      (!selectedProject.gitServerId || repo.gitServerId === selectedProject.gitServerId)
+      && (
+        repo.id === selectedProject.id
+        || String(repo.projectId || "") === String(selectedProject.id)
+        || repo.projectPath === selectedProject.pathWithNamespace
+      )
     ))
     : undefined
   const selectedRepo = selectedRepoSummary ? repositoryDetails[selectedRepoSummary.id] || selectedRepoSummary : undefined
@@ -272,18 +278,17 @@ export function useDashboardController() {
   }
 
   async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean; includeSelectedProject?: boolean; fallbackProject?: "first" | "none" } = {}) {
-    if (!gitServerId) {
+    const q = filter.trim()
+    const searchAllServers = Boolean(q)
+    const scopeGitServerId = searchAllServers ? "" : gitServerId
+    if (!scopeGitServerId && !searchAllServers) {
       resetRepositoryState()
       return []
     }
     const page = options.page || 1
-    const params = new URLSearchParams({
-      gitServerId,
-      page: String(page),
-      perPage: "50",
-    })
-    const q = filter.trim()
-    if (options.includeSelectedProject && selectedProjectId) params.set("selectedProjectId", selectedProjectId)
+    const params = new URLSearchParams({ page: String(page), perPage: "50" })
+    if (scopeGitServerId) params.set("gitServerId", scopeGitServerId)
+    if (options.includeSelectedProject && selectedProjectId && !searchAllServers) params.set("selectedProjectId", selectedProjectId)
     if (q) params.set("q", q)
     if (!q && owner !== "all") params.set("owner", owner)
     const body = await api<{ repositories: Repository[]; owners?: string[]; page?: number; hasMore?: boolean }>(`/api/repositories?${params.toString()}`)
@@ -301,10 +306,14 @@ export function useDashboardController() {
     setProjects(nextProjects)
     const currentRoute = parseWorkspaceRoute()
     setSelectedProjectId((current) => {
-      if (currentRoute.gitServerId === gitServerId && currentRoute.projectId && nextProjects.some((project) => project.id === currentRoute.projectId)) {
+      if (currentRoute.gitServerId === scopeGitServerId && currentRoute.projectId && nextProjects.some((project) => (
+        project.id === currentRoute.projectId && project.gitServerId === currentRoute.gitServerId
+      ))) {
         return currentRoute.projectId
       }
-      if (current && nextProjects.some((project) => project.id === current)) return current
+      if (current && nextProjects.some((project) => (
+        project.id === current && project.gitServerId === gitServerId
+      ))) return current
       if (options.fallbackProject === "none") return ""
       return nextProjects[0]?.id || ""
     })
@@ -312,10 +321,10 @@ export function useDashboardController() {
   }
 
   async function loadMoreRepositories() {
-    if (!selectedGitServerId || loadingProjects || loadingMoreProjects || !repoHasMore) return
+    if ((!selectedGitServerId && !filter.trim()) || loadingProjects || loadingMoreProjects || !repoHasMore) return
     setLoadingMoreProjects(true)
     try {
-      await loadRepositories(selectedGitServerId, { page: repoPage + 1, append: true })
+      await loadRepositories(filter.trim() ? "" : selectedGitServerId, { page: repoPage + 1, append: true })
     } catch (error) {
       notifyError(error, "加载更多仓库失败")
     } finally {
@@ -817,14 +826,20 @@ export function useDashboardController() {
     navigateWorkspace({ gitServerId, projectId: "", tab: "overview" })
   }
 
-  function selectProject(projectId: string) {
+  function selectProject(projectId: string, projectGitServerId = selectedGitServerId) {
+    const project = projects.find((item) => (
+      item.id === projectId
+      && (!projectGitServerId || !item.gitServerId || item.gitServerId === projectGitServerId)
+    ))
+    const nextGitServerId = project?.gitServerId || projectGitServerId
+    if (nextGitServerId && nextGitServerId !== selectedGitServerId) setSelectedGitServerId(nextGitServerId)
     setSelectedProjectId(projectId)
     setActiveTab("overview")
     setInstallCheck(undefined)
     setProjectAccess(undefined)
-    const nextOwner = ownerOf(projects.find((project) => project.id === projectId))
+    const nextOwner = ownerOf(project)
     if (nextOwner) updateOwner(nextOwner)
-    navigateWorkspace({ gitServerId: selectedGitServerId, projectId, tab: "overview" })
+    navigateWorkspace({ gitServerId: nextGitServerId, projectId, tab: "overview" })
   }
 
   function selectTab(tab: WorkspaceTab) {
@@ -907,8 +922,8 @@ export function useDashboardController() {
   }, [selectedProject?.id])
 
   useEffect(() => {
-    if (!selectedGitServerId || !userSession.authenticated) return
-    void loadRepositories(selectedGitServerId, { fallbackProject: "none" }).catch((error) => notifyError(error, "加载仓库失败"))
+    if ((!selectedGitServerId && !filter.trim()) || !userSession.authenticated) return
+    void loadRepositories(filter.trim() ? "" : selectedGitServerId, { fallbackProject: "none" }).catch((error) => notifyError(error, "加载仓库失败"))
   }, [filter, owner])
 
   useEffect(() => {

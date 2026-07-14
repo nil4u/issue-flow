@@ -249,6 +249,7 @@ test('repository search ignores owner filter while owner browsing still scopes r
   const { dir, store } = tempStore();
   try {
     await seedGitlabServer(store, 'https://gitlab.example.com');
+    await seedGitlabServer(store, 'https://gitlab-other.example.com', { id: 'gitlab-other', name: 'Other GitLab' });
     const user = await store.createUser({
       id: 'user-alice',
       displayName: 'Alice',
@@ -272,6 +273,12 @@ test('repository search ignores owner filter while owner browsing still scopes r
       baseUrl: 'https://gitlab.example.com',
       projectPath: 'team/api',
     }, { status: 'unchecked', projectId: '44' });
+    await store.createRepository({
+      gitServerId: 'gitlab-other',
+      userId: user.id,
+      baseUrl: 'https://gitlab-other.example.com',
+      projectPath: 'other/app',
+    }, { status: 'unchecked', projectId: '45' });
 
     const ownerOnly = await store.listRepositories({
       gitServerId: 'gitlab-main',
@@ -288,6 +295,13 @@ test('repository search ignores owner filter while owner browsing still scopes r
     });
     assert.deepEqual(searched.repositories.map((repo) => repo.projectPath), ['platform/app', 'team/app']);
     assert.equal(searched.total, 2);
+
+    const searchedAcrossServers = await store.listRepositories({
+      userId: user.id,
+      q: 'app',
+    });
+    assert.deepEqual(searchedAcrossServers.repositories.map((repo) => repo.projectPath), ['other/app', 'platform/app', 'team/app']);
+    assert.equal(searchedAcrossServers.repositories[0].gitServerId, 'gitlab-other');
 
     const ownerWithSelectedOutsideFilter = await store.listRepositories({
       gitServerId: 'gitlab-main',

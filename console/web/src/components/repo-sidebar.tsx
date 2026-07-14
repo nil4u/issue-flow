@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { GitLabProject, GitLabUser, GitServer, IssueFlowUser } from "@/issue-flow-model"
+import { ownerOf, type GitLabProject, type GitLabUser, type GitServer, type IssueFlowUser } from "@/issue-flow-model"
 
 export function RepoSidebar(props: {
   collapsed: boolean
@@ -48,7 +48,7 @@ export function RepoSidebar(props: {
   onOwner: (value: string) => void
   onFilter: (value: string) => void
   onLoadMore: () => void
-  onSelectProject: (id: string) => void
+  onSelectProject: (id: string, gitServerId?: string) => void
   onLoginCurrent: () => void
   onRefresh: (gitServerId?: string) => void | Promise<void>
   onLogout: () => void
@@ -83,6 +83,12 @@ export function RepoSidebar(props: {
     onCollapsedChange,
   } = props
   const [pickerOpen, setPickerOpen] = useState<"server" | "owner" | null>(null)
+  const searching = Boolean(filter.trim())
+
+  function handleFilter(value: string) {
+    if (value.trim()) setPickerOpen(null)
+    onFilter(value)
+  }
 
   function togglePicker(next: "server" | "owner") {
     setPickerOpen((current) => current === next ? null : next)
@@ -117,12 +123,12 @@ export function RepoSidebar(props: {
         <ScrollArea className="repo-list-scroll collapsed">
           <div className="repo-list collapsed">
             {projects.map((project) => (
-              <Tooltip key={project.id}>
+              <Tooltip key={`${project.gitServerId || ""}:${project.id}`}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className={`repo-row compact ${project.id === selectedProjectId ? "active" : ""}`}
-                    onClick={() => onSelectProject(project.id)}
+                    className={`repo-row compact ${isSelectedProject(project, selectedProjectId, selectedGitServerId) ? "active" : ""}`}
+                    onClick={() => onSelectProject(project.id, project.gitServerId)}
                   >
                     <span className="repo-initial">{repoInitial(project.name)}</span>
                   </button>
@@ -160,89 +166,93 @@ export function RepoSidebar(props: {
 
       <div className="search-row">
         <Search className="size-4" />
-        <input value={filter} onChange={(event) => onFilter(event.currentTarget.value)} placeholder="Search repos..." disabled={!currentUser} />
+        <input value={filter} onChange={(event) => handleFilter(event.currentTarget.value)} placeholder="Search repos..." disabled={!user} />
       </div>
 
-      <div className="repo-switchers" data-sidebar-picker-scope>
-        <button type="button" className="server-trigger" onClick={() => togglePicker("server")}>
-          <GitBranch className="size-3.5" />
-          <span>{selectedGitServer?.name || selectedGitServer?.id || "Git server"}</span>
-          <ChevronDown className={`size-3.5 ${pickerOpen === "server" ? "expanded" : ""}`} />
-        </button>
-        <ChevronRight className="switcher-divider size-3" />
-        <button type="button" className="owner-trigger" disabled={!currentUser || owners.length === 0} onClick={() => togglePicker("owner")}>
-          <GitFork className="size-3.5" />
-          <span>{owner === "all" ? "All owners" : owner}</span>
-          <ChevronDown className={`size-3.5 ${pickerOpen === "owner" ? "expanded" : ""}`} />
-        </button>
-      </div>
+      {!searching && (
+        <>
+          <div className="repo-switchers" data-sidebar-picker-scope>
+            <button type="button" className="server-trigger" onClick={() => togglePicker("server")}>
+              <GitBranch className="size-3.5" />
+              <span>{selectedGitServer?.name || selectedGitServer?.id || "Git server"}</span>
+              <ChevronDown className={`size-3.5 ${pickerOpen === "server" ? "expanded" : ""}`} />
+            </button>
+            <ChevronRight className="switcher-divider size-3" />
+            <button type="button" className="owner-trigger" disabled={!currentUser || owners.length === 0} onClick={() => togglePicker("owner")}>
+              <GitFork className="size-3.5" />
+              <span>{owner === "all" ? "All owners" : owner}</span>
+              <ChevronDown className={`size-3.5 ${pickerOpen === "owner" ? "expanded" : ""}`} />
+            </button>
+          </div>
 
-      {pickerOpen === "server" && (
-        <div className="sidebar-picker" data-sidebar-picker-scope>
-          {gitServers.map((server) => (
-            <div
-              className={`picker-row server-picker-row ${server.id === selectedGitServerId ? "active" : ""}`}
-              key={server.id}
-            >
+          {pickerOpen === "server" && (
+            <div className="sidebar-picker" data-sidebar-picker-scope>
+              {gitServers.map((server) => (
+                <div
+                  className={`picker-row server-picker-row ${server.id === selectedGitServerId ? "active" : ""}`}
+                  key={server.id}
+                >
+                  <button
+                    type="button"
+                    className="picker-select"
+                    onClick={() => {
+                      onSelectGitServer(server.id)
+                      setPickerOpen(null)
+                    }}
+                  >
+                    <GitBranch className="size-4" />
+                    <span>{server.name || server.id}</span>
+                    {server.id === selectedGitServerId && <Check className="size-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    className="picker-icon-action"
+                    disabled={!currentUser || loading}
+                    title="强制刷新同步"
+                    onClick={() => onRefresh(server.id)}
+                  >
+                    {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pickerOpen === "owner" && (
+            <div className="sidebar-picker" data-sidebar-picker-scope>
               <button
                 type="button"
-                className="picker-select"
+                className={`picker-row ${owner === "all" ? "active" : ""}`}
                 onClick={() => {
-                  onSelectGitServer(server.id)
+                  onOwner("all")
                   setPickerOpen(null)
                 }}
               >
-                <GitBranch className="size-4" />
-                <span>{server.name || server.id}</span>
-                {server.id === selectedGitServerId && <Check className="size-4" />}
+                <GitFork className="size-4" />
+                <span>All owners</span>
+                {owner === "all" && <Check className="size-4" />}
               </button>
-              <button
-                type="button"
-                className="picker-icon-action"
-                disabled={!currentUser || loading}
-                title="强制刷新同步"
-                onClick={() => onRefresh(server.id)}
-              >
-                {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              </button>
+              {owners.map((item) => (
+                <button
+                  type="button"
+                  className={`picker-row ${owner === item ? "active" : ""}`}
+                  key={item}
+                  onClick={() => {
+                    onOwner(item)
+                    setPickerOpen(null)
+                  }}
+                >
+                  <GitFork className="size-4" />
+                  <span>{item}</span>
+                  {owner === item && <Check className="size-4" />}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
-      {pickerOpen === "owner" && (
-        <div className="sidebar-picker" data-sidebar-picker-scope>
-          <button
-            type="button"
-            className={`picker-row ${owner === "all" ? "active" : ""}`}
-            onClick={() => {
-              onOwner("all")
-              setPickerOpen(null)
-            }}
-          >
-            <GitFork className="size-4" />
-            <span>All owners</span>
-            {owner === "all" && <Check className="size-4" />}
-          </button>
-          {owners.map((item) => (
-            <button
-              type="button"
-              className={`picker-row ${owner === item ? "active" : ""}`}
-              key={item}
-              onClick={() => {
-                onOwner(item)
-                setPickerOpen(null)
-              }}
-            >
-              <GitFork className="size-4" />
-              <span>{item}</span>
-              {owner === item && <Check className="size-4" />}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!currentUser && (
+      {!currentUser && !searching && (
         <div className="server-connect">
           <AlertCircle className="size-4" />
           <span>
@@ -259,26 +269,27 @@ export function RepoSidebar(props: {
         if (target.scrollHeight - target.scrollTop - target.clientHeight < 96) onLoadMore()
       } }}>
         <div className="repo-list">
-          {currentUser && loading && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> {loadingLabel || "加载仓库..."}</div>}
-          {currentUser && !loading && projects.length === 0 && <div className="repo-row muted">没有匹配仓库</div>}
+          {(currentUser || searching) && loading && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> {loadingLabel || "加载仓库..."}</div>}
+          {(currentUser || searching) && !loading && projects.length === 0 && <div className="repo-row muted">没有匹配仓库</div>}
           {projects.map((project) => {
             return (
               <button
                 type="button"
-                key={project.id}
-                className={`repo-row ${project.id === selectedProjectId ? "active" : ""}`}
+                key={`${project.gitServerId || ""}:${project.id}`}
+                className={`repo-row ${isSelectedProject(project, selectedProjectId, selectedGitServerId) ? "active" : ""}`}
                 title={project.pathWithNamespace}
-                onClick={() => onSelectProject(project.id)}
+                onClick={() => onSelectProject(project.id, project.gitServerId)}
               >
                 <span className="repo-icon-wrap"><GitBranch className="size-4" /></span>
-                <span>
+                <span className="repo-row-copy">
                   <strong>{project.name}</strong>
+                  {searching && <small>{projectSearchContext(project, gitServers)}</small>}
                 </span>
               </button>
             )
           })}
-          {currentUser && loadingMore && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> 加载更多...</div>}
-          {currentUser && !loading && !loadingMore && hasMore && <div className="repo-row muted">继续向下滚动加载更多</div>}
+          {(currentUser || searching) && loadingMore && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> 加载更多...</div>}
+          {(currentUser || searching) && !loading && !loadingMore && hasMore && <div className="repo-row muted">继续向下滚动加载更多</div>}
         </div>
       </ScrollArea>
 
@@ -289,6 +300,15 @@ export function RepoSidebar(props: {
       />
     </aside>
   )
+}
+
+function isSelectedProject(project: GitLabProject, selectedProjectId: string, selectedGitServerId: string) {
+  return project.id === selectedProjectId && (!project.gitServerId || project.gitServerId === selectedGitServerId)
+}
+
+function projectSearchContext(project: GitLabProject, gitServers: GitServer[]) {
+  const server = gitServers.find((item) => item.id === project.gitServerId)
+  return [server?.name || project.gitServerId || "Git server", ownerOf(project)].filter(Boolean).join(" · ")
 }
 
 function repoInitial(name: string) {
