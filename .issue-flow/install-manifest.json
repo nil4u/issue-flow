@@ -167,7 +167,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
       "mode": "managed",
-      "sha256": "7ceab7f605d392ba5fb5dd311c5ad7eb1821c770d344651edcc58828813ed86d"
+      "sha256": "b353cee6bb0613cd99c8ad450426c69a4272e1e5d67f351a5791c84d7db6ea05"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",

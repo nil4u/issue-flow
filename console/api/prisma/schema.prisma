@@ -69,19 +69,21 @@ model ConsoleSession {
 }
 
 model UserGitAccount {
-  id             String   @id
-  userId         String   @map("user_id")
-  gitServerId    String   @map("git_server_id")
-  provider       String
-  providerUserId String   @map("provider_user_id")
-  username       String   @default("")
-  displayName    String   @default("") @map("display_name")
-  email          String   @default("")
-  avatarUrl      String   @default("") @map("avatar_url")
-  scopes         String[] @default([])
-  data           Json
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id                  String   @id
+  userId              String   @map("user_id")
+  gitServerId         String   @map("git_server_id")
+  provider            String
+  providerUserId      String   @map("provider_user_id")
+  username            String   @default("")
+  displayName         String   @default("") @map("display_name")
+  email               String   @default("")
+  avatarUrl           String   @default("") @map("avatar_url")
+  scopes              String[] @default([])
+  personalAccessToken String   @default("") @map("personal_access_token")
+  personalAccessData  Json     @default("{}") @map("personal_access_data")
+  data                Json
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   gitServer GitServer @relation(fields: [gitServerId], references: [id], onDelete: Cascade)

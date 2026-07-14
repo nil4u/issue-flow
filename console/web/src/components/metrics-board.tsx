@@ -2,7 +2,7 @@ import { Loader2, RefreshCw } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { EChart } from "@/components/metrics-echart"
-import { buildChartOption, formatSeconds } from "@/lib/metrics-chart-options"
+import { buildChartOption, buildWeeklyAxis, formatSeconds } from "@/lib/metrics-chart-options"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -66,6 +66,8 @@ export function MetricsBoard({ repository }: { repository: Repository }) {
     return { weeks, from: from.toISOString(), to: to.toISOString() }
   }, [weeks, refreshedAt])
 
+  const weekAxis = useMemo(() => buildWeeklyAxis(params.weeks, params.to), [params])
+
   const panels = useMemo(() => {
     return [...(dashboard?.panels || [])].sort((a, b) => {
       const ay = a.position?.y ?? 0
@@ -114,6 +116,7 @@ export function MetricsBoard({ repository }: { repository: Repository }) {
             slug={dashboard.slug}
             panel={panel}
             params={params}
+            weekAxis={weekAxis}
           />
         ))}
       </div>
@@ -126,11 +129,13 @@ function MetricsPanel({
   slug,
   panel,
   params,
+  weekAxis,
 }: {
   repository: Repository
   slug: string
   panel: DashboardPanel
   params: PanelParams
+  weekAxis: string[]
 }) {
   const width = Math.min(Math.max(panel.position?.w ?? 12, 1), 12)
   const height = Math.max(panel.position?.h ?? 8, 4) * 36
@@ -147,6 +152,7 @@ function MetricsPanel({
           slug={slug}
           panel={panel}
           params={params}
+          weekAxis={weekAxis}
         />
       </div>
     </section>
@@ -164,11 +170,13 @@ function PanelQuery({
   slug,
   panel,
   params,
+  weekAxis,
 }: {
   repository: Repository
   slug: string
   panel: DashboardPanel
   params: PanelParams
+  weekAxis: string[]
 }) {
   const [state, setState] = useState<PanelQueryState>({ loading: true, error: "" })
 
@@ -202,13 +210,21 @@ function PanelQuery({
   return (
     <div className="metrics-panel-result">
       {state.result.truncated && <div className="metrics-panel-note">结果已截断（最多 5000 行）</div>}
-      <PanelContent panel={panel} result={state.result} />
+      <PanelContent panel={panel} result={state.result} weekAxis={weekAxis} />
     </div>
   )
 }
 
-function PanelContent({ panel, result }: { panel: DashboardPanel; result: MetricsQueryResult }) {
-  if (!result.rows.length) {
+function PanelContent({
+  panel,
+  result,
+  weekAxis,
+}: {
+  panel: DashboardPanel
+  result: MetricsQueryResult
+  weekAxis: string[]
+}) {
+  if (!result.rows.length && panel.xField !== "week") {
     return <div className="metrics-empty">暂无数据</div>
   }
   if (panel.chartType === "table") {
@@ -217,7 +233,8 @@ function PanelContent({ panel, result }: { panel: DashboardPanel; result: Metric
   if (panel.chartType === "stat") {
     return <PanelStat panel={panel} result={result} />
   }
-  return <EChart option={buildChartOption(panel, result)} />
+  const sharedXs = panel.xField === "week" ? weekAxis : undefined
+  return <EChart option={buildChartOption(panel, result, sharedXs)} />
 }
 
 function PanelStat({ panel, result }: { panel: DashboardPanel; result: MetricsQueryResult }) {

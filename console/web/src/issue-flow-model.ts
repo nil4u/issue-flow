@@ -269,6 +269,20 @@ export type RunnerGitlabToken = {
   updatedAt?: string
 }
 
+export type UserGitPat = {
+  gitServerId: string
+  gitServerName?: string
+  gitlabUserId?: string
+  gitlabUsername?: string
+  tokenFingerprint?: string
+  scopes?: string[]
+  requiredScopes?: string[]
+  status?: "missing" | "valid" | "invalid" | string
+  checkedAt?: string
+  expiresAt?: string
+  createUrl?: string
+}
+
 export type AgentrixPrivateCloudConfig = {
   agentrix: {
     serverUrl: string
@@ -282,11 +296,11 @@ export type AgentrixPrivateCloudConfig = {
   gitServer?: GitServer
   defaults?: AgentrixDefaults
   runnerGitlabTokens?: RunnerGitlabToken[]
+  gitPat?: UserGitPat
 }
 
 export type RunnerGitlabTokenResult = AgentrixPrivateCloudConfig & {
   runnerGitlabToken: RunnerGitlabToken
-  gitlabToken: string
   commitAuthor?: {
     name?: string
     email?: string

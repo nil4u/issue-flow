@@ -172,6 +172,28 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
   });
 }
 
+async function seedUserGitPat(store, options = {}) {
+  const userId = options.userId || 'user-alice';
+  const gitServerId = options.gitServerId || 'gitlab-main';
+  const gitlabUserId = options.gitlabUserId || '7';
+  const username = options.username || 'alice';
+  await store.upsertUserGitAccount(userId, {
+    gitServerId,
+    provider: 'gitlab',
+    providerUserId: gitlabUserId,
+    username,
+    displayName: options.displayName || 'Alice',
+    email: options.email || 'alice@example.com',
+  });
+  return store.saveUserGitPat(userId, gitServerId, {
+    token: options.token || 'gl-user-pat',
+    gitlabUserId,
+    gitlabUsername: username,
+    scopes: options.scopes || ['api', 'read_repository', 'write_repository'],
+    status: 'valid',
+  });
+}
+
 test('API service requires ISSUE_FLOW_BASE_URL at startup', async () => {
   const previousBaseUrl = process.env.ISSUE_FLOW_BASE_URL;
   delete process.env.ISSUE_FLOW_BASE_URL;
@@ -1879,7 +1901,7 @@ test('GitLab project sync follows pagination before replacing repo access', asyn
   }
 });
 
-test('Agentrix private cloud uses the Git server Bot PAT without target repo', async () => {
+test('Agentrix private cloud uses the current user PAT without target repo', async () => {
   const { dir, store } = tempStore();
   const previousEnv = {
     ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
@@ -1890,13 +1912,15 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
   const requests = [];
   const gitlab = http.createServer((req, res) => {
     requests.push(req.url);
-    if (req.url === '/api/v4/user' && req.method === 'GET') {
-      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+    if (req.url === '/api/v4/personal_access_tokens/self' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-user-pat');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        id: 7,
-        username: 'issue-flow-bot',
-        name: 'Issue Flow Bot',
+        id: 91,
+        user_id: 7,
+        name: 'issue-flow-agentrix',
+        scopes: ['api', 'read_repository', 'write_repository'],
+        active: true,
       }));
       return;
     }
@@ -1930,6 +1954,7 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
   const { app, baseUrl } = await listenApp(store);
   try {
     await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    await seedUserGitPat(store);
     await store.saveUserAgentrixConfig('user:user-alice', {
       agentrix: {
         apiKey: 'agentrix-key',
@@ -1948,7 +1973,7 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     });
     assert.equal(created.status, 200);
     const createdBody = await created.json();
-    assert.equal(createdBody.gitlabToken, 'gl-bot-pat');
+    assert.equal(createdBody.gitlabToken, undefined);
     assert.equal(createdBody.runnerGitlabToken.runnerId, 'cloud-main');
     assert.equal(createdBody.runnerGitlabToken.token, undefined);
     assert.equal(createdBody.runnerGitlabToken.gitlabTokenId, '');
@@ -1958,7 +1983,7 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     assert.match(createdBody.dockerCommand, /CLOUD_AUTH_TOKEN='cloud-secret'/);
     assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_WS_URL='wss:\/\/issue-flow\.internal\/webhooks\/agentrix\/forward'/);
     assert.match(createdBody.dockerCommand, /AGENTRIX_EVENT_FORWARD_TOKEN='forward-token'/);
-    assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-bot-pat'/);
+    assert.match(createdBody.dockerCommand, /GITLAB_TOKEN='gl-user-pat'/);
     assert.match(createdBody.dockerCommand, /GIT_AUTHOR_NAME='Issue Flow Bot'/);
     assert.match(createdBody.dockerCommand, /GIT_AUTHOR_EMAIL='issue-flow-bot@gitlab\.test'/);
     assert.match(createdBody.dockerCommand, /GIT_COMMITTER_NAME='Issue Flow Bot'/);
@@ -1971,14 +1996,14 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
     assert.doesNotMatch(createdBody.dockerCommand, /agentrix-workspaces/);
     assert.doesNotMatch(createdBody.dockerCommand, /\/home\/agentrix\/\.agentrix\/workspaces/);
     assert.match(createdBody.dockerCommand, /registry\.internal\/agentrix\/agentrix-cli:2026\.07'$/);
-    assert.equal(requests.includes('/api/v4/user'), true);
+    assert.equal(requests.includes('/api/v4/personal_access_tokens/self'), true);
     assert.equal(requests.includes('/api/v4/users/7/personal_access_tokens'), false);
     assert.equal(requests.includes('/api/v4/users/7/impersonation_tokens'), false);
     assert.equal(requests.includes('/api/v4/users/101/impersonation_tokens'), false);
     assert.equal(requests.includes('agentrix:/v1/private-clouds/cloud-main/runner-secret'), true);
 
     assert.equal(createdBody.runnerGitlabToken.gitlabUserId, '7');
-    assert.equal(createdBody.runnerGitlabToken.gitlabUsername, 'issue-flow-bot');
+    assert.equal(createdBody.runnerGitlabToken.gitlabUsername, 'alice');
     const defaults = await store.getUserAgentrixConfig('user:user-alice', { includeSecret: true });
     assert.equal(defaults.agentrix.runnerId, 'cloud-main');
     assert.equal(defaults.agentrix.apiKey, 'agentrix-key');
@@ -1996,6 +2021,9 @@ test('Agentrix private cloud uses the Git server Bot PAT without target repo', a
       email: 'issue-flow-bot@gitlab.test',
     });
     assert.equal(configBody.llmProxy.apiKey, '');
+    assert.equal(configBody.gitPat.gitlabUsername, 'alice');
+    assert.deepEqual(configBody.gitPat.scopes, ['api', 'read_repository', 'write_repository']);
+    assert.equal(configBody.gitPat.token, undefined);
   } finally {
     await app.close();
     await close(gitlab);
@@ -2020,10 +2048,15 @@ test('Agentrix private cloud docker command accepts custom commit author', async
     LLM_PROXY_BASE_URL: process.env.LLM_PROXY_BASE_URL,
   };
   const gitlab = http.createServer((req, res) => {
-    if (req.url === '/api/v4/user' && req.method === 'GET') {
-      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+    if (req.url === '/api/v4/personal_access_tokens/self' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-user-pat');
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ id: 7, username: 'issue-flow-bot' }));
+      res.end(JSON.stringify({
+        id: 91,
+        user_id: 7,
+        scopes: ['api', 'read_repository', 'write_repository'],
+        active: true,
+      }));
       return;
     }
     res.writeHead(404);
@@ -2042,6 +2075,7 @@ test('Agentrix private cloud docker command accepts custom commit author', async
   const { app, baseUrl } = await listenApp(store);
   try {
     await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    await seedUserGitPat(store);
     const cookie = await consoleSidCookie(store, 'user-alice');
     const created = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
       method: 'POST',
@@ -2091,12 +2125,14 @@ test('Agentrix private cloud requires event forward token before fetching runner
   const requests = [];
   const gitlab = http.createServer((req, res) => {
     requests.push(req.url);
-    if (req.url === '/api/v4/user' && req.method === 'GET') {
-      assert.equal(req.headers['private-token'], 'gl-bot-pat');
+    if (req.url === '/api/v4/personal_access_tokens/self' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'gl-user-pat');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        id: 7,
-        username: 'issue-flow-bot',
+        id: 91,
+        user_id: 7,
+        scopes: ['api', 'read_repository', 'write_repository'],
+        active: true,
       }));
       return;
     }
@@ -2110,6 +2146,7 @@ test('Agentrix private cloud requires event forward token before fetching runner
   const { app, baseUrl } = await listenApp(store);
   try {
     await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    await seedUserGitPat(store);
     const cookie = await consoleSidCookie(store, 'user-alice');
     const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
       method: 'POST',
@@ -2123,7 +2160,7 @@ test('Agentrix private cloud requires event forward token before fetching runner
     assert.equal(rejected.status, 400);
     const body = await rejected.json();
     assert.equal(body.error, 'agentrix_forward_token_required');
-    assert.deepEqual(requests, ['/api/v4/user']);
+    assert.deepEqual(requests, ['/api/v4/personal_access_tokens/self']);
   } finally {
     await app.close();
     await close(gitlab);
@@ -2139,7 +2176,7 @@ test('Agentrix private cloud requires event forward token before fetching runner
   }
 });
 
-test('Agentrix private cloud validates Bot PAT before fetching runner secret', async () => {
+test('Agentrix private cloud validates the current user PAT before fetching runner secret', async () => {
   const { dir, store } = tempStore();
   const previousEnv = {
     ISSUE_FLOW_AGENTRIX_BASE_URL: process.env.ISSUE_FLOW_AGENTRIX_BASE_URL,
@@ -2147,8 +2184,8 @@ test('Agentrix private cloud validates Bot PAT before fetching runner secret', a
   const requests = [];
   const gitlab = http.createServer((req, res) => {
     requests.push(req.url);
-    if (req.url === '/api/v4/user' && req.method === 'GET') {
-      assert.equal(req.headers['private-token'], 'bad-bot-pat');
+    if (req.url === '/api/v4/personal_access_tokens/self' && req.method === 'GET') {
+      assert.equal(req.headers['private-token'], 'bad-user-pat');
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ message: '403 Forbidden' }));
       return;
@@ -2163,12 +2200,13 @@ test('Agentrix private cloud validates Bot PAT before fetching runner secret', a
     res.end(JSON.stringify({ secret: 'should-not-be-used' }));
   });
   const agentrixBase = await listen(agentrix);
-  await seedGitlabServer(store, gitlabBase, { botPat: 'bad-bot-pat' });
+  await seedGitlabServer(store, gitlabBase);
   process.env.ISSUE_FLOW_AGENTRIX_BASE_URL = agentrixBase;
 
   const { app, baseUrl } = await listenApp(store);
   try {
     await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    await seedUserGitPat(store, { token: 'bad-user-pat' });
     const cookie = await consoleSidCookie(store, 'user-alice');
     const checked = await fetch(`${baseUrl}/api/agentrix/private-cloud/git-server/validate`, {
       method: 'POST',
@@ -2178,8 +2216,8 @@ test('Agentrix private cloud validates Bot PAT before fetching runner secret', a
       }),
     });
     assert.equal(checked.status, 400);
-    assert.equal((await checked.json()).error, 'runner_gitlab_bot_pat_invalid');
-    assert.deepEqual(requests, ['/api/v4/user']);
+    assert.equal((await checked.json()).error, 'user_git_pat_invalid');
+    assert.deepEqual(requests, ['/api/v4/personal_access_tokens/self']);
     requests.length = 0;
 
     const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
@@ -2193,8 +2231,8 @@ test('Agentrix private cloud validates Bot PAT before fetching runner secret', a
     });
     assert.equal(rejected.status, 400);
     const body = await rejected.json();
-    assert.equal(body.error, 'runner_gitlab_bot_pat_invalid');
-    assert.deepEqual(requests, ['/api/v4/user']);
+    assert.equal(body.error, 'user_git_pat_invalid');
+    assert.deepEqual(requests, ['/api/v4/personal_access_tokens/self']);
     assert.equal((await store.listRunnerGitlabTokens({ userId: 'user-alice', gitServerId: 'gitlab-main' })).length, 0);
   } finally {
     await app.close();
@@ -2212,34 +2250,89 @@ test('Agentrix private cloud validates Bot PAT before fetching runner secret', a
   }
 });
 
-test('Agentrix private cloud rejects manual GitLab token input', async () => {
+test('user Git PAT API validates scopes, saves encrypted token, and deletes it', async () => {
   const { dir, store } = tempStore();
   const requests = [];
   const gitlab = http.createServer((req, res) => {
     requests.push(req.url);
+    if (req.url === '/api/v4/personal_access_tokens/self' && req.method === 'GET') {
+      const token = req.headers['private-token'];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 91,
+        user_id: token === 'wrong-user-token' ? 8 : 7,
+        scopes: token === 'wrong-scope-token'
+          ? ['api']
+          : ['api', 'read_repository', 'write_repository'],
+        active: true,
+      }));
+      return;
+    }
     res.writeHead(404);
     res.end();
   });
   const gitlabBase = await listen(gitlab);
-  await seedGitlabServer(store, gitlabBase, { adminPat: '' });
+  await seedGitlabServer(store, gitlabBase);
   const { app, baseUrl } = await listenApp(store);
   try {
     await store.createUser({ id: 'user-alice', displayName: 'Alice', email: 'alice@example.com' });
+    await store.upsertUserGitAccount('user-alice', {
+      gitServerId: 'gitlab-main',
+      provider: 'gitlab',
+      providerUserId: '7',
+      username: 'alice',
+    });
     const cookie = await consoleSidCookie(store, 'user-alice');
-    const rejected = await fetch(`${baseUrl}/api/agentrix/private-cloud/gitlab-token`, {
+    const mismatched = await fetch(`${baseUrl}/api/user/git-pats/gitlab-main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ token: 'wrong-user-token' }),
+    });
+    assert.equal(mismatched.status, 400);
+    assert.equal((await mismatched.json()).error, 'user_git_pat_user_mismatch');
+
+    const rejected = await fetch(`${baseUrl}/api/user/git-pats/gitlab-main`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: cookie },
       body: JSON.stringify({
-        gitServerId: 'gitlab-main',
-        runnerId: 'cloud-main',
-        token: 'manual-token',
+        token: 'wrong-scope-token',
       }),
     });
     assert.equal(rejected.status, 400);
-    const body = await rejected.json();
-    assert.equal(body.error, 'runner_gitlab_token_manual_unsupported');
-    assert.deepEqual(requests, []);
-    assert.equal((await store.listRunnerGitlabTokens({ userId: 'user-alice', gitServerId: 'gitlab-main' })).length, 0);
+    const rejectedBody = await rejected.json();
+    assert.equal(rejectedBody.error, 'user_git_pat_scopes_required');
+    assert.deepEqual(rejectedBody.missingScopes, ['read_repository', 'write_repository']);
+
+    const saved = await fetch(`${baseUrl}/api/user/git-pats/gitlab-main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ token: 'manual-token' }),
+    });
+    assert.equal(saved.status, 200);
+    const savedBody = await saved.json();
+    assert.equal(savedBody.pat.gitlabUsername, 'alice');
+    assert.deepEqual(savedBody.pat.scopes, ['api', 'read_repository', 'write_repository']);
+    assert.equal(savedBody.pat.token, undefined);
+
+    const stored = await store.getUserGitPat('user-alice', 'gitlab-main', { includeSecret: true });
+    assert.equal(stored.token, 'manual-token');
+    assert.notEqual(stored.tokenFingerprint, 'manual-token');
+
+    const listed = await fetch(`${baseUrl}/api/user/git-pats`, { headers: { Cookie: cookie } });
+    assert.equal(listed.status, 200);
+    assert.equal((await listed.json()).pats[0].token, undefined);
+
+    const deleted = await fetch(`${baseUrl}/api/user/git-pats/gitlab-main`, {
+      method: 'DELETE',
+      headers: { Cookie: cookie },
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal((await store.getUserGitPat('user-alice', 'gitlab-main', { includeSecret: true })).token, '');
+    assert.deepEqual(requests, [
+      '/api/v4/personal_access_tokens/self',
+      '/api/v4/personal_access_tokens/self',
+      '/api/v4/personal_access_tokens/self',
+    ]);
   } finally {
     await app.close();
     await close(gitlab);

@@ -68,6 +68,13 @@ export function sortIssuesByUpdatedDesc(issues: IssueRow[]) {
   return [...issues].sort((a, b) => Number(new Date(b.updatedAt || 0).getTime()) - Number(new Date(a.updatedAt || 0).getTime()))
 }
 
+export function issueWebUrl(projectWebUrl: string, provider: string, issueNumber: number) {
+  const baseUrl = projectWebUrl.replace(/\/+$/, "")
+  if (!baseUrl || issueNumber <= 0) return ""
+  const issuePath = provider.toLowerCase() === "github" ? "issues" : "-/issues"
+  return `${baseUrl}/${issuePath}/${issueNumber}`
+}
+
 export function issueFilterOptions(issues: IssueRow[]) {
   return {
     type: uniqueOptions(issues, "type"),

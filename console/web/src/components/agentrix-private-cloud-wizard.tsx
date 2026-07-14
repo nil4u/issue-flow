@@ -1,26 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
-import { Check, ChevronLeft, ChevronRight, CircleAlert, Copy, Loader2, Server } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, CircleAlert, Copy, ExternalLink, Loader2, Server } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  api,
-  type AgentrixCloud,
-  type AgentrixPrivateCloudConfig,
-  type GitServer,
-  type RunnerGitlabTokenResult,
-  type UserSession,
-} from "@/issue-flow-model"
+import { api, type AgentrixCloud, type AgentrixPrivateCloudConfig, type GitServer, type RunnerGitlabTokenResult, type UserGitPat, type UserSession } from "@/issue-flow-model"
 import { errorMessage, notifyError } from "@/lib/errors"
 
-type StepId = "git" | "llm" | "author" | "command"
+type StepId = "git" | "pat" | "llm" | "author" | "command"
 type WizardStatus = "idle" | "checking" | "ready" | "error"
 type LlmValidationStatus = "idle" | "checking" | "invalid"
 
-const BOT_PAT_ADMIN_MESSAGE = "Bot PAT 未配置或已失效，请联系管理员处理 Git server 设置。"
 const LLM_PROXY_VALIDATE_TIMEOUT_MS = 4000
 
 export function AgentrixPrivateCloudWizard({
@@ -34,17 +26,17 @@ export function AgentrixPrivateCloudWizard({
   onConnectGitServer: (gitServerId: string) => void
   userSession: UserSession
 }) {
-  const linkedGitServerIds = useMemo(() => new Set(
-    (userSession.accounts || [])
-      .map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "")
-      .filter(Boolean),
-  ), [userSession.accounts])
+  const linkedGitServerIds = useMemo(
+    () => new Set((userSession.accounts || []).map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "").filter(Boolean)),
+    [userSession.accounts]
+  )
   const selectableServers = gitServers.filter((server) => server.type === "gitlab")
   const firstLinkedServer = selectableServers.find((server) => linkedGitServerIds.has(server.id))
   const [gitServerId, setGitServerId] = useState(firstLinkedServer?.id || selectableServers[0]?.id || "")
   const [step, setStep] = useState<StepId>("git")
   const [config, setConfig] = useState<AgentrixPrivateCloudConfig>()
   const [command, setCommand] = useState("")
+  const [gitPat, setGitPat] = useState("")
   const [llmProxyBaseUrl, setLlmProxyBaseUrl] = useState("")
   const [llmProxyApiKey, setLlmProxyApiKey] = useState("")
   const [commitAuthorName, setCommitAuthorName] = useState("")
@@ -52,13 +44,16 @@ export function AgentrixPrivateCloudWizard({
   const [generating, setGenerating] = useState(false)
   const [status, setStatus] = useState<WizardStatus>("idle")
   const [statusText, setStatusText] = useState("")
-  const [llmValidation, setLlmValidation] = useState<{ status: LlmValidationStatus; message: string; key: string }>({
+  const [llmValidation, setLlmValidation] = useState<{
+    status: LlmValidationStatus
+    message: string
+    key: string
+  }>({
     status: "idle",
     message: "",
     key: "",
   })
   const connected = Boolean(gitServerId && linkedGitServerIds.has(gitServerId))
-  const selectedGitServer = selectableServers.find((server) => server.id === gitServerId)
 
   useEffect(() => {
     if (gitServerId || !selectableServers.length) return
@@ -87,36 +82,42 @@ export function AgentrixPrivateCloudWizard({
     if (!canConfirmGitServer()) return
     setGenerating(true)
     setStatus("checking")
-    setStatusText("正在校验 Bot PAT...")
+    setStatusText("正在读取 Git 账号配置...")
     try {
       const latestConfig = await loadConfig(gitServerId, { notify: false })
-      if (!hasBotPat(latestConfig)) {
-        setStatus("error")
-        setStatusText(BOT_PAT_ADMIN_MESSAGE)
-        return
-      }
-      const body = await api<{ gitServer?: GitServer; botPat?: { status?: string } }>("/api/agentrix/private-cloud/git-server/validate", {
+      setConfig(latestConfig)
+      setStatus("ready")
+      setStatusText("")
+      setStep("pat")
+    } catch (error) {
+      setStatus("error")
+      setStatusText(errorMessage(error))
+      notifyError(error, "读取 Git server 配置失败")
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function confirmGitPat() {
+    if (!canConfirmGitPat()) return
+    setGenerating(true)
+    setStatus("checking")
+    setStatusText("正在校验 PAT 与权限...")
+    try {
+      const body = await api<{ pat: UserGitPat }>(`/api/user/git-pats/${encodeURIComponent(gitServerId)}`, {
         method: "POST",
-        body: JSON.stringify({
-          gitServerId,
-        }),
+        body: JSON.stringify(gitPat.trim() ? { token: gitPat.trim() } : {}),
       })
-      setConfig((current) => ({
-        ...(current || latestConfig),
-        gitServer: body.gitServer || latestConfig.gitServer,
-      }))
+      setConfig((current) => (current ? { ...current, gitPat: body.pat } : current))
+      setGitPat("")
       setStatus("ready")
       setStatusText("")
       setStep("llm")
+      toast.success("Git PAT 已校验并保存")
     } catch (error) {
-      if (isBotPatError(error)) {
-        setStatus("error")
-        setStatusText(BOT_PAT_ADMIN_MESSAGE)
-      } else {
-        setStatus("error")
-        setStatusText(errorMessage(error))
-        notifyError(error, "校验 Git server 失败")
-      }
+      setStatus("error")
+      setStatusText(errorMessage(error))
+      notifyError(error, "Git PAT 校验失败")
     } finally {
       setGenerating(false)
     }
@@ -129,10 +130,18 @@ export function AgentrixPrivateCloudWizard({
     setStatusText(shouldContinueAfterLlmWarning() ? "" : "正在校验模型服务...")
     try {
       if (!shouldContinueAfterLlmWarning()) {
-        setLlmValidation({ status: "checking", message: "", key: llmValidationKey() })
+        setLlmValidation({
+          status: "checking",
+          message: "",
+          key: llmValidationKey(),
+        })
         const validation = await validateLlmProxy()
         if (!validation.valid) {
-          setLlmValidation({ status: "invalid", message: validation.message, key: llmValidationKey() })
+          setLlmValidation({
+            status: "invalid",
+            message: validation.message,
+            key: llmValidationKey(),
+          })
           setStatus("idle")
           setStatusText("")
           return
@@ -178,9 +187,9 @@ export function AgentrixPrivateCloudWizard({
       setStep("command")
       toast.success("Docker 命令已生成")
     } catch (error) {
-      if (isBotPatError(error)) {
+      if (isUserPatError(error)) {
         setStatus("error")
-        setStatusText(BOT_PAT_ADMIN_MESSAGE)
+        setStatusText("PAT 已失效或权限发生变化，请返回 PAT 步骤重新校验。")
       } else {
         setStatus("error")
         setStatusText(errorMessage(error))
@@ -191,7 +200,10 @@ export function AgentrixPrivateCloudWizard({
     }
   }
 
-  async function validateLlmProxy(): Promise<{ valid: boolean; message: string }> {
+  async function validateLlmProxy(): Promise<{
+    valid: boolean
+    message: string
+  }> {
     const modelsUrl = llmProxyModelsUrl(llmProxyBaseUrl)
     if (!modelsUrl) {
       return { valid: false, message: "BASE_URL 不是有效的 http(s) 地址。" }
@@ -212,7 +224,10 @@ export function AgentrixPrivateCloudWizard({
       }
       const body = await response.json().catch(() => undefined)
       if (!body || typeof body !== "object") {
-        return { valid: false, message: "模型服务返回成功，但 /v1/models 响应不是有效 JSON。" }
+        return {
+          valid: false,
+          message: "模型服务返回成功，但 /v1/models 响应不是有效 JSON。",
+        }
       }
       return { valid: true, message: "" }
     } catch (error) {
@@ -227,7 +242,11 @@ export function AgentrixPrivateCloudWizard({
   }
 
   function canConfirmLlmProxy() {
-    return canConfirmGitServer() && Boolean(llmProxyBaseUrl.trim() && llmProxyApiKey.trim())
+    return canConfirmGitPat() && Boolean(llmProxyBaseUrl.trim() && llmProxyApiKey.trim())
+  }
+
+  function canConfirmGitPat() {
+    return canConfirmGitServer() && Boolean(gitPat.trim() || config?.gitPat?.tokenFingerprint)
   }
 
   function canGenerateCommand() {
@@ -275,6 +294,7 @@ export function AgentrixPrivateCloudWizard({
   function selectGitServer(nextGitServerId: string) {
     setGitServerId(nextGitServerId)
     setCommand("")
+    setGitPat("")
     setCommitAuthorName("")
     setCommitAuthorEmail("")
     goToStep("git")
@@ -288,11 +308,6 @@ export function AgentrixPrivateCloudWizard({
   function hydrateCommitAuthor(body?: AgentrixPrivateCloudConfig) {
     setCommitAuthorName((current) => current || body?.gitServer?.commitAuthor?.name || "issue-flow")
     setCommitAuthorEmail((current) => current || body?.gitServer?.commitAuthor?.email || "")
-  }
-
-  function hasBotPat(latestConfig?: AgentrixPrivateCloudConfig) {
-    const configFingerprint = latestConfig ? latestConfig.gitServer?.botPatFingerprint : config?.gitServer?.botPatFingerprint
-    return Boolean(selectedGitServer?.botPatFingerprint || configFingerprint)
   }
 
   function goToStep(nextStep: StepId) {
@@ -316,7 +331,9 @@ export function AgentrixPrivateCloudWizard({
                   <span>Git server</span>
                   <select value={gitServerId} onChange={(event) => selectGitServer(event.currentTarget.value)}>
                     {selectableServers.map((server) => (
-                      <option key={server.id} value={server.id}>{server.name || server.baseUrl || server.id}</option>
+                      <option key={server.id} value={server.id}>
+                        {server.name || server.baseUrl || server.id}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -333,11 +350,7 @@ export function AgentrixPrivateCloudWizard({
                   关联
                 </Button>
               ) : null}
-              {status === "checking" ? (
-                <ValidationLine tone="loading" text={statusText} />
-              ) : status === "error" && statusText ? (
-                <ValidationLine tone="error" text={statusText} />
-              ) : null}
+              {status === "checking" ? <ValidationLine tone="loading" text={statusText} /> : status === "error" && statusText ? <ValidationLine tone="error" text={statusText} /> : null}
             </div>
           )}
 
@@ -345,11 +358,7 @@ export function AgentrixPrivateCloudWizard({
             <div className="agentrix-step-body">
               <label className="setup-field">
                 <span>BASE_URL</span>
-                <Input
-                  value={llmProxyBaseUrl}
-                  onChange={(event) => updateLlmProxyBaseUrl(event.currentTarget.value)}
-                  placeholder="模型服务的 baseUrl，例如 https://api.xmz.ai"
-                />
+                <Input value={llmProxyBaseUrl} onChange={(event) => updateLlmProxyBaseUrl(event.currentTarget.value)} placeholder="模型服务的 baseUrl，例如 https://api.xmz.ai" />
               </label>
               <label className="setup-field">
                 <span>API_KEY</span>
@@ -378,30 +387,61 @@ export function AgentrixPrivateCloudWizard({
             </div>
           )}
 
+          {step === "pat" && (
+            <div className="agentrix-step-body">
+              <div className="agentrix-guide git-pat-guide">
+                <strong>使用当前 GitLab 账号的 PAT</strong>
+                <p>Runner 需要 api、read_repository、write_repository 权限。新 PAT 只展示一次，生成后请复制回来。</p>
+              </div>
+              <label className="setup-field">
+                <span>Personal access token</span>
+                <div className="git-pat-input-row">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    data-1p-ignore="true"
+                    data-lpignore="true"
+                    value={gitPat}
+                    onChange={(event) => {
+                      setGitPat(event.currentTarget.value)
+                      setStatus("idle")
+                      setStatusText("")
+                    }}
+                    placeholder={config?.gitPat?.tokenFingerprint ? "已自动使用保存的 PAT，粘贴新值可替换" : "粘贴 GitLab PAT"}
+                  />
+                  {config?.gitPat?.createUrl ? (
+                    <a className="git-pat-external-action" href={config.gitPat.createUrl} target="_blank" rel="noreferrer" aria-label="在 GitLab 生成 PAT" title="在 GitLab 生成 PAT">
+                      <ExternalLink className="size-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </label>
+              {status === "checking" ? (
+                <ValidationLine tone="loading" text={statusText} />
+              ) : status === "error" && statusText ? (
+                <ValidationLine tone="error" text={statusText} />
+              ) : config?.gitPat?.tokenFingerprint ? (
+                <ValidationLine tone="ok" text={`已保存 ${config.gitPat.gitlabUsername || "当前用户"} 的 PAT，将自动使用。`} />
+              ) : (
+                <ValidationLine tone="error" text="尚未保存 PAT，请生成后粘贴到这里。" />
+              )}
+            </div>
+          )}
+
           {step === "author" && (
             <div className="agentrix-step-body">
               <label className="setup-field">
                 <span>Commit author name</span>
-                <Input
-                  value={commitAuthorName}
-                  onChange={(event) => setCommitAuthorName(event.currentTarget.value)}
-                  placeholder="issue-flow"
-                />
+                <Input value={commitAuthorName} onChange={(event) => setCommitAuthorName(event.currentTarget.value)} placeholder="issue-flow" />
               </label>
               <label className="setup-field">
                 <span>Commit author email</span>
-                <Input
-                  type="email"
-                  value={commitAuthorEmail}
-                  onChange={(event) => setCommitAuthorEmail(event.currentTarget.value)}
-                  placeholder="issue-flow@example.com"
-                />
+                <Input type="email" value={commitAuthorEmail} onChange={(event) => setCommitAuthorEmail(event.currentTarget.value)} placeholder="issue-flow@example.com" />
               </label>
-              {status === "error" && statusText ? (
-                <ValidationLine tone="error" text={statusText} />
-              ) : status === "checking" ? (
-                <ValidationLine tone="loading" text={statusText} />
-              ) : null}
+              {status === "error" && statusText ? <ValidationLine tone="error" text={statusText} /> : status === "checking" ? <ValidationLine tone="loading" text={statusText} /> : null}
             </div>
           )}
 
@@ -426,6 +466,12 @@ export function AgentrixPrivateCloudWizard({
             </Button>
           ) : null}
           {step === "llm" ? (
+            <Button type="button" variant="outline" onClick={() => goToStep("pat")}>
+              <ChevronLeft className="size-4" />
+              上一步
+            </Button>
+          ) : null}
+          {step === "pat" ? (
             <Button type="button" variant="outline" onClick={() => goToStep("git")}>
               <ChevronLeft className="size-4" />
               上一步
@@ -433,6 +479,12 @@ export function AgentrixPrivateCloudWizard({
           ) : null}
           {step === "git" ? (
             <Button type="button" className="agentrix-primary-action" disabled={generating || !canConfirmGitServer()} onClick={() => void confirmGitServer()}>
+              {generating ? <Loader2 className="size-4 animate-spin" /> : null}
+              {generating ? "校验中" : "下一步"}
+              {!generating ? <ChevronRight className="size-4" /> : null}
+            </Button>
+          ) : step === "pat" ? (
+            <Button type="button" className="agentrix-primary-action" disabled={generating || !canConfirmGitPat()} onClick={() => void confirmGitPat()}>
               {generating ? <Loader2 className="size-4 animate-spin" /> : null}
               {generating ? "校验中" : "下一步"}
               {!generating ? <ChevronRight className="size-4" /> : null}
@@ -463,6 +515,7 @@ export function AgentrixPrivateCloudWizard({
 
 function stepTitle(step: StepId) {
   if (step === "git") return "确认 Git server"
+  if (step === "pat") return "Git PAT"
   if (step === "llm") return "模型服务"
   if (step === "author") return "提交作者"
   return "Docker 命令"
@@ -482,7 +535,9 @@ function validRunnerId(value = "") {
 }
 
 function llmProxyModelsUrl(baseUrl = "") {
-  const normalized = String(baseUrl || "").trim().replace(/\/+$/, "")
+  const normalized = String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "")
   if (!normalized) return ""
   const suffix = normalized.endsWith("/v1") ? "/models" : "/v1/models"
   try {
@@ -510,24 +565,21 @@ function llmProxyFetchWarning(error: unknown) {
   return "无法访问模型服务 /v1/models。"
 }
 
-function isBotPatError(error: unknown) {
+function isUserPatError(error: unknown) {
   const code = error instanceof Error ? error.message : ""
-  return [
-    "runner_gitlab_bot_pat_required",
-    "runner_gitlab_bot_pat_invalid",
-    "runner_gitlab_bot_pat_validation_failed",
-  ].includes(code)
+  return ["user_git_pat_required", "user_git_pat_invalid", "user_git_pat_user_mismatch", "user_git_pat_scopes_required", "user_git_pat_validation_failed"].includes(code)
 }
 
 function mergeTokenConfig(current: AgentrixPrivateCloudConfig | undefined, next: RunnerGitlabTokenResult): AgentrixPrivateCloudConfig {
   const token = next.runnerGitlabToken
-  const tokens = [
-    token,
-    ...((current?.runnerGitlabTokens || []).filter((item) => item.id !== token.id && item.runnerId !== token.runnerId)),
-  ]
+  const tokens = [token, ...(current?.runnerGitlabTokens || []).filter((item) => item.id !== token.id && item.runnerId !== token.runnerId)]
   return {
     ...(current || {}),
-    agentrix: next.agentrix || current?.agentrix || { serverUrl: "https://agentrix.xmz.ai", webappUrl: "https://agentrix.xmz.ai" },
+    agentrix: next.agentrix ||
+      current?.agentrix || {
+        serverUrl: "https://agentrix.xmz.ai",
+        webappUrl: "https://agentrix.xmz.ai",
+      },
     llmProxy: next.llmProxy || current?.llmProxy || { baseUrl: "https://api.xmz.ai" },
     gitServer: next.gitServer || current?.gitServer,
     runnerGitlabTokens: tokens,

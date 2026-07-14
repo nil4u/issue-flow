@@ -393,6 +393,47 @@ async function getGitlabCurrentUser(input = {}) {
   }
 }
 
+async function getGitlabPersonalAccessTokenSelf(input = {}) {
+  const token = input.token || '';
+  if (!token) {
+    return {
+      status: 'missing',
+      scopes: [],
+      errorCode: 'MISSING_TOKEN',
+      lastValidatedAt: nowIso(),
+    };
+  }
+  try {
+    const result = await fetchJson('GET', input.apiUrl, '/personal_access_tokens/self', token, {
+      authType: input.authType || 'private-token',
+      logger: input.logger,
+    });
+    const pat = result.parsed || {};
+    const active = pat.active !== false && !pat.revoked;
+    return {
+      status: active ? 'valid' : 'invalid',
+      id: pat.id !== undefined ? String(pat.id) : '',
+      userId: pat.user_id !== undefined ? String(pat.user_id) : '',
+      name: pat.name || '',
+      scopes: Array.isArray(pat.scopes) ? pat.scopes.map(String) : [],
+      active,
+      expiresAt: pat.expires_at || '',
+      lastUsedAt: pat.last_used_at || '',
+      lastValidatedAt: nowIso(),
+      errorCode: active ? '' : 'TOKEN_INACTIVE',
+    };
+  } catch (error) {
+    return {
+      status: 'invalid',
+      userId: '',
+      scopes: [],
+      active: false,
+      lastValidatedAt: nowIso(),
+      errorCode: error && error.status ? `HTTP_${error.status}` : 'VALIDATION_FAILED',
+    };
+  }
+}
+
 async function listGitlabProjects(input = {}) {
   const firstPage = await listGitlabProjectsPage(input);
   const projects = [...firstPage.projects];
@@ -1036,6 +1077,7 @@ export {
   refreshGitlabOAuthToken,
   addGitlabProjectMember,
   getGitlabCurrentUser,
+  getGitlabPersonalAccessTokenSelf,
   getGitlabProjectMember,
   getGitlabProjectForInstall,
   getGitlabProjectVariable,
