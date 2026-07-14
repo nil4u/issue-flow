@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/nil4u/issue-flow/compare/console-v0.7.0...console-v0.7.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **console:** use current user PAT for runner commands ([5bcbd00](https://github.com/nil4u/issue-flow/commit/5bcbd001e933114a24d20246bca5febaeb4aad2f))
+
 ## [0.7.0](https://github.com/nil4u/issue-flow/compare/console-v0.6.0...console-v0.7.0) (2026-07-13)
 
 
