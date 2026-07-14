@@ -492,6 +492,95 @@ class IssueFlowStore {
     return rows.map((row) => this.userGitAccountFromRecord(row, serverById.get(row.gitServerId)))
   }
 
+  async getUserGitAccount(userId, gitServerId) {
+    await this.ready
+    if (!userId || !gitServerId) return undefined
+    const row = await this.db.userGitAccount.findUnique({
+      where: {
+        userId_gitServerId: { userId, gitServerId },
+      },
+    })
+    if (!row) return undefined
+    const gitServer = await this.getGitServer(row.gitServerId)
+    return this.userGitAccountFromRecord(row, gitServer)
+  }
+
+  publicUserGitPat(row, options = {}) {
+    if (!row) return undefined
+    const data = row.personalAccessData && typeof row.personalAccessData === "object"
+      ? row.personalAccessData
+      : {}
+    const result = {
+      gitServerId: row.gitServerId,
+      gitlabUserId: data.gitlabUserId || "",
+      gitlabUsername: data.gitlabUsername || row.username || "",
+      tokenFingerprint: data.tokenFingerprint || "",
+      scopes: Array.isArray(data.scopes) ? data.scopes : [],
+      status: data.status || (data.tokenFingerprint ? "valid" : "missing"),
+      checkedAt: data.checkedAt || "",
+      expiresAt: data.expiresAt || "",
+    }
+    if (options.includeSecret) {
+      result.token = this.decrypt(row.personalAccessToken || "")
+    }
+    return result
+  }
+
+  async getUserGitPat(userId, gitServerId, options = {}) {
+    await this.ready
+    if (!userId || !gitServerId) return undefined
+    const row = await this.db.userGitAccount.findUnique({
+      where: {
+        userId_gitServerId: { userId, gitServerId },
+      },
+    })
+    return this.publicUserGitPat(row, options)
+  }
+
+  async saveUserGitPat(userId, gitServerId, input = {}) {
+    await this.ready
+    const token = String(input.token || "").trim()
+    if (!userId || !gitServerId || !token) {
+      const error = new Error("user Git PAT requires user, Git server, and token")
+      error.status = 400
+      error.code = "user_git_pat_required"
+      throw error
+    }
+    const data = {
+      gitServerId,
+      gitlabUserId: String(input.gitlabUserId || ""),
+      gitlabUsername: String(input.gitlabUsername || ""),
+      tokenFingerprint: fingerprintSecret(token),
+      scopes: input.scopes || [],
+      status: input.status || "valid",
+      checkedAt: input.checkedAt || nowIso(),
+      expiresAt: input.expiresAt || "",
+    }
+    const row = await this.db.userGitAccount.update({
+      where: {
+        userId_gitServerId: { userId, gitServerId },
+      },
+      data: {
+        personalAccessToken: this.encrypt(token),
+        personalAccessData: data,
+      },
+    })
+    return this.publicUserGitPat(row, { includeSecret: true })
+  }
+
+  async deleteUserGitPat(userId, gitServerId) {
+    await this.ready
+    if (!userId || !gitServerId) return false
+    const result = await this.db.userGitAccount.updateMany({
+      where: { userId, gitServerId },
+      data: {
+        personalAccessToken: "",
+        personalAccessData: {},
+      },
+    })
+    return result.count > 0
+  }
+
   async upsertUserGitAccount(userId, input = {}) {
     await this.ready
     const account = normalizeGitAccount(input)

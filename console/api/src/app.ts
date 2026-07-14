@@ -13,6 +13,7 @@ import { repositoryRoutes } from "./routes/repositories.js"
 import { sessionRoutes } from "./routes/session.js"
 import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
+import { userGitPatRoutes } from "./routes/user/git-pats.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
 import { attachAgentrixForwardServer } from "./core/agentrix-forward.js"
 import { errorResponse } from "./core/responses.js"
@@ -144,6 +145,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(gitlabAuthRoutes)
   await app.register(agentrixPrivateCloudRoutes)
   await app.register(userAgentrixConfigRoutes)
+  await app.register(userGitPatRoutes)
   await app.register(repositoryRoutes)
   await app.register(dashboardRoutes)
   await app.register(gitlabRoutes)

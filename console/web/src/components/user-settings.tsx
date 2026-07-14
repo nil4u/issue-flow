@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { Check, GitBranch, KeyRound, Link2, Loader2, Plus, Save, Server, Trash2 } from "lucide-react"
+import { Check, ExternalLink, GitBranch, KeyRound, Link2, Loader2, Plus, Save, Server, ShieldCheck, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AgentrixPanel } from "@/components/agentrix-panel"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { api, type AgentrixDefaults, type GitServer, type UserGitAccount, type UserSession } from "@/issue-flow-model"
+import { api, type AgentrixDefaults, type GitServer, type UserGitAccount, type UserGitPat, type UserSession } from "@/issue-flow-model"
 import { notifyError } from "@/lib/errors"
 
 type SettingsSection = "account" | "agentrix" | "git-servers"
@@ -77,10 +77,16 @@ export function UserSettings({
     <div className="settings-panel">
       <header className="settings-titlebar">
         <div className="settings-tabs" role="tablist" aria-label="用户设置">
-          <button type="button" className={`settings-tab ${section === "account" ? "active" : ""}`} onClick={() => onSelectSection("account")}>账户</button>
-          <button type="button" className={`settings-tab ${section === "agentrix" ? "active" : ""}`} onClick={() => onSelectSection("agentrix")}>Agentrix</button>
+          <button type="button" className={`settings-tab ${section === "account" ? "active" : ""}`} onClick={() => onSelectSection("account")}>
+            账户
+          </button>
+          <button type="button" className={`settings-tab ${section === "agentrix" ? "active" : ""}`} onClick={() => onSelectSection("agentrix")}>
+            Agentrix
+          </button>
           {isAdmin && (
-            <button type="button" className={`settings-tab ${section === "git-servers" ? "active" : ""}`} onClick={() => onSelectSection("git-servers")}>Git servers</button>
+            <button type="button" className={`settings-tab ${section === "git-servers" ? "active" : ""}`} onClick={() => onSelectSection("git-servers")}>
+              Git servers
+            </button>
           )}
         </div>
       </header>
@@ -95,19 +101,9 @@ export function UserSettings({
             onDeleteGitServer={onDeleteGitServer}
           />
         ) : section === "agentrix" ? (
-          <AgentrixPanel
-            userSession={userSession}
-            gitServers={gitServers}
-            onConnectGitServer={onConnectGitServer}
-            onOpenAccount={() => onSelectSection("account")}
-          />
+          <AgentrixPanel userSession={userSession} gitServers={gitServers} onConnectGitServer={onConnectGitServer} onOpenAccount={() => onSelectSection("account")} />
         ) : (
-          <AccountSettings
-            userSession={userSession}
-            gitServers={gitServers}
-            pendingGitServerId={pendingGitServerId}
-            onConnectGitServer={onConnectGitServer}
-          />
+          <AccountSettings userSession={userSession} gitServers={gitServers} pendingGitServerId={pendingGitServerId} onConnectGitServer={onConnectGitServer} />
         )}
       </div>
     </div>
@@ -128,7 +124,7 @@ function AccountSettings({
   const accountByServerId = new Map(
     (userSession.accounts || [])
       .filter((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId)
-      .map((item) => [item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "", item.account]),
+      .map((item) => [item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "", item.account])
   )
   const user = userSession.user
   const displayName = userDisplayName(user)
@@ -148,7 +144,9 @@ function AccountSettings({
       <div className="account-group">
         <header>
           <strong>关联 Git 账号</strong>
-          <span>{connectedCount(accountByServerId, gitServers)} / {gitServers.length}</span>
+          <span>
+            {connectedCount(accountByServerId, gitServers)} / {gitServers.length}
+          </span>
         </header>
         <div className="account-list">
           {gitServers.map((server) => {
@@ -166,34 +164,194 @@ function AccountSettings({
                   {connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
                   {connected ? "已关联" : "未关联"}
                 </span>
-                <Button
-                  size="sm"
-                  variant={connected ? "outline" : "default"}
-                  disabled={pendingGitServerId === server.id || unsupported}
-                  onClick={() => onConnectGitServer(server.id)}
-                >
+                <Button size="sm" variant={connected ? "outline" : "default"} disabled={pendingGitServerId === server.id || unsupported} onClick={() => onConnectGitServer(server.id)}>
                   {pendingGitServerId === server.id && <Loader2 className="size-4 animate-spin" />}
                   {connected ? "重新关联" : unsupported ? "待支持" : "关联"}
                 </Button>
               </div>
             )
           })}
-          {gitServers.length === 0 && (
-            <div className="account-empty">还没有配置 Git server</div>
-          )}
+          {gitServers.length === 0 && <div className="account-empty">还没有配置 Git server</div>}
         </div>
       </div>
+
+      <GitPatAccountGroup userSession={userSession} gitServers={gitServers} />
     </section>
   )
 }
 
-function AgentrixAccountGroup({
-  gitServers,
-  userSession,
-}: {
-  gitServers: GitServer[]
-  userSession: UserSession
-}) {
+function GitPatAccountGroup({ gitServers, userSession }: { gitServers: GitServer[]; userSession: UserSession }) {
+  const gitlabServers = gitServers.filter((server) => server.type === "gitlab")
+  const linkedServerIds = new Set((userSession.accounts || []).map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "").filter(Boolean))
+  const [pats, setPats] = useState<Record<string, UserGitPat>>({})
+  const [editingServer, setEditingServer] = useState<GitServer>()
+  const [token, setToken] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const selectedPat = editingServer ? pats[editingServer.id] : undefined
+
+  useEffect(() => {
+    let active = true
+    void api<{ pats: UserGitPat[] }>("/api/user/git-pats")
+      .then((body) => {
+        if (active) setPats(Object.fromEntries((body.pats || []).map((pat) => [pat.gitServerId, pat])))
+      })
+      .catch((error) => {
+        if (active) notifyError(error, "加载 Git PAT 失败")
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [userSession.accounts])
+
+  function editPat(server?: GitServer) {
+    setEditingServer(server)
+    setToken("")
+  }
+
+  async function savePat() {
+    if (!editingServer || (!token.trim() && !selectedPat?.tokenFingerprint)) return
+    setSaving(true)
+    try {
+      const body = await api<{ pat: UserGitPat }>(`/api/user/git-pats/${encodeURIComponent(editingServer.id)}`, {
+        method: "POST",
+        body: JSON.stringify(token.trim() ? { token: token.trim() } : {}),
+      })
+      setPats((current) => ({ ...current, [editingServer.id]: body.pat }))
+      setToken("")
+      setEditingServer(undefined)
+      toast.success("Git PAT 已校验并保存")
+    } catch (error) {
+      notifyError(error, "Git PAT 校验失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deletePat() {
+    if (!editingServer || !selectedPat?.tokenFingerprint) return
+    setDeleting(true)
+    try {
+      const body = await api<{ pat: UserGitPat }>(`/api/user/git-pats/${encodeURIComponent(editingServer.id)}`, { method: "DELETE" })
+      setPats((current) => {
+        return { ...current, [editingServer.id]: body.pat }
+      })
+      setToken("")
+      setEditingServer(undefined)
+      toast.success("Git PAT 已删除")
+    } catch (error) {
+      notifyError(error, "删除 Git PAT 失败")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="account-group git-pat-account-group">
+      <header>
+        <strong>Personal access tokens</strong>
+        <span>
+          {Object.values(pats).filter((pat) => pat.tokenFingerprint).length} / {gitlabServers.length}
+        </span>
+      </header>
+      <div className="account-list">
+        {gitlabServers.map((server) => {
+          const pat = pats[server.id]
+          const linked = linkedServerIds.has(server.id)
+          const saved = Boolean(pat?.tokenFingerprint)
+          return (
+            <div className="account-row git-pat-account-row" key={server.id}>
+              <span className={`account-provider-icon ${saved ? "connected" : "unlinked"}`}>
+                <ShieldCheck className="size-4" />
+              </span>
+              <span className="account-row-copy">
+                <strong>{server.name || server.baseUrl || server.id}</strong>
+                <small>{saved ? patSummary(pat) : linked ? "尚未保存 PAT" : "请先关联 Git 账号"}</small>
+              </span>
+              <span className={`account-status ${saved ? "connected" : ""}`}>
+                {loading ? <Loader2 className="size-3.5 animate-spin" /> : saved ? <Check className="size-3.5" /> : <KeyRound className="size-3.5" />}
+                {saved ? "可用" : "未配置"}
+              </span>
+              <Button type="button" size="sm" variant={saved ? "outline" : "default"} disabled={!linked || loading} onClick={() => editPat(server)}>
+                {saved ? "管理" : "添加"}
+              </Button>
+            </div>
+          )
+        })}
+        {gitlabServers.length === 0 ? <div className="account-empty">还没有 GitLab server</div> : null}
+      </div>
+
+      <Dialog open={Boolean(editingServer)} onOpenChange={(open) => !open && editPat(undefined)}>
+        <DialogContent className="agentrix-account-dialog git-pat-dialog">
+          <DialogHeader>
+            <DialogTitle>{selectedPat?.tokenFingerprint ? "管理 Git PAT" : "添加 Git PAT"}</DialogTitle>
+          </DialogHeader>
+          <form
+            className="agentrix-account-dialog-body"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void savePat()
+            }}
+          >
+            <div className="git-pat-dialog-copy">
+              <strong>{editingServer?.name || editingServer?.baseUrl || editingServer?.id}</strong>
+              <span>需要 api、read_repository、write_repository 权限。</span>
+            </div>
+            <label className="setup-field">
+              <span>Personal access token</span>
+              <div className="git-pat-input-row">
+                <Input
+                  autoFocus
+                  aria-label="Git personal access token"
+                  type="password"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  value={token}
+                  onChange={(event) => setToken(event.currentTarget.value)}
+                  placeholder={selectedPat?.tokenFingerprint ? "留空以继续使用已保存的 PAT" : "粘贴 GitLab PAT"}
+                />
+                {selectedPat?.createUrl ? (
+                  <a className="git-pat-external-action" href={selectedPat.createUrl} target="_blank" rel="noreferrer" aria-label="在 GitLab 生成 PAT" title="在 GitLab 生成 PAT">
+                    <ExternalLink className="size-4" />
+                  </a>
+                ) : null}
+              </div>
+            </label>
+            <div className="git-pat-dialog-actions">
+              {selectedPat?.tokenFingerprint ? (
+                <Button type="button" variant="destructive" disabled={saving || deleting} onClick={() => void deletePat()}>
+                  {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                  删除
+                </Button>
+              ) : (
+                <span />
+              )}
+              <Button type="submit" disabled={saving || deleting || (!token.trim() && !selectedPat?.tokenFingerprint)}>
+                {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+                校验并保存
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function patSummary(pat?: UserGitPat) {
+  const owner = pat?.gitlabUsername ? `${pat.gitlabUsername} · ` : ""
+  return `${owner}${(pat?.scopes || []).join(" · ")}`
+}
+
+function AgentrixAccountGroup({ gitServers, userSession }: { gitServers: GitServer[]; userSession: UserSession }) {
   const gitServerId = agentrixContextGitServerId(userSession, gitServers)
   const [config, setConfig] = useState<AgentrixDefaults>()
   const [apiKey, setApiKey] = useState("")
@@ -267,9 +425,7 @@ function AgentrixAccountGroup({
           <div className="account-empty">先关联一个 GitLab 账号后再关联 Agentrix</div>
         ) : (
           <div className={`account-row agentrix-account-row ${connected ? "linked" : "unlinked"}`}>
-            <span className={`account-provider-icon ${connected ? "connected" : "unlinked"}`}>
-              {connected ? <KeyRound className="size-4" /> : <Link2 className="size-4" />}
-            </span>
+            <span className={`account-provider-icon ${connected ? "connected" : "unlinked"}`}>{connected ? <KeyRound className="size-4" /> : <Link2 className="size-4" />}</span>
             <span className="account-row-copy">
               <strong>{title}</strong>
               {detail ? <small>{detail}</small> : null}
@@ -278,14 +434,7 @@ function AgentrixAccountGroup({
               {loading ? <Loader2 className="size-3.5 animate-spin" /> : connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
               {connected ? "已关联" : "未关联"}
             </span>
-            <Button
-              type="button"
-              className="agentrix-account-action"
-              size="sm"
-              variant={connected ? "outline" : "default"}
-              disabled={loading}
-              onClick={() => setEditing(true)}
-            >
+            <Button type="button" className="agentrix-account-action" size="sm" variant={connected ? "outline" : "default"} disabled={loading} onClick={() => setEditing(true)}>
               {connected ? "重新关联" : "关联"}
             </Button>
           </div>
@@ -296,10 +445,13 @@ function AgentrixAccountGroup({
           <DialogHeader>
             <DialogTitle>Agentrix API key</DialogTitle>
           </DialogHeader>
-          <form className="agentrix-account-dialog-body" onSubmit={(event) => {
-            event.preventDefault()
-            void saveApiKey()
-          }}>
+          <form
+            className="agentrix-account-dialog-body"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveApiKey()
+            }}
+          >
             <Input
               autoFocus
               aria-label="Agentrix API key"
@@ -356,9 +508,7 @@ function GitServerAdmin({
       ...current,
       [key]: value,
       ...(key === "baseUrl" && !current.apiUrl ? { apiUrl: defaultApiUrl(value) } : {}),
-      ...(key === "baseUrl" && (!current.commitAuthorEmail || current.commitAuthorEmail === defaultCommitAuthorEmail(current.baseUrl))
-        ? { commitAuthorEmail: defaultCommitAuthorEmail(value) }
-        : {}),
+      ...(key === "baseUrl" && (!current.commitAuthorEmail || current.commitAuthorEmail === defaultCommitAuthorEmail(current.baseUrl)) ? { commitAuthorEmail: defaultCommitAuthorEmail(value) } : {}),
     }))
   }
 
@@ -387,13 +537,10 @@ function GitServerAdmin({
           </header>
           <div className="git-server-items">
             {gitServers.map((server) => (
-              <button
-                type="button"
-                key={server.id}
-                className={`git-server-item ${server.id === selectedId ? "active" : ""}`}
-                onClick={() => setSelectedId(server.id)}
-              >
-                <span className="account-provider-icon"><Server className="size-4" /></span>
+              <button type="button" key={server.id} className={`git-server-item ${server.id === selectedId ? "active" : ""}`} onClick={() => setSelectedId(server.id)}>
+                <span className="account-provider-icon">
+                  <Server className="size-4" />
+                </span>
                 <span>
                   <strong>{server.name || server.id}</strong>
                   <small>{server.baseUrl || server.type}</small>
@@ -404,7 +551,13 @@ function GitServerAdmin({
           </div>
         </aside>
 
-        <form className="git-server-form" onSubmit={(event) => { event.preventDefault(); void submit() }}>
+        <form
+          className="git-server-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void submit()
+          }}
+        >
           <header>
             <span>
               <strong>{isNew ? "添加 Git server" : "修改 Git server"}</strong>
@@ -540,7 +693,9 @@ function payloadFromForm(form: GitServerForm): GitServer {
 }
 
 function defaultApiUrl(baseUrl = "") {
-  const root = String(baseUrl || "").trim().replace(/\/+$/, "")
+  const root = String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "")
   return root ? `${root}/api/v4` : ""
 }
 
@@ -574,9 +729,7 @@ function connectedCount(accounts: Map<string, UserGitAccount | undefined>, gitSe
 
 function agentrixContextGitServerId(userSession: UserSession, gitServers: GitServer[]) {
   const gitlabServerIds = new Set(gitServers.filter((server) => server.type === "gitlab").map((server) => server.id))
-  return (userSession.accounts || [])
-    .map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "")
-    .find((id) => gitlabServerIds.has(id)) || ""
+  return (userSession.accounts || []).map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "").find((id) => gitlabServerIds.has(id)) || ""
 }
 
 function providerIcon(type: string) {

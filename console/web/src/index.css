@@ -707,6 +707,63 @@
     justify-content: flex-end;
     gap: 0.5rem;
   }
+  .git-pat-account-row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+  .git-pat-dialog-copy {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .git-pat-dialog-copy strong {
+    color: var(--if-color-text);
+    font-size: 0.875rem;
+  }
+  .git-pat-dialog-copy span {
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .git-pat-input-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 2.5rem;
+    gap: 0.5rem;
+  }
+  .git-pat-input-row input {
+    min-width: 0;
+    font-family: var(--font-mono);
+  }
+  .git-pat-external-action {
+    width: 2.5rem;
+    height: 2.5rem;
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--if-color-surface);
+    color: var(--if-color-text-secondary);
+    transition: color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  }
+  @media (hover: hover) {
+    .git-pat-external-action:hover {
+      border-color: var(--if-color-focus-border);
+      color: var(--if-color-text);
+    }
+  }
+  .git-pat-external-action:focus-visible {
+    border-color: var(--if-color-focus-border);
+    outline: 2px solid color-mix(in srgb, var(--if-color-focus-border) 34%, transparent);
+    outline-offset: 2px;
+  }
+  .git-pat-external-action:active {
+    transform: scale(0.96);
+  }
+  .git-pat-dialog-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
   .git-server-admin {
     justify-items: stretch;
   }
@@ -1022,6 +1079,9 @@
     border-radius: 8px;
     background: var(--if-color-surface-high);
     color: var(--if-color-text);
+  }
+  .git-pat-guide {
+    border-left: 0;
   }
   .agentrix-guide strong {
     font-size: 0.875rem;

@@ -1,11 +1,12 @@
 // @ts-nocheck
 import { llmProxyConfig, resolveGitServer } from './common.js'
-import {
-  getGitlabCurrentUser,
-} from './gitlab.js'
 import { forwardServerConfig } from './agentrix-forward.js'
 import { getAgentrixPrivateCloudRunnerSecret } from './agentrix-api.js'
 import { savedAgentrixDefaults, userAgentrixKey } from './user-agentrix-config.js'
+import {
+  getUserGitPat,
+  validateUserGitPat,
+} from './user-git-pats.js'
 
 const AGENTRIX_SERVER_URL = 'https://agentrix.xmz.ai'
 const AGENTRIX_WEBAPP_URL = 'https://agentrix.xmz.ai'
@@ -112,34 +113,6 @@ function eventForwardInput({ basePublicUrl = '', env = process.env } = {}) {
   }
 }
 
-async function validateBotPat(config = {}, logger = undefined) {
-  if (!config.botPat) {
-    return {
-      status: 400,
-      body: {
-        error: 'runner_gitlab_bot_pat_required',
-        detail: 'Git server bot PAT is missing.',
-      },
-    }
-  }
-  const validation = await getGitlabCurrentUser({
-    apiUrl: config.apiUrl,
-    token: config.botPat,
-    authType: 'private-token',
-    logger,
-  })
-  if (validation.status !== 'valid') {
-    return {
-      status: 400,
-      body: {
-        error: 'runner_gitlab_bot_pat_invalid',
-        detail: 'Git server bot PAT is invalid or cannot access the GitLab API.',
-      },
-    }
-  }
-  return { status: 200, validation }
-}
-
 async function getAgentrixPrivateCloudConfig({ store, input = {}, userId, env = process.env }) {
   requireUserId(userId)
   const gitServerId = String(input.gitServerId || '').trim()
@@ -149,6 +122,9 @@ async function getAgentrixPrivateCloudConfig({ store, input = {}, userId, env = 
     userId,
     gitServerId,
   })
+  const patResult = gitServerId
+    ? await getUserGitPat({ store, userId, gitServerId })
+    : undefined
   return {
     status: 200,
     body: {
@@ -161,33 +137,35 @@ async function getAgentrixPrivateCloudConfig({ store, input = {}, userId, env = 
       gitServer: publicGitServer(gitServer || {}),
       defaults,
       runnerGitlabTokens: tokens,
+      gitPat: patResult && patResult.status === 200 ? patResult.body.pat : undefined,
     },
   }
 }
 
 async function validatePrivateCloudGitServer({ store, input = {}, userId, logger = undefined }) {
   requireUserId(userId)
-  const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
+  const { server } = await resolveGitServer(store, input, undefined, 'gitlab')
   try {
-    const result = await validateBotPat(config, logger)
+    const result = await validateUserGitPat({
+      store,
+      userId,
+      gitServerId: server.id,
+      input,
+      logger,
+    })
     if (result.status !== 200) return result
     return {
       status: 200,
       body: {
         gitServer: publicGitServer(server),
-        botPat: {
-          status: 'valid',
-          gitlabUserId: result.validation.id || '',
-          gitlabUsername: result.validation.username || '',
-          scopes: result.validation.scopes || [],
-        },
+        gitPat: result.body.pat,
       },
     }
   } catch (error) {
     return {
       status: error && error.status || 502,
       body: {
-        error: 'runner_gitlab_bot_pat_validation_failed',
+        error: 'user_git_pat_validation_failed',
         detail: error && error.message || '',
       },
     }
@@ -201,9 +179,6 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
     return { status: 400, body: { error: 'runner_id_required' } }
   }
   const manualToken = String(input.token || input.gitlabToken || '').trim()
-  if (manualToken) {
-    return { status: 400, body: { error: 'runner_gitlab_token_manual_unsupported' } }
-  }
 
   const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab')
   const commitAuthor = commitAuthorInput(input, config)
@@ -217,21 +192,27 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
   if (!llmProxy.apiKey) {
     return { status: 400, body: { error: 'llm_proxy_api_key_required' } }
   }
-  let validation
+  let pat
   try {
-    const result = await validateBotPat(config, logger)
+    const result = await validateUserGitPat({
+      store,
+      userId,
+      gitServerId: server.id,
+      input: { token: manualToken },
+      logger,
+    })
     if (result.status !== 200) return result
-    validation = result.validation
+    pat = await store.getUserGitPat(userId, server.id, { includeSecret: true })
   } catch (error) {
     return {
       status: error && error.status || 502,
       body: {
-        error: 'runner_gitlab_bot_pat_validation_failed',
+        error: 'user_git_pat_validation_failed',
         detail: error && error.message || '',
       },
     }
   }
-  const tokenValue = String(config.botPat || '')
+  const tokenValue = String(pat && pat.token || '')
   if (!tokenValue) {
     return { status: 502, body: { error: 'gitlab_token_missing' } }
   }
@@ -261,17 +242,17 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
   }
 
   const runnerGitlabToken = {
-    id: `bot_pat:${server.id}:${runnerId}`,
+    id: `user_pat:${userId}:${server.id}:${runnerId}`,
     userId,
     gitServerId: server.id,
     runnerId,
-    gitlabUserId: validation.id || '',
-    gitlabUsername: validation.username || '',
+    gitlabUserId: pat.gitlabUserId || '',
+    gitlabUsername: pat.gitlabUsername || '',
     gitlabTokenId: '',
-    tokenFingerprint: server.botPatFingerprint || '',
-    scopes: validation.scopes || [],
-    source: 'bot_pat',
-    expiresAt: '',
+    tokenFingerprint: pat.tokenFingerprint || '',
+    scopes: pat.scopes || [],
+    source: 'user_pat',
+    expiresAt: pat.expiresAt || '',
     revokedAt: '',
     createdAt: '',
     updatedAt: '',
@@ -292,7 +273,6 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
     status: 200,
     body: {
       runnerGitlabToken,
-      gitlabToken: tokenValue,
       gitServer: publicGitServer(server),
       agentrix: {
         serverUrl: AGENTRIX_SERVER_URL,
