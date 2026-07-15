@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
@@ -24,6 +24,11 @@ import {
 } from "@/issue-flow-model"
 import { useIssuesState } from "@/hooks/use-issues-state"
 import { notifyError } from "@/lib/errors"
+import {
+  findSelectedRepository,
+  retainedSelectedProjectId,
+  selectedRepositoryForWorkspace,
+} from "@/lib/repository-selection"
 import {
   installCheckProgressSteps,
   isStreamConnectionError,
@@ -78,6 +83,8 @@ export function useDashboardController() {
   const [sessions, setSessions] = useState<Record<string, SessionState>>({})
   const [repositories, setRepositories] = useState<Repository[]>([])
   const [repositoryDetails, setRepositoryDetails] = useState<Record<string, Repository>>({})
+  const [selectedRepositorySnapshot, setSelectedRepositorySnapshot] = useState<Repository>()
+  const repositoryRequestVersion = useRef(0)
   const [loadingRepositoryDetails, setLoadingRepositoryDetails] = useState(false)
   const [projects, setProjects] = useState<GitLabProject[]>([])
   const [repoPage, setRepoPage] = useState(1)
@@ -118,20 +125,13 @@ export function useDashboardController() {
   const selectedGitServer = gitServers.find((server) => server.id === selectedGitServerId)
   const currentSession = sessions[selectedGitServerId]
   const currentUser = currentSession?.authenticated ? currentSession.user : undefined
-  const selectedProject = projects.find((project) => (
-    project.id === selectedProjectId
-    && (!project.gitServerId || project.gitServerId === selectedGitServerId)
-  ))
-  const selectedRepoSummary = selectedProject
-    ? repositories.find((repo) => (
-      (!selectedProject.gitServerId || repo.gitServerId === selectedProject.gitServerId)
-      && (
-        repo.id === selectedProject.id
-        || String(repo.projectId || "") === String(selectedProject.id)
-        || repo.projectPath === selectedProject.pathWithNamespace
-      )
-    ))
-    : undefined
+  const selectedRepoSummary = selectedRepositoryForWorkspace(
+    repositories,
+    selectedRepositorySnapshot,
+    selectedProjectId,
+    selectedGitServerId,
+  )
+  const selectedProject = selectedRepoSummary ? repositoryToProject(selectedRepoSummary) : undefined
   const selectedRepo = selectedRepoSummary ? repositoryDetails[selectedRepoSummary.id] || selectedRepoSummary : undefined
   const pendingPluginMergeRequestHref = selectedRepo?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")?.pendingMergeRequest?.webUrl || ""
   const filteredProjects = projects
@@ -155,8 +155,10 @@ export function useDashboardController() {
   }
 
   function resetRepositoryState() {
+    repositoryRequestVersion.current += 1
     setRepositories([])
     setRepositoryDetails({})
+    setSelectedRepositorySnapshot(undefined)
     setProjects([])
     setOwners([])
     setRepoPage(1)
@@ -237,8 +239,7 @@ export function useDashboardController() {
         const nextId = servers.find((server) => server.id !== gitServerId)?.id || servers[0]?.id || ""
         setSelectedGitServerId(nextId)
         setSelectedProjectId("")
-        setRepositories([])
-        setProjects([])
+        resetRepositoryState()
       }
       toast.success("Git server 已删除")
       return servers
@@ -278,6 +279,7 @@ export function useDashboardController() {
   }
 
   async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean; includeSelectedProject?: boolean; fallbackProject?: "first" | "none" } = {}) {
+    const requestVersion = ++repositoryRequestVersion.current
     const q = filter.trim()
     const searchAllServers = Boolean(q)
     const scopeGitServerId = searchAllServers ? "" : gitServerId
@@ -292,11 +294,19 @@ export function useDashboardController() {
     if (q) params.set("q", q)
     if (!q && owner !== "all") params.set("owner", owner)
     const body = await api<{ repositories: Repository[]; owners?: string[]; page?: number; hasMore?: boolean }>(`/api/repositories?${params.toString()}`)
+    if (requestVersion !== repositoryRequestVersion.current) return []
     const repos = body.repositories || []
     const nextRepos = options.append ? mergeRepositories(repositories, repos) : repos
+    const currentRoute = parseWorkspaceRoute()
     setRepositories(nextRepos)
     if (!options.append) {
       const nextRepoIds = new Set(nextRepos.map((repo) => repo.id))
+      const selectedBeforeRefresh = findSelectedRepository(
+        repositories,
+        currentRoute.projectId || selectedProjectId,
+        currentRoute.gitServerId || gitServerId,
+      )
+      if (selectedBeforeRefresh?.id) nextRepoIds.add(selectedBeforeRefresh.id)
       setRepositoryDetails((current) => Object.fromEntries(Object.entries(current).filter(([repoId]) => nextRepoIds.has(repoId))))
     }
     if (body.owners) setOwners(body.owners)
@@ -304,19 +314,20 @@ export function useDashboardController() {
     setRepoHasMore(Boolean(body.hasMore))
     const nextProjects = nextRepos.map(repositoryToProject)
     setProjects(nextProjects)
-    const currentRoute = parseWorkspaceRoute()
-    setSelectedProjectId((current) => {
-      if (currentRoute.gitServerId === scopeGitServerId && currentRoute.projectId && nextProjects.some((project) => (
-        project.id === currentRoute.projectId && project.gitServerId === currentRoute.gitServerId
-      ))) {
-        return currentRoute.projectId
-      }
-      if (current && nextProjects.some((project) => (
-        project.id === current && project.gitServerId === gitServerId
-      ))) return current
-      if (options.fallbackProject === "none") return ""
-      return nextProjects[0]?.id || ""
+    const nextSelectedProjectId = retainedSelectedProjectId({
+      route: currentRoute,
+      currentProjectId: selectedProjectId,
+      projects: nextProjects,
+      fallbackProject: options.fallbackProject,
     })
+    setSelectedProjectId(nextSelectedProjectId)
+    const nextSelectedRepository = findSelectedRepository(
+      nextRepos,
+      nextSelectedProjectId,
+      currentRoute.gitServerId || gitServerId,
+    )
+    if (nextSelectedRepository) setSelectedRepositorySnapshot(nextSelectedRepository)
+    else if (!nextSelectedProjectId) setSelectedRepositorySnapshot(undefined)
     return nextRepos
   }
 
@@ -827,11 +838,14 @@ export function useDashboardController() {
   }
 
   function selectProject(projectId: string, projectGitServerId = selectedGitServerId) {
+    repositoryRequestVersion.current += 1
     const project = projects.find((item) => (
       item.id === projectId
       && (!projectGitServerId || !item.gitServerId || item.gitServerId === projectGitServerId)
     ))
     const nextGitServerId = project?.gitServerId || projectGitServerId
+    const repository = findSelectedRepository(repositories, projectId, nextGitServerId)
+    if (repository) setSelectedRepositorySnapshot(repository)
     if (nextGitServerId && nextGitServerId !== selectedGitServerId) setSelectedGitServerId(nextGitServerId)
     setSelectedProjectId(projectId)
     setActiveTab("overview")
@@ -876,6 +890,7 @@ export function useDashboardController() {
       if (next.view === "repos") {
         setSelectedGitServerId(next.gitServerId || gitServers[0]?.id || "")
         setSelectedProjectId(next.projectId || "")
+        setSelectedRepositorySnapshot(findSelectedRepository(repositories, next.projectId || "", next.gitServerId || ""))
         setActiveTab(next.tab)
       }
       setInstallCheck(undefined)
@@ -923,7 +938,10 @@ export function useDashboardController() {
 
   useEffect(() => {
     if ((!selectedGitServerId && !filter.trim()) || !userSession.authenticated) return
-    void loadRepositories(filter.trim() ? "" : selectedGitServerId, { fallbackProject: "none" }).catch((error) => notifyError(error, "加载仓库失败"))
+    void loadRepositories(filter.trim() ? "" : selectedGitServerId, {
+      fallbackProject: "none",
+      includeSelectedProject: true,
+    }).catch((error) => notifyError(error, "加载仓库失败"))
   }, [filter, owner])
 
   useEffect(() => {
