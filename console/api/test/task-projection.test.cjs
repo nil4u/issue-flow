@@ -108,7 +108,7 @@ test('forwardedTaskRuntime maps forward event types onto the task lifecycle', ()
     eventData: { message: { type: 'result', subtype: 'success', num_turns: 9 } },
   });
   assert.equal(succeeded.status, 'succeeded');
-  assert.equal(succeeded.turns, 9);
+  assert.equal('turns' in succeeded, false, 'SDK execution turns do not define user turns');
   assert.equal(succeeded.finishedAt, '2026-07-01T08:35:00Z');
 
   const failed = forwardedTaskRuntime({

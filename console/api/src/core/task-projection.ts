@@ -81,7 +81,6 @@ function forwardedTaskRuntime(forwarded = {}) {
       taskId,
       status: failed ? "failed" : "succeeded",
       finishedAt: at,
-      turns: Number(message.num_turns || 0),
     }
   }
   return undefined

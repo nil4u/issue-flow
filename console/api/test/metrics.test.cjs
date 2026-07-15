@@ -347,6 +347,14 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
       },
       createdAt: at(HOUR_MS + 40 * 60000),
     }));
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 3,
+      eventId: 'evt-human',
+      chatId: 'chat-1',
+      direction: 'inbound',
+      eventData: { senderType: 'human', message: { type: 'user' } },
+      createdAt: at(HOUR_MS + 12 * 60000),
+    }));
     // resumed run reports its own usage: per-task tokens sum across reports
     await applyForwardedEventToTaskFacts(store, forwardedEvent({
       cursor: 7,
@@ -407,7 +415,7 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     assert.equal('costUsd' in usageReports[0], false, 'cost metadata is not persisted');
     assert.equal(task.agent, 'claude');
     assert.equal(task.model, 'claude-sonnet-5');
-    assert.equal(task.turns, 9);
+    assert.equal(task.turns, 1, 'task turns count unique human inputs');
     assert.equal(task.startedAt, at(HOUR_MS + 10 * 60000));
     assert.equal(task.finishedAt, at(HOUR_MS + 40 * 60000));
     assert.equal(task.gitServerId, 'gitlab-main', 'agentrix git server id resolves to the console git server');
@@ -503,9 +511,9 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     const stats = await store.getIssueStats(issueRow.id);
     assert.equal(stats.cycleStartedAt, at(HOUR_MS + 10 * 60000));
     assert.equal(stats.buildTaskSeconds, 30 * 60);
-    assert.equal(stats.buildTaskTurns, 9);
+    assert.equal(stats.buildTaskTurns, 1);
     assert.equal(stats.reviewTaskSeconds, 10 * 60);
-    assert.equal(stats.reviewTaskTurns, 2);
+    assert.equal(stats.reviewTaskTurns, 0);
     assert.equal(stats.triageTaskSeconds, 0);
 
     const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
@@ -520,7 +528,7 @@ order by action`,
     assert.deepEqual(execution.rows.map((row) => row.action), ['build', 'review']);
     const buildRow = execution.rows[0];
     assert.equal(Number(buildRow.task_seconds), 1800);
-    assert.equal(Number(buildRow.turns), 9);
+    assert.equal(Number(buildRow.turns), 1);
     assert.equal(Number(buildRow.input_tokens), 2147483800);
     assert.equal(Number(buildRow.output_tokens), 500);
     assert.equal(Number(buildRow.total_tokens), 2147484400);

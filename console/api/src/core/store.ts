@@ -1929,10 +1929,11 @@ class IssueFlowStore {
     const taskId = String(input.taskId || "").trim()
     if (!taskId) return { task: undefined, applied: false }
     const existing = await client.task.findUnique({ where: { taskId } })
+    const turns = await client.taskEvent.count({ where: { taskId, eventType: "human_input" } })
     const data = {
       agent: existing && existing.agent || String(input.agent || ""),
       model: existing && existing.model || String(input.model || ""),
-      turns: Math.max(existing && existing.turns || 0, Number(input.turns || 0)),
+      turns,
       status: String(input.status || existing && existing.status || "queued"),
       queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
       startedAt: existing && existing.startedAt || nullableDate(input.startedAt),
@@ -1991,7 +1992,10 @@ class IssueFlowStore {
     const eventType = String(input.eventType || "").trim()
     if (!taskId || !eventId || !eventType) return { taskEvent: undefined, applied: false }
     const existing = await client.taskEvent.findUnique({ where: { eventId } })
-    if (existing) return { taskEvent: this.taskEventFromRecord(existing), applied: false }
+    if (existing) {
+      if (existing.eventType === "human_input") await this.syncTaskTurns(existing.taskId, client)
+      return { taskEvent: this.taskEventFromRecord(existing), applied: false }
+    }
     const task = await client.task.findUnique({ where: { taskId } })
     for (let attempt = 0; ; attempt += 1) {
       const last = await client.taskEvent.findFirst({
@@ -2017,16 +2021,34 @@ class IssueFlowStore {
             createdAt: asDate(input.createdAt || nowIso()),
           },
         })
+        if (eventType === "human_input") await this.syncTaskTurns(taskId, client)
         return { taskEvent: this.taskEventFromRecord(row), applied: true }
       } catch (error) {
         if (error && error.code === "P2002" && attempt < 3) {
           const duplicate = await client.taskEvent.findUnique({ where: { eventId } })
-          if (duplicate) return { taskEvent: this.taskEventFromRecord(duplicate), applied: false }
+          if (duplicate) {
+            if (duplicate.eventType === "human_input") await this.syncTaskTurns(duplicate.taskId, client)
+            return { taskEvent: this.taskEventFromRecord(duplicate), applied: false }
+          }
           continue
         }
         throw error
       }
     }
+  }
+
+  async syncTaskTurns(taskId, client = this.db) {
+    const turns = await client.taskEvent.count({ where: { taskId, eventType: "human_input" } })
+    await client.task.updateMany({ where: { taskId }, data: { turns } })
+    const task = await client.task.findUnique({ where: { taskId } })
+    if (task && task.issueId) {
+      this.scheduleIssueStatsRebuild({
+        gitServerId: task.gitServerId,
+        repositoryId: task.repositoryId,
+        issueId: task.issueId,
+      })
+    }
+    return turns
   }
 
   async getTask(taskId) {
