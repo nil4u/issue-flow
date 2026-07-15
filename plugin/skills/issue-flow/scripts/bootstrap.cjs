@@ -57,6 +57,11 @@ const AGENTRIX_PLUGIN_DIRS = [
       ],
     },
   ],
+  [
+    'skills/vision-plan',
+    `${AGENTRIX_PLUGIN_ROOT}/skills/vision-plan`,
+    { mode: MODE_MANAGED },
+  ],
 ];
 const AGENTRIX_PLUGIN_SPECS = [
   AGENTRIX_PLUGIN_MANIFEST,

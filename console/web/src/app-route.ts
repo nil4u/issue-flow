@@ -8,7 +8,30 @@ export type WorkspaceRoute = {
   settingsSection: "account" | "agentrix" | "git-servers"
 }
 
+export type VisualArtifactRoute = {
+  gitServerId: string
+  projectId: string
+  issueNumber: number
+  artifactType: "decision" | "plan"
+}
+
 const tabs = new Set<WorkspaceTab>(["overview", "issues", "tasks", "settings"])
+
+export function parseVisualArtifactRoute(pathname = window.location.pathname): VisualArtifactRoute | undefined {
+  const parts = pathname.split("/").filter(Boolean).map((part) => {
+    try {
+      return decodeURIComponent(part)
+    } catch {
+      return part
+    }
+  })
+  const artifactType = parts[0] === "repos" && parts[3] === "plan" && (parts[5] === "decision" || parts[5] === "plan")
+    ? parts[5]
+    : undefined
+  const issueNumber = Number.parseInt(parts[4] || "", 10)
+  if (!artifactType || parts.length !== 6 || !parts[1] || !parts[2] || !Number.isFinite(issueNumber) || issueNumber <= 0) return undefined
+  return { gitServerId: parts[1], projectId: parts[2], issueNumber, artifactType }
+}
 
 export const setupRoute: WorkspaceRoute = {
   view: "setup",

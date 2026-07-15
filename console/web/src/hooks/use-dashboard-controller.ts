@@ -154,7 +154,7 @@ export function useDashboardController() {
   function applyInstallCheck(current: InstallCheck | undefined, next: InstallCheck) {
     const merged = mergeInstallCheck(current, next)
     rememberRepositoryDetail(next.repository)
-    setInstallCheck(merged)
+    setInstallCheck((existing) => mergeInstallCheck(existing, next))
     return merged
   }
 
@@ -494,7 +494,7 @@ export function useDashboardController() {
     let nextCheck: InstallCheck | undefined
     let interrupted = false
     try {
-      for (const checkType of ["permissions", "webhook", "variables", "runners", "plugins"]) {
+      for (const checkType of ["permissions", "webhook", "variables", "labels", "runners", "plugins"]) {
         setCheckProgressStep(checkType, "running", "正在检查")
         let body = await checkInstallStep(checkType, input)
         let checkedStep = body.steps.find((step) => step.id === checkType)
@@ -593,7 +593,7 @@ export function useDashboardController() {
   }
 
   function canAutoConfigureStep(checkType: string) {
-    return ["permissions", "webhook", "variables", "runners"].includes(checkType)
+    return ["permissions", "webhook", "variables", "labels", "runners"].includes(checkType)
   }
 
   async function autoConfigureInstallStep(checkType: string, input: Record<string, unknown> = {}) {
@@ -602,6 +602,7 @@ export function useDashboardController() {
       permissions: "/api/gitlab/install-permission",
       webhook: "/api/gitlab/install-webhook",
       variables: "/api/gitlab/install-variable",
+      labels: "/api/gitlab/install-labels",
       runners: "/api/gitlab/install-runner",
     }
     const path = paths[checkType] || ""
@@ -999,6 +1000,19 @@ export function useDashboardController() {
       notifyError(error, "加载设置失败")
     })
   }, [activeTab, selectedGitServerId, selectedProject?.id, userSession.authenticated])
+
+  useEffect(() => {
+    if (activeTab !== "settings" || !selectedGitServerId || !selectedProject || projectAccess?.canManage !== true) return
+    let cancelled = false
+    void checkInstallStep("labels")
+      .then((body) => {
+        if (!cancelled) applyInstallCheck(undefined, body)
+      })
+      .catch((error) => {
+        if (!cancelled) notifyError(error, "检查 Labels 状态失败")
+      })
+    return () => { cancelled = true }
+  }, [activeTab, selectedGitServerId, selectedProject?.id, projectAccess?.canManage])
 
   useEffect(() => {
     if (activeTab === "issues" || !selectedGitServerId || !userSession.authenticated) return

@@ -7,6 +7,7 @@ import {
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
+  setGitlabProjectInstallLabels,
   setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
@@ -93,6 +94,17 @@ export async function gitlabRoutes(app: FastifyInstance) {
     const input = (request.body || {}) as Record<string, unknown>
     const session = await sessionFromRequest(request, String(input.gitServerId || ""))
     const result = await setGitlabProjectInstallVariable({
+      ...contextFromRequest(request),
+      input,
+      session,
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/gitlab/install-labels", async (request, reply) => {
+    const input = (request.body || {}) as Record<string, unknown>
+    const session = await sessionFromRequest(request, String(input.gitServerId || ""))
+    const result = await setGitlabProjectInstallLabels({
       ...contextFromRequest(request),
       input,
       session,

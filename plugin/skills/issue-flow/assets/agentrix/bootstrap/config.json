@@ -3,5 +3,11 @@
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
     "planRootDir": ".issue-flow/issues"
+  },
+  "visionPlan": {
+    "repositoryId": "",
+    "gitServerId": "",
+    "projectId": "",
+    "baseUrl": ""
   }
 }

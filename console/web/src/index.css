@@ -1776,6 +1776,26 @@
     align-items: center;
     gap: 0.35rem;
   }
+  .issue-review-link {
+    min-height: 1.65rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--if-color-focus-border) 60%, var(--border));
+    border-radius: 6px;
+    color: var(--if-color-text-secondary);
+    background: color-mix(in srgb, var(--if-color-focus-border) 8%, var(--card));
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .issue-review-link:hover {
+    color: var(--if-color-text);
+    border-color: var(--if-color-focus-border);
+    background: color-mix(in srgb, var(--if-color-focus-border) 14%, var(--card));
+  }
   .issue-card p {
     margin: 0;
     color: var(--if-color-text);

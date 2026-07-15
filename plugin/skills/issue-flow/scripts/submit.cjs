@@ -32,19 +32,28 @@ const SUBMIT_KINDS = {
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
 const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->\s*/i;
 const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
+const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan']);
+const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
+const VISUAL_PLAN_FEATURE_OFF = 'feature:visual-plan:off';
+const PLAN_ARTIFACT_FORMATS = new Set(['html', 'markdown']);
 
 function usage() {
   return [
     'Usage: submit.cjs <kind> --issue-number <number> --title <title> --body-file <path> [options]',
     '',
     'Kinds:',
-    '  plan    Publish a plan PR and move the issue to flow::approve',
+    '  plan    Submit a Decision or Plan PR/MR for Engine review',
     '  build   Publish a build PR/MR and move the issue to flow::approve',
     '',
     'Options:',
     '  --issue-number <num>    Source issue number.',
     '  --title <title>         PR title. #<issue-number> is prepended when missing.',
-    '  --body-file <path>      PR body markdown file.',
+    '  --body-file <path>      Markdown Plan or Build PR/MR body file.',
+    '  --artifact <type>       Visual mode artifact: decision or plan.',
+    '  --artifact-path <path>  Artifact entry file. Auto-detected when omitted.',
+    '  --repo-id <id>          Issue Flow repository id.',
+    '  --git-server-id <id>    Issue Flow Git server id used in the visual URL.',
+    '  --project-id <id>       Provider repository/project id used in the visual URL.',
     '  --agentrix-task-id <id> Agentrix task id to embed in the PR/MR body. Defaults to AGENTRIX_TASK_ID.',
     '  --provider <provider>   Git hosting provider: github or gitlab. Defaults from environment/repo.',
     '  --repo <owner/repo>     Repository/project override. Defaults to provider environment or git remote origin.',
@@ -161,6 +170,151 @@ function resolveSubmitProvider(options) {
   return resolveProvider({ ...options, repo: resolveRepoHint(options) }, {});
 }
 
+function readIssueFlowProjectConfig() {
+  const configPath = path.resolve(process.cwd(), '.issue-flow/config.json');
+  if (!fs.existsSync(configPath)) return {};
+  return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+}
+
+function resolveIssueFlowRepositoryId(options = {}) {
+  const config = readIssueFlowProjectConfig();
+  const visualPlan = config.visionPlan || config.visualPlan || {};
+  const repositoryId = String(
+    options.repoId
+    || process.env.ISSUE_FLOW_REPOSITORY_ID
+    || process.env.ISSUE_FLOW_REPO_ID
+    || visualPlan.repositoryId
+    || visualPlan.repoId
+    || ''
+  ).trim();
+  if (!repositoryId) {
+    throw new Error('Issue Flow repository id is required. Set ISSUE_FLOW_REPOSITORY_ID, pass --repo-id, or configure visionPlan.repositoryId in .issue-flow/config.json.');
+  }
+  return repositoryId;
+}
+
+function resolveIssueFlowBaseUrl() {
+  const config = readIssueFlowProjectConfig();
+  const visualPlan = config.visionPlan || config.visualPlan || {};
+  const baseUrl = String(process.env.ISSUE_FLOW_BASE_URL || visualPlan.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) throw new Error('ISSUE_FLOW_BASE_URL is required to publish a visual decision or plan. It may also be configured as visionPlan.baseUrl in .issue-flow/config.json.');
+  return baseUrl;
+}
+
+function resolveVisualRouteRepository(options = {}, repo = {}) {
+  const config = readIssueFlowProjectConfig();
+  const visualPlan = config.visionPlan || config.visualPlan || {};
+  const gitServerId = String(
+    options.gitServerId
+    || process.env.ISSUE_FLOW_GIT_SERVER_ID
+    || visualPlan.gitServerId
+    || ''
+  ).trim();
+  const projectId = String(
+    options.projectId
+    || process.env.ISSUE_FLOW_PROJECT_ID
+    || process.env.CI_PROJECT_ID
+    || process.env.GITHUB_REPOSITORY_ID
+    || visualPlan.projectId
+    || repo.projectId
+    || ''
+  ).trim();
+  if (!gitServerId) {
+    throw new Error('Issue Flow Git server id is required. Set ISSUE_FLOW_GIT_SERVER_ID, pass --git-server-id, or configure visionPlan.gitServerId in .issue-flow/config.json.');
+  }
+  if (!projectId) {
+    throw new Error('Provider project id is required. Set ISSUE_FLOW_PROJECT_ID, pass --project-id, or configure visionPlan.projectId in .issue-flow/config.json.');
+  }
+  return { gitServerId, projectId };
+}
+
+function resolveVisualArtifactType(options = {}) {
+  const artifact = String(options.artifact || 'plan').trim().toLowerCase();
+  if (!VISUAL_ARTIFACT_TYPES.has(artifact)) throw new Error('--artifact must be decision or plan');
+  return artifact;
+}
+
+function resolveVisualPlanFeatureMode(issue = {}) {
+  const labels = normalizeLabels(issue.labels || []).filter((label) => label === VISUAL_PLAN_FEATURE_ON || label === VISUAL_PLAN_FEATURE_OFF);
+  if (labels.length > 1) {
+    throw new Error(`Source issue has conflicting Visual Plan feature labels: ${labels.join(', ')}`);
+  }
+  return labels[0] === VISUAL_PLAN_FEATURE_ON ? 'on' : 'off';
+}
+
+function findIssueArtifactPath(issueNumber, artifact, options = {}) {
+  if (options.artifactPath) {
+    const explicitPath = path.resolve(process.cwd(), options.artifactPath);
+    if (!fs.existsSync(explicitPath)) throw new Error(`Visual artifact does not exist: ${options.artifactPath}`);
+    return path.relative(process.cwd(), explicitPath).replace(/\\/g, '/');
+  }
+  const root = path.resolve(process.cwd(), '.issue-flow/issues');
+  if (!fs.existsSync(root)) throw new Error('.issue-flow/issues does not exist');
+  const issueDir = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${issueNumber}-`))
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+  if (!issueDir) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
+  const relativePath = artifact === 'decision'
+    ? path.join('.issue-flow', 'issues', issueDir, 'decision.html')
+    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'index.html');
+  if (!fs.existsSync(path.resolve(process.cwd(), relativePath))) throw new Error(`Visual ${artifact} artifact does not exist: ${relativePath}`);
+  return relativePath.replace(/\\/g, '/');
+}
+
+function findMarkdownPlanPath(issueNumber, options = {}) {
+  if (options.artifactPath) {
+    const explicitPath = path.resolve(process.cwd(), options.artifactPath);
+    if (!fs.existsSync(explicitPath)) throw new Error(`Markdown Plan does not exist: ${options.artifactPath}`);
+    return path.relative(process.cwd(), explicitPath).replace(/\\/g, '/');
+  }
+  const root = path.resolve(process.cwd(), '.issue-flow/issues');
+  if (!fs.existsSync(root)) throw new Error('.issue-flow/issues does not exist');
+  const issueDirs = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${issueNumber}-`))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+  for (const issueDir of issueDirs) {
+    const planDir = path.join(root, issueDir, 'plan');
+    if (!fs.existsSync(planDir)) continue;
+    const planFile = fs.readdirSync(planDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map((entry) => entry.name)
+      .sort()[0];
+    if (planFile) return path.join('.issue-flow', 'issues', issueDir, 'plan', planFile).replace(/\\/g, '/');
+  }
+  throw new Error(`No Markdown Plan file found for issue #${issueNumber}`);
+}
+
+function visualArtifactUrl(baseUrl, gitServerId, projectId, issueNumber, artifact) {
+  return `${baseUrl}/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${issueNumber}/${artifact}`;
+}
+
+function buildVisualArtifactMarker(input = {}) {
+  const format = String(input.format || 'html').trim().toLowerCase();
+  if (!PLAN_ARTIFACT_FORMATS.has(format)) throw new Error(`Unsupported Plan artifact format: ${format}`);
+  return `<!-- issue-flow:plan-artifact artifact=${input.artifact} format=${format} repo=${input.repositoryId} issue=${input.issueNumber} branch=${input.branch} commit=${input.commit} path=${input.artifactPath} -->`;
+}
+
+function buildVisualArtifactComment(input = {}) {
+  const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  return [
+    buildVisualArtifactMarker(input),
+    `## ${title}`,
+    '',
+    `[Open ${title}](${input.url})`,
+    '',
+    `- Branch: \`${input.branch}\``,
+    `- Commit: \`${input.commit}\``,
+    `- Artifact: \`${input.artifactPath}\``,
+    `- Format: \`${input.format || 'html'}\``,
+    '',
+    'Review this artifact in Issue Flow. Review comments and approval are recorded on this PR/MR.',
+  ].join('\n');
+}
+
 function parsePositiveInteger(value, name) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -209,7 +363,7 @@ function assertCleanWorktree(options) {
       console.log(JSON.stringify({ dryRun: true, dirtyWorktree: status.split('\n') }, null, 2));
       return;
     }
-    throw new Error('Working tree has uncommitted changes. Commit the plan before publishing the PR.');
+    throw new Error('Working tree has uncommitted changes. Commit the current work before publishing.');
   }
 }
 
@@ -307,6 +461,10 @@ function buildPrBodyWithSourceMarker(body, issueNumber) {
 
 function writePrBodyWithMarkers(bodyFile, issueNumber, taskId = '') {
   const body = fs.readFileSync(bodyFile, 'utf8');
+  return writePrBodyTextWithMarkers(body, issueNumber, taskId);
+}
+
+function writePrBodyTextWithMarkers(body, issueNumber, taskId = '') {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-pr-body-'));
   const markedBodyFile = path.join(tempDir, 'body.md');
   fs.writeFileSync(markedBodyFile, `${buildPrBodyWithMarkers(body, issueNumber, taskId)}\n`, 'utf8');
@@ -438,7 +596,7 @@ async function createOrUpdatePullRequest({ provider, repo, title, bodyFile, labe
   return createOrUpdate({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
 }
 
-function applyIssueFlow(provider, repo, issueNumber, flow, options) {
+function applyIssueFlow(provider, repo, issueNumber, flow, options, desired = {}) {
   const args = [
     path.join(__dirname, 'apply.cjs'),
     '--issue-number',
@@ -450,6 +608,9 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options) {
     '--flow',
     flow,
   ];
+  for (const [key, value] of Object.entries(desired)) {
+    if (value) args.push(`--${key}`, value);
+  }
   if (options.dryRun) {
     args.push('--dry-run');
   }
@@ -458,6 +619,67 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options) {
     dryRun: false,
     inherit: true,
   });
+}
+
+async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options }) {
+  const visual = visualPlanMode === 'on';
+  const artifact = visual ? resolveVisualArtifactType(options) : 'plan';
+  const format = visual ? 'html' : 'markdown';
+  const repositoryId = resolveIssueFlowRepositoryId(options);
+  const routeRepository = resolveVisualRouteRepository(options, repo);
+  const baseUrl = resolveIssueFlowBaseUrl();
+  const artifactPath = visual
+    ? findIssueArtifactPath(issueNumber, artifact, options)
+    : findMarkdownPlanPath(issueNumber, options);
+  if (!isGitTrackedFile(artifactPath) && !options.dryRun) {
+    throw new Error(`Plan artifact must be committed before publishing: ${artifactPath}`);
+  }
+  if (!visual) {
+    validateBodyFile(options.bodyFile);
+    assertBodyFileNotTracked(options.bodyFile);
+  }
+  const label = SUBMIT_KINDS.plan.label;
+  await ensureMergeRequestLabel(provider, repo, label, options);
+  pushCurrentBranch(headBranch, options);
+  const commit = runOutput('git', ['rev-parse', 'HEAD']);
+  const url = visualArtifactUrl(baseUrl, routeRepository.gitServerId, routeRepository.projectId, issueNumber, artifact);
+  const artifactInput = { artifact, format, repositoryId, issueNumber, branch: headBranch, commit, artifactPath, url };
+  const artifactBody = buildVisualArtifactComment(artifactInput);
+  const suppliedBody = visual ? '' : fs.readFileSync(options.bodyFile, 'utf8').trim();
+  const markedBody = writePrBodyTextWithMarkers(
+    [artifactBody, suppliedBody].filter(Boolean).join('\n\n'),
+    issueNumber,
+    resolveAgentrixTaskId(options),
+  );
+  const titleConfig = artifact === 'decision'
+    ? { ...SUBMIT_KINDS.plan, titlePrefix: 'Decision' }
+    : SUBMIT_KINDS.plan;
+  let prUrl;
+  try {
+    prUrl = await createOrUpdatePullRequest({
+      provider,
+      repo,
+      title: normalizePrTitle(titleConfig, issueNumber, options.title),
+      bodyFile: markedBody.path,
+      label,
+      baseBranch,
+      headBranch,
+      draft: options.draft,
+      options,
+    });
+  } finally {
+    markedBody.cleanup();
+  }
+  applyIssueFlow(provider, repo, issueNumber, 'flow::approve', options, artifact === 'decision'
+    ? { decision: 'decision::pending' }
+    : visual ? { 'visual-plan': 'visual-plan::pending' } : {});
+  const result = {
+    kind: 'plan', artifact, format, provider: provider.name, issueNumber, repositoryId,
+    ...routeRepository, branch: headBranch, commit, artifactPath, url, prUrl,
+    issueFlow: 'flow::approve', label,
+  };
+  console.log(JSON.stringify(result, null, 2));
+  return result;
 }
 
 async function loadSourceIssueForSubmit(provider, repo, issueNumber, options = {}) {
@@ -475,7 +697,7 @@ async function loadSourceIssueForSubmit(provider, repo, issueNumber, options = {
           dryRun: true,
           plannedCheck: 'source_issue_size',
           issueNumber,
-          reason: 'Source issue must have exactly one size:: label before submitting a plan/build PR/MR.',
+          reason: 'Source issue must have exactly one size:: label before publishing a plan or submitting a build PR/MR.',
         },
         null,
         2
@@ -522,7 +744,7 @@ function validateSourceIssueSize(issue, issueNumber) {
   }
   throw new Error(
     [
-      `Source issue #${issueNumber} needs exactly one size:: label before submitting a plan/build PR/MR.`,
+      `Source issue #${issueNumber} needs exactly one size:: label before publishing a plan or submitting a build PR/MR.`,
       'Choose size::XS, size::S, size::M, size::L, or size::XL based on the issue title, body, comments, and repository context.',
       'If you are unsure, use size::M and leave a low-confidence note, then re-run:',
       command,
@@ -546,19 +768,28 @@ async function main(argv = process.argv.slice(2)) {
   const provider = resolveSubmitProvider(options);
   const repo = provider.resolveRepo({}, { ...options, repo: resolveRepoHint(options) });
   options.provider = provider.name;
-  const label = options.label || kindConfig.label;
-  validateLabel(label);
-  validateBodyFile(options.bodyFile);
-  assertBodyFileNotTracked(options.bodyFile);
-
   const headBranch = resolveHeadBranch(options);
   const baseBranch = resolveBaseBranch(options);
-  const title = normalizePrTitle(kindConfig, issueNumber, options.title);
 
   assertCleanWorktree(options);
   assertPublishBranch(headBranch, baseBranch, options);
   const sourceIssue = await loadSourceIssueForSubmit(provider, repo, issueNumber, options);
   validateSourceIssueSize(sourceIssue, issueNumber);
+  const visualPlanMode = kind === 'plan' ? resolveVisualPlanFeatureMode(sourceIssue) : 'off';
+  if (kind === 'plan') {
+    if (visualPlanMode === 'off' && options.artifact) {
+      throw new Error(`Source issue must have ${VISUAL_PLAN_FEATURE_ON} before publishing a Visual Plan artifact.`);
+    }
+    await publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options });
+    return 0;
+  }
+
+  const label = options.label || kindConfig.label;
+  validateLabel(label);
+  validateBodyFile(options.bodyFile);
+  assertBodyFileNotTracked(options.bodyFile);
+
+  const title = normalizePrTitle(kindConfig, issueNumber, options.title);
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
@@ -600,6 +831,16 @@ module.exports = {
   normalizeOptionalUrl,
   normalizePrTitle,
   parseArgs,
+  buildVisualArtifactComment,
+  buildVisualArtifactMarker,
+  findIssueArtifactPath,
+  findMarkdownPlanPath,
+  resolveIssueFlowBaseUrl,
+  resolveIssueFlowRepositoryId,
+  resolveVisualRouteRepository,
+  resolveVisualArtifactType,
+  resolveVisualPlanFeatureMode,
+  visualArtifactUrl,
   resolveAgentrixTaskId,
   resolveAgentrixWorkerBaseBranch,
   resolveBaseBranch,

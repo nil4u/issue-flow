@@ -176,7 +176,7 @@ function githubReviewCommentPayload(overrides = {}) {
     comment: {
       id: overrides.commentId || 101,
       body: overrides.commentBody || 'Please handle this edge case.',
-      html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
+      html_url: `https://github.com/example/platform/pull/9#discussion_r${overrides.commentId || 101}`,
       in_reply_to_id: overrides.inReplyToId,
       path: 'src/app.js',
       line: 42,
@@ -278,6 +278,98 @@ test('dispatch comment resumes the only resumable issue task while clarifying', 
   }
 });
 
+test('dispatch visual review comment resumes the existing plan task with bot-authored review', async () => {
+  const originalList = providers.github.listIssueComments;
+  const originalCreate = providers.github.createIssueComment;
+  const originalUpdate = providers.github.updateIssueComment;
+  const comments = [];
+  const updates = [];
+  providers.github.listIssueComments = async () => [
+    {
+      id: 300,
+      html_url: 'https://github.com/example/platform/issues/42#issuecomment-300',
+      body: agentrix.buildTaskComment('plan', {
+        status: 'queued',
+        runId: 'task-plan',
+        detailUrl: 'https://agentrix.example/tasks/task-plan',
+      }),
+    },
+  ];
+  providers.github.createIssueComment = async (issue, body) => {
+    comments.push({ issue: issue.number, body });
+    return { id: 502, body };
+  };
+  providers.github.updateIssueComment = async (issue, commentId, body) => {
+    updates.push({ issue: issue.number, commentId, body });
+  };
+
+  try {
+    const result = await runComment(
+      { dryRun: true },
+      {
+        payload: githubIssueCommentPayload({
+          userType: 'Bot',
+          author: 'issue-flow-bot',
+          labels: [{ name: 'status::active' }, { name: 'flow::plan' }, { name: 'visual-plan::changes-requested' }],
+          commentBody: [
+            '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->',
+            '## Visual Plan Review',
+            '',
+            '1. **plan/index.html** — 确认一下还会有其他状态吗？',
+          ].join('\n'),
+        }),
+      }
+    );
+
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.taskId, 'task-plan');
+    assert.equal(result.taskAction, 'plan');
+    assert.equal(result.issueNumber, 42);
+    assert.deepEqual(result.visualReview, {
+      artifact: 'plan',
+      reviewId: 'visual_review_1',
+      status: 'changes-requested',
+    });
+    assert.equal(result.result.status, 'dry-run');
+    assert.equal(comments.length, 1);
+    assert.equal(comments[0].issue, 42);
+    assert.match(comments[0].body, /Agentrix task queued/);
+    assert.match(comments[0].body, /\[open task\]\(https:\/\/agentrix\.example\/tasks\/task-plan\)/);
+    assert.match(comments[0].body, /^Action: `plan`$/m);
+    assert.match(comments[0].body, /^Run: `task-plan`$/m);
+    assert.match(comments[0].body, /Trigger: https:\/\/github\.com\/example\/platform\/issues\/42#issuecomment-501/);
+    assert.deepEqual(updates.map(({ issue, commentId }) => ({ issue, commentId })), [{ issue: 42, commentId: 502 }]);
+    assert.match(updates[0].body, /\[open task\]\(https:\/\/agentrix\.example\/tasks\/task-plan\)/);
+  } finally {
+    providers.github.listIssueComments = originalList;
+    providers.github.createIssueComment = originalCreate;
+    providers.github.updateIssueComment = originalUpdate;
+  }
+});
+
+test('dispatch approved visual plan comment leaves continuation to flow build', async () => {
+  const result = await runComment(
+    { dryRun: true },
+    {
+      payload: githubIssueCommentPayload({
+        userType: 'Bot',
+        author: 'issue-flow-bot',
+        labels: [{ name: 'status::active' }, { name: 'flow::build' }, { name: 'visual-plan::approved' }],
+        commentBody: [
+          '<!-- issue-flow:visual-review artifact=plan review=visual_review_2 status=approved -->',
+          '## Visual Plan Review',
+          '',
+          'Status: **approved**',
+        ].join('\n'),
+      }),
+    }
+  );
+
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.reason, 'visual_plan_approved');
+  assert.equal(result.issueNumber, 42);
+});
+
 test('dispatch comment falls back to general when clarify has multiple resumable issue tasks', async () => {
   const originalList = providers.github.listIssueComments;
   providers.github.listIssueComments = async () => [
@@ -329,6 +421,44 @@ test('dispatch review-comment resumes GitHub PR ordinary issue comments', async 
   assert.equal(result.pullRequest, 9);
   assert.equal(result.sourceIssue, 42);
   assert.equal(result.reviewComment, '101');
+});
+
+test('dispatch Plan review comment uses the Plan-specific resume instruction', async () => {
+  const originalPlanInstruction = agentrix.buildVisualReviewResumeInstruction;
+  const originalReviewInstruction = agentrix.buildReviewCommentResumeInstruction;
+  let planInstructionInput;
+  agentrix.buildVisualReviewResumeInstruction = (_issue, comment, data) => {
+    planInstructionInput = { comment, data };
+    return 'plan review instruction';
+  };
+  agentrix.buildReviewCommentResumeInstruction = () => assert.fail('generic review instruction must not handle Engine Plan reviews');
+
+  try {
+    const result = await runReviewComment(
+      { dryRun: true },
+      {
+        payload: githubReviewCommentPayload({
+          issueComment: true,
+          commentBody: '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->\n## Visual Plan Review\n\n请修改。',
+          body: [
+            '<!-- issue-flow:source-issue=42 -->',
+            '<!-- issue-flow:agentrix:task=task-plan-42 -->',
+            '<!-- issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/index.html -->',
+          ].join('\n'),
+          labels: [{ name: 'mr-by::plan' }],
+        }),
+      }
+    );
+
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.taskId, 'task-plan-42');
+    assert.equal(planInstructionInput.data.visualReview.artifact, 'plan');
+    assert.equal(planInstructionInput.data.visualReview.status, 'changes-requested');
+    assert.match(planInstructionInput.data.pullRequest.body, /format=html/);
+  } finally {
+    agentrix.buildVisualReviewResumeInstruction = originalPlanInstruction;
+    agentrix.buildReviewCommentResumeInstruction = originalReviewInstruction;
+  }
 });
 
 test('dispatch review-comment skips issue-flow sourced comments', async () => {
@@ -383,13 +513,15 @@ test('dispatch review-comment skips missing PR task marker and closed PRs', asyn
   assert.equal(closed.reason, 'pull_request_not_open');
 });
 
-test('dispatch review-comment acknowledges with reaction only', async () => {
+test('dispatch review-comment acknowledges without posting another task message', async () => {
   const originalCreate = providers.github.createPullRequestComment;
   const originalUpdate = providers.github.updatePullRequestComment;
   const originalReaction = providers.github.addReviewCommentReaction;
   const reactions = [];
-  providers.github.createPullRequestComment = async () => {
-    throw new Error('review-comment resume should not create a PR task comment');
+  const comments = [];
+  providers.github.createPullRequestComment = async (pr, body) => {
+    comments.push({ pr: pr.number, body });
+    return { id: 104, body };
   };
   providers.github.updatePullRequestComment = async () => {
     throw new Error('review-comment resume should not update a PR task comment');
@@ -407,6 +539,7 @@ test('dispatch review-comment acknowledges with reaction only', async () => {
     assert.equal(result.action, 'task_resume');
     assert.equal(result.reviewComment, '103');
     assert.deepEqual(reactions, [{ pr: 9, comment: '103', content: 'eyes' }]);
+    assert.deepEqual(comments, []);
   } finally {
     providers.github.createPullRequestComment = originalCreate;
     providers.github.updatePullRequestComment = originalUpdate;
@@ -683,6 +816,46 @@ test('dispatch pr-merged auto-resumes plan merges into build action', async () =
     assert.equal(result.transition.action, 'applied');
     assert.equal(result.transition.flow, 'flow::build');
     assert.equal(result.autoResume.action, 'build');
+    assert.equal(result.autoResume.result.status, 'dry-run');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch Decision merge resumes the original Plan task', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-dispatch-decision-merged-test-'));
+  const eventPath = path.join(root, 'event.json');
+  fs.writeFileSync(
+    eventPath,
+    JSON.stringify({
+      pull_request: {
+        number: 9,
+        html_url: 'https://github.com/example/platform/pull/9',
+        merged: true,
+        labels: [{ name: 'mr-by::plan' }],
+        body: [
+          '<!-- issue-flow:source-issue=42 -->',
+          '<!-- issue-flow:agentrix:task=task-plan-42 -->',
+          '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision.html -->',
+        ].join('\n'),
+        title: 'Decision #42: Add widget support',
+        head: { ref: '42-add-widget-support/plan' },
+      },
+      repository: { full_name: 'example/platform' },
+    })
+  );
+
+  try {
+    const result = await runPrMerged({
+      event: eventPath,
+      dryRun: true,
+      autoDefault: 'build',
+    });
+
+    assert.equal(result.transition.kind, 'decision');
+    assert.equal(result.transition.flow, 'flow::plan');
+    assert.equal(result.transition.taskId, 'task-plan-42');
+    assert.equal(result.autoResume.action, 'task_resume');
     assert.equal(result.autoResume.result.status, 'dry-run');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

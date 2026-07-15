@@ -465,6 +465,13 @@ export type IssueRow = {
   updatedAt?: string
 }
 
+export type ReviewablePlanArtifact = {
+  issueNumber: number
+  type: "decision" | "plan"
+  format: "html" | "markdown"
+  mergeRequestNumber?: number
+}
+
 export type DashboardVariable = {
   id: string
   name: string

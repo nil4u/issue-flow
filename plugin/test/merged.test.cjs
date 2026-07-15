@@ -4,6 +4,8 @@ const test = require('node:test');
 const {
   buildSourceIssueContext,
   normalizeMergeRequestPayload,
+  parseAgentrixTaskId,
+  parsePlanArtifact,
   parseArgs: parsePrMergedArgs,
   parseSourceIssueNumber,
   pullRequestLabels,
@@ -31,6 +33,46 @@ test('merged PR transition is selected from exactly one source label', () => {
     () => resolveMergedPrTransition(['mr-by::plan', 'mr-by::build']),
     /multiple issue-flow source labels/
   );
+});
+
+test('merged Decision MR returns to Plan and preserves the original task', () => {
+  const body = [
+    '<!-- issue-flow:source-issue=42 -->',
+    '<!-- issue-flow:agentrix:task=task-plan-42 -->',
+    '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision.html -->',
+  ].join('\n');
+
+  assert.deepEqual(parsePlanArtifact(body), { artifact: 'decision', format: 'html' });
+  assert.equal(parseAgentrixTaskId(body), 'task-plan-42');
+  assert.deepEqual(resolveMergedPrTransition(['mr-by::plan'], { body }), {
+    kind: 'decision',
+    label: 'mr-by::plan',
+    flow: 'flow::plan',
+    decision: 'decision::approved',
+    artifact: 'decision',
+    format: 'html',
+  });
+});
+
+test('merged Plan MR distinguishes visual and Markdown plans', () => {
+  const visualBody = '<!-- issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/index.html -->';
+  assert.deepEqual(resolveMergedPrTransition(['mr-by::plan'], { body: visualBody }), {
+    kind: 'plan',
+    label: 'mr-by::plan',
+    flow: 'flow::build',
+    artifact: 'plan',
+    format: 'html',
+    visualPlan: 'visual-plan::approved',
+  });
+
+  const markdownBody = '<!-- issue-flow:plan-artifact artifact=plan format=markdown repo=repo_123 issue=42 branch=42-login/plan commit=def456 path=.issue-flow/issues/42-login/plan/plan.md -->';
+  assert.deepEqual(resolveMergedPrTransition(['mr-by::plan'], { body: markdownBody }), {
+    kind: 'plan',
+    label: 'mr-by::plan',
+    flow: 'flow::build',
+    artifact: 'plan',
+    format: 'markdown',
+  });
 });
 
 test('merged PR source issue context simulates post-transition labels', () => {

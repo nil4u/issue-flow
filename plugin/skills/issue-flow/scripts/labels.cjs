@@ -78,8 +78,34 @@ const MANAGED_LABEL_GROUPS = {
       {
         name: 'flow::approve',
         color: '0E8A16',
-        description: 'Waiting for approval of a plan or build PR/MR',
+        description: 'Waiting for approval of a visual decision, visual plan, or build PR/MR',
       },
+    ],
+  },
+  decision: {
+    prefix: 'decision::',
+    scope: 'issue',
+    labels: [
+      { name: 'decision::pending', color: 'FBCA04', description: 'Visual decision is published and waiting for review' },
+      { name: 'decision::approved', color: '0E8A16', description: 'Visual decision has been approved' },
+      { name: 'decision::changes-requested', color: 'D93F0B', description: 'Visual decision needs revision' },
+    ],
+  },
+  'visual-plan': {
+    prefix: 'visual-plan::',
+    scope: 'issue',
+    labels: [
+      { name: 'visual-plan::pending', color: 'FBCA04', description: 'Visual plan is published and waiting for approval' },
+      { name: 'visual-plan::approved', color: '0E8A16', description: 'Visual plan has been approved and merged' },
+      { name: 'visual-plan::changes-requested', color: 'D93F0B', description: 'Visual plan needs revision' },
+    ],
+  },
+  visualPlanFeature: {
+    prefix: 'feature:visual-plan:',
+    scope: 'issue',
+    labels: [
+      { name: 'feature:visual-plan:on', color: '5319E7', description: 'Use Visual Decision and Visual Plan for this issue' },
+      { name: 'feature:visual-plan:off', color: 'BFD4F2', description: 'Use the Markdown Plan PR or MR flow for this issue' },
     ],
   },
   automation: {
@@ -94,12 +120,12 @@ const MANAGED_LABEL_GROUPS = {
       {
         name: 'automation::plan',
         color: '7057FF',
-        description: 'Automation may create plan PRs/MRs',
+        description: 'Automation may execute the configured plan flow',
       },
       {
         name: 'automation::build',
         color: '006B75',
-        description: 'Automation may create plan and build PRs/MRs',
+        description: 'Automation may execute the configured plan flow and create build PRs/MRs',
       },
     ],
   },

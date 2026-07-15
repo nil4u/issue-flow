@@ -8,6 +8,26 @@ variables:
   tags:
     - issue-flow
 
+issue-flow-labels:
+  extends: .issue-flow-runner
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - .agentrix/plugins/issue-flow/**/*
+        - .issue-flow/**/*
+        - .gitlab/issue-flow.gitlab-ci.yml
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
+
 issue-flow-auto:
   extends: .issue-flow-runner
   stage: build
@@ -48,7 +68,11 @@ issue-flow-comment:
   extends: .issue-flow-runner
   stage: build
   rules:
+    - if: '$GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && $GITLAB_BRIDGE_ISSUE_NUMBER && $GITLAB_BRIDGE_COMMENT_BODY =~ /issue-flow:visual-review/'
+      when: on_success
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && $GITLAB_BRIDGE_ISSUE_NUMBER && $GITLAB_BRIDGE_COMMENT_BODY =~ /(^|[^A-Za-z0-9._-])(@agentrix|\/agentrix)($|[^A-Za-z0-9._-])/'
+      when: on_success
+    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issue_comment" && $AGENTRIX_SUBJECT_KIND == "issue" && $AGENTRIX_COMMENT_BODY =~ /issue-flow:visual-review/'
       when: on_success
     - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issue_comment" && $AGENTRIX_SUBJECT_KIND == "issue" && $AGENTRIX_COMMENT_COMMAND == "true"'
       when: on_success

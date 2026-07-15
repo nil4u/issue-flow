@@ -5,6 +5,8 @@ const test = require('node:test');
 const {
   assertBodyFileNotTracked,
   buildPrBodyWithMarkers,
+  buildVisualArtifactComment,
+  buildVisualArtifactMarker,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
   createGitAskpassEnv,
@@ -17,7 +19,10 @@ const {
   normalizeOptionalUrl,
   normalizePrTitle,
   resolveBaseBranch,
+  resolveIssueFlowBaseUrl,
+  resolveVisualPlanFeatureMode,
   SUBMIT_KINDS,
+  visualArtifactUrl,
   validateSourceIssueSize,
 } = require('../skills/issue-flow/scripts/submit.cjs');
 const { labelDefinitionFor } = require('../skills/issue-flow/scripts/labels.cjs');
@@ -208,9 +213,74 @@ test('PR title normalization keeps existing issue number', () => {
   );
 });
 
-test('submit kinds use catalog definitions for PR and MR labels', () => {
+test('Markdown plan and build submit use their PR or MR labels', () => {
   assert.equal(SUBMIT_KINDS.plan.labelDefinition, labelDefinitionFor('mr-by::plan'));
   assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
+});
+
+test('visual plan mode defaults off and rejects conflicting issue switches', () => {
+  assert.equal(resolveVisualPlanFeatureMode({ labels: [] }), 'off');
+  assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:off'] }), 'off');
+  assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on'] }), 'on');
+  assert.throws(() => resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on', 'feature:visual-plan:off'] }), /conflicting Visual Plan feature labels/);
+});
+
+test('visual publishing uses ISSUE_FLOW_BASE_URL as its service URL', () => {
+  withTemporaryEnv({ ISSUE_FLOW_BASE_URL: 'https://flow.example/' }, () => {
+    assert.equal(resolveIssueFlowBaseUrl(), 'https://flow.example');
+  });
+});
+
+test('visual artifact URLs use Git server and provider project routes', () => {
+  assert.equal(
+    visualArtifactUrl('https://flow.example', 'gitlab-main', '43326', 42, 'decision'),
+    'https://flow.example/repos/gitlab-main/43326/plan/42/decision'
+  );
+  assert.equal(
+    visualArtifactUrl('https://flow.example', 'gitlab-main', '43326', 42, 'plan'),
+    'https://flow.example/repos/gitlab-main/43326/plan/42/plan'
+  );
+  const comment = buildVisualArtifactComment({
+    artifact: 'plan',
+    format: 'html',
+    repositoryId: 'repo_123',
+    issueNumber: 42,
+    branch: '42-broken-login/plan',
+    commit: 'abc123',
+    artifactPath: '.issue-flow/issues/42-broken-login/plan/index.html',
+    url: 'https://flow.example/repos/gitlab-main/43326/plan/42/plan',
+  });
+  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42/);
+  assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42\/plan/);
+  assert.match(comment, /Review comments and approval are recorded on this PR\/MR/);
+});
+
+test('plan artifact marker records visual and Markdown formats in the MR body', () => {
+  assert.equal(
+    buildVisualArtifactMarker({
+      artifact: 'decision',
+      format: 'html',
+      repositoryId: 'repo_123',
+      issueNumber: 42,
+      branch: '42-issue/plan',
+      commit: 'abc123',
+      artifactPath: '.issue-flow/issues/42-issue/decision.html',
+    }),
+    '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision.html -->'
+  );
+  assert.match(
+    buildVisualArtifactComment({
+      artifact: 'plan',
+      format: 'markdown',
+      repositoryId: 'repo_123',
+      issueNumber: 42,
+      branch: '42-issue/plan',
+      commit: 'def456',
+      artifactPath: '.issue-flow/issues/42-issue/plan/plan.md',
+      url: 'https://flow.example/repos/gitlab-main/43326/plan/42/plan',
+    }),
+    /## Markdown Plan[\s\S]*Format: `markdown`/
+  );
 });
 
 test('submit source issue size validation blocks missing and conflicting size labels', () => {
