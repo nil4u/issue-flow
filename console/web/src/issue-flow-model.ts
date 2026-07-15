@@ -327,11 +327,23 @@ export type AgentrixCloud = {
   updatedAt?: string
 }
 
+export type AgentrixCloudMachine = {
+  id: string
+  cloudId?: string
+  deviceId?: string
+  status?: string
+  metadata?: string | null
+  cliVersion?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
 export type AgentrixLocalMachine = {
   id: string
   owner?: string
   status?: string
   metadata?: string | null
+  cliVersion?: string
   approval?: string
   controlPort?: number | null
   createdAt?: string

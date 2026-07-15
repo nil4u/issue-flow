@@ -607,7 +607,14 @@ test('user Agentrix config validates key and loads resources', async () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         clouds: [],
-        localMachines: [{ id: 'machine-main', owner: 'agx-user-1', status: 'online', metadata: null, approval: 'approved', dataEncryptionKey: '', controlPort: 17321, createdAt: '', updatedAt: '' }],
+        localMachines: [{ id: 'machine-main', owner: 'agx-user-1', status: 'online', metadata: JSON.stringify({ cliVersion: '2.44.0' }), approval: 'approved', dataEncryptionKey: '', controlPort: 17321, createdAt: '', updatedAt: '' }],
+      }));
+      return;
+    }
+    if (req.url === '/v1/private-clouds/cloud-main/machines') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        machines: [{ id: 'cloud-machine-main', cloudId: 'cloud-main', deviceId: 'runner-main', status: 'online', metadata: JSON.stringify({ cliVersion: '2.44.0' }), createdAt: '', updatedAt: '' }],
       }));
       return;
     }
@@ -645,6 +652,14 @@ test('user Agentrix config validates key and loads resources', async () => {
     assert.equal(requests.filter((item) => item === '/v1/auth/me').length, 2);
     assert.equal(requests.includes('/v1/private-clouds'), true);
     assert.equal(requests.includes('/v1/machines'), true);
+
+    const cloudMachines = await fetch(`${baseUrl}/api/user/agentrix-resources/clouds/cloud-main/machines`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(cloudMachines.status, 200);
+    const cloudMachineBody = await cloudMachines.json();
+    assert.equal(cloudMachineBody.machines[0].deviceId, 'runner-main');
+    assert.equal(requests.includes('/v1/private-clouds/cloud-main/machines'), true);
   } finally {
     await app.close();
     await close(agentrix);

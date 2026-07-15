@@ -954,6 +954,71 @@
   .agentrix-resource-row:last-child {
     border-bottom: 0;
   }
+  .agentrix-cloud-group {
+    min-width: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .agentrix-cloud-group:last-child {
+    border-bottom: 0;
+  }
+  .agentrix-cloud-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    border-bottom: 0;
+  }
+  .agentrix-cloud-group.expanded .agentrix-cloud-row {
+    border-bottom: 1px solid var(--border);
+  }
+  .agentrix-cloud-trigger {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .agentrix-cloud-trigger:focus-visible {
+    border-radius: 4px;
+    outline: 2px solid var(--if-color-focus-border);
+    outline-offset: 3px;
+  }
+  .agentrix-cloud-chevron {
+    color: var(--muted-foreground);
+    transition: transform 160ms ease;
+  }
+  .agentrix-cloud-chevron.expanded {
+    transform: rotate(180deg);
+  }
+  .agentrix-cloud-machines {
+    min-width: 0;
+    display: grid;
+    background: color-mix(in srgb, var(--if-color-surface-high) 45%, var(--if-color-surface));
+  }
+  .agentrix-machine-row.cloud {
+    padding-left: 2.75rem;
+  }
+  .agentrix-cloud-machines .agentrix-empty-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+  }
+  .agentrix-retry-row {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+  }
+  .agentrix-retry-row:hover {
+    color: var(--foreground);
+  }
   .agentrix-resource-copy {
     min-width: 0;
     display: grid;
@@ -2055,6 +2120,16 @@
   .agentrix-status-dot {
     grid-column: 2;
     justify-self: start;
+  }
+  .agentrix-cloud-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agentrix-cloud-row > button {
+    grid-column: 1;
+    margin-left: 2.375rem;
+  }
+  .agentrix-machine-row.cloud {
+    padding-left: 1.5rem;
   }
   .agentrix-account-row .account-status {
     grid-column: 2;

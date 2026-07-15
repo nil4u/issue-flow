@@ -1,6 +1,7 @@
 import {
   GetPrivateCloudRunnerSecretResponseSchema,
   ListMachinesResponseSchema,
+  ListPrivateCloudMachinesResponseSchema,
   ListPrivateCloudsResponseSchema,
   UserProfileResponseSchema,
 } from '@agentrix/shared'
@@ -130,6 +131,20 @@ async function listAgentrixPrivateClouds({ env = process.env, apiKey = '', logge
   }
 }
 
+async function listAgentrixPrivateCloudMachines({ env = process.env, apiKey = '', cloudId = '', logger = undefined }) {
+  const id = String(cloudId || '').trim()
+  if (!id) {
+    throw agentrixError('cloud id is required', 400, 'cloud_id_required')
+  }
+  return agentrixRequest({
+    env,
+    apiKey,
+    path: `/v1/private-clouds/${encodeURIComponent(id)}/machines`,
+    schema: ListPrivateCloudMachinesResponseSchema,
+    logger,
+  })
+}
+
 async function getAgentrixPrivateCloudRunnerSecret({ env = process.env, apiKey = '', cloudId = '', logger = undefined }) {
   const id = String(cloudId || '').trim()
   if (!id) {
@@ -149,6 +164,7 @@ export {
   agentrixRequest,
   getAgentrixPrivateCloudRunnerSecret,
   listAgentrixMachines,
+  listAgentrixPrivateCloudMachines,
   listAgentrixPrivateClouds,
   publicAgentrixUser,
   validateAgentrixApiKey,

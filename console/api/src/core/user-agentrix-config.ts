@@ -2,6 +2,7 @@
 import { agentrixServiceConfig } from './common.js'
 import {
   listAgentrixMachines,
+  listAgentrixPrivateCloudMachines,
   listAgentrixPrivateClouds,
   validateAgentrixApiKey,
 } from './agentrix-api.js'
@@ -202,7 +203,30 @@ async function getUserAgentrixResources({ store, userId, user, env = process.env
   }
 }
 
+async function getUserAgentrixCloudMachines({ store, userId, user, cloudId, env = process.env, logger = undefined }) {
+  const userKey = userAgentrixKey(userId)
+  if (!userKey) return { status: 401, body: { error: 'login_required' } }
+
+  const saved = await loadUserAgentrixConfig(store, userId, user, { includeSecret: true })
+  const apiKey = saved && saved.agentrix && saved.agentrix.apiKey || ''
+  if (!apiKey) return { status: 400, body: { error: 'agentrix_api_key_required' } }
+
+  try {
+    const result = await listAgentrixPrivateCloudMachines({ env, apiKey, cloudId, logger })
+    return { status: 200, body: result }
+  } catch (error) {
+    return {
+      status: error && error.status || 502,
+      body: {
+        error: error && error.code || 'agentrix_cloud_machines_failed',
+        detail: error && error.message || '',
+      },
+    }
+  }
+}
+
 export {
+  getUserAgentrixCloudMachines,
   getUserAgentrixResources,
   getUserAgentrixConfig,
   mergeAgentrixInstallInput,
