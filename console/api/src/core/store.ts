@@ -21,7 +21,6 @@ import { fingerprintSecret } from "./sanitize.js"
 import { normalizeTaskAction } from "./task-projection.js"
 
 const DEFAULT_STATE_DIR = ".issue-flow-service"
-const TASK_TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"])
 const TASK_SPAN_FLOW_BY_ACTION = {
   triage: "triage",
   plan: "plan",
@@ -1930,9 +1929,6 @@ class IssueFlowStore {
     const taskId = String(input.taskId || "").trim()
     if (!taskId) return { task: undefined, applied: false }
     const existing = await client.task.findUnique({ where: { taskId } })
-    if (input.weakStatus && existing && TASK_TERMINAL_STATUSES.has(existing.status)) {
-      return { task: this.taskFromRecord(existing), applied: false }
-    }
     const data = {
       agent: existing && existing.agent || String(input.agent || ""),
       model: existing && existing.model || String(input.model || ""),

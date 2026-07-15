@@ -73,9 +73,6 @@ function forwardedTaskRuntime(forwarded = {}) {
   if (eventType === "worker-initializing" || eventType === "worker-ready" || eventType === "worker-running") {
     return { taskId, status: "running", startedAt: at }
   }
-  if (eventType === "worker-exit") {
-    return { taskId, status: "cancelled", weakStatus: true, finishedAt: at }
-  }
   if (eventType === "task-message" && forwarded.direction === "outbound") {
     const message = eventData.message || {}
     if (message.type !== "result") return undefined

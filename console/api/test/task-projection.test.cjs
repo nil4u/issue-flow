@@ -119,9 +119,11 @@ test('forwardedTaskRuntime maps forward event types onto the task lifecycle', ()
   });
   assert.equal(failed.status, 'failed');
 
-  const exit = forwardedTaskRuntime({ taskId: 'task-abc', eventType: 'worker-exit', createdAt: '2026-07-01T09:00:00Z' });
-  assert.equal(exit.status, 'cancelled');
-  assert.equal(exit.weakStatus, true);
+  assert.equal(forwardedTaskRuntime({
+    taskId: 'task-abc',
+    eventType: 'worker-exit',
+    createdAt: '2026-07-01T09:00:00Z',
+  }), undefined, 'worker lifecycle exit does not change the task status');
 
   assert.equal(forwardedTaskRuntime({
     taskId: 'task-abc',
