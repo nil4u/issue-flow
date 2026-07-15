@@ -730,6 +730,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(issueType.chartType, 'stacked_bar');
     assert.deepEqual(issueType.yFields, ['issue_count', 'weighted_count']);
     assert.deepEqual(issueType.visualConfig.stackOrder, ['type::feature', 'type::bug', 'type::debt', 'type::ops', '未分类']);
+    assert.equal(issueType.drillConfig.kind, 'issue_type');
     const typeResult = await store.runMetricsQuery(issueType.querySql, { ...repoParams, weeks: 8 });
     assert.deepEqual(
       typeResult.columns.map((column) => column.name),
@@ -742,6 +743,17 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(Number(typeBuckets.get('type::bug').weighted_count), 1);
     assert.equal(typeBuckets.get('未分类').issue_count, 1);
     assert.equal(Number(typeBuckets.get('未分类').weighted_count), 2);
+    const typeDrill = await store.runMetricsQuery(issueType.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: 'type::feature',
+    });
+    assert.equal(typeDrill.rows.length, 1);
+    assert.equal(typeDrill.rows[0].issue_number, 7);
+    assert.equal(typeDrill.rows[0].total_count, 1);
+    assert.equal(typeDrill.rows[0].weekly_count, 3);
+    assert.equal(Number(typeDrill.rows[0].weighted_total), 2);
+    assert.equal(typeDrill.rows[0].done_count, 1);
 
     const otherRepoTypes = await store.runMetricsQuery(issueType.querySql, {
       ...repoParams,
@@ -755,6 +767,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.deepEqual(taskTurns.yFields, ['issue_count', 'weighted_count']);
     assert.deepEqual(taskTurns.y2Fields, ['task_turns_p80']);
     assert.equal(taskTurns.visualConfig.fieldLabels.task_turns_p80, 'P80 轮次');
+    assert.equal(taskTurns.drillConfig.kind, 'issue_turns');
     const turnsResult = await store.runMetricsQuery(taskTurns.querySql, { ...repoParams, weeks: 8 });
     assert.deepEqual(
       turnsResult.columns.map((column) => column.name),
@@ -771,6 +784,22 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       turnsResult.rows.some((row) => Math.abs(Number(row.task_turns_p80) - 15.4) < 0.001),
       'task turns P80 is computed from summed issue_stats task turns',
     );
+    const turnsDrill = await store.runMetricsQuery(taskTurns.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: '20+',
+    });
+    assert.equal(turnsDrill.rows.length, 1);
+    assert.equal(turnsDrill.rows[0].issue_number, 9);
+    assert.equal(turnsDrill.rows[0].task_turns, 21);
+    assert.deepEqual(
+      ['triage_turns', 'plan_turns', 'build_turns', 'review_turns'].map((field) => turnsDrill.rows[0][field]),
+      [0, 8, 9, 4],
+    );
+    assert.equal(turnsDrill.rows[0].total_count, 1);
+    assert.equal(turnsDrill.rows[0].weekly_count, 3);
+    assert.equal(Number(turnsDrill.rows[0].task_turns_p50), 21);
+    assert.ok(Math.abs(Number(turnsDrill.rows[0].task_turns_p80) - 15.4) < 0.001);
 
     const otherRepoTurns = await store.runMetricsQuery(taskTurns.querySql, {
       ...repoParams,
@@ -898,15 +927,20 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     });
     assert.equal(blockedDrillParam.status, 400);
 
-    const disabledDrill = await fetch(
-      `${baseUrl}/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_issue_type_distribution/drill`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie },
-        body: JSON.stringify({ params: {} }),
-      },
-    );
-    assert.equal(disabledDrill.status, 404, 'other overview panels do not expose drilldown yet');
+    for (const [panelId, bucket] of [
+      ['dashpanel_issue_type_distribution', 'type::feature'],
+      ['dashpanel_issue_task_turns_distribution', '20+'],
+    ]) {
+      const enabledDrill = await fetch(
+        `${baseUrl}/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/${panelId}/drill`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', cookie },
+          body: JSON.stringify({ params: { week: '2026-07-06', bucket } }),
+        },
+      );
+      assert.equal(enabledDrill.status, 200, `${panelId} exposes drilldown`);
+    }
 
     const outsider = await store.createUser({ displayName: 'Metrics Outsider' });
     const { token: outsiderToken } = await store.createConsoleSession({ userId: outsider.id });
