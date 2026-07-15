@@ -150,19 +150,30 @@ test('session projects event batches and acknowledges the highest cursor', async
         eventData: { modelUsage: { 'claude-sonnet-5': { inputTokens: 100, outputTokens: 20 } } },
         createdAt: '2026-07-01T08:30:00Z',
       },
+      {
+        cursor: 10,
+        eventId: 'evt-4',
+        taskId: 'task-abc',
+        eventType: 'worker-ready',
+        direction: 'outbound',
+        eventData: { machineId: 'machine-1', duration: 1200 },
+        createdAt: '2026-07-01T08:30:01Z',
+      },
     ],
   }));
-  assert.deepEqual(sent[sent.length - 1], { type: 'ack', cursor: 9 });
+  assert.deepEqual(sent[sent.length - 1], { type: 'ack', cursor: 10 });
   const runtimeCalls = store.calls.filter(([kind]) => kind === 'runtime');
   assert.equal(runtimeCalls.length, 2);
   assert.equal(runtimeCalls[1][1].status, 'succeeded');
   const eventCalls = store.calls.filter(([kind]) => kind === 'event');
-  assert.equal(eventCalls.length, 1);
+  assert.equal(eventCalls.length, 2);
   assert.equal(eventCalls[0][1].eventType, 'agent_result');
+  assert.equal(eventCalls[1][1].eventType, 'worker_state');
+  assert.equal(eventCalls[1][1].eventData.duration, 1200);
   const usageCalls = store.calls.filter(([kind]) => kind === 'usage');
   assert.equal(usageCalls.length, 1);
   assert.equal(usageCalls[0][1].reports[0].inputTokens, 100);
-  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', { machineId: 'runner-1', cloudId: '' }, 9]);
+  assert.deepEqual(store.calls[store.calls.length - 1], ['setCursor', { machineId: 'runner-1', cloudId: '' }, 10]);
 });
 
 test('session closes without acking when event projection fails', async () => {

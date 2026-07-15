@@ -121,6 +121,13 @@ test('forwardedTaskRuntime maps forward event types onto the task lifecycle', ()
 
   assert.equal(forwardedTaskRuntime({
     taskId: 'task-abc',
+    eventType: 'worker-ready',
+    createdAt: '2026-07-01T08:36:00Z',
+    eventData: { duration: 1_800_000 },
+  }), undefined, 'worker ready closes an execution round without changing task status');
+
+  assert.equal(forwardedTaskRuntime({
+    taskId: 'task-abc',
     eventType: 'worker-exit',
     createdAt: '2026-07-01T09:00:00Z',
   }), undefined, 'worker lifecycle exit does not change the task status');
@@ -135,7 +142,7 @@ test('forwardedTaskRuntime maps forward event types onto the task lifecycle', ()
   assert.equal(forwardedTaskRuntime({ eventType: 'create-task' }), undefined, 'taskId is required');
 });
 
-test('forwardedTaskEvent stores every task-message frame as the conversation stream', () => {
+test('forwardedTaskEvent stores task messages and worker lifecycle changes', () => {
   const humanInput = forwardedTaskEvent({
     taskId: 'task-abc',
     eventId: 'evt-1',
@@ -176,7 +183,24 @@ test('forwardedTaskEvent stores every task-message frame as the conversation str
   assert.equal(systemReminder.eventType, 'agent_message', 'non-human inbound messages are stored as agent_message');
 
   assert.equal(forwardedTaskEvent({ taskId: 'task-abc', eventType: 'create-task', eventId: 'evt-5' }), undefined);
-  assert.equal(forwardedTaskEvent({ taskId: 'task-abc', eventType: 'worker-running', eventId: 'evt-6' }), undefined);
+  const workerRunning = forwardedTaskEvent({
+    taskId: 'task-abc',
+    eventType: 'worker-running',
+    eventId: 'evt-6',
+    eventData: { machineId: 'machine-1' },
+  });
+  assert.equal(workerRunning.eventType, 'worker_state');
+  assert.equal(workerRunning.eventData.state, 'running');
+
+  const workerReady = forwardedTaskEvent({
+    taskId: 'task-abc',
+    eventType: 'worker-ready',
+    eventId: 'evt-7',
+    eventData: { machineId: 'machine-1', duration: 1_800_000 },
+  });
+  assert.equal(workerReady.eventType, 'worker_state');
+  assert.equal(workerReady.eventData.state, 'ready');
+  assert.equal(workerReady.eventData.duration, 1_800_000);
 });
 
 test('forwardedTaskUsageReport keeps usage counters and drops metadata fields', () => {

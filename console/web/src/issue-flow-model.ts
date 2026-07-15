@@ -509,6 +509,7 @@ export type TaskRow = {
   agent: string
   model: string
   turns: number
+  executionMs: number
   status: string
   queuedAt: string
   startedAt: string

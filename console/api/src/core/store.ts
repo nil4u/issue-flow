@@ -1808,6 +1808,7 @@ class IssueFlowStore {
       agent: row.agent || "",
       model: row.model || "",
       turns: row.turns || 0,
+      executionMs: row.executionMs || 0,
       status: row.status || "queued",
       result: row.result || "",
       queuedAt: timestampValue(row.queuedAt),
@@ -1930,10 +1931,12 @@ class IssueFlowStore {
     if (!taskId) return { task: undefined, applied: false }
     const existing = await client.task.findUnique({ where: { taskId } })
     const turns = await client.taskEvent.count({ where: { taskId, eventType: "human_input" } })
+    const executionMs = await this.taskExecutionMs(taskId, client)
     const data = {
       agent: existing && existing.agent || String(input.agent || ""),
       model: existing && existing.model || String(input.model || ""),
       turns,
+      executionMs,
       status: String(input.status || existing && existing.status || "queued"),
       queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
       startedAt: existing && existing.startedAt || nullableDate(input.startedAt),
@@ -1993,7 +1996,7 @@ class IssueFlowStore {
     if (!taskId || !eventId || !eventType) return { taskEvent: undefined, applied: false }
     const existing = await client.taskEvent.findUnique({ where: { eventId } })
     if (existing) {
-      if (existing.eventType === "human_input") await this.syncTaskTurns(existing.taskId, client)
+      await this.syncTaskEventMetrics(existing, client)
       return { taskEvent: this.taskEventFromRecord(existing), applied: false }
     }
     const task = await client.task.findUnique({ where: { taskId } })
@@ -2021,13 +2024,13 @@ class IssueFlowStore {
             createdAt: asDate(input.createdAt || nowIso()),
           },
         })
-        if (eventType === "human_input") await this.syncTaskTurns(taskId, client)
+        await this.syncTaskEventMetrics(row, client)
         return { taskEvent: this.taskEventFromRecord(row), applied: true }
       } catch (error) {
         if (error && error.code === "P2002" && attempt < 3) {
           const duplicate = await client.taskEvent.findUnique({ where: { eventId } })
           if (duplicate) {
-            if (duplicate.eventType === "human_input") await this.syncTaskTurns(duplicate.taskId, client)
+            await this.syncTaskEventMetrics(duplicate, client)
             return { taskEvent: this.taskEventFromRecord(duplicate), applied: false }
           }
           continue
@@ -2049,6 +2052,37 @@ class IssueFlowStore {
       })
     }
     return turns
+  }
+
+  async taskExecutionMs(taskId, client = this.db) {
+    const events = await client.taskEvent.findMany({
+      where: { taskId, eventType: "worker_state" },
+      select: { eventData: true },
+    })
+    return events.reduce((total, event) => {
+      const data = event.eventData || {}
+      const duration = Number(data.state === "ready" ? data.duration : 0)
+      return total + (Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 0)
+    }, 0)
+  }
+
+  async syncTaskExecution(taskId, client = this.db) {
+    const executionMs = await this.taskExecutionMs(taskId, client)
+    await client.task.updateMany({ where: { taskId }, data: { executionMs } })
+    const task = await client.task.findUnique({ where: { taskId } })
+    if (task && task.issueId) {
+      this.scheduleIssueStatsRebuild({
+        gitServerId: task.gitServerId,
+        repositoryId: task.repositoryId,
+        issueId: task.issueId,
+      })
+    }
+    return executionMs
+  }
+
+  async syncTaskEventMetrics(event, client = this.db) {
+    if (event.eventType === "human_input") await this.syncTaskTurns(event.taskId, client)
+    if (event.eventType === "worker_state") await this.syncTaskExecution(event.taskId, client)
   }
 
   async getTask(taskId) {
@@ -2241,17 +2275,15 @@ class IssueFlowStore {
     const tasks = await client.task.findMany({
       where: { gitServerId, repositoryId, issueId },
     })
-    const taskSeconds = { triage: 0, plan: 0, build: 0, review: 0 }
+    const taskExecutionMs = { triage: 0, plan: 0, build: 0, review: 0 }
     const taskTurns = { triage: 0, plan: 0, build: 0, review: 0 }
     let cycleStartedAt = null
     for (const task of tasks) {
       if (task.startedAt && (!cycleStartedAt || task.startedAt < cycleStartedAt)) {
         cycleStartedAt = task.startedAt
       }
-      if (!(task.action in taskSeconds)) continue
-      if (task.startedAt && task.finishedAt) {
-        taskSeconds[task.action] += Math.max(0, Math.round((task.finishedAt.getTime() - task.startedAt.getTime()) / 1000))
-      }
+      if (!(task.action in taskExecutionMs)) continue
+      taskExecutionMs[task.action] += task.executionMs || 0
       taskTurns[task.action] += task.turns || 0
     }
     const data = {
@@ -2266,10 +2298,10 @@ class IssueFlowStore {
       clarifySpanSeconds: spanSeconds.clarify,
       approveSpanSeconds: spanSeconds.approve,
       suspendSpanSeconds: spanSeconds.suspend,
-      triageTaskSeconds: taskSeconds.triage,
-      planTaskSeconds: taskSeconds.plan,
-      buildTaskSeconds: taskSeconds.build,
-      reviewTaskSeconds: taskSeconds.review,
+      triageTaskSeconds: Math.round(taskExecutionMs.triage / 1000),
+      planTaskSeconds: Math.round(taskExecutionMs.plan / 1000),
+      buildTaskSeconds: Math.round(taskExecutionMs.build / 1000),
+      reviewTaskSeconds: Math.round(taskExecutionMs.review / 1000),
       triageTaskTurns: taskTurns.triage,
       planTaskTurns: taskTurns.plan,
       buildTaskTurns: taskTurns.build,

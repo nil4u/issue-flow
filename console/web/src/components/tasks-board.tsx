@@ -224,6 +224,7 @@ function TaskTable({
             <th>Agent</th>
             <th>Model</th>
             <th>Turns</th>
+            <th>Execution</th>
             <th>Duration</th>
             <th>Updated</th>
             <th className="task-link-cell"><span className="sr-only">Open</span></th>
@@ -270,6 +271,7 @@ function TaskTableRow({
         </span>
       </td>
       <td className="task-number">{task.turns || 0}</td>
+      <td className="task-number">{formatDurationMs(task.executionMs)}</td>
       <td className="task-number">{taskDuration(task)}</td>
       <td>
         {formatWhen(
@@ -311,7 +313,12 @@ function taskDuration(task: TaskRow) {
   const end = task.finishedAt ? new Date(task.finishedAt).getTime() : Date.now()
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
     return "-"
-  const seconds = Math.round((end - start) / 1000)
+  return formatDurationMs(end - start)
+}
+
+function formatDurationMs(durationMs: number) {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return "-"
+  const seconds = Math.round(durationMs / 1000)
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
   const remaining = seconds % 60
