@@ -81,6 +81,7 @@ function tempStore() {
   const store = new IssueFlowStore({
     db: prisma,
     keyPath: path.join(dir, 'key'),
+    metricsSchema: schema,
   });
   store.ready = (async () => {
     await pool.query(`CREATE SCHEMA ${quoteIdent(schema)}`);
@@ -249,6 +250,7 @@ test('repository search ignores owner filter while owner browsing still scopes r
   const { dir, store } = tempStore();
   try {
     await seedGitlabServer(store, 'https://gitlab.example.com');
+    await seedGitlabServer(store, 'https://gitlab-other.example.com', { id: 'gitlab-other', name: 'Other GitLab' });
     const user = await store.createUser({
       id: 'user-alice',
       displayName: 'Alice',
@@ -272,6 +274,12 @@ test('repository search ignores owner filter while owner browsing still scopes r
       baseUrl: 'https://gitlab.example.com',
       projectPath: 'team/api',
     }, { status: 'unchecked', projectId: '44' });
+    await store.createRepository({
+      gitServerId: 'gitlab-other',
+      userId: user.id,
+      baseUrl: 'https://gitlab-other.example.com',
+      projectPath: 'other/app',
+    }, { status: 'unchecked', projectId: '45' });
 
     const ownerOnly = await store.listRepositories({
       gitServerId: 'gitlab-main',
@@ -288,6 +296,13 @@ test('repository search ignores owner filter while owner browsing still scopes r
     });
     assert.deepEqual(searched.repositories.map((repo) => repo.projectPath), ['platform/app', 'team/app']);
     assert.equal(searched.total, 2);
+
+    const searchedAcrossServers = await store.listRepositories({
+      userId: user.id,
+      q: 'app',
+    });
+    assert.deepEqual(searchedAcrossServers.repositories.map((repo) => repo.projectPath), ['other/app', 'platform/app', 'team/app']);
+    assert.equal(searchedAcrossServers.repositories[0].gitServerId, 'gitlab-other');
 
     const ownerWithSelectedOutsideFilter = await store.listRepositories({
       gitServerId: 'gitlab-main',
@@ -1099,11 +1114,32 @@ test('git events project issue snapshots and flow spans', async () => {
     });
     await applyGitEventToIssueFacts(store, closed);
 
+    await store.flushIssueStatsRebuilds();
+    const issueRow = await store.db.issue.findUnique({
+      where: {
+        gitServerId_repositoryId_issueId: {
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          issueId: '100',
+        },
+      },
+    });
+    await store.db.issueStat.update({
+      where: { id: issueRow.id },
+      data: {
+        triageSpanSeconds: 3600,
+        planSpanSeconds: 7200,
+        triageTaskSeconds: 1800,
+        triageTaskTurns: 8,
+      },
+    });
     issues = await store.listIssues(createdRepo.repo.id);
     spans = await store.listIssueSpans(createdRepo.repo.id, '100');
     assert.equal(issues[0].state, 'closed');
     assert.equal(issues[0].status, 'done');
     assert.equal(issues[0].closedAt, '2026-07-01T03:00:00.000Z');
+    assert.equal(issues[0].turnsCount, 8);
+    assert.equal(issues[0].agentTimeSharePct, 25);
     assert.equal(spans.length, 2);
     assert.equal(spans[1].exitedAt, '2026-07-01T03:00:00.000Z');
 

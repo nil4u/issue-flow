@@ -612,6 +612,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     await store.db.issueStat.update({
       where: { id: doneIssueRow.id },
       data: {
+        triageTaskSeconds: 3600,
         triageTaskTurns: 1,
         planTaskTurns: 2,
         buildTaskTurns: 3,
@@ -630,6 +631,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     await store.db.issueStat.update({
       where: { id: droppedIssueRow.id },
       data: {
+        buildTaskSeconds: 1800,
         triageTaskTurns: 0,
         planTaskTurns: 8,
         buildTaskTurns: 9,
@@ -684,6 +686,13 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     const distribution = dashboard.panels.find((panel) => panel.id === 'dashpanel_started_issue_distribution');
     assert.deepEqual(distribution.y2Fields, ['duration_p80_days']);
     assert.equal(distribution.visualConfig.fieldLabels.duration_p80_days, 'P80 耗时');
+    assert.deepEqual(distribution.drillConfig, {
+      kind: 'issues',
+      params: ['week', 'bucket'],
+      xParam: 'week',
+      seriesParam: 'bucket',
+    });
+    assert.match(distribution.drillQuerySql, /done_bucket = :bucket/);
     const distributionResult = await store.runMetricsQuery(distribution.querySql, { ...repoParams, weeks: 8 });
     assert.ok(distributionResult.rows.length >= 2);
     assert.deepEqual(
@@ -694,6 +703,21 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       distributionResult.rows.some((row) => Number(row.duration_p80_days) > 0),
       'completion duration P80 is computed from done/drop issues',
     );
+    const completedWeek = distributionResult.rows.find((row) => row.done_bucket === '1d').week;
+    const completionDrill = await store.runMetricsQuery(distribution.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: '1d',
+    });
+    assert.equal(completionDrill.rows.length, 1);
+    assert.equal(completionDrill.rows[0].issue_number, 7);
+    assert.equal(completionDrill.rows[0].title, 'Metrics issue');
+    assert.equal(completionDrill.rows[0].total_count, 1);
+    assert.equal(completionDrill.rows[0].weekly_count, 3);
+    assert.equal(completionDrill.rows[0].duration_p50_seconds, 12 * 3600);
+    assert.equal(completionDrill.rows[0].duration_max_seconds, 12 * 3600);
+    assert.equal(completionDrill.rows[0].task_turns, 7);
+    assert.equal(completionDrill.rows[0].agent_execution_pct, 8);
 
     const otherRepo = await store.runMetricsQuery(distribution.querySql, {
       ...repoParams,
@@ -706,6 +730,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(issueType.chartType, 'stacked_bar');
     assert.deepEqual(issueType.yFields, ['issue_count', 'weighted_count']);
     assert.deepEqual(issueType.visualConfig.stackOrder, ['type::feature', 'type::bug', 'type::debt', 'type::ops', '未分类']);
+    assert.equal(issueType.drillConfig.kind, 'issue_type');
     const typeResult = await store.runMetricsQuery(issueType.querySql, { ...repoParams, weeks: 8 });
     assert.deepEqual(
       typeResult.columns.map((column) => column.name),
@@ -718,6 +743,17 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(Number(typeBuckets.get('type::bug').weighted_count), 1);
     assert.equal(typeBuckets.get('未分类').issue_count, 1);
     assert.equal(Number(typeBuckets.get('未分类').weighted_count), 2);
+    const typeDrill = await store.runMetricsQuery(issueType.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: 'type::feature',
+    });
+    assert.equal(typeDrill.rows.length, 1);
+    assert.equal(typeDrill.rows[0].issue_number, 7);
+    assert.equal(typeDrill.rows[0].total_count, 1);
+    assert.equal(typeDrill.rows[0].weekly_count, 3);
+    assert.equal(Number(typeDrill.rows[0].weighted_total), 2);
+    assert.equal(typeDrill.rows[0].done_count, 1);
 
     const otherRepoTypes = await store.runMetricsQuery(issueType.querySql, {
       ...repoParams,
@@ -731,6 +767,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.deepEqual(taskTurns.yFields, ['issue_count', 'weighted_count']);
     assert.deepEqual(taskTurns.y2Fields, ['task_turns_p80']);
     assert.equal(taskTurns.visualConfig.fieldLabels.task_turns_p80, 'P80 轮次');
+    assert.equal(taskTurns.drillConfig.kind, 'issue_turns');
     const turnsResult = await store.runMetricsQuery(taskTurns.querySql, { ...repoParams, weeks: 8 });
     assert.deepEqual(
       turnsResult.columns.map((column) => column.name),
@@ -747,6 +784,22 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       turnsResult.rows.some((row) => Math.abs(Number(row.task_turns_p80) - 15.4) < 0.001),
       'task turns P80 is computed from summed issue_stats task turns',
     );
+    const turnsDrill = await store.runMetricsQuery(taskTurns.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: '20+',
+    });
+    assert.equal(turnsDrill.rows.length, 1);
+    assert.equal(turnsDrill.rows[0].issue_number, 9);
+    assert.equal(turnsDrill.rows[0].task_turns, 21);
+    assert.deepEqual(
+      ['triage_turns', 'plan_turns', 'build_turns', 'review_turns'].map((field) => turnsDrill.rows[0][field]),
+      [0, 8, 9, 4],
+    );
+    assert.equal(turnsDrill.rows[0].total_count, 1);
+    assert.equal(turnsDrill.rows[0].weekly_count, 3);
+    assert.equal(Number(turnsDrill.rows[0].task_turns_p50), 21);
+    assert.ok(Math.abs(Number(turnsDrill.rows[0].task_turns_p80) - 15.4) < 0.001);
 
     const otherRepoTurns = await store.runMetricsQuery(taskTurns.querySql, {
       ...repoParams,
@@ -757,6 +810,25 @@ test('metric views and the read-only executor answer the seeded panel queries', 
 
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').chartType, 'stacked_bar_with_lines');
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share').chartType, 'percent_stacked_bar_with_lines');
+
+    const taskTimeShare = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share');
+    assert.match(taskTimeShare.querySql, /issue_stats/);
+    assert.doesNotMatch(taskTimeShare.querySql, /issue_flow_metrics/);
+    const taskTimeShareResult = await store.runMetricsQuery(taskTimeShare.querySql, {
+      ...repoParams,
+      from: at(-30 * DAY_MS),
+      to: at(30 * DAY_MS),
+    });
+    const taskTimeShareRows = new Map(taskTimeShareResult.rows.map((row) => [row.component, row]));
+    assert.equal(Number(taskTimeShareRows.get('agent').seconds), 5400, 'agent execution comes from issue_stats task seconds');
+    assert.ok(Number(taskTimeShareRows.get('wait').seconds) > 0, 'issue lifecycle remainder is reported as wait');
+    assert.ok(
+      Math.abs(
+        Number(taskTimeShareRows.get('agent').task_share_pct)
+        - (5400 * 100 / (5400 + Number(taskTimeShareRows.get('wait').seconds)))
+      ) < 0.001,
+      'agent execution share uses issue lifecycle seconds as its denominator',
+    );
 
     const flowWaitSql = `select
   flow,
@@ -808,6 +880,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
       repoId: repoRow.id,
     });
     const queryPath = `/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_started_issue_distribution/query`;
+    const drillPath = `/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_started_issue_distribution/drill`;
 
     const anonymous = await fetch(`${baseUrl}/api/dashboards`);
     assert.equal(anonymous.status, 401);
@@ -837,6 +910,37 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const queryBody = await queryResponse.json();
     assert.ok(Array.isArray(queryBody.result.columns));
     assert.ok(Array.isArray(queryBody.result.rows));
+
+    const drillResponse = await fetch(`${baseUrl}${drillPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ params: { week: '2026-07-06', bucket: 'open' } }),
+    });
+    assert.equal(drillResponse.status, 200);
+    const drillBody = await drillResponse.json();
+    assert.ok(Array.isArray(drillBody.result.rows));
+
+    const blockedDrillParam = await fetch(`${baseUrl}${drillPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ params: { week: '2026-07-06', bucket: 'open', repository_id: 'other' } }),
+    });
+    assert.equal(blockedDrillParam.status, 400);
+
+    for (const [panelId, bucket] of [
+      ['dashpanel_issue_type_distribution', 'type::feature'],
+      ['dashpanel_issue_task_turns_distribution', '20+'],
+    ]) {
+      const enabledDrill = await fetch(
+        `${baseUrl}/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/${panelId}/drill`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', cookie },
+          body: JSON.stringify({ params: { week: '2026-07-06', bucket } }),
+        },
+      );
+      assert.equal(enabledDrill.status, 200, `${panelId} exposes drilldown`);
+    }
 
     const outsider = await store.createUser({ displayName: 'Metrics Outsider' });
     const { token: outsiderToken } = await store.createConsoleSession({ userId: outsider.id });

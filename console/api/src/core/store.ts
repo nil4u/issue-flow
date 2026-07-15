@@ -2314,6 +2314,8 @@ class IssueFlowStore {
       seriesField: row.seriesField || "",
       stackField: row.stackField || "",
       visualConfig: jsonValue(row.visualConfig, {}) || {},
+      drillQuerySql: row.drillQuerySql || "",
+      drillConfig: jsonValue(row.drillConfig, {}) || {},
       position: jsonValue(row.position, {}) || {},
       refreshInterval: row.refreshInterval || 0,
     }
@@ -2367,16 +2369,62 @@ class IssueFlowStore {
     await this.ready
     const repo = await this.db.repo.findUnique({ where: { id: repoId } })
     if (!repo || !repo.gitServerId || !repo.serverRepoId) return []
-    const rows = await this.db.issue.findMany({
-      where: {
-        gitServerId: repo.gitServerId,
-        repositoryId: repo.serverRepoId,
-      },
-      orderBy: { issueNumber: "asc" },
+    const rows = await this.db.$transaction(async (tx) => {
+      if (this.metricsSchema) {
+        const schema = String(this.metricsSchema).replace(/"/g, '""')
+        await tx.$executeRawUnsafe(`SET LOCAL search_path = "${schema}"`)
+      }
+      return tx.$queryRawUnsafe(`
+      select
+        i."id" as "id",
+        i."git_server_id" as "gitServerId",
+        i."repository_id" as "repositoryId",
+        i."repository_full_name" as "repositoryFullName",
+        i."issue_id" as "issueId",
+        i."issue_number" as "issueNumber",
+        i."title" as "title",
+        i."state" as "state",
+        i."type" as "type",
+        i."priority" as "priority",
+        i."size" as "size",
+        i."automation" as "automation",
+        i."status" as "status",
+        i."flow" as "flow",
+        i."opened_at" as "openedAt",
+        i."closed_at" as "closedAt",
+        i."updated_at" as "updatedAt",
+        coalesce(st."triage_task_turns", 0)
+          + coalesce(st."plan_task_turns", 0)
+          + coalesce(st."build_task_turns", 0)
+          + coalesce(st."review_task_turns", 0) as "turnsCount",
+        case
+          when extract(epoch from (
+            coalesce(st."done_at", st."drop_at", now() at time zone 'utc')
+            - coalesce(st."opened_at", i."opened_at")
+          )) > 0 then round((
+            coalesce(st."triage_task_seconds", 0)
+              + coalesce(st."plan_task_seconds", 0)
+              + coalesce(st."build_task_seconds", 0)
+              + coalesce(st."review_task_seconds", 0)
+          ) * 100.0 / extract(epoch from (
+            coalesce(st."done_at", st."drop_at", now() at time zone 'utc')
+            - coalesce(st."opened_at", i."opened_at")
+          )))::int
+          else 0
+        end as "agentTimeSharePct"
+      from "issues" i
+      left join "issue_stats" st on st."id" = i."id"
+      where i."git_server_id" = $1
+        and i."repository_id" = $2
+      order by i."issue_number" asc
+      `, repo.gitServerId, repo.serverRepoId)
     })
+
     return rows.map((row) => ({
       ...this.issueFromRecord(row),
       currentFlow: row.flow || "",
+      turnsCount: Number(row.turnsCount || 0),
+      agentTimeSharePct: Number(row.agentTimeSharePct || 0),
     }))
   }
 

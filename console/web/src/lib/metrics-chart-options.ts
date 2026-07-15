@@ -365,6 +365,7 @@ function stackedBarOption(panel: DashboardPanel, result: MetricsQueryResult, sha
         barMaxWidth: 28,
         color: stackColor(stackValue),
         emphasis: { focus: "series" },
+        cursor: panel.drillQuerySql ? "pointer" : "default",
         data,
       })
     }

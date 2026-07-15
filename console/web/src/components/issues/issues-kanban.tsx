@@ -3,7 +3,8 @@ import { ExternalLink } from "lucide-react"
 import type { IssueRow } from "@/issue-flow-model"
 import { formatWhen } from "@/issue-flow-model"
 
-import { issueLane, issueLanes } from "./issue-view-model"
+import { issueLanes } from "./issue-view-model"
+import { IssueMetrics } from "./issue-metrics"
 
 export function IssuesKanban({ groupedIssues, issueHref }: { groupedIssues: Map<string, IssueRow[]>; issueHref: (issueNumber: number) => string }) {
   return (
@@ -34,9 +35,7 @@ function IssueLane({ title, detail, issues, issueHref }: { title: string; detail
 }
 
 function IssueCard({ issue, href }: { issue: IssueRow; href: string }) {
-  const lane = issueLane(issue)
   const meta = [
-    `flow::${lane.id}`,
     issue.type ? `type::${issue.type}` : "",
     issue.priority ? `priority::${issue.priority}` : "",
     issue.size ? `size::${issue.size}` : "",
@@ -61,6 +60,7 @@ function IssueCard({ issue, href }: { issue: IssueRow; href: string }) {
         </span>
       </header>
       <p>{issue.title || "-"}</p>
+      <IssueMetrics issue={issue} />
       {meta.length > 0 && (
         <div className="issue-card-labels">
           {meta.map((item) => <span key={item}>{item}</span>)}

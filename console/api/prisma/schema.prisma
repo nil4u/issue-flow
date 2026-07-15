@@ -364,6 +364,8 @@ model DashboardPanel {
   seriesField     String   @default("") @map("series_field")
   stackField      String   @default("") @map("stack_field")
   visualConfig    Json     @map("visual_config")
+  drillQuerySql   String   @default("") @map("drill_query_sql")
+  drillConfig     Json     @default("{}") @map("drill_config")
   position        Json
   refreshInterval Int?     @map("refresh_interval")
   createdAt       DateTime @default(now()) @map("created_at")

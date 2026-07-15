@@ -119,6 +119,8 @@ export type GitLabProject = {
   id: string
   name: string
   pathWithNamespace: string
+  gitServerId?: string
+  owner?: string
   webUrl?: string
   defaultBranch?: string
   canInstall?: boolean
@@ -443,6 +445,8 @@ export type IssueRow = {
   status: "active" | "done" | "drop" | "suspend" | string
   flow?: string
   currentFlow?: string
+  turnsCount?: number
+  agentTimeSharePct?: number
   openedAt?: string
   closedAt?: string
   updatedAt?: string
@@ -470,6 +474,13 @@ export type DashboardPanel = {
   seriesField?: string
   stackField?: string
   visualConfig?: Record<string, unknown>
+  drillQuerySql?: string
+  drillConfig?: {
+    kind?: string
+    params?: string[]
+    xParam?: string
+    seriesParam?: string
+  }
   position?: DashboardPanelPosition
   refreshInterval?: number
 }
@@ -608,7 +619,7 @@ export async function api<T = any>(path: string, options: ApiRequestInit = {}): 
 }
 
 export function ownerOf(project?: GitLabProject) {
-  return project?.pathWithNamespace.split("/")[0] || ""
+  return project?.owner || project?.pathWithNamespace.split("/")[0] || ""
 }
 
 export function repositoryToProject(repository: Repository): GitLabProject {
@@ -618,6 +629,8 @@ export function repositoryToProject(repository: Repository): GitLabProject {
     id: repository.projectId || repository.serverRepoId || repository.id,
     name: repository.name || parts[parts.length - 1] || fullName,
     pathWithNamespace: fullName,
+    gitServerId: repository.gitServerId,
+    owner: repository.owner || parts[0] || "",
     webUrl: repository.webUrl || repository.url,
     defaultBranch: repository.defaultBranch,
   }

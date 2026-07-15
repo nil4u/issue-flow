@@ -455,6 +455,13 @@
     font-weight: 400;
     line-height: 1.25rem;
   }
+  .repo-row-copy {
+    min-width: 0;
+  }
+  .repo-row small {
+    font-size: 0.6875rem;
+    line-height: 1rem;
+  }
   .repo-row.compact {
     width: 2.5rem;
     height: 2.5rem;
@@ -1271,6 +1278,38 @@
     color: var(--muted-foreground);
     font-size: 0.78rem;
   }
+  .issue-metrics {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .issue-metric {
+    min-height: 1.35rem;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.28rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    background: var(--if-color-surface-high);
+    color: var(--if-color-text-secondary);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .issue-metric-label {
+    color: var(--if-color-text-secondary);
+  }
+  .issue-metric-value {
+    color: var(--if-color-text);
+    font-weight: 650;
+  }
+  .issue-metric-plain {
+    min-height: 0;
+    padding: 0;
+    background: transparent;
+  }
   .issue-board-lanes {
     grid-row: 2 / -1;
     min-width: 0;
@@ -1498,7 +1537,7 @@
   }
   .issue-list-table {
     width: 100%;
-    min-width: 52rem;
+    min-width: 62rem;
     border-collapse: collapse;
     font-size: 0.84rem;
   }
@@ -1523,6 +1562,9 @@
     color: var(--if-color-text-secondary);
     vertical-align: top;
     white-space: nowrap;
+  }
+  .issue-list-table .issue-metric-cell {
+    min-width: 5.25rem;
   }
   .issue-list-table tbody tr:last-child td {
     border-bottom: 0;

@@ -2,6 +2,7 @@ import { Loader2, RefreshCw } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { EChart } from "@/components/metrics-echart"
+import { MetricsDrillDrawer, type MetricsDrillSelection } from "@/components/metrics-drill-drawer"
 import { buildChartOption, buildWeeklyAxis, formatSeconds } from "@/lib/metrics-chart-options"
 import { Button } from "@/components/ui/button"
 import {
@@ -35,6 +36,7 @@ export function MetricsBoard({ repository }: { repository: Repository }) {
   const [loading, setLoading] = useState(true)
   const [weeks, setWeeks] = useState(8)
   const [refreshedAt, setRefreshedAt] = useState(() => Date.now())
+  const [drillSelection, setDrillSelection] = useState<MetricsDrillSelection>()
 
   useEffect(() => {
     void (async () => {
@@ -117,9 +119,19 @@ export function MetricsBoard({ repository }: { repository: Repository }) {
             panel={panel}
             params={params}
             weekAxis={weekAxis}
+            onDrill={setDrillSelection}
           />
         ))}
       </div>
+      {drillSelection && (
+        <MetricsDrillDrawer
+          key={`${drillSelection.panel.id}:${drillSelection.params.week}:${drillSelection.params.bucket}`}
+          repository={repository}
+          slug={dashboard.slug}
+          selection={drillSelection}
+          onClose={() => setDrillSelection(undefined)}
+        />
+      )}
     </div>
   )
 }
@@ -130,12 +142,14 @@ function MetricsPanel({
   panel,
   params,
   weekAxis,
+  onDrill,
 }: {
   repository: Repository
   slug: string
   panel: DashboardPanel
   params: PanelParams
   weekAxis: string[]
+  onDrill: (selection: MetricsDrillSelection) => void
 }) {
   const width = Math.min(Math.max(panel.position?.w ?? 12, 1), 12)
   const height = Math.max(panel.position?.h ?? 8, 4) * 36
@@ -144,6 +158,7 @@ function MetricsPanel({
     <section className="metrics-panel" style={{ gridColumn: `span ${width}` }}>
       <header className="metrics-panel-head">
         <h3>{panel.title}</h3>
+        {panel.drillQuerySql && <span>点击柱段查看 issue</span>}
       </header>
       <div className="metrics-panel-body" style={{ minHeight: height }}>
         <PanelQuery
@@ -153,6 +168,7 @@ function MetricsPanel({
           panel={panel}
           params={params}
           weekAxis={weekAxis}
+          onDrill={onDrill}
         />
       </div>
     </section>
@@ -171,12 +187,14 @@ function PanelQuery({
   panel,
   params,
   weekAxis,
+  onDrill,
 }: {
   repository: Repository
   slug: string
   panel: DashboardPanel
   params: PanelParams
   weekAxis: string[]
+  onDrill: (selection: MetricsDrillSelection) => void
 }) {
   const [state, setState] = useState<PanelQueryState>({ loading: true, error: "" })
 
@@ -210,7 +228,7 @@ function PanelQuery({
   return (
     <div className="metrics-panel-result">
       {state.result.truncated && <div className="metrics-panel-note">结果已截断（最多 5000 行）</div>}
-      <PanelContent panel={panel} result={state.result} weekAxis={weekAxis} />
+      <PanelContent panel={panel} result={state.result} weekAxis={weekAxis} onDrill={onDrill} />
     </div>
   )
 }
@@ -219,10 +237,12 @@ function PanelContent({
   panel,
   result,
   weekAxis,
+  onDrill,
 }: {
   panel: DashboardPanel
   result: MetricsQueryResult
   weekAxis: string[]
+  onDrill: (selection: MetricsDrillSelection) => void
 }) {
   if (!result.rows.length && panel.xField !== "week") {
     return <div className="metrics-empty">暂无数据</div>
@@ -234,7 +254,20 @@ function PanelContent({
     return <PanelStat panel={panel} result={result} />
   }
   const sharedXs = panel.xField === "week" ? weekAxis : undefined
-  return <EChart option={buildChartOption(panel, result, sharedXs)} />
+  return (
+    <EChart
+      option={buildChartOption(panel, result, sharedXs)}
+      onDataClick={panel.drillQuerySql ? (event) => {
+        const seriesId = String(event.seriesId || "")
+        const xParam = panel.drillConfig?.xParam || ""
+        const seriesParam = panel.drillConfig?.seriesParam || ""
+        const xValue = String(event.name || "")
+        const seriesValue = String(event.seriesName || "")
+        if (!seriesId.startsWith("bar:") || !xParam || !seriesParam || !xValue || !seriesValue) return
+        onDrill({ panel, params: { [xParam]: xValue, [seriesParam]: seriesValue } })
+      } : undefined}
+    />
+  )
 }
 
 function PanelStat({ panel, result }: { panel: DashboardPanel; result: MetricsQueryResult }) {
