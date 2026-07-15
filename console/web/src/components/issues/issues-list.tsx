@@ -7,6 +7,7 @@ import type { IssueRow } from "@/issue-flow-model"
 import { formatWhen } from "@/issue-flow-model"
 
 import { emptyIssueFilters, issueLane, issueLanes, type IssueFilters } from "./issue-view-model"
+import { IssueMetric } from "./issue-metrics"
 
 export function IssuesList({
   issues,
@@ -118,6 +119,8 @@ function IssueListTable({ issues, issueHref }: { issues: IssueRow[]; issueHref: 
             <th>Type</th>
             <th>Priority</th>
             <th>Size</th>
+            <th>Turns</th>
+            <th>Agent execution</th>
             <th>Updated</th>
             <th className="issue-link-cell"><span className="sr-only">Open</span></th>
           </tr>
@@ -145,6 +148,8 @@ function IssueListRow({ issue, href }: { issue: IssueRow; href: string }) {
       <td>{issue.type || "-"}</td>
       <td>{issue.priority || "-"}</td>
       <td>{issue.size || "-"}</td>
+      <td className="issue-metric-cell"><IssueMetric issue={issue} kind="turns" plain /></td>
+      <td className="issue-metric-cell"><IssueMetric issue={issue} kind="agentTime" plain /></td>
       <td>{formatWhen(issue.updatedAt || issue.openedAt || "") || "-"}</td>
       <td className="issue-link-cell">
         <a

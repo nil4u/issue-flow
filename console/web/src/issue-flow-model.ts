@@ -445,6 +445,8 @@ export type IssueRow = {
   status: "active" | "done" | "drop" | "suspend" | string
   flow?: string
   currentFlow?: string
+  turnsCount?: number
+  agentTimeSharePct?: number
   openedAt?: string
   closedAt?: string
   updatedAt?: string
