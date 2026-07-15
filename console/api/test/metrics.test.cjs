@@ -686,6 +686,13 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     const distribution = dashboard.panels.find((panel) => panel.id === 'dashpanel_started_issue_distribution');
     assert.deepEqual(distribution.y2Fields, ['duration_p80_days']);
     assert.equal(distribution.visualConfig.fieldLabels.duration_p80_days, 'P80 耗时');
+    assert.deepEqual(distribution.drillConfig, {
+      kind: 'issues',
+      params: ['week', 'bucket'],
+      xParam: 'week',
+      seriesParam: 'bucket',
+    });
+    assert.match(distribution.drillQuerySql, /done_bucket = :bucket/);
     const distributionResult = await store.runMetricsQuery(distribution.querySql, { ...repoParams, weeks: 8 });
     assert.ok(distributionResult.rows.length >= 2);
     assert.deepEqual(
@@ -696,6 +703,21 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       distributionResult.rows.some((row) => Number(row.duration_p80_days) > 0),
       'completion duration P80 is computed from done/drop issues',
     );
+    const completedWeek = distributionResult.rows.find((row) => row.done_bucket === '1d').week;
+    const completionDrill = await store.runMetricsQuery(distribution.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: '1d',
+    });
+    assert.equal(completionDrill.rows.length, 1);
+    assert.equal(completionDrill.rows[0].issue_number, 7);
+    assert.equal(completionDrill.rows[0].title, 'Metrics issue');
+    assert.equal(completionDrill.rows[0].total_count, 1);
+    assert.equal(completionDrill.rows[0].weekly_count, 3);
+    assert.equal(completionDrill.rows[0].duration_p50_seconds, 12 * 3600);
+    assert.equal(completionDrill.rows[0].duration_max_seconds, 12 * 3600);
+    assert.equal(completionDrill.rows[0].task_turns, 7);
+    assert.equal(completionDrill.rows[0].agent_execution_pct, 8);
 
     const otherRepo = await store.runMetricsQuery(distribution.querySql, {
       ...repoParams,
@@ -829,6 +851,7 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
       repoId: repoRow.id,
     });
     const queryPath = `/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_started_issue_distribution/query`;
+    const drillPath = `/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_started_issue_distribution/drill`;
 
     const anonymous = await fetch(`${baseUrl}/api/dashboards`);
     assert.equal(anonymous.status, 401);
@@ -858,6 +881,32 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
     const queryBody = await queryResponse.json();
     assert.ok(Array.isArray(queryBody.result.columns));
     assert.ok(Array.isArray(queryBody.result.rows));
+
+    const drillResponse = await fetch(`${baseUrl}${drillPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ params: { week: '2026-07-06', bucket: 'open' } }),
+    });
+    assert.equal(drillResponse.status, 200);
+    const drillBody = await drillResponse.json();
+    assert.ok(Array.isArray(drillBody.result.rows));
+
+    const blockedDrillParam = await fetch(`${baseUrl}${drillPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ params: { week: '2026-07-06', bucket: 'open', repository_id: 'other' } }),
+    });
+    assert.equal(blockedDrillParam.status, 400);
+
+    const disabledDrill = await fetch(
+      `${baseUrl}/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_issue_type_distribution/drill`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ params: {} }),
+      },
+    );
+    assert.equal(disabledDrill.status, 404, 'other overview panels do not expose drilldown yet');
 
     const outsider = await store.createUser({ displayName: 'Metrics Outsider' });
     const { token: outsiderToken } = await store.createConsoleSession({ userId: outsider.id });

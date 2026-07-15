@@ -264,6 +264,14 @@ test('bindMetricsParams rewrites named params to positional placeholders', () =>
   assert.match(range.text, /started_at < \$2::timestamp/);
   assert.match(range.text, /ended_at < \$2::timestamp/);
   assert.deepEqual(range.values, ['2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z']);
+
+  const drill = bindMetricsParams('select 1 from issues where opened_at >= :week::date and status = :bucket', {
+    week: '2026-07-06',
+    bucket: 'open',
+  });
+  assert.match(drill.text, /opened_at >= \$1::date/);
+  assert.match(drill.text, /status = \$2/);
+  assert.deepEqual(drill.values, ['2026-07-06', 'open']);
 });
 
 test('bindMetricsParams validates parameter names and values', () => {

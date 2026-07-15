@@ -474,6 +474,13 @@ export type DashboardPanel = {
   seriesField?: string
   stackField?: string
   visualConfig?: Record<string, unknown>
+  drillQuerySql?: string
+  drillConfig?: {
+    kind?: string
+    params?: string[]
+    xParam?: string
+    seriesParam?: string
+  }
   position?: DashboardPanelPosition
   refreshInterval?: number
 }

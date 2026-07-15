@@ -2314,6 +2314,8 @@ class IssueFlowStore {
       seriesField: row.seriesField || "",
       stackField: row.stackField || "",
       visualConfig: jsonValue(row.visualConfig, {}) || {},
+      drillQuerySql: row.drillQuerySql || "",
+      drillConfig: jsonValue(row.drillConfig, {}) || {},
       position: jsonValue(row.position, {}) || {},
       refreshInterval: row.refreshInterval || 0,
     }

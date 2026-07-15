@@ -16,6 +16,8 @@ const METRICS_SQL_PARAMS = new Set([
   "weeks",
   "git_server_id",
   "repository_id",
+  "week",
+  "bucket",
   "type",
   "priority",
   "size",
