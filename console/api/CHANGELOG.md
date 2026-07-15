@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.0](https://github.com/nil4u/issue-flow/compare/console-v0.7.1...console-v0.8.0) (2026-07-15)
+
+
+### Features
+
+* **console:** add issue completion drilldown ([bad256d](https://github.com/nil4u/issue-flow/commit/bad256df0d7eec2de97e8e7b4d78a2e7811b0029))
+* **console:** add issue distribution drilldowns ([024b40a](https://github.com/nil4u/issue-flow/commit/024b40aec8160fa9f4d95a1f815ed045c228a21a))
+* **console:** search repositories across git servers ([e5a3ce4](https://github.com/nil4u/issue-flow/commit/e5a3ce4fa90f142c79e4d93376db2357fa83bb82))
+* **console:** show issue execution metrics ([9301293](https://github.com/nil4u/issue-flow/commit/93012932ca3e158f9fc44e0f0fecd2b2e221e473))
+
+
+### Bug Fixes
+
+* **console:** align task time share with issue lifecycle ([7d8e458](https://github.com/nil4u/issue-flow/commit/7d8e458fe26f718b7229883d6a0586385bbb3354))
+
 ## [0.7.1](https://github.com/nil4u/issue-flow/compare/console-v0.7.0...console-v0.7.1) (2026-07-14)
 
 
