@@ -26,7 +26,7 @@ const METRICS_MAX_ROWS = 5000
 
 const BLOCKED_STATEMENT_PATTERN = /\b(insert|update|delete|merge|drop|alter|create|truncate|copy|grant|revoke|call|do|execute|listen|notify|lock|vacuum|reset|set|comment|prepare|deallocate|declare|fetch|import|refresh)\b/i
 const BLOCKED_FUNCTION_PATTERN = /\bpg_[a-z_]*\s*\(/i
-const CTE_NAME_PATTERN = /\b(?:with|,)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s*\(/gi
+const CTE_NAME_PATTERN = /(?:\bwith|,)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s*\(/gi
 const SOURCE_PATTERN = /(?<!:)\b(from|join)\s+("?[a-zA-Z_][a-zA-Z0-9_".]*)/gi
 const PARAM_PATTERN = /(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)/g
 const EXTRACT_FIELDS = new Set([

@@ -141,31 +141,48 @@ join (
 ) wp on wp.week = wa.week
 order by wa.week, wa.action`;
 
-const TASK_TIME_SHARE_SQL = `with weekly as (
+const TASK_TIME_SHARE_SQL = `with scoped as (
   select
-    (date_trunc('week', started_at))::date as week,
-    sum(task_seconds)::numeric as task_seconds,
-    sum(wait_seconds)::numeric as wait_seconds
-  from issue_flow_metrics
-  where git_server_id = :git_server_id
-    and repository_id = :repository_id
-    and started_at >= :from
-    and started_at < :to
+    (date_trunc('week', coalesce(st.opened_at, i.opened_at)))::date as week,
+    extract(epoch from (
+      coalesce(st.done_at, st.drop_at, now() at time zone 'utc')
+      - coalesce(st.opened_at, i.opened_at)
+    ))::numeric as lifecycle_seconds,
+    (
+      coalesce(st.triage_task_seconds, 0)
+      + coalesce(st.plan_task_seconds, 0)
+      + coalesce(st.build_task_seconds, 0)
+      + coalesce(st.review_task_seconds, 0)
+    )::numeric as agent_seconds
+  from issues i
+  left join issue_stats st on st.id = i.id
+  where i.git_server_id = :git_server_id
+    and i.repository_id = :repository_id
+    and coalesce(st.opened_at, i.opened_at) >= :from
+    and coalesce(st.opened_at, i.opened_at) < :to
+), weekly as (
+  select
+    week,
+    sum(agent_seconds)::numeric as agent_seconds,
+    sum(lifecycle_seconds)::numeric as lifecycle_seconds,
+    greatest(sum(lifecycle_seconds) - sum(agent_seconds), 0)::numeric as wait_seconds
+  from scoped
+  where lifecycle_seconds > 0
   group by week
 )
 select
   week,
   'agent' as component,
-  task_seconds as seconds,
-  case when task_seconds + wait_seconds > 0 then (task_seconds * 100.0 / (task_seconds + wait_seconds)) else 0 end as task_share_pct
+  agent_seconds as seconds,
+  case when lifecycle_seconds > 0 then (agent_seconds * 100.0 / lifecycle_seconds) else 0 end as task_share_pct
 from weekly
-where task_seconds > 0
+where agent_seconds > 0
 union all
 select
   week,
   'wait' as component,
   wait_seconds as seconds,
-  case when task_seconds + wait_seconds > 0 then (task_seconds * 100.0 / (task_seconds + wait_seconds)) else 0 end as task_share_pct
+  case when lifecycle_seconds > 0 then (agent_seconds * 100.0 / lifecycle_seconds) else 0 end as task_share_pct
 from weekly
 where wait_seconds > 0
 order by week, component`;
@@ -176,6 +193,8 @@ test('assertReadOnlyMetricsSql allows the seeded panel queries', () => {
   assert.equal(typeof assertReadOnlyMetricsSql(ISSUE_TASK_TURNS_DISTRIBUTION_SQL), 'string');
   assert.equal(typeof assertReadOnlyMetricsSql(TOKEN_CONSUMPTION_TREND_SQL), 'string');
   assert.equal(typeof assertReadOnlyMetricsSql(TASK_TIME_SHARE_SQL), 'string');
+  assert.match(TASK_TIME_SHARE_SQL, /from issues[\s\S]+left join issue_stats/);
+  assert.doesNotMatch(TASK_TIME_SHARE_SQL, /issue_flow_metrics/);
   assert.ok(assertReadOnlyMetricsSql(`select
     flow,
     percentile_cont(0.85) within group (order by wait_seconds) as wait_p85_seconds,

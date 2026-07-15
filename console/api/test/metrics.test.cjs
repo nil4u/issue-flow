@@ -612,6 +612,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     await store.db.issueStat.update({
       where: { id: doneIssueRow.id },
       data: {
+        triageTaskSeconds: 3600,
         triageTaskTurns: 1,
         planTaskTurns: 2,
         buildTaskTurns: 3,
@@ -630,6 +631,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     await store.db.issueStat.update({
       where: { id: droppedIssueRow.id },
       data: {
+        buildTaskSeconds: 1800,
         triageTaskTurns: 0,
         planTaskTurns: 8,
         buildTaskTurns: 9,
@@ -757,6 +759,25 @@ test('metric views and the read-only executor answer the seeded panel queries', 
 
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').chartType, 'stacked_bar_with_lines');
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share').chartType, 'percent_stacked_bar_with_lines');
+
+    const taskTimeShare = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share');
+    assert.match(taskTimeShare.querySql, /issue_stats/);
+    assert.doesNotMatch(taskTimeShare.querySql, /issue_flow_metrics/);
+    const taskTimeShareResult = await store.runMetricsQuery(taskTimeShare.querySql, {
+      ...repoParams,
+      from: at(-30 * DAY_MS),
+      to: at(30 * DAY_MS),
+    });
+    const taskTimeShareRows = new Map(taskTimeShareResult.rows.map((row) => [row.component, row]));
+    assert.equal(Number(taskTimeShareRows.get('agent').seconds), 5400, 'agent execution comes from issue_stats task seconds');
+    assert.ok(Number(taskTimeShareRows.get('wait').seconds) > 0, 'issue lifecycle remainder is reported as wait');
+    assert.ok(
+      Math.abs(
+        Number(taskTimeShareRows.get('agent').task_share_pct)
+        - (5400 * 100 / (5400 + Number(taskTimeShareRows.get('wait').seconds)))
+      ) < 0.001,
+      'agent execution share uses issue lifecycle seconds as its denominator',
+    );
 
     const flowWaitSql = `select
   flow,
