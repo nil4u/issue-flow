@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/nil4u/issue-flow/compare/console-v0.8.0...console-v0.9.0) (2026-07-16)
+
+
+### Features
+
+* **console:** track task worker execution ([301d159](https://github.com/nil4u/issue-flow/commit/301d1593857b5002ac01dc6710eae1b2caf2ddc2))
+* **settings:** show Agentrix machine versions ([420e267](https://github.com/nil4u/issue-flow/commit/420e26741093660315b17f52cfcd9ca1751d1728))
+
+
+### Bug Fixes
+
+* **console:** count task turns from human inputs ([c6ce172](https://github.com/nil4u/issue-flow/commit/c6ce1724d3040e410cf7597a532816226237d69d))
+* **console:** ignore worker exit for task status ([ec7e8b9](https://github.com/nil4u/issue-flow/commit/ec7e8b96db8ffde12ae32c8000cc6908a7455fca))
+
 ## [0.8.0](https://github.com/nil4u/issue-flow/compare/console-v0.7.1...console-v0.8.0) (2026-07-15)
 
 
