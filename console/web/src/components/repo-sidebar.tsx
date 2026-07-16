@@ -1,4 +1,4 @@
-import { useState, type FocusEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react"
 import {
   AlertCircle,
   BarChart3,
@@ -95,7 +95,13 @@ export function RepoSidebar(props: {
     repositories: sidebarGroupOpen("repositories"),
     insights: sidebarGroupOpen("insights"),
   }))
+  const selectedProjectRef = useRef<HTMLButtonElement>(null)
   const searching = Boolean(filter.trim())
+
+  useEffect(() => {
+    if (!selectedProjectId) return
+    selectedProjectRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [projects, selectedProjectId, selectedGitServerId])
 
   function toggleGroup(group: SidebarGroupId) {
     setOpenGroups((current) => {
@@ -166,6 +172,7 @@ export function RepoSidebar(props: {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
+                    ref={isSelectedProject(project, selectedProjectId, selectedGitServerId) ? selectedProjectRef : undefined}
                     className={`repo-row compact ${isSelectedProject(project, selectedProjectId, selectedGitServerId) ? "active" : ""}`}
                     onClick={() => onSelectProject(project.id, project.gitServerId)}
                   >
@@ -313,11 +320,13 @@ export function RepoSidebar(props: {
               {(currentUser || searching) && loading && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> {loadingLabel || "加载仓库..."}</div>}
               {(currentUser || searching) && !loading && projects.length === 0 && <div className="repo-row muted">没有匹配仓库</div>}
               {projects.map((project) => {
+                const selected = isSelectedProject(project, selectedProjectId, selectedGitServerId)
                 return (
                   <button
                     type="button"
                     key={`${project.gitServerId || ""}:${project.id}`}
-                    className={`repo-row ${isSelectedProject(project, selectedProjectId, selectedGitServerId) ? "active" : ""}`}
+                    ref={selected ? selectedProjectRef : undefined}
+                    className={`repo-row ${selected ? "active" : ""}`}
                     title={project.pathWithNamespace}
                     onClick={() => onSelectProject(project.id, project.gitServerId)}
                   >
