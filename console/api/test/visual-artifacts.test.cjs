@@ -4,8 +4,7 @@ const test = require('node:test')
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test'
 require('tsx/cjs')
 
-const { IssueFlowStore } = require('../src/core/store.ts')
-const { buildReviewComment, listReviewablePlanArtifacts, parseArtifactMarker, pendingDecisionApprovalRefs, rewriteHtmlResources } = require('../src/core/visual-artifacts.ts')
+const { buildReviewComment, decisionRequirementsFromData, listReviewablePlanArtifacts, parseArtifactMarker, pendingDecisionApprovalRefs, rewriteHtmlResources, submitVisualReview } = require('../src/core/visual-artifacts.ts')
 const {
   applyVisualIssueLabels,
   createPlanMergeRequestComment,
@@ -13,56 +12,6 @@ const {
   mergePlanMergeRequest,
   renderPlanMarkdown,
 } = require('../src/core/visual-provider.ts')
-
-function createVisualReviewStore() {
-  const rows = []
-  const visualReview = {
-    async findFirst({ where }) {
-      return rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value))
-    },
-    async create({ data }) {
-      const row = structuredClone(data)
-      rows.push(row)
-      return structuredClone(row)
-    },
-    async update({ where, data }) {
-      const row = rows.find((item) => item.id === where.id)
-      Object.assign(row, structuredClone(data))
-      return structuredClone(row)
-    },
-    async delete({ where }) {
-      const index = rows.findIndex((item) => item.id === where.id)
-      return rows.splice(index, 1)[0]
-    },
-    async findMany({ where }) {
-      return rows.filter((row) => Object.entries(where).every(([key, value]) => row[key] === value)).map((row) => structuredClone(row))
-    },
-  }
-  const db = { visualReview, $transaction: async (callback) => callback(db) }
-  const store = Object.create(IssueFlowStore.prototype)
-  store.ready = Promise.resolve()
-  store.db = db
-  return { store, rows }
-}
-
-test('visual review draft becomes the submitted review without moving tables', async () => {
-  const { store, rows } = createVisualReviewStore()
-  const first = await store.createVisualReviewDraft('artifact-1', 'user-1', { comment: 'first' })
-  const second = await store.createVisualReviewDraft('artifact-1', 'user-1', { comment: 'second' })
-
-  assert.equal(rows.length, 1)
-  assert.equal(rows[0].state, 'draft')
-  assert.deepEqual((await store.listVisualReviewDrafts('artifact-1', 'user-1')).map((item) => item.id), [first.id, second.id])
-
-  const reviewId = rows[0].id
-  const submitted = await store.submitVisualReview('artifact-1', 'user-1', { kind: 'plan', status: 'changes-requested' })
-
-  assert.equal(submitted.id, reviewId)
-  assert.equal(submitted.state, 'submitted')
-  assert.equal(submitted.payload.items.length, 2)
-  assert.deepEqual(await store.listVisualReviewDrafts('artifact-1', 'user-1'), [])
-  assert.deepEqual((await store.listVisualReviews('artifact-1')).map((review) => review.id), [reviewId])
-})
 
 test('visual artifact marker carries immutable provider coordinates', () => {
   assert.deepEqual(parseArtifactMarker({
@@ -99,6 +48,88 @@ test('approve other decisions preserves discussed and already approved decisions
       { decision: { action: 'approve', ref: 'decisions.auth' } },
     ],
   ), ['decisions.rollout'])
+})
+
+test('decision requirements distinguish approval and choice items', () => {
+  assert.deepEqual(decisionRequirementsFromData({ decisions: [
+    { id: 'scope', type: 'approval' },
+    {
+      id: 'runtime', type: 'choice', recommendedOptionId: 'react',
+      options: [{ id: 'react', label: 'React + Vite' }, { id: 'static', label: '静态 HTML' }],
+    },
+  ] }), [
+    { ref: 'decisions.scope', id: 'scope', type: 'approval', options: [], recommendedOptionId: '' },
+    {
+      ref: 'decisions.runtime', id: 'runtime', type: 'choice', recommendedOptionId: 'react',
+      options: [
+        { id: 'react', label: 'React + Vite', recommended: false },
+        { id: 'static', label: '静态 HTML', recommended: false },
+      ],
+    },
+  ])
+})
+
+test('approved Decision comments on the open MR and advances the issue without merging', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options })
+    if (String(url).includes('/merge_requests?')) {
+      return new Response(JSON.stringify([{
+        id: 71,
+        iid: 11,
+        description: '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision.html -->',
+        state: 'opened',
+        source_branch: '42-login/plan',
+        target_branch: 'main',
+        sha: 'abc123',
+      }]), { status: 200 })
+    }
+    if (String(url).includes('/repository/files/')) {
+      const content = Buffer.from(JSON.stringify({ decisions: [
+        { id: 'storage', type: 'choice', recommendedOptionId: 'database', options: [{ id: 'database', label: 'Database' }, { id: 'file', label: 'File' }] },
+        { id: 'auth', type: 'approval' },
+      ] })).toString('base64')
+      return new Response(JSON.stringify({ content, encoding: 'base64' }), { status: 200 })
+    }
+    if ((options.method || 'GET') === 'GET' && String(url).endsWith('/issues/42')) {
+      return new Response(JSON.stringify({ labels: ['type::feature', 'flow::clarify'] }), { status: 200 })
+    }
+    if ((options.method || 'GET') === 'PUT' && String(url).endsWith('/issues/42')) {
+      return new Response(JSON.stringify({}), { status: 200 })
+    }
+    if ((options.method || 'GET') === 'POST' && String(url).endsWith('/merge_requests/11/notes')) {
+      return new Response(JSON.stringify({ id: 501 }), { status: 201 })
+    }
+    throw new Error(`Unexpected request: ${options.method || 'GET'} ${url}`)
+  }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget', defaultBranch: 'main' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+  }
+
+  const result = await submitVisualReview({
+    store,
+    gitServerId: 'gitlab-main',
+    projectId: '43326',
+    issueNumber: 42,
+    type: 'decision',
+    userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+    input: { approveAll: true, items: [] },
+  })
+
+  assert.equal(result.status, 'approved')
+  assert.equal(result.flow, 'flow::plan')
+  assert.equal(requests.some((request) => request.url.endsWith('/merge_requests/11/merge')), false)
+  const labelUpdate = requests.find((request) => request.url.endsWith('/issues/42') && request.options.method === 'PUT')
+  assert.deepEqual(JSON.parse(labelUpdate.options.body), { labels: 'type::feature,flow::plan' })
+  const comment = requests.find((request) => request.url.endsWith('/merge_requests/11/notes'))
+  assert.match(JSON.parse(comment.options.body).body, /artifact=decision[^>]*status=approved/)
+  assert.match(JSON.parse(comment.options.body).body, /选择方案.*Database/)
 })
 
 test('reviewable artifacts only include open Plan MRs for the current repository', async (t) => {
@@ -214,7 +245,7 @@ test('approved visual plan comment does not ask Agentrix to resume plan', () => 
   assert.doesNotMatch(comment, /@agentrix/)
 })
 
-test('approved visual decision comment leaves continuation to the merge pipeline', () => {
+test('approved visual decision comment triggers the review comment pipeline', () => {
   const comment = buildReviewComment(
     { type: 'decision' },
     { id: 'visual_review_3', payload: { items: [] } },
@@ -222,6 +253,7 @@ test('approved visual decision comment leaves continuation to the merge pipeline
   )
 
   assert.match(comment, /Status: \*\*approved\*\*/)
+  assert.match(comment, /Decision 已批准，请基于已确认的选择生成并提交 Plan/)
   assert.doesNotMatch(comment, /@agentrix/)
 })
 
@@ -337,7 +369,7 @@ test('visual label updates preserve unrelated labels', async (t) => {
   global.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options })
     if ((options.method || 'GET') === 'GET') {
-      return new Response(JSON.stringify({ labels: [{ name: 'type::bug' }, { name: 'flow::plan' }, { name: 'visual-plan::changes-requested' }] }), { status: 200 })
+      return new Response(JSON.stringify({ labels: [{ name: 'type::bug' }, { name: 'flow::plan' }, { name: 'plan::changes-requested' }] }), { status: 200 })
     }
     return new Response(JSON.stringify({}), { status: 200 })
   }
@@ -345,7 +377,7 @@ test('visual label updates preserve unrelated labels', async (t) => {
     { type: 'github', apiUrl: 'https://api.github.test', userToken: 'user-token' },
     { fullName: 'acme/widget' },
     42,
-    { 'flow::': 'flow::approve', 'visual-plan::': 'visual-plan::pending' },
+    { 'flow::': 'flow::approve', 'plan::': 'plan::pending' },
   )
-  assert.deepEqual(JSON.parse(requests[1].options.body).labels, ['type::bug', 'flow::approve', 'visual-plan::pending'])
+  assert.deepEqual(JSON.parse(requests[1].options.body).labels, ['type::bug', 'flow::approve', 'plan::pending'])
 })

@@ -18,6 +18,7 @@ const {
   isGitTrackedFile,
   normalizeOptionalUrl,
   normalizePrTitle,
+  planSubmissionIssueState,
   resolveBaseBranch,
   resolveIssueFlowBaseUrl,
   resolveVisualPlanFeatureMode,
@@ -223,6 +224,11 @@ test('visual plan mode defaults off and rejects conflicting issue switches', () 
   assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:off'] }), 'off');
   assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on'] }), 'on');
   assert.throws(() => resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on', 'feature:visual-plan:off'] }), /conflicting Visual Plan feature labels/);
+});
+
+test('Decision and Plan publication use their distinct issue gates', () => {
+  assert.deepEqual(planSubmissionIssueState('decision'), { flow: 'flow::clarify', desired: {} });
+  assert.deepEqual(planSubmissionIssueState('plan'), { flow: 'flow::approve', desired: { plan: 'plan::pending' } });
 });
 
 test('visual publishing uses ISSUE_FLOW_BASE_URL as its service URL', () => {

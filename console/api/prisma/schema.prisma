@@ -134,46 +134,6 @@ model RepoSettingItem {
   @@map("repo_settings")
 }
 
-model VisualArtifact {
-  id                String    @id
-  repoId            String    @map("repo_id")
-  issueNumber       Int       @map("issue_number")
-  type              String
-  branch            String
-  baseBranch        String    @default("") @map("base_branch")
-  commitSha         String    @map("commit_sha")
-  entryPath         String    @map("entry_path")
-  status            String    @default("pending")
-  providerCommentId String    @default("") @map("provider_comment_id")
-  data              Json
-  publishedAt       DateTime  @default(now()) @map("published_at")
-  approvedAt        DateTime? @map("approved_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  @@unique([repoId, issueNumber, type])
-  @@index([repoId, issueNumber])
-  @@index([status, updatedAt])
-  @@map("visual_artifacts")
-}
-
-model VisualReview {
-  id          String    @id
-  artifactId  String    @map("artifact_id")
-  userId      String?   @map("user_id")
-  kind        String
-  state       String    @default("draft")
-  status      String    @default("")
-  payload     Json
-  submittedAt DateTime? @map("submitted_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  @@index([artifactId, state, createdAt])
-  @@index([userId])
-  @@map("visual_reviews")
-}
-
 model UserRepoAccess {
   userId      String   @map("user_id")
   gitServerId String   @map("git_server_id")

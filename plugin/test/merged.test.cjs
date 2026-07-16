@@ -28,6 +28,7 @@ test('merged PR transition is selected from exactly one source label', () => {
     kind: 'plan',
     label: 'mr-by::plan',
     flow: 'flow::build',
+    plan: 'plan::approved',
   });
   assert.throws(
     () => resolveMergedPrTransition(['mr-by::plan', 'mr-by::build']),
@@ -48,7 +49,6 @@ test('merged Decision MR returns to Plan and preserves the original task', () =>
     kind: 'decision',
     label: 'mr-by::plan',
     flow: 'flow::plan',
-    decision: 'decision::approved',
     artifact: 'decision',
     format: 'html',
   });
@@ -60,9 +60,9 @@ test('merged Plan MR distinguishes visual and Markdown plans', () => {
     kind: 'plan',
     label: 'mr-by::plan',
     flow: 'flow::build',
+    plan: 'plan::approved',
     artifact: 'plan',
     format: 'html',
-    visualPlan: 'visual-plan::approved',
   });
 
   const markdownBody = '<!-- issue-flow:plan-artifact artifact=plan format=markdown repo=repo_123 issue=42 branch=42-login/plan commit=def456 path=.issue-flow/issues/42-login/plan/plan.md -->';
@@ -70,6 +70,7 @@ test('merged Plan MR distinguishes visual and Markdown plans', () => {
     kind: 'plan',
     label: 'mr-by::plan',
     flow: 'flow::build',
+    plan: 'plan::approved',
     artifact: 'plan',
     format: 'markdown',
   });

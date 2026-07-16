@@ -784,10 +784,9 @@ function shouldSkipPullRequestReview(pr) {
   return '';
 }
 
-function shouldSkipMergedDecisionIssueAuto(issue = {}) {
+function shouldCheckForResumableVisualPlanTask(issue = {}) {
   const labels = normalizeLabels(issue.labels);
   return labels.includes('feature:visual-plan:on')
-    && labels.includes('decision::approved')
     && labels.includes('flow::plan');
 }
 
@@ -812,13 +811,18 @@ async function runAuto(options = {}, provided = {}) {
 
   let issue = provided.issue || buildIssueContext(payload, options);
   issue = await fetchCurrentIssue(issue, options);
-  if (shouldSkipMergedDecisionIssueAuto(issue)) {
-    logIssueFlow('Automatic Plan start skipped because the merged Decision MR resumes its original task', { issue: `#${issue.number}` });
-    return {
-      action: 'skipped',
-      reason: 'decision_merge_resumes_original_task',
-      issueNumber: issue.number,
-    };
+  if (shouldCheckForResumableVisualPlanTask(issue)) {
+    const planTasks = listResumableIssueTasks(await listIssueComments(issue, options), runtime)
+      .filter((task) => task.action === 'plan');
+    if (planTasks.length === 1) {
+      logIssueFlow('Automatic Plan start skipped because the Decision review resumes its original task', { issue: `#${issue.number}` });
+      return {
+        action: 'skipped',
+        reason: 'decision_review_resumes_original_task',
+        issueNumber: issue.number,
+        taskId: planTasks[0].taskId,
+      };
+    }
   }
   const decision = resolveAutomationDecision(issue, runtime, options);
   if (!decision.shouldRun) {
@@ -1219,15 +1223,10 @@ async function runReviewComment(options = {}, provided = {}) {
 
   const sourceIssueNumber = options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr);
   const visualReview = parseVisualReviewComment(reviewComment.body);
-  const instruction = visualReview && typeof runtime.buildVisualReviewResumeInstruction === 'function'
-    ? runtime.buildVisualReviewResumeInstruction({ number: sourceIssueNumber }, reviewComment, {
-      sourceIssueNumber,
-      visualReview,
-      pullRequest: currentPr,
-    })
-    : runtime.buildReviewCommentResumeInstruction(currentPr, reviewComment, {
-      sourceIssueNumber,
-    });
+  const instruction = runtime.buildReviewCommentResumeInstruction(currentPr, reviewComment, {
+    sourceIssueNumber,
+    visualReview,
+  });
   await acknowledgeReviewComment(currentPr, reviewComment, options);
   const resume = await resumeTaskForReviewComment(currentPr, taskId, instruction, options, {
     ...provided,

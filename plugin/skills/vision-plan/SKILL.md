@@ -33,15 +33,16 @@ This skill is active only when the source issue has `feature:visual-plan:on`. Wi
 
 3. Keep the decision gate and implementation plan as separate lifecycle stages.
    - First inspect the requirement for contradictions, ambiguous scope, incompatible constraints, and choices whose answer materially changes the solution.
+   - A Decision is justified only by a real unresolved choice that cannot be answered from the issue, repository, comments, or existing conventions. Do not create a Decision merely because Visual Plan is enabled.
    - When such questions exist, create `decision.html` and stop at the decision review gate. Each question needs a recommended option, alternatives, criteria, and consequences.
    - Anchor each decision card with `data-ref="decisions.<id>"`. The engine supplies Approve and Discuss actions and submits the answers as a Decision review.
    - After the user answers the gate, treat those answers as settled inputs and generate `plan/index.html` from them. The plan should lead with the resulting solution, boundaries, implementation mechanism, and validation.
    - When no blocking question exists, generate the plan directly.
    - `decision.html` embeds `decision/data/decision-data.json` in a `<script type="application/json" id="plan-data">...</script>` island so review context can resolve the selected question.
-   - Publish a decision with `issue-flow pr submit plan --artifact decision`; publishing sets `decision::pending` and `flow::approve`.
-   - Publish a plan with `issue-flow pr submit plan --artifact plan`; publishing sets `visual-plan::pending` and `flow::approve`.
+   - Publish a decision with `issue-flow pr submit plan --artifact decision`; publishing keeps the Plan branch/MR open and sets `flow::clarify`.
+   - Publish a plan with `issue-flow pr submit plan --artifact plan`; it updates the same Plan branch/MR and sets `plan::pending` plus `flow::approve`.
    - Issue Flow owns publication, review routing, approval state, and provider operations after these commands complete.
-   - Decision approval resumes the same Plan task. Sync the existing Plan branch with the default branch before generating and submitting the Plan artifact.
+   - Decision approval posts an approved review comment on the open Plan MR and resumes the same Plan task. Continue on the existing Plan branch and update the same MR with the Plan artifact.
    - Plan approval advances the source issue to Build. Do not bypass the Issue Flow review page.
 
 4. Use diagrams instead of prose when structure is the point.
@@ -91,9 +92,31 @@ For many software tasks, the right structure is:
 3. A path matrix to expose branches, boundaries, and edge cases.
 4. A validation matrix to close the loop.
 
-## Page Shape
+## Decision Page Contract
 
-Recommended reading order:
+`decision.html` is a decision form, not a preface to the Plan and not a workflow report.
+
+Show only:
+
+1. A short statement of the concrete choice that blocks the Plan.
+2. One decision card per unresolved choice.
+3. For each choice: the recommended option, credible alternatives, decision criteria, and consequences of each option.
+4. Only the repository or requirement evidence needed to make that choice.
+
+If removing a section would not change the reviewer's choice, remove it. If there is no unresolved choice after repository inspection, do not generate `decision.html`; generate the Plan directly.
+
+### Decision Items
+
+Each entry in `decision/data/decision-data.json` represents one item that requires a user response:
+
+- Use `type: "choice"` when the user must select one option. Provide `options[]` and `recommendedOptionId`; the engine adds Select controls to the option elements.
+- Use `type: "approval"` only when the unresolved item is an explicit yes/no confirmation; the engine adds Approve and Discuss controls to the decision element.
+- Keep criteria, evidence, consequences, and explanatory content inside the decision item. They remain commentable content rather than separate response items.
+- Anchor the decision container with `data-ref="decisions.<decision-id>"` and each choice with `data-ref="decisions.<decision-id>.options.<option-id>"`.
+
+## Plan Page Shape
+
+The following reading order applies only to `plan/index.html`:
 
 1. **核心方案**: one-sentence outcome, main contradiction, chosen boundary, and recommended path.
 2. **Architecture diagram**: parts, external systems, data stores, ownership, and calls.

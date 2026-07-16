@@ -529,6 +529,18 @@ function buildVisualReviewResumeInstruction(_issue, comment = {}, data = {}) {
   const reviewBody = String(comment.body || '')
     .replace(/<!--\s*issue-flow:visual-review[^>]*-->\s*/i, '')
     .trim();
+  if (visualReview.artifact === 'decision' && visualReview.status === 'approved') {
+    return [
+      'Decision 已批准，请继续当前 Plan task，生成并提交 Plan。',
+      '',
+      '## 已批准的决策',
+      '',
+      reviewBody || '(没有附加审阅内容)',
+      '',
+      '请基于当前任务上下文和已批准的 Decision 生成完整 Plan，commit 后按照 vision-plan 与 issue-flow skill 提交；不要只回复解释。',
+      '提交完成后，按照 issue-flow skill 回复本次处理结果。',
+    ].join('\n');
+  }
   return [
     `${artifact} 收到修改意见，请继续处理当前 Plan task。`,
     '',

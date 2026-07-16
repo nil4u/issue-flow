@@ -621,6 +621,12 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options, desired = {}
   });
 }
 
+function planSubmissionIssueState(artifact) {
+  return artifact === 'decision'
+    ? { flow: 'flow::clarify', desired: {} }
+    : { flow: 'flow::approve', desired: { plan: 'plan::pending' } };
+}
+
 async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options }) {
   const visual = visualPlanMode === 'on';
   const artifact = visual ? resolveVisualArtifactType(options) : 'plan';
@@ -670,13 +676,12 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   } finally {
     markedBody.cleanup();
   }
-  applyIssueFlow(provider, repo, issueNumber, 'flow::approve', options, artifact === 'decision'
-    ? { decision: 'decision::pending' }
-    : visual ? { 'visual-plan': 'visual-plan::pending' } : {});
+  const publicationState = planSubmissionIssueState(artifact);
+  applyIssueFlow(provider, repo, issueNumber, publicationState.flow, options, publicationState.desired);
   const result = {
     kind: 'plan', artifact, format, provider: provider.name, issueNumber, repositoryId,
     ...routeRepository, branch: headBranch, commit, artifactPath, url, prUrl,
-    issueFlow: 'flow::approve', label,
+    issueFlow: publicationState.flow, label,
   };
   console.log(JSON.stringify(result, null, 2));
   return result;
@@ -830,6 +835,7 @@ module.exports = {
   main,
   normalizeOptionalUrl,
   normalizePrTitle,
+  planSubmissionIssueState,
   parseArgs,
   buildVisualArtifactComment,
   buildVisualArtifactMarker,

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { approveVisualPlan, createVisualDraft, deleteVisualDraft, getVisualArtifact, getVisualArtifactFile, listReviewablePlanArtifacts, submitVisualReview, updateVisualDraft } from "../core/visual-artifacts.js"
+import { approveVisualPlan, getVisualArtifact, getVisualArtifactFile, listReviewablePlanArtifacts, submitVisualReview } from "../core/visual-artifacts.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function visualSession(request: FastifyRequest, gitServerId: string) {
@@ -25,22 +25,6 @@ export async function visualArtifactRoutes(app: FastifyInstance) {
     const result = await getVisualArtifactFile({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, type, requestedPath: path, ...await visualSession(request, gitServerId) })
     reply.type(result.contentType)
     return reply.send(result.body)
-  })
-
-  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/:type/drafts", async (request, reply) => {
-    const { gitServerId, projectId, issueNumber, type } = request.params as Record<string, string>
-    const result = await createVisualDraft({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, type, ...await visualSession(request, gitServerId), input: request.body || {} })
-    return reply.code(201).send(result)
-  })
-
-  app.patch("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/:type/drafts/:draftId", async (request) => {
-    const { gitServerId, projectId, issueNumber, type, draftId } = request.params as Record<string, string>
-    return updateVisualDraft({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, type, draftId, ...await visualSession(request, gitServerId), input: request.body || {} })
-  })
-
-  app.delete("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/:type/drafts/:draftId", async (request) => {
-    const { gitServerId, projectId, issueNumber, type, draftId } = request.params as Record<string, string>
-    return deleteVisualDraft({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, type, draftId, ...await visualSession(request, gitServerId) })
   })
 
   app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/:type/reviews", async (request, reply) => {

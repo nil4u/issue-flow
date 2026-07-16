@@ -16,8 +16,7 @@ function usage() {
     '  --status <status::...>',
     '  --flow <flow::...>',
     '  --clear-flow         Remove any existing flow:: label without adding a new one.',
-    '  --decision <decision::...>',
-    '  --visual-plan <visual-plan::...>',
+    '  --plan <plan::...>',
     '  --visual-plan-feature <feature:visual-plan:on|feature:visual-plan:off>',
     '  --automation <automation::...>',
     '  --clear-automation   Remove any existing automation:: label without adding a new one.',
@@ -237,10 +236,6 @@ async function main(argv = process.argv.slice(2)) {
     console.log(usage());
     return 0;
   }
-  if (options.plan) {
-    throw new Error('--plan is no longer supported. Use --flow flow::plan or --flow flow::build.');
-  }
-
   const issueNumber = parsePositiveInteger(options.issueNumber || options.issue, '--issue-number');
   const repoHint = resolveRepoHint(options);
   const provider = resolveProvider({ ...options, repo: repoHint }, {});

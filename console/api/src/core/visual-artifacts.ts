@@ -1,7 +1,8 @@
 // @ts-nocheck
+import crypto from "node:crypto"
 import path from "node:path"
 
-import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
+import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 
 const ARTIFACT_TYPES = new Set(["decision", "plan"])
 const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(html|markdown)\s+repo=([^\s]+)\s+issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
@@ -83,17 +84,25 @@ async function listReviewablePlanArtifacts({ store, gitServerId, projectId, user
 }
 
 async function resolveVisualArtifact(store, repo, server, issueNumber, type) {
-  const stored = await store.getVisualArtifact(repo.id, issueNumber, type)
   const marker = await discoverVisualArtifact(store, repo, server, issueNumber, type)
-  const unchanged = stored && stored.commitSha === marker.commitSha && stored.data && stored.data.mergeRequestNumber === marker.mergeRequestNumber
   const merged = marker.merged || marker.mergeRequestState === "merged"
-  return store.upsertVisualArtifact({
-    repoId: repo.id, issueNumber, type, branch: marker.branch, baseBranch: marker.baseBranch || repo.defaultBranch || "main",
-    commitSha: marker.commitSha, entryPath: marker.entryPath,
-    status: merged ? "approved" : unchanged ? stored.status : "pending", approvedAt: merged ? stored && stored.approvedAt || marker.publishedAt : unchanged ? stored.approvedAt : null,
-    providerCommentId: String(marker.mergeRequestNumber || ""), publishedAt: marker.publishedAt,
-    data: { ...(unchanged ? stored.data || {} : {}), ...marker },
-  })
+  return {
+    id: `${repo.id}:${issueNumber}:${type}`,
+    repoId: repo.id,
+    issueNumber,
+    type,
+    branch: marker.branch,
+    baseBranch: marker.baseBranch || repo.defaultBranch || "main",
+    commitSha: marker.commitSha,
+    entryPath: marker.entryPath,
+    status: merged ? "approved" : "pending",
+    providerCommentId: String(marker.mergeRequestNumber || ""),
+    publishedAt: marker.publishedAt,
+    approvedAt: merged ? marker.publishedAt : null,
+    createdAt: marker.publishedAt,
+    updatedAt: marker.publishedAt,
+    data: marker,
+  }
 }
 
 function contentTypeFor(filePath) {
@@ -139,19 +148,27 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
   const issueNumber = normalizeIssueNumber(rawIssueNumber); const type = normalizeArtifactType(rawType)
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
   const artifact = await resolveVisualArtifact(store, repo, server, issueNumber, type)
+  const issueLabels = await readVisualIssueLabels(server, repo, issueNumber)
+  const status = type === "decision" && issueLabels.includes("flow::plan")
+    ? "approved"
+    : type === "plan" && issueLabels.includes("plan::approved")
+      ? "approved"
+      : type === "plan" && issueLabels.includes("plan::changes-requested")
+        ? "changes-requested"
+        : artifact.status
   const entry = await readArtifactFile(server, repo, artifact)
   const format = artifact.data && artifact.data.format || "html"
   const html = format === "markdown"
     ? markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
     : String(entry.body)
   return {
-    artifact, format,
+    artifact: { ...artifact, status }, format,
     mergeRequest: {
       id: artifact.data && artifact.data.mergeRequestId || "", number: artifact.data && artifact.data.mergeRequestNumber || 0,
       url: artifact.data && artifact.data.mergeRequestUrl || "", state: artifact.data && artifact.data.mergeRequestState || "",
     },
     repository: { id: repo.id, fullName: repo.fullName, defaultBranch: repo.defaultBranch, provider: server.type },
-    html, drafts: await store.listVisualReviewDrafts(artifact.id, userId), reviews: await store.listVisualReviews(artifact.id),
+    html,
   }
 }
 async function getVisualArtifactFile({ store, gitServerId, projectId, issueNumber, type, requestedPath, userId, session }) {
@@ -159,16 +176,6 @@ async function getVisualArtifactFile({ store, gitServerId, projectId, issueNumbe
   const artifact = await resolveVisualArtifact(store, context.repo, context.server, normalizeIssueNumber(issueNumber), normalizeArtifactType(type))
   return readArtifactFile(context.server, context.repo, artifact, requestedPath)
 }
-async function createVisualDraft({ store, gitServerId, projectId, issueNumber, type, userId, session, input }) {
-  const loaded = await getVisualArtifact({ store, gitServerId, projectId, issueNumber, type, userId, session }); return store.createVisualReviewDraft(loaded.artifact.id, userId, input || {})
-}
-async function updateVisualDraft({ store, gitServerId, projectId, issueNumber, type, draftId, userId, session, input }) {
-  const loaded = await getVisualArtifact({ store, gitServerId, projectId, issueNumber, type, userId, session }); const result = await store.updateVisualReviewDraft(draftId, loaded.artifact.id, userId, input || {}); if (!result) throw requestError("review draft not found", 404); return result
-}
-async function deleteVisualDraft({ store, gitServerId, projectId, issueNumber, type, draftId, userId, session }) {
-  const loaded = await getVisualArtifact({ store, gitServerId, projectId, issueNumber, type, userId, session }); if (!await store.deleteVisualReviewDraft(draftId, loaded.artifact.id, userId)) throw requestError("review draft not found", 404); return { deleted: true, id: draftId }
-}
-
 function compactReviewText(value, maxLength = 500) {
   const text = String(value || "").replace(/\s+/g, " ").trim()
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text
@@ -191,8 +198,11 @@ function reviewItemLines(items = []) {
     const decision = item.decision
     const comment = compactReviewText(item.comment) || "没有附加评论"
     if (decision) {
-      const action = decision.action === "approve" ? "通过决策" : "讨论决策"
-      return [`${index + 1}. **${action} \`${inlineCode(decision.ref)}\`** — ${comment}`]
+      const action = decision.action === "approve" ? "通过决策" : decision.action === "select" ? "选择方案" : "讨论决策"
+      const option = decision.action === "select" && (decision.optionLabel || decision.optionId)
+        ? `（${inlineCode(decision.optionLabel || decision.optionId)}）`
+        : ""
+      return [`${index + 1}. **${action} \`${inlineCode(decision.ref)}\`${option}** — ${comment}`]
     }
     const visualTarget = item.visualTarget || {}
     const element = visualTarget.element || (Array.isArray(visualTarget.elements) ? visualTarget.elements[0] : undefined) || {}
@@ -210,6 +220,11 @@ function buildReviewComment(artifact, review, status) {
   const title = artifact.type === "decision" ? "Decision Review" : artifact.data && artifact.data.format === "markdown" ? "Markdown Plan Review" : "Visual Plan Review"
   const shouldResumePlanTask = status === "changes-requested"
   const artifactName = artifact.type === "decision" ? "Decision" : "Plan"
+  const nextAction = shouldResumePlanTask
+    ? `请根据以上审阅意见更新当前 ${artifactName} 产物。`
+    : artifact.type === "decision" && status === "approved"
+      ? "Decision 已批准，请基于已确认的选择生成并提交 Plan。"
+      : ""
   return [
     `<!-- issue-flow:visual-review artifact=${artifact.type} review=${review.id} status=${status} -->`,
     `## ${title}`,
@@ -217,85 +232,125 @@ function buildReviewComment(artifact, review, status) {
     `Status: **${status}**`,
     "",
     ...reviewItemLines(review.payload && review.payload.items || []),
-    ...(shouldResumePlanTask ? ["", `请根据以上审阅意见更新当前 ${artifactName} 产物。`] : []),
+    ...(nextAction ? ["", nextAction] : []),
   ].join("\n")
 }
-async function decisionRefs(server, repo, artifact) {
+function decisionRequirementsFromData(data = {}) {
+  return (Array.isArray(data.decisions) ? data.decisions : []).flatMap((item) => {
+    if (!item || !item.id) return []
+    const ref = `decisions.${item.id}`
+    const options = (Array.isArray(item.options) ? item.options : []).flatMap((option, index) => {
+      if (!option) return []
+      const id = String(option.id ?? index).trim()
+      return id ? [{ id, label: String(option.label || option.title || option.name || id), recommended: option.recommended === true }] : []
+    })
+    const type = item.type === "approval" || !options.length ? "approval" : "choice"
+    const recommendedOptionId = String(item.recommendedOptionId || item.recommended || options.find((option) => option.recommended)?.id || "").trim()
+    return [{ ref, id: String(item.id), type, options, recommendedOptionId }]
+  })
+}
+
+async function decisionRequirements(server, repo, artifact) {
   try {
     const decisionPath = normalizeRepoPath(path.posix.join(path.posix.dirname(artifact.entryPath), "decision/data/decision-data.json"))
     const data = JSON.parse((await readVisualRepositoryFile(server, repo, artifact.commitSha, decisionPath)).toString("utf8"))
-    return Array.isArray(data.decisions) ? data.decisions.filter((item) => item && item.id).map((item) => `decisions.${item.id}`) : []
+    return decisionRequirementsFromData(data)
   } catch { return [] }
 }
 
 function pendingDecisionApprovalRefs(requiredRefs, drafts) {
+  const refs = (requiredRefs || []).map((requirement) => typeof requirement === "string" ? requirement : requirement.ref)
   const reviewedRefs = new Set((drafts || [])
     .filter((item) => item && item.decision && item.decision.ref)
     .map((item) => item.decision.ref))
-  return (requiredRefs || []).filter((ref) => !reviewedRefs.has(ref))
+  return refs.filter((ref) => !reviewedRefs.has(ref))
+}
+
+function createVisualReview(artifact, userId, input, items, status) {
+  const now = new Date().toISOString()
+  return {
+    id: `visual_review_${crypto.randomBytes(8).toString("hex")}`,
+    artifactId: artifact.id,
+    userId: userId || "",
+    kind: input.kind || artifact.type,
+    state: "submitted",
+    status,
+    payload: { ...input, kind: input.kind || artifact.type, status, items },
+    submittedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function decisionCompletionItem(artifact, userId, requirement) {
+  const now = new Date().toISOString()
+  const choice = requirement.type === "choice"
+  const option = choice ? requirement.options.find((item) => item.id === requirement.recommendedOptionId) : undefined
+  if (choice && !option) throw requestError(`decision ${requirement.ref} requires a recommended option`)
+  return {
+    id: `visual_draft_${crypto.randomBytes(8).toString("hex")}`,
+    artifactId: artifact.id,
+    userId: userId || "",
+    targetType: "artifact",
+    targetId: requirement.ref,
+    sourceRefs: [{ type: "decision", path: artifact.entryPath, label: "决策" }],
+    decision: choice
+      ? { action: "select", ref: requirement.ref, id: requirement.id, optionId: option.id, optionLabel: option.label }
+      : { action: "approve", ref: requirement.ref, id: requirement.id },
+    comment: choice ? `选择方案：${option.label}` : `通过决策：${requirement.ref}`,
+    severity: "note",
+    intent: "refinement",
+    createdAt: now,
+    updatedAt: now,
+  }
 }
 
 async function submitVisualReview({ store, gitServerId, projectId, issueNumber, type, userId, session, input = {} }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
   const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber), normalizeArtifactType(type))
-  let drafts = await store.listVisualReviewDrafts(artifact.id, userId)
+  let drafts = Array.isArray(input.items) ? input.items.filter(Boolean) : []
   if (artifact.type === "decision" && input.approveAll === true) {
-    const requiredRefs = await decisionRefs(server, repo, artifact)
-    if (!requiredRefs.length) throw requestError("decision artifact has no reviewable decisions")
-    for (const ref of pendingDecisionApprovalRefs(requiredRefs, drafts)) {
-      await store.createVisualReviewDraft(artifact.id, userId, {
-        targetType: "artifact", targetId: ref,
-        sourceRefs: [{ type: "decision", path: artifact.entryPath, label: "决策" }],
-        decision: { action: "approve", ref, id: ref.replace(/^decisions\./, "") },
-        comment: `通过决策：${ref}`, severity: "note", intent: "refinement",
-      })
-    }
-    drafts = await store.listVisualReviewDrafts(artifact.id, userId)
+    const requirements = await decisionRequirements(server, repo, artifact)
+    if (!requirements.length) throw requestError("decision artifact has no reviewable decisions")
+    const pending = new Set(pendingDecisionApprovalRefs(requirements, drafts))
+    drafts = [...drafts, ...requirements.filter((item) => pending.has(item.ref)).map((item) => decisionCompletionItem(artifact, userId, item))]
   }
   if (!drafts.length) throw requestError("no review drafts to submit")
   let status = "changes-requested"
   if (artifact.type === "decision") {
-    const requiredRefs = await decisionRefs(server, repo, artifact)
-    const approvedRefs = new Set(drafts.filter((item) => item.decision && item.decision.action === "approve").map((item) => item.decision.ref))
+    const requirements = await decisionRequirements(server, repo, artifact)
     const discussed = drafts.some((item) => item.decision && item.decision.action === "discuss")
-    status = !discussed && requiredRefs.length > 0 && requiredRefs.every((ref) => approvedRefs.has(ref)) ? "approved" : "changes-requested"
+    const completed = requirements.length > 0 && requirements.every((requirement) => drafts.some((item) => {
+      const decision = item.decision
+      if (!decision || decision.ref !== requirement.ref) return false
+      if (requirement.type === "approval") return decision.action === "approve"
+      return decision.action === "select" && requirement.options.some((option) => option.id === decision.optionId)
+    }))
+    status = !discussed && completed ? "approved" : "changes-requested"
   }
   if (artifact.type === "decision" && status === "approved") {
-    const merge = await mergePlanMergeRequest(server, repo, artifact.data && artifact.data.mergeRequestNumber)
-    const review = await store.submitVisualReview(artifact.id, userId, { ...input, kind: artifact.type, status, merge })
-    await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
-    await store.updateVisualArtifact(artifact.id, { status, approvedAt: new Date().toISOString(), data: { ...(artifact.data || {}), merge, mergeRequestState: "merged", merged: true } })
-    await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "decision::": "decision::approved", "flow::": "flow::plan" })
-    return { review, status, merge, flow: "flow::plan" }
+    const review = createVisualReview(artifact, userId, input, drafts, status)
+    await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "plan::": "", "flow::": "flow::plan" })
+    const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
+    return { review, status, providerComment, flow: "flow::plan" }
   }
-  const review = await store.submitVisualReview(artifact.id, userId, { ...input, kind: artifact.type, status })
+  const review = createVisualReview(artifact, userId, input, drafts, status)
+  const flow = artifact.type === "decision" ? "flow::clarify" : "flow::approve"
+  await applyVisualIssueLabels(server, repo, artifact.issueNumber, artifact.type === "decision"
+    ? { "plan::": "", "flow::": flow }
+    : { "plan::": "plan::changes-requested", "flow::": flow })
   const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
-  await store.updateVisualArtifact(artifact.id, { status, approvedAt: null, data: { ...(artifact.data || {}), lastReviewComment: providerComment } })
-  if (artifact.data && artifact.data.format === "html") {
-    await applyVisualIssueLabels(server, repo, artifact.issueNumber, artifact.type === "decision"
-      ? { "decision::": "decision::changes-requested", "flow::": "flow::approve" }
-      : { "visual-plan::": "visual-plan::changes-requested", "flow::": "flow::approve" })
-  }
-  return { review, status, providerComment, flow: "flow::approve" }
+  return { review, status, providerComment, flow }
 }
 
 async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, userId, session }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
   const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber), "plan")
-  let merge
-  try {
-    merge = await mergePlanMergeRequest(server, repo, artifact.data && artifact.data.mergeRequestNumber)
-  } catch (error) {
-    await store.updateVisualArtifact(artifact.id, { status: "pending", approvedAt: null })
-    throw error
-  }
-  const review = await store.submitVisualReview(artifact.id, userId, { kind: "approval", status: "approved", merge })
+  const merge = await mergePlanMergeRequest(server, repo, artifact.data && artifact.data.mergeRequestNumber)
+  const review = createVisualReview(artifact, userId, { kind: "approval", merge }, [], "approved")
   await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, "approved"))
-  await store.updateVisualArtifact(artifact.id, { status: "approved", approvedAt: new Date().toISOString(), data: { ...(artifact.data || {}), merge, mergeRequestState: "merged", merged: true } })
-  await applyVisualIssueLabels(server, repo, artifact.issueNumber, artifact.data && artifact.data.format === "html"
-    ? { "visual-plan::": "visual-plan::approved", "flow::": "flow::build" }
-    : { "flow::": "flow::build" })
+  await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "plan::": "plan::approved", "flow::": "flow::build" })
   return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
 }
 
-export { approveVisualPlan, buildReviewComment, createVisualDraft, deleteVisualDraft, getVisualArtifact, getVisualArtifactFile, listReviewablePlanArtifacts, parseArtifactMarker, pendingDecisionApprovalRefs, rewriteHtmlResources, submitVisualReview, updateVisualDraft }
+export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, getVisualArtifactFile, listReviewablePlanArtifacts, parseArtifactMarker, pendingDecisionApprovalRefs, rewriteHtmlResources, submitVisualReview }

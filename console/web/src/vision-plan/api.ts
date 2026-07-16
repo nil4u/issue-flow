@@ -1,4 +1,5 @@
-import type { DraftReviewItem, FeedbackRequest, LoadedVisualArtifact, VisionRouteContext, VisualReview } from "./types"
+import { loadReviewStorage } from "./review-storage"
+import type { DraftReviewItem, LoadedVisualArtifact, VisionRouteContext, VisualReview } from "./types"
 
 function endpoint(context: VisionRouteContext, suffix = "") {
   const base = `/api/visual-artifacts/${encodeURIComponent(context.gitServerId)}/${encodeURIComponent(context.projectId)}/${context.issueNumber}/${context.artifactType}`
@@ -18,10 +19,9 @@ export async function loadVisualArtifact(context: VisionRouteContext): Promise<L
     mergeRequest?: { number?: number; url?: string; state?: string }
     repository?: { fullName?: string }
     html: string
-    drafts?: DraftReviewItem[]
-    reviews?: VisualReview[]
   }>(await fetch(endpoint(context)))
   const artifact = result.artifact
+  const stored = loadReviewStorage(context)
   return {
     issue: {
       issueId: `#${context.issueNumber}`,
@@ -42,44 +42,24 @@ export async function loadVisualArtifact(context: VisionRouteContext): Promise<L
     },
     html: result.html,
     format: result.format || "html",
-    drafts: Array.isArray(result.drafts) ? result.drafts : [],
-    reviews: Array.isArray(result.reviews) ? result.reviews : [],
+    drafts: stored.drafts,
+    reviews: stored.reviews,
   }
 }
 
-export async function addReviewDraftItem(context: VisionRouteContext, input: FeedbackRequest) {
-  return parseResponse<DraftReviewItem>(await fetch(endpoint(context, "/drafts"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  }))
-}
-
-export async function updateReviewDraftItem(context: VisionRouteContext, itemId: string, input: FeedbackRequest) {
-  return parseResponse<DraftReviewItem>(await fetch(endpoint(context, `/drafts/${encodeURIComponent(itemId)}`), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  }))
-}
-
-export async function deleteReviewDraftItem(context: VisionRouteContext, itemId: string) {
-  return parseResponse<{ id: string; deleted: boolean }>(await fetch(endpoint(context, `/drafts/${encodeURIComponent(itemId)}`), { method: "DELETE" }))
-}
-
-export async function submitReviewDraft(context: VisionRouteContext) {
+export async function submitReviewDraft(context: VisionRouteContext, items: DraftReviewItem[]) {
   return parseResponse<{ review: VisualReview; status: string }>(await fetch(endpoint(context, "/reviews"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify({ items }),
   }))
 }
 
-export async function approveAllDecisions(context: VisionRouteContext) {
+export async function approveAllDecisions(context: VisionRouteContext, items: DraftReviewItem[]) {
   return parseResponse<{ review: VisualReview; status: string }>(await fetch(endpoint(context, "/reviews"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approveAll: true }),
+    body: JSON.stringify({ approveAll: true, items }),
   }))
 }
 

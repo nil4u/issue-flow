@@ -31,12 +31,9 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'flow::build',
       'flow::clarify',
       'flow::approve',
-      'decision::pending',
-      'decision::approved',
-      'decision::changes-requested',
-      'visual-plan::pending',
-      'visual-plan::approved',
-      'visual-plan::changes-requested',
+      'plan::pending',
+      'plan::approved',
+      'plan::changes-requested',
       'feature:visual-plan:on',
       'feature:visual-plan:off',
       'automation::off',
@@ -73,13 +70,14 @@ test('apply script accepts explicit automation opt-out plus plan and build issue
     /automation must be one of: automation::off, automation::plan, automation::build/
   );
   assert.deepEqual(collectDesiredLabels({ automation: 'automation::off' }), { automation: 'automation::off' });
+  assert.deepEqual(collectDesiredLabels({ plan: 'plan::pending' }), { plan: 'plan::pending' });
 });
 
 test('apply script accepts the visual plan feature switch without touching review status', () => {
   assert.deepEqual(collectDesiredLabels({ visualPlanFeature: 'feature:visual-plan:on' }), { visualPlanFeature: 'feature:visual-plan:on' });
   assert.deepEqual(
     computeLabelChanges(
-      ['visual-plan::pending', 'feature:visual-plan:off'],
+      ['plan::pending', 'feature:visual-plan:off'],
       { visualPlanFeature: 'feature:visual-plan:on' }
     ),
     { labelsToAdd: ['feature:visual-plan:on'], labelsToRemove: ['feature:visual-plan:off'] }

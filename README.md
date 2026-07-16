@@ -72,7 +72,7 @@ Visual artifacts are created under `.issue-flow/issues/{issue-number}-{slug}/`. 
 - `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/decision`
 - `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/plan`
 
-Decision, Visual Plan, and Markdown Plan all create an `mr-by::plan` PR/MR whose body links to the Engine page. Issue Flow stores drafts and review history in its database, reads the published commit through the configured GitHub or GitLab provider API, and uses the current signed-in user's OAuth token for review comments and merge approval. Decision approval merges its MR and resumes the original Plan task to create a new Plan MR. Plan approval merges its MR and moves the issue to `flow::build`. Build always creates the normal Build PR/MR.
+Decision, Visual Plan, and Markdown Plan all use an `mr-by::plan` PR/MR whose body links to the Engine page. Drafts and review history are stored in browser LocalStorage by repository, issue, and Decision/Plan type. Issue Flow reads the published commit through the configured GitHub or GitLab provider API and uses the current signed-in user's OAuth token for review comments and Plan merge approval. Decision approval comments on the still-open MR and resumes the original Plan task; the task updates the same branch and MR with the Visual Plan. Plan approval merges that MR and moves the issue to `flow::build`. Build always creates the normal Build PR/MR.
 
 ## Release Management
 

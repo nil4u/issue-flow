@@ -17,26 +17,27 @@ flow::triage ──(triage agent)──┬── flow::clarify
     │
     ▼
 flow::plan ──(plan agent)──┬── 默认 / feature:visual-plan:off
-                           │     └── Markdown Plan MR → flow::approve
+                           │     └── Markdown Plan MR → plan::pending + flow::approve
                            │           ├── 修改请求 → 评论 MR + resume Plan task
                            │           └── approve → merge → flow::build
                            └── feature:visual-plan:on
-                                 ├── 可选 Decision MR → decision::pending + flow::approve
-                                 └── Visual Plan MR → visual-plan::pending + flow::approve
+                                 ├── 可选 Decision → 同一 Plan MR + flow::clarify
+                                 └── Visual Plan → 同一 Plan MR + plan::pending + flow::approve
 
 Decision 审阅：
-  讨论/修改 → 评论 Decision MR + decision::changes-requested + flow::approve
+  讨论/修改 → 评论 Plan MR + flow::clarify
             → resume 原 Plan task 修改 Decision
-  全部通过 → 当前页面用户 merge Decision MR
-            → decision::approved + flow::plan
-            → merge pipeline resume 原 Plan task，生成新的 Plan MR
+  全部通过 → 当前页面用户评论 Plan MR，不合并
+            → flow::plan
+            → review-comment pipeline resume 原 Plan task
+            → 原分支和原 MR 更新为 Visual Plan
 
 Visual Plan 审阅：
-  修改请求 → 评论 Plan MR + visual-plan::changes-requested + flow::approve
+  修改请求 → 评论 Plan MR + plan::changes-requested + flow::approve
            → resume 原 Plan task 修改 Plan
   Approve → 当前页面用户 merge Plan MR
-          → visual-plan::approved + flow::build
-  合并失败/冲突 → 保持 MR open + visual-plan::pending + flow::approve
+          → plan::approved + flow::build
+  合并失败/冲突 → 保持 MR open + plan::pending + flow::approve
 
 flow::build ──(build agent)── build PR/MR → flow::approve
     │
@@ -49,26 +50,26 @@ Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan
 - `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/decision`
 - `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/plan`
 
-两种模式的产物都保存在 `.issue-flow/issues/{issue-number}-{slug}/`，Plan 分支继续沿用 `{issue-number}-{slug}/plan` 规则。未设置开关时默认 Markdown 模式，以保持已有线上行为。Decision、Visual Plan 和 Markdown Plan 都创建带 `mr-by::plan` 的 PR/MR；Build PR/MR 保持不变。
+两种模式的产物都保存在 `.issue-flow/issues/{issue-number}-{slug}/`，Plan 分支继续沿用 `{issue-number}-{slug}/plan` 规则。未设置开关时默认 Markdown 模式，以保持已有线上行为。Decision 和后续 Visual Plan 更新同一个分支与 `mr-by::plan` PR/MR；Markdown Plan 使用相同的 Plan MR 规则；Build PR/MR 保持不变。
 
 ## 发布与审阅
 
 | 动作 | 结果 |
 |------|------|
-| 提交 Markdown Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `flow::approve` |
-| 提交 Markdown Plan 修改请求 | 审阅记录写入 DB、评论 MR 并 `@agentrix` resume 原 Plan task；保持 `flow::approve` |
-| Approve Markdown Plan | 页面当前用户 merge MR；`flow::build` |
-| 提交 Decision PR/MR | MR body 写入 Decision Engine URL；`mr-by::plan` + `decision::pending` + `flow::approve` |
-| 提交 Decision 讨论/修改 | 审阅记录写入 DB、评论 MR 并 `@agentrix` resume 原 Plan task；`decision::changes-requested` + `flow::approve` |
-| 提交 Decision 全部通过 | 页面当前用户 merge Decision MR；`decision::approved` + `flow::plan`；merge pipeline resume 原 Plan task |
-| 提交 Visual Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `visual-plan::pending` + `flow::approve` |
-| 提交 Visual Plan 修改请求 | 审阅记录写入 DB、评论 MR 并 `@agentrix` resume 原 Plan task；`visual-plan::changes-requested` + `flow::approve` |
-| Approve Visual Plan | 页面当前用户 merge Plan MR；`visual-plan::approved` + `flow::build` |
-| Decision/Plan 合并失败 | 保持 MR open 和当前 pending/approve 状态 |
+| 提交 Markdown Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `plan::pending` + `flow::approve` |
+| 提交 Markdown Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；`plan::changes-requested` + `flow::approve` |
+| Approve Markdown Plan | 页面当前用户 merge MR；`plan::approved` + `flow::build` |
+| 提交 Decision | MR body 写入 Decision Engine URL；`mr-by::plan` + `flow::clarify` |
+| 提交 Decision 讨论/修改 | 审阅记录写入 LocalStorage、评论同一个 Plan MR 并 resume 原 Plan task；保持 `flow::clarify` |
+| 提交 Decision 全部通过 | 清除 Decision 本地记录、评论同一个 Plan MR；`flow::plan`；review-comment pipeline resume 原 Plan task，不合并 MR |
+| 提交 Visual Plan | 更新 Decision 使用的同一分支/MR；`plan::pending` + `flow::approve` |
+| 提交 Visual Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；`plan::changes-requested` + `flow::approve` |
+| Approve Visual Plan | 清除 Plan 本地记录并 merge Plan MR；`plan::approved` + `flow::build` |
+| Plan 合并失败 | 保持 MR open 和当前 pending/approve 状态 |
 | 提交 Build PR/MR | `mr-by::build` + `flow::approve` |
 | 合并 Build PR/MR | `status::done` + clear `flow::` |
 
-Engine 页面保留元素锚点、`data-ref`、`data-comment-scope`、点/区域标注、Decision Approve/Discuss、草稿增删改、Review Submit 和历史记录。草稿与已提交审阅统一保存在 Issue Flow DB；提交审阅时使用页面当前登录用户的 OAuth token 评论对应 PR/MR，批准时使用同一身份合并。页面产物由 Issue Flow 服务通过 GitHub/GitLab provider API 按 MR marker 中的 commit 读取。
+Engine 页面保留元素锚点、`data-ref`、`data-comment-scope`、点/区域标注、Decision Approve/Discuss、草稿增删改、Review Submit 和历史记录。草稿与已提交审阅按 repository、issue、Decision/Plan 分区保存在浏览器 LocalStorage；Approve 后删除对应分区。提交审阅时使用页面当前登录用户的 OAuth token 评论对应 PR/MR，只有 Plan Approve 使用同一身份合并。页面产物由 Issue Flow 服务通过 GitHub/GitLab provider API 按 MR marker 中的 commit 读取。
 
 ## Build 输入
 
@@ -87,13 +88,13 @@ Visual Plan Approve 后，Runtime 只向 Build Agent 提供已合并到默认分
 - 无开关：默认 off。
 - 同时出现 on/off：阻断 Plan，要求先修正。
 
-Decision、Visual Plan 和 Markdown Plan 都创建 `mr-by::plan` PR/MR。合并处理通过 MR body 中的 `issue-flow:plan-artifact` marker 区分 Decision/Plan 和 HTML/Markdown。
+Decision、Visual Plan 和 Markdown Plan 都使用 `mr-by::plan` PR/MR。Decision 和 Visual Plan 使用同一个 open MR；Plan 提交会将 MR body marker 从 Decision 更新为 Plan。
 
 | PR/MR Label | Merge 后 Source Issue 变化 |
 |-------------|--------------------------|
-| `mr-by::plan` + Decision marker | `decision::approved` + `flow::plan`，resume 原 Plan task |
-| `mr-by::plan` + Visual Plan marker | `visual-plan::approved` + `flow::build` |
-| `mr-by::plan` + Markdown Plan marker | `flow::build` |
+| `mr-by::plan` + Decision marker | 非预期手工 merge 时回到 `flow::plan` |
+| `mr-by::plan` + Visual Plan marker | `plan::approved + flow::build` |
+| `mr-by::plan` + Markdown Plan marker | `plan::approved + flow::build` |
 | `mr-by::build` | `status::done` + clear `flow::` |
 
 Source issue 仍按 marker、body 文本、标题和 branch 名解析。

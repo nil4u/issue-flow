@@ -38,8 +38,7 @@ issue-flow <resource> <action> [options]
 | `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops` |
 | `status::` | Issue | 生命周期状态 | `active`, `done`, `drop`, `suspend` |
 | `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `clarify`, `approve` |
-| `decision::` | Issue | Decision 审批状态 | `pending`, `approved`, `changes-requested` |
-| `visual-plan::` | Issue | Visual Plan 审批状态 | `pending`, `approved`, `changes-requested` |
+| `plan::` | Issue | Visual/Markdown Plan 审批状态 | `pending`, `approved`, `changes-requested` |
 | `feature:visual-plan:` | Issue | Plan 模式开关；未设置时默认 off | `on`, `off` |
 | `automation::` | Issue | 允许自动化推进到的级别，或显式关闭 | `off`, `plan`, `build` |
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
@@ -146,7 +145,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
   --issue 123 --artifact plan
 ```
 
-Markdown Plan 批准后进入 `flow::build`。Visual 模式下，Decision 提交后进入 `decision::pending + flow::approve`；收到修改意见时恢复原 Plan task；全部批准后进入 `decision::approved + flow::plan`，并恢复同一个 Plan task。Visual Plan 提交后进入 `visual-plan::pending + flow::approve`；收到修改意见时恢复原 task；批准后进入 `visual-plan::approved + flow::build`。
+Markdown Plan 与 Visual Plan 共用 `plan::pending|changes-requested|approved`。Visual 模式下，Decision 提交后使用 `flow::clarify`；修改意见和批准结果都评论在同一个 open Plan MR，批准评论把 Issue 转到 `flow::plan` 并恢复原 Plan task。Plan task 继续使用同一分支和 MR 发布 Visual Plan；Plan 批准后合并 MR并进入 `plan::approved + flow::build`。
 
 ### Build → Submit
 

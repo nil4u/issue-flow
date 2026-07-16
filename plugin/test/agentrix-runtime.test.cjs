@@ -898,6 +898,26 @@ test('agentrix visual review resume instruction includes submitted review conten
   assert.doesNotMatch(prompt, /issue-flow:visual-review/);
 });
 
+test('agentrix approved Decision review continues the same Plan task', () => {
+  const prompt = agentrix.buildVisualReviewResumeInstruction(
+    { number: 42 },
+    {
+      body: '<!-- issue-flow:visual-review artifact=decision review=visual_review_2 status=approved -->\n## Decision Review\n\nStatus: **approved**',
+    },
+    {
+      visualReview: { artifact: 'decision', reviewId: 'visual_review_2', status: 'approved' },
+      pullRequest: {
+        body: '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision.html -->',
+      },
+    }
+  );
+
+  assert.match(prompt, /Decision 已批准/);
+  assert.match(prompt, /继续当前 Plan task/);
+  assert.match(prompt, /生成并提交 Plan/);
+  assert.doesNotMatch(prompt, /收到修改意见/);
+});
+
 test('agentrix Markdown Plan review resume instruction does not require vision-plan', () => {
   const prompt = agentrix.buildVisualReviewResumeInstruction(
     { number: 42 },

@@ -9,6 +9,7 @@ const MERGED_PR_TRANSITIONS = {
   plan: {
     label: 'mr-by::plan',
     flow: 'flow::build',
+    plan: 'plan::approved',
   },
   build: {
     label: 'mr-by::build',
@@ -129,7 +130,6 @@ function resolveMergedPrTransition(labels, pullRequest = {}) {
       kind: 'decision',
       label: transition.label,
       flow: 'flow::plan',
-      decision: 'decision::approved',
       artifact: planArtifact.artifact,
       format: planArtifact.format,
     };
@@ -140,7 +140,6 @@ function resolveMergedPrTransition(labels, pullRequest = {}) {
     ...(planArtifact ? {
       artifact: planArtifact.artifact,
       format: planArtifact.format,
-      ...(planArtifact.format === 'html' ? { visualPlan: 'visual-plan::approved' } : {}),
     } : {}),
   };
 }
@@ -260,11 +259,8 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   if (transition.status) {
     args.push('--status', transition.status);
   }
-  if (transition.decision) {
-    args.push('--decision', transition.decision);
-  }
-  if (transition.visualPlan) {
-    args.push('--visual-plan', transition.visualPlan);
+  if (transition.plan) {
+    args.push('--plan', transition.plan);
   }
   if (transition.clearFlow) {
     args.push('--clear-flow');
@@ -288,7 +284,7 @@ function buildSourceIssueContext(provider, repo, issueNumber, transition) {
     projectId: repo.projectId,
     number: issueNumber,
     state: 'open',
-    labels: [status, transition.flow, transition.decision, transition.visualPlan].filter(Boolean),
+    labels: [status, transition.flow, transition.plan].filter(Boolean),
   };
 }
 

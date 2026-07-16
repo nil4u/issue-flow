@@ -102,6 +102,18 @@ async function applyVisualIssueLabels(server, repo, issueNumber, desired = {}) {
   throw apiError(`unsupported git provider: ${server.type}`, 400)
 }
 
+async function readVisualIssueLabels(server, repo, issueNumber) {
+  const issue = server.type === "github"
+    ? await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues/${issueNumber}`)
+    : server.type === "gitlab"
+      ? await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/issues/${issueNumber}`)
+      : undefined
+  if (!issue) throw apiError(`unsupported git provider: ${server.type}`, 400)
+  return (Array.isArray(issue.labels) ? issue.labels : [])
+    .map((label) => typeof label === "string" ? label : label && label.name)
+    .filter(Boolean)
+}
+
 async function mergePlanMergeRequest(server, repo, mergeRequestNumber) {
   if (server.type === "github") {
     const result = await providerFetch(server, "PUT", `${githubRepoPath(repo)}/pulls/${mergeRequestNumber}/merge`, { merge_method: "merge" })
@@ -127,4 +139,4 @@ async function renderPlanMarkdown(server, repo, markdown) {
   throw apiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualRepositoryFile, renderPlanMarkdown }
+export { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown }

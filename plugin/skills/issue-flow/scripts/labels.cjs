@@ -78,26 +78,17 @@ const MANAGED_LABEL_GROUPS = {
       {
         name: 'flow::approve',
         color: '0E8A16',
-        description: 'Waiting for approval of a visual decision, visual plan, or build PR/MR',
+        description: 'Waiting for approval of a plan or build PR/MR',
       },
     ],
   },
-  decision: {
-    prefix: 'decision::',
+  plan: {
+    prefix: 'plan::',
     scope: 'issue',
     labels: [
-      { name: 'decision::pending', color: 'FBCA04', description: 'Visual decision is published and waiting for review' },
-      { name: 'decision::approved', color: '0E8A16', description: 'Visual decision has been approved' },
-      { name: 'decision::changes-requested', color: 'D93F0B', description: 'Visual decision needs revision' },
-    ],
-  },
-  'visual-plan': {
-    prefix: 'visual-plan::',
-    scope: 'issue',
-    labels: [
-      { name: 'visual-plan::pending', color: 'FBCA04', description: 'Visual plan is published and waiting for approval' },
-      { name: 'visual-plan::approved', color: '0E8A16', description: 'Visual plan has been approved and merged' },
-      { name: 'visual-plan::changes-requested', color: 'D93F0B', description: 'Visual plan needs revision' },
+      { name: 'plan::pending', color: 'FBCA04', description: 'Plan is published and waiting for approval' },
+      { name: 'plan::approved', color: '0E8A16', description: 'Plan has been approved and merged' },
+      { name: 'plan::changes-requested', color: 'D93F0B', description: 'Plan needs revision' },
     ],
   },
   visualPlanFeature: {

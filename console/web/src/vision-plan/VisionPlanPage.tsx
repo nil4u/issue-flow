@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Clipboard, FileText, GitPullRequest, MessageCircle, Send, Trash2, X } from "lucide-react";
-import { addReviewDraftItem, approveAllDecisions, approveVisionArtifact, deleteReviewDraftItem, loadVisualArtifact, submitReviewDraft, updateReviewDraftItem } from "./api";
+import { approveAllDecisions, approveVisionArtifact, loadVisualArtifact, submitReviewDraft } from "./api";
 import { anchorSelector, findDataRef, formatPlanDataSnippet, parsePlanDataIsland, PLAN_DATA_ISLAND_ID, resolvePlanDataRef } from "./anchors";
+import { decisionItemsFromDocument, interactiveDecisionRefs, type DecisionItem, type DecisionOption } from "./decision-items";
 import { anchorOffsetForPoint, resolveVisualTargetPosition, visualTargetMarkerStyle, type MarkerFrameMetrics } from "./marker-position";
+import { addStoredReviewDraft, clearReviewStorage, deleteStoredReviewDraft, saveSubmittedReview, updateStoredReviewDraft } from "./review-storage";
 import type { ArtifactType, DecisionReview, DraftReviewItem, FeedbackRequest, IssueArtifact, LoadedIssue, VisionRouteContext, VisualReview, VisualTarget } from "./types";
 import "./vision-plan.css";
 
@@ -11,6 +13,9 @@ type DecisionAnchorTarget = {
   ref: string;
   id?: string;
   question?: string;
+  type: DecisionItem["type"];
+  optionId?: string;
+  optionLabel?: string;
   visualTarget: VisualTarget;
 };
 type ArtifactSection = {
@@ -36,7 +41,9 @@ function feedbackIntentLabel(intent: FeedbackRequest["intent"]) {
 }
 
 function decisionActionLabel(action: DecisionReview["action"]) {
-  return action === "approve" ? "通过" : "讨论";
+  if (action === "approve") return "通过";
+  if (action === "select") return "选择";
+  return "讨论";
 }
 
 function reviewItemLocation(item: DraftReviewItem) {
@@ -110,16 +117,6 @@ function cssEscape(value: string) {
   return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringField(value: unknown, key: string) {
-  if (!isRecord(value)) return undefined;
-  const field = value[key];
-  return typeof field === "string" && field.trim() ? field.trim() : undefined;
-}
-
 function compactLabel(value: string | null | undefined, maxLength = 78) {
   const normalized = value?.replace(/\s+/g, " ").trim();
   if (!normalized) return undefined;
@@ -181,6 +178,15 @@ function ensureDecisionActionStyle(document: Document) {
     .${DECISION_ACTIONS_CLASS} button[data-agentrix-decision-action="approve"] {
       border-color: #18181b;
       background: #18181b;
+      color: #ffffff;
+    }
+    .${DECISION_ACTIONS_CLASS} button[data-agentrix-decision-action="select"] {
+      border-color: #2563eb;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .${DECISION_ACTIONS_CLASS} button[data-agentrix-decision-action="select"][aria-pressed="true"] {
+      background: #2563eb;
       color: #ffffff;
     }
     .${DECISION_ACTIONS_CLASS} button[data-agentrix-decision-action="discuss"] {
@@ -361,12 +367,14 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   const [submittingReview, setSubmittingReview] = useState(false);
   const [artifactHtml, setArtifactHtml] = useState<string | null>(null);
   const [artifactFormat, setArtifactFormat] = useState<"html" | "markdown">("html");
+  const [decisionItemMode, setDecisionItemMode] = useState<"approval" | "choice" | "mixed">("approval");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const frameScrollCleanupRef = useRef<(() => void) | null>(null);
   const commentActionCleanupRef = useRef<(() => void) | null>(null);
   const sectionObserverCleanupRef = useRef<(() => void) | null>(null);
   const overlayResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const decisionItemsRef = useRef<DecisionItem[]>([]);
 
   useEffect(() => {
     setBusy(true);
@@ -375,6 +383,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setAgentPrompt(null);
     setSelectedDraftId(null);
     setPendingDecision(null);
+    decisionItemsRef.current = [];
+    setDecisionItemMode("approval");
     setArtifactSections([]);
     setActiveSectionId(null);
     loadVisualArtifact(context)
@@ -458,15 +468,19 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     };
   }, [currentArtifact?.path, refreshVisualPositions]);
 
-  function decisionTargetFromElement(element: Element): DecisionAnchorTarget | null {
+  function isInteractiveDecisionRef(ref: string | undefined) {
+    return Boolean(ref && interactiveDecisionRefs(decisionItemsRef.current).has(ref));
+  }
+
+  function decisionTargetFromElement(element: Element, item: DecisionItem, option?: DecisionOption): DecisionAnchorTarget | null {
     if (!currentArtifact || !overlayRef.current) return null;
-    const ref = element.getAttribute("data-ref")?.trim();
-    if (!ref?.startsWith("decisions.")) return null;
-    const resolved = resolvePlanDataForRef(frameRef.current, ref);
     return {
-      ref,
-      id: stringField(resolved.value, "id") ?? ref.replace(/^decisions\./, ""),
-      question: stringField(resolved.value, "question"),
+      ref: item.ref,
+      id: item.id,
+      question: item.question,
+      type: item.type,
+      optionId: option?.id,
+      optionLabel: option?.label,
       visualTarget: makeDecisionVisualTarget(currentArtifact, overlayRef.current, frameRef.current, element)
     };
   }
@@ -475,8 +489,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     if (!currentArtifact || !overlayRef.current) return null;
     const scope = element.getAttribute("data-comment-scope")?.trim() || "item";
     if (scope === "edge") return null;
-    const ref = findDataRef(element);
-    if (ref?.startsWith("decisions.")) return null;
+    if (isInteractiveDecisionRef(element.getAttribute("data-ref")?.trim())) return null;
     return makeElementVisualTarget(currentArtifact, overlayRef.current, frameRef.current, element, `${scope} 内容项`);
   }
 
@@ -484,7 +497,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     for (let node: Element | null = start; node; node = node.parentElement) {
       const scope = node.getAttribute("data-comment-scope")?.trim();
       if (!scope || scope === "edge") continue;
-      if (node.getAttribute("data-ref")?.trim()?.startsWith("decisions.")) return null;
+      if (isInteractiveDecisionRef(node.getAttribute("data-ref")?.trim())) return null;
       const tagName = node.tagName.toLowerCase();
       if (["path", "line", "polyline", "polygon"].includes(tagName)) return null;
       return node;
@@ -569,26 +582,58 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     try {
       ensureDecisionActionStyle(doc);
       doc.querySelectorAll(`.${DECISION_ACTIONS_CLASS}`).forEach((node) => node.remove());
+      decisionItemsRef.current = currentArtifact.type === "decision" ? decisionItemsFromDocument(doc) : [];
+      const hasChoice = decisionItemsRef.current.some((item) => item.type === "choice");
+      const hasApproval = decisionItemsRef.current.some((item) => item.type === "approval");
+      setDecisionItemMode(hasChoice && hasApproval ? "mixed" : hasChoice ? "choice" : "approval");
       if (currentArtifact.type !== "decision" || currentArtifact.status === "approved") return;
-      const decisionElements = Array.from(doc.querySelectorAll('[data-ref^="decisions."]'));
-      for (const element of decisionElements) {
-        const ref = element.getAttribute("data-ref")?.trim();
-        if (!ref) continue;
+      for (const item of decisionItemsRef.current) {
+        const element = doc.querySelector(`[data-ref="${cssEscape(item.ref)}"]`);
+        if (!element) continue;
+        if (item.type === "choice") {
+          for (const option of item.options) {
+            const optionElement = doc.querySelector(`[data-ref="${cssEscape(option.ref)}"]`);
+            if (!optionElement) continue;
+            const actions = doc.createElement("div");
+            actions.className = DECISION_ACTIONS_CLASS;
+            actions.setAttribute("data-agentrix-injected", "decision-actions");
+            actions.setAttribute("data-agentrix-decision-ref", item.ref);
+            const select = doc.createElement("button");
+            const selected = scopedDraftItems.some((draft) => draft.decision?.ref === item.ref && draft.decision.action === "select" && draft.decision.optionId === option.id);
+            select.type = "button";
+            select.textContent = selected ? "已选择" : "选择";
+            select.setAttribute("data-agentrix-decision-action", "select");
+            select.setAttribute("aria-pressed", String(selected));
+            select.addEventListener("click", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const target = decisionTargetFromElement(optionElement, item, option);
+              if (target) selectDecisionOption(target);
+            });
+            actions.append(select);
+            optionElement.appendChild(actions);
+          }
+        }
         const actions = doc.createElement("div");
         actions.className = DECISION_ACTIONS_CLASS;
         actions.setAttribute("data-agentrix-injected", "decision-actions");
-        actions.setAttribute("data-agentrix-decision-ref", ref);
+        actions.setAttribute("data-agentrix-decision-ref", item.ref);
 
-        const approve = doc.createElement("button");
-        approve.type = "button";
-        approve.textContent = "通过";
-        approve.setAttribute("data-agentrix-decision-action", "approve");
-        approve.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const target = decisionTargetFromElement(element);
-          if (target) approveDecision(target);
-        });
+        if (item.type === "approval") {
+          const approve = doc.createElement("button");
+          const approved = scopedDraftItems.some((draft) => draft.decision?.ref === item.ref && draft.decision.action === "approve");
+          approve.type = "button";
+          approve.textContent = approved ? "已通过" : "通过";
+          approve.setAttribute("data-agentrix-decision-action", "approve");
+          approve.setAttribute("aria-pressed", String(approved));
+          approve.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const target = decisionTargetFromElement(element, item);
+            if (target) approveDecision(target);
+          });
+          actions.append(approve);
+        }
 
         const discuss = doc.createElement("button");
         discuss.type = "button";
@@ -597,11 +642,11 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
         discuss.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          const target = decisionTargetFromElement(element);
+          const target = decisionTargetFromElement(element, item);
           if (target) discussDecision(target);
         });
 
-        actions.append(approve, discuss);
+        actions.append(discuss);
         element.appendChild(actions);
       }
     } catch {
@@ -683,7 +728,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
 
   useEffect(() => {
     if (currentArtifact?.type === "decision") injectDecisionActionControls();
-  }, [currentArtifact?.status]);
+  }, [currentArtifact?.status, draftItems]);
 
   useEffect(() => {
     window.addEventListener("resize", refreshVisualPositions);
@@ -719,7 +764,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setAgentPrompt(null);
     setError(null);
     try {
-      const item = await addReviewDraftItem(context, {
+      const item = addStoredReviewDraft(context, {
         targetType: input.targetType ?? "artifact",
         targetId: input.targetId ?? currentArtifact.path,
         sourceRefs: input.sourceRefs ?? [{ type: sourceRefTypeForArtifact(currentArtifact.type), path: currentArtifact.path, label: artifactLabel(currentArtifact.type) }],
@@ -729,7 +774,6 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
         severity: input.severity ?? (feedbackIntent === "defect" ? "major" : "note"),
         intent: input.intent ?? feedbackIntent
       });
-      if (!item) throw new Error("服务端未返回已保存的审阅意见");
       setDraftItems((items) => [...items.filter(Boolean), item]);
       setSelectedDraftId(item.id);
       if (options.resetGlobal) setGlobalFeedbackText("");
@@ -763,12 +807,15 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
       action,
       ref: decision.ref,
       id: decision.id,
-      question: decision.question
+      question: decision.question,
+      optionId: decision.optionId,
+      optionLabel: decision.optionLabel
     };
   }
 
   async function addDecisionReview(decision: DecisionAnchorTarget, action: DecisionReview["action"], comment: string) {
-    await addFeedbackToDraft({
+    if (!currentArtifact) return;
+    const input: FeedbackRequest = {
       targetType: "artifact",
       targetId: decision.ref,
       sourceRefs: [{ type: sourceRefTypeForArtifact(currentArtifact?.type ?? "plan"), path: currentArtifact?.path ?? "plan/index.html", label: artifactLabel(currentArtifact?.type ?? "plan") }],
@@ -776,14 +823,36 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
       decision: decisionReviewPayload(decision, action),
       comment,
       severity: "note",
-      intent: action === "approve" ? "refinement" : "question"
-    }, { resetVisual: true });
-    setPendingDecision(null);
+      intent: action === "discuss" ? "question" : "refinement"
+    };
+    setStatus(null);
+    setError(null);
+    try {
+      const existing = scopedDraftItems.find((item) => item.decision?.ref === decision.ref);
+      const saved = existing
+        ? updateStoredReviewDraft(context, existing.id, input)
+        : addStoredReviewDraft(context, input);
+      setDraftItems((items) => existing
+        ? items.map((item) => item.id === existing.id ? saved : item)
+        : [...items.filter(Boolean), saved]);
+      setSelectedDraftId(saved.id);
+      setVisualCommentText("");
+      setPendingDecision(null);
+      setModal(null);
+      setStatus(action === "select" ? "已选择方案" : action === "approve" ? "已通过决策项" : "已添加决策讨论");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "保存决策失败");
+    }
   }
 
   function approveDecision(decision: DecisionAnchorTarget) {
     const label = decision.question ?? decision.ref;
     void addDecisionReview(decision, "approve", `通过决策：${label}`);
+  }
+
+  function selectDecisionOption(decision: DecisionAnchorTarget) {
+    const label = decision.optionLabel ?? decision.optionId ?? decision.ref;
+    void addDecisionReview(decision, "select", `选择方案：${label}`);
   }
 
   function discussDecision(decision: DecisionAnchorTarget) {
@@ -827,7 +896,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setAgentPrompt(null);
     setError(null);
     try {
-      const updated = await updateReviewDraftItem(context, editingDraft.id, {
+      const updated = updateStoredReviewDraft(context, editingDraft.id, {
         targetType: editingDraft.targetType,
         targetId: editingDraft.targetId,
         sourceRefs: editingDraft.sourceRefs,
@@ -866,7 +935,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setError(null);
     setStatus(null);
     try {
-      await deleteReviewDraftItem(context, itemId);
+      deleteStoredReviewDraft(context, itemId);
       setDraftItems((items) => items.filter((item) => item.id !== itemId));
       setStatus("已从当前审阅中删除");
     } catch (deleteError) {
@@ -879,10 +948,16 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setSubmittingReview(true);
     setError(null);
     try {
-      const result = await submitReviewDraft(context);
+      const result = await submitReviewDraft(context, scopedDraftItems);
       const submittedIds = new Set(scopedDraftItems.map((item) => item.id));
       setDraftItems((items) => items.filter((item) => !submittedIds.has(item.id)));
-      setReviews((items) => [result.review, ...items]);
+      if (result.status === "approved") {
+        clearReviewStorage(context);
+        setReviews([]);
+      } else {
+        saveSubmittedReview(context, result.review);
+        setReviews((items) => [result.review, ...items]);
+      }
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
       setStatus(result.status === "approved" ? "决策已通过" : "审阅已提交，等待修改");
       setModal(null);
@@ -900,7 +975,9 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setError(null);
     try {
       const result = await approveVisionArtifact(context);
-      setReviews((items) => [result.review, ...items]);
+      clearReviewStorage(context);
+      setDraftItems([]);
+      setReviews([]);
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.artifact.status })) } : loaded);
       setStatus("方案已通过并合入默认分支，可以开始实施");
       setModal(null);
@@ -916,9 +993,15 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setAgentPrompt(null);
     setError(null);
     try {
-      const result = await approveAllDecisions(context);
+      const result = await approveAllDecisions(context, scopedDraftItems);
       setDraftItems((items) => items.filter((item) => !draftBelongsToArtifact(item, "decision")));
-      setReviews((items) => [result.review, ...items]);
+      if (result.status === "approved") {
+        clearReviewStorage(context);
+        setReviews([]);
+      } else {
+        saveSubmittedReview(context, result.review);
+        setReviews((items) => [result.review, ...items]);
+      }
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
       setStatus(result.status === "approved" ? "决策已全部通过" : "其他决策已通过，讨论项已提交");
       setModal(null);
@@ -1009,7 +1092,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
               {scopedDraftItems.map((item) => (
                 <article key={item.id} className={`draft-item ${selectedDraft?.id === item.id ? "is-selected" : ""}`}>
                   <button type="button" className="draft-select" onClick={() => openDraftEditor(item)}>
-                    <span className="draft-icon" aria-hidden="true">{item.decision?.action === "approve" ? <CheckCircle2 size={16} /> : <MessageCircle size={16} />}</span>
+                    <span className="draft-icon" aria-hidden="true">{item.decision && item.decision.action !== "discuss" ? <CheckCircle2 size={16} /> : <MessageCircle size={16} />}</span>
                     <span className="draft-comment">{item.decision ? `${decisionActionLabel(item.decision.action)}：${item.decision.ref} · ${item.comment}` : item.comment}</span>
                   </button>
                   <button type="button" className="icon-button delete-review-item" aria-label={`删除审阅意见 ${item.id}`} onClick={() => removeReviewItem(item.id)}><Trash2 size={14} /></button>
@@ -1043,7 +1126,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
           <div className="toolbar-actions">
             {currentArtifact?.mergeRequestUrl ? <a href={currentArtifact.mergeRequestUrl} target="_blank" rel="noreferrer"><GitPullRequest size={16} />查看 MR #{currentArtifact.mergeRequestNumber}</a> : null}
             <button type="button" onClick={() => setModal("submit")} disabled={!issue || !scopedDraftItems.length || currentArtifact?.status === "approved"}><Send size={16} />提交审阅{scopedDraftItems.length ? ` · ${scopedDraftItems.length}` : ""}</button>
-            {currentArtifact?.type === "decision" ? <button type="button" className="approve-action" onClick={approveEveryDecision} disabled={!issue || submittingReview || currentArtifact.status === "approved"}><CheckCircle2 size={16} />{currentArtifact.status === "approved" ? "决策已通过" : submittingReview ? "正在提交…" : hasDecisionDiscussion ? "通过其他" : "全部通过"}</button> : null}
+            {currentArtifact?.type === "decision" ? <button type="button" className="approve-action" onClick={approveEveryDecision} disabled={!issue || submittingReview || currentArtifact.status === "approved"}><CheckCircle2 size={16} />{currentArtifact.status === "approved" ? "决策已完成" : submittingReview ? "正在提交…" : hasDecisionDiscussion ? "通过其他决策" : decisionItemMode === "choice" ? "采用全部推荐" : decisionItemMode === "mixed" ? "完成全部推荐" : "全部通过"}</button> : null}
             {currentArtifact?.type === "plan" ? <button type="button" className="approve-action" onClick={approvePlan} disabled={!issue || currentArtifact.status === "approved"}><CheckCircle2 size={16} />{currentArtifact.status === "approved" ? "方案已通过" : "通过方案"}</button> : null}
           </div>
         </header>
@@ -1128,7 +1211,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
               <>
                 <h2 id="review-modal-title">讨论决策</h2>
                 <p>{pendingDecision.question ?? pendingDecision.ref}</p>
-                <textarea value={visualCommentText} onChange={(event) => setVisualCommentText(event.target.value)} placeholder="填写决策通过前需要讨论或澄清的内容…" autoFocus />
+                <textarea value={visualCommentText} onChange={(event) => setVisualCommentText(event.target.value)} placeholder="填写需要讨论或澄清的内容…" autoFocus />
                 <button type="button" className="add-review-button" onClick={saveDecisionDiscussion} disabled={!visualCommentText.trim()}>保存讨论</button>
               </>
             ) : modal === "edit" && editingDraft ? (

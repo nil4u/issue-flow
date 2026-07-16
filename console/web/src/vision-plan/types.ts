@@ -47,10 +47,12 @@ export type VisualTarget = {
 }
 
 export type DecisionReview = {
-  action: "approve" | "discuss"
+  action: "approve" | "discuss" | "select"
   ref: string
   id?: string
   question?: string
+  optionId?: string
+  optionLabel?: string
 }
 
 export type FeedbackRequest = {

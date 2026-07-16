@@ -310,7 +310,7 @@ test('dispatch visual review comment resumes the existing plan task with bot-aut
         payload: githubIssueCommentPayload({
           userType: 'Bot',
           author: 'issue-flow-bot',
-          labels: [{ name: 'status::active' }, { name: 'flow::plan' }, { name: 'visual-plan::changes-requested' }],
+          labels: [{ name: 'status::active' }, { name: 'flow::approve' }, { name: 'plan::changes-requested' }],
           commentBody: [
             '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->',
             '## Visual Plan Review',
@@ -354,7 +354,7 @@ test('dispatch approved visual plan comment leaves continuation to flow build', 
       payload: githubIssueCommentPayload({
         userType: 'Bot',
         author: 'issue-flow-bot',
-        labels: [{ name: 'status::active' }, { name: 'flow::build' }, { name: 'visual-plan::approved' }],
+        labels: [{ name: 'status::active' }, { name: 'flow::build' }, { name: 'plan::approved' }],
         commentBody: [
           '<!-- issue-flow:visual-review artifact=plan review=visual_review_2 status=approved -->',
           '## Visual Plan Review',
@@ -423,15 +423,15 @@ test('dispatch review-comment resumes GitHub PR ordinary issue comments', async 
   assert.equal(result.reviewComment, '101');
 });
 
-test('dispatch Plan review comment uses the Plan-specific resume instruction', async () => {
+test('dispatch Plan review comment uses the standard PR review reply instruction', async () => {
   const originalPlanInstruction = agentrix.buildVisualReviewResumeInstruction;
   const originalReviewInstruction = agentrix.buildReviewCommentResumeInstruction;
-  let planInstructionInput;
-  agentrix.buildVisualReviewResumeInstruction = (_issue, comment, data) => {
-    planInstructionInput = { comment, data };
-    return 'plan review instruction';
+  let reviewInstructionInput;
+  agentrix.buildVisualReviewResumeInstruction = () => assert.fail('Engine Plan reviews must use the standard PR review reply instruction');
+  agentrix.buildReviewCommentResumeInstruction = (pullRequest, comment, data) => {
+    reviewInstructionInput = { pullRequest, comment, data };
+    return 'standard review reply instruction';
   };
-  agentrix.buildReviewCommentResumeInstruction = () => assert.fail('generic review instruction must not handle Engine Plan reviews');
 
   try {
     const result = await runReviewComment(
@@ -452,9 +452,9 @@ test('dispatch Plan review comment uses the Plan-specific resume instruction', a
 
     assert.equal(result.action, 'task_resume');
     assert.equal(result.taskId, 'task-plan-42');
-    assert.equal(planInstructionInput.data.visualReview.artifact, 'plan');
-    assert.equal(planInstructionInput.data.visualReview.status, 'changes-requested');
-    assert.match(planInstructionInput.data.pullRequest.body, /format=html/);
+    assert.equal(reviewInstructionInput.data.visualReview.artifact, 'plan');
+    assert.equal(reviewInstructionInput.data.visualReview.status, 'changes-requested');
+    assert.match(reviewInstructionInput.pullRequest.body, /format=html/);
   } finally {
     agentrix.buildVisualReviewResumeInstruction = originalPlanInstruction;
     agentrix.buildReviewCommentResumeInstruction = originalReviewInstruction;
@@ -696,6 +696,48 @@ test('dispatch auto skips non-routing labeled events', async () => {
     action: 'skipped',
     reason: 'label_not_routing',
   });
+});
+
+test('dispatch auto does not create a second Plan task after Decision approval', async () => {
+  const originalList = providers.github.listIssueComments;
+  providers.github.listIssueComments = async () => [{
+    id: 300,
+    body: agentrix.buildTaskComment('plan', {
+      status: 'queued',
+      runId: 'task-plan-42',
+      detailUrl: 'https://agentrix.example/tasks/task-plan-42',
+    }),
+  }];
+
+  try {
+    const result = await runAuto(
+      { dryRun: true, autoDefault: 'plan' },
+      {
+        payload: {
+          action: 'labeled',
+          label: { name: 'flow::plan' },
+          issue: {
+            number: 42,
+            state: 'open',
+            labels: [
+              { name: 'status::active' },
+              { name: 'flow::plan' },
+              { name: 'feature:visual-plan:on' },
+              { name: 'automation::plan' },
+              { name: 'size::M' },
+            ],
+          },
+          repository: { full_name: 'example/platform' },
+        },
+      }
+    );
+
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'decision_review_resumes_original_task');
+    assert.equal(result.taskId, 'task-plan-42');
+  } finally {
+    providers.github.listIssueComments = originalList;
+  }
 });
 
 test('dispatch auto blocks conflicting size labels before runtime starts', async () => {
