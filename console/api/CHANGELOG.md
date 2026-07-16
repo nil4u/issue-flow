@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/nil4u/issue-flow/compare/console-v0.9.0...console-v0.10.0) (2026-07-16)
+
+
+### Features
+
+* **insights:** add installed repository overview ([0da52c2](https://github.com/nil4u/issue-flow/commit/0da52c2158e36479367e653def1a1f0f62bd9ab3))
+* **insights:** add installed repository overview ([8f5df3b](https://github.com/nil4u/issue-flow/commit/8f5df3b34a88d78dd4e2587ee3af63071e6427ae))
+
 ## [0.9.0](https://github.com/nil4u/issue-flow/compare/console-v0.8.0...console-v0.9.0) (2026-07-16)
 
 
