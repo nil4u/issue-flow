@@ -1,4 +1,5 @@
 import { LoginPage } from "@/components/login-page"
+import { InstalledAutomationsPage } from "@/components/installed-automations-page"
 import { RepoSidebar } from "@/components/repo-sidebar"
 import { RepoWorkspace } from "@/components/repo-workspace"
 import { SetupPage } from "@/components/setup-page"
@@ -49,7 +50,9 @@ function Dashboard() {
       <RepoSidebar {...dashboard.sidebar} />
 
       <section className="workspace-surface">
-        {dashboard.route.view === "settings" ? (
+        {dashboard.route.view === "insights" ? (
+          <InstalledAutomationsPage {...dashboard.insights} />
+        ) : dashboard.route.view === "settings" ? (
           <UserSettings {...dashboard.userSettings} />
         ) : (
           <RepoWorkspace {...dashboard.workspace} />

@@ -538,6 +538,50 @@ export type TaskPage = {
   hasMore: boolean
 }
 
+export type InstalledAutomation = {
+  id: string
+  gitServerId: string
+  projectId: string
+  projectPath: string
+  name: string
+  webUrl: string
+  provider: string
+  serverName: string
+  plugin: {
+    key: string
+    installedVersion: string
+    latestVersion: string
+    status: string
+    detail: string
+    needsUpgrade: boolean
+    checkedAt: string
+  }
+  tasks: {
+    total: number
+    active: number
+    failed: number
+    succeeded: number
+    lastTaskAt: string
+    lastSuccessAt: string
+    lastFailureAt: string
+    latest?: {
+      taskId: string
+      issueNumber: number
+      action: string
+      status: string
+      updatedAt: string
+    }
+  }
+}
+
+export type InstalledAutomationPage = {
+  installations: InstalledAutomation[]
+  page: number
+  perPage: number
+  total: number
+  hasMore: boolean
+}
+
 export type WorkspaceTab = "overview" | "issues" | "tasks" | "settings"
 
 export type RepoWorkspaceProps = {

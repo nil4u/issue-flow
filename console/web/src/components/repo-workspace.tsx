@@ -83,6 +83,7 @@ function OverviewTab({
       </EmptyPanel>
     )
   }
+  if (!project && loadingRepositoryDetails) return <EmptyPanel icon={<Loader2 className="size-6 animate-spin" />} title="正在加载仓库" detail="正在读取仓库信息。" />
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="从左侧列表选择一个 repo。" />
   if (repository && !repository.settings && loadingRepositoryDetails) {
     return <EmptyPanel icon={<Loader2 className="size-6 animate-spin" />} title="正在加载仓库详情" detail="正在读取安装状态。" />
