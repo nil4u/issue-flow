@@ -1,7 +1,7 @@
 import type { WorkspaceTab } from "@/issue-flow-model"
 
 export type WorkspaceRoute = {
-  view: "repos" | "settings" | "setup"
+  view: "repos" | "insights" | "settings" | "setup"
   gitServerId: string
   projectId: string
   tab: WorkspaceTab
@@ -20,6 +20,14 @@ export const setupRoute: WorkspaceRoute = {
 
 export const userSettingsRoute: WorkspaceRoute = {
   view: "settings",
+  gitServerId: "",
+  projectId: "",
+  tab: "overview",
+  settingsSection: "account",
+}
+
+export const insightsRoute: WorkspaceRoute = {
+  view: "insights",
   gitServerId: "",
   projectId: "",
   tab: "overview",
@@ -54,6 +62,9 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
   if (parts[0] === "setup") {
     return setupRoute
   }
+  if (parts[0] === "insights") {
+    return insightsRoute
+  }
   if (parts[0] !== "repos") {
     return {
       view: "repos",
@@ -74,6 +85,7 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
 
 export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
   if (route.view === "setup") return "/setup"
+  if (route.view === "insights") return "/insights/installations"
   if (route.view === "settings") {
     if (route.settingsSection === "git-servers") return "/settings/git-servers"
     if (route.settingsSection === "agentrix") return "/settings/agentrix"

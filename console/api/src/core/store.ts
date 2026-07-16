@@ -19,6 +19,7 @@ import {
 } from "./console-session.js"
 import { fingerprintSecret } from "./sanitize.js"
 import { normalizeTaskAction } from "./task-projection.js"
+import { LATEST_ISSUE_FLOW_VERSION, pluginNeedsUpgrade } from "./issue-flow-plugin.js"
 
 const DEFAULT_STATE_DIR = ".issue-flow-service"
 const TASK_SPAN_FLOW_BY_ACTION = {
@@ -235,6 +236,10 @@ function latestTimestamp(current = "", next = "") {
   if (!next) return current
   if (!current) return next
   return String(next) > String(current) ? next : current
+}
+
+function repoTaskKey(row = {}) {
+  return `${String(row.gitServerId || "")}::${String(row.repositoryId || "")}`
 }
 
 function nullableDate(value) {
@@ -1138,6 +1143,8 @@ class IssueFlowStore {
 
   async userCanAccessRepo(userId, repoId, gitServerId = "") {
     await this.ready
+    const user = await this.getUser(userId)
+    if (user?.role === "admin") return true
     const where = {
       userId: String(userId || "").trim(),
       repoId: String(repoId || "").trim(),
@@ -1213,6 +1220,8 @@ class IssueFlowStore {
   async listRepositories(options = {}) {
     await this.ready
     const userId = String(options.userId || "").trim()
+    const user = userId ? await this.getUser(userId) : undefined
+    const isAdmin = user?.role === "admin"
     const page = Math.max(1, Number(options.page || 1) || 1)
     const perPage = Math.min(100, Math.max(10, Number(options.perPage || 50) || 50))
     if (!userId) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
@@ -1220,13 +1229,18 @@ class IssueFlowStore {
     const owner = String(options.owner || "").trim()
     const activeOwner = q ? "" : owner
     const selectedProjectId = String(options.selectedProjectId || "").trim()
-    const accessRows = await this.db.userRepoAccess.findMany({
-      where: {
-        userId,
-        ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
-      },
-      select: { repoId: true },
-    })
+    const accessRows = isAdmin
+      ? await this.db.repo.findMany({
+        where: options.gitServerId ? { gitServerId: options.gitServerId } : {},
+        select: { id: true },
+      })
+      : await this.db.userRepoAccess.findMany({
+        where: {
+          userId,
+          ...(options.gitServerId ? { gitServerId: options.gitServerId } : {}),
+        },
+        select: { repoId: true },
+      })
     const repoIds = accessRows.map((row) => row.repoId)
     if (!repoIds.length) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const where = {
@@ -1269,6 +1283,117 @@ class IssueFlowStore {
     return {
       repositories: rows.map((row) => this.publicRepositorySummary(row)),
       owners,
+      page,
+      perPage,
+      total,
+      hasMore: page * perPage < total,
+    }
+  }
+
+  async listInstalledAutomations(options = {}) {
+    await this.ready
+    const userId = String(options.userId || "").trim()
+    const page = Math.max(1, Math.floor(Number(options.page || 1) || 1))
+    const perPage = Math.min(100, Math.max(10, Math.floor(Number(options.perPage || 20) || 20)))
+    const user = userId ? await this.getUser(userId) : undefined
+    const isAdmin = user?.role === "admin"
+    const accessRows = isAdmin
+      ? []
+      : await this.db.userRepoAccess.findMany({
+        where: { userId },
+        select: { repoId: true },
+      })
+    const accessibleRepoIds = new Set(accessRows.map((row) => row.repoId))
+    const rows = await this.db.repo.findMany({
+      include: { gitServer: true, settings: true },
+      orderBy: { fullName: "asc" },
+    })
+    const scopedRows = isAdmin ? rows : rows.filter((row) => accessibleRepoIds.has(row.id))
+    const pairs = scopedRows
+      .filter((row) => row.gitServerId && row.serverRepoId)
+      .map((row) => ({ gitServerId: row.gitServerId, repositoryId: row.serverRepoId }))
+    const [aggregateRows, latestRows] = pairs.length
+      ? await Promise.all([
+        this.db.$queryRawUnsafe(`
+          SELECT
+            "git_server_id" AS "gitServerId",
+            "repository_id" AS "repositoryId",
+            COUNT(*)::int AS "total",
+            COUNT(*) FILTER (WHERE "status" IN ('queued', 'running'))::int AS "active",
+            COUNT(*) FILTER (WHERE "status" = 'failed')::int AS "failed",
+            COUNT(*) FILTER (WHERE "status" = 'succeeded')::int AS "succeeded",
+            MAX("updated_at") AS "lastTaskAt",
+            MAX("updated_at") FILTER (WHERE "status" = 'succeeded') AS "lastSuccessAt",
+            MAX("updated_at") FILTER (WHERE "status" = 'failed') AS "lastFailureAt"
+          FROM "tasks"
+          GROUP BY "git_server_id", "repository_id"
+        `),
+        this.db.$queryRawUnsafe(`
+          SELECT DISTINCT ON ("git_server_id", "repository_id")
+            "git_server_id" AS "gitServerId",
+            "repository_id" AS "repositoryId",
+            "task_id" AS "taskId",
+            "issue_number" AS "issueNumber",
+            "action",
+            "status",
+            "updated_at" AS "updatedAt"
+          FROM "tasks"
+          ORDER BY "git_server_id", "repository_id", "updated_at" DESC, "id" DESC
+        `),
+      ])
+      : [[], []]
+    const aggregateByRepo = new Map(aggregateRows.map((row) => [repoTaskKey(row), row]))
+    const latestByRepo = new Map(latestRows.map((row) => [repoTaskKey(row), row]))
+    const installations = scopedRows.map((row) => {
+      const setting = (row.settings || []).find((item) => item.kind === "plugin" && item.key === "issue-flow")
+      const plugin = jsonValue(setting && setting.data, {}) || {}
+      if (!plugin.installed) return undefined
+      const key = repoTaskKey({ gitServerId: row.gitServerId, repositoryId: row.serverRepoId })
+      const aggregate = aggregateByRepo.get(key) || {}
+      const latestTask = latestByRepo.get(key)
+      const installedVersion = plugin.installedVersion || ""
+      const latestVersion = LATEST_ISSUE_FLOW_VERSION
+      const needsUpgrade = pluginNeedsUpgrade(installedVersion, latestVersion)
+      return {
+        id: row.id,
+        gitServerId: row.gitServerId || "",
+        projectId: row.serverRepoId || "",
+        projectPath: row.fullName || "",
+        name: row.name || row.fullName || "",
+        webUrl: row.url || "",
+        provider: row.gitServer && row.gitServer.type || "",
+        serverName: row.gitServer && row.gitServer.name || "",
+        plugin: {
+          key: "issue-flow",
+          installedVersion,
+          latestVersion,
+          status: needsUpgrade ? "needs_upgrade" : "passed",
+          detail: plugin.detail || "",
+          needsUpgrade,
+          checkedAt: timestampValue(setting && setting.checkedAt),
+        },
+        tasks: {
+          total: Number(aggregate.total || 0),
+          active: Number(aggregate.active || 0),
+          failed: Number(aggregate.failed || 0),
+          succeeded: Number(aggregate.succeeded || 0),
+          lastTaskAt: timestampValue(aggregate.lastTaskAt),
+          lastSuccessAt: timestampValue(aggregate.lastSuccessAt),
+          lastFailureAt: timestampValue(aggregate.lastFailureAt),
+          latest: latestTask ? {
+            taskId: latestTask.taskId || "",
+            issueNumber: Number(latestTask.issueNumber || 0),
+            action: latestTask.action || "",
+            status: latestTask.status || "",
+            updatedAt: timestampValue(latestTask.updatedAt),
+          } : undefined,
+        },
+      }
+    }).filter(Boolean)
+    const total = installations.length
+    const start = (page - 1) * perPage
+    return {
+      installations: installations.slice(start, start + perPage),
       page,
       perPage,
       total,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
+import { insightsRoute, parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
 import {
   api,
   ownerOf,
@@ -187,6 +187,13 @@ export function useDashboardController() {
       window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", path)
     }
     setRoute(normalized)
+    if (normalized.view !== "repos") return
+    setSelectedGitServerId(normalized.gitServerId)
+    setSelectedProjectId(normalized.projectId)
+    setActiveTab(normalized.projectId ? normalized.tab : "overview")
+    const selectedRepository = findSelectedRepository(repositories, normalized.projectId, normalized.gitServerId)
+    if (selectedRepository) setSelectedRepositorySnapshot(selectedRepository)
+    else if (!normalized.projectId) setSelectedRepositorySnapshot(undefined)
   }
   function navigateWorkspace(next: Partial<WorkspaceRoute>, mode: "push" | "replace" = "push") {
     applyRoute({
@@ -199,6 +206,10 @@ export function useDashboardController() {
   }
   function navigateUserSettings(settingsSection: WorkspaceRoute["settingsSection"] = "account", mode: "push" | "replace" = "push") {
     applyRoute({ ...userSettingsRoute, settingsSection }, mode)
+  }
+
+  function navigateInsights(mode: "push" | "replace" = "push") {
+    applyRoute(insightsRoute, mode)
   }
 
   async function loadGitServers() {
@@ -282,7 +293,7 @@ export function useDashboardController() {
     return Promise.all([loadGitServers(), loadUserSession()]).finally(() => setLoadingLoginState(false))
   }
 
-  async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean; includeSelectedProject?: boolean; fallbackProject?: "first" | "none" } = {}) {
+  async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean; includeSelectedProject?: boolean; selectedProjectId?: string; fallbackProject?: "first" | "none" } = {}) {
     const requestVersion = ++repositoryRequestVersion.current
     const q = filter.trim()
     const searchAllServers = Boolean(q)
@@ -292,9 +303,10 @@ export function useDashboardController() {
       return []
     }
     const page = options.page || 1
+    const requestedSelectedProjectId = options.selectedProjectId ?? selectedProjectId
     const params = new URLSearchParams({ page: String(page), perPage: "50" })
     if (scopeGitServerId) params.set("gitServerId", scopeGitServerId)
-    if (options.includeSelectedProject && selectedProjectId && !searchAllServers) params.set("selectedProjectId", selectedProjectId)
+    if (options.includeSelectedProject && requestedSelectedProjectId && !searchAllServers) params.set("selectedProjectId", requestedSelectedProjectId)
     if (q) params.set("q", q)
     if (!q && owner !== "all") params.set("owner", owner)
     const body = await api<{ repositories: Repository[]; owners?: string[]; page?: number; hasMore?: boolean }>(`/api/repositories?${params.toString()}`)
@@ -883,6 +895,26 @@ export function useDashboardController() {
     navigateUserSettings()
   }
 
+  function openInstalledAutomationRepository(gitServerId: string, projectId: string, repositoryId: string) {
+    navigateWorkspace({ gitServerId, projectId, tab: "overview" })
+    if (findSelectedRepository(repositories, projectId, gitServerId)) return
+    if (repositoryId) {
+      void loadRepositoryDetail(repositoryId)
+        .then((repository) => {
+          if (repository) setSelectedRepositorySnapshot(repository)
+        })
+        .catch((error) => notifyError(error, "加载仓库详情失败"))
+      return
+    }
+    if (sessions[gitServerId]?.authenticated) {
+      void loadRepositories(gitServerId, {
+        includeSelectedProject: true,
+        selectedProjectId: projectId,
+        fallbackProject: "none",
+      }).catch((error) => notifyError(error, "加载仓库失败"))
+    }
+  }
+
   useEffect(() => {
     ;(async () => {
       try {
@@ -1035,6 +1067,7 @@ export function useDashboardController() {
     sidebarCollapsed,
     sidebar: {
       collapsed: sidebarCollapsed,
+      insightsActive: route.view === "insights",
       gitServers,
       selectedGitServerId,
       selectedGitServer,
@@ -1058,7 +1091,11 @@ export function useDashboardController() {
       onRefresh: syncGitServer,
       onLogout: logoutAll,
       onOpenUserSettings: openUserSettings,
+      onOpenInsights: navigateInsights,
       onCollapsedChange: updateSidebarCollapsed,
+    },
+    insights: {
+      onOpenRepository: openInstalledAutomationRepository,
     },
     userSettings: {
       userSession,
