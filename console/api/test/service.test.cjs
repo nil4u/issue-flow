@@ -325,6 +325,35 @@ test('repository search ignores owner filter while owner browsing still scopes r
   }
 });
 
+test('admin repository listing uses repository ids from the repo query', async () => {
+  const { dir, store } = tempStore();
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    await store.createUser({ id: 'admin-user', role: 'admin', displayName: 'Admin' });
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/api',
+    }, { status: 'unchecked', projectId: '43' });
+
+    const result = await store.listRepositories({
+      gitServerId: 'gitlab-main',
+      userId: 'admin-user',
+    });
+
+    assert.deepEqual(result.repositories.map((repo) => repo.projectPath), ['team/api', 'team/app']);
+    assert.equal(result.total, 2);
+  } finally {
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('repository task API paginates tasks and preserves repo access boundaries', async () => {
   const { dir, store } = tempStore();
   const { app, baseUrl } = await listenApp(store);

@@ -1241,7 +1241,7 @@ class IssueFlowStore {
         },
         select: { repoId: true },
       })
-    const repoIds = accessRows.map((row) => row.repoId)
+    const repoIds = accessRows.map((row) => isAdmin ? row.id : row.repoId)
     if (!repoIds.length) return { repositories: [], owners: [], page, perPage, total: 0, hasMore: false }
     const where = {
       id: { in: repoIds },
