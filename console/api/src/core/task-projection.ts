@@ -9,6 +9,13 @@ import { compactNulls, sanitize } from "./sanitize.js"
 // gitServerId (agentrix id) / serverRepoId (GitLab project id) / issueNumber /
 // metadata, which is all the console needs to link a task to its issue.
 const TASK_ACTIONS = new Set(["triage", "plan", "build", "review"])
+const WORKER_STATE_EVENTS = new Set([
+  "worker-initializing",
+  "worker-initialized",
+  "worker-ready",
+  "worker-running",
+  "worker-exit",
+])
 
 function normalizeTaskAction(action = "") {
   const value = String(action || "").trim().toLowerCase()
@@ -70,11 +77,8 @@ function forwardedTaskRuntime(forwarded = {}) {
       model: String(eventData.model || ""),
     }
   }
-  if (eventType === "worker-initializing" || eventType === "worker-ready" || eventType === "worker-running") {
+  if (eventType === "worker-initializing" || eventType === "worker-initialized" || eventType === "worker-running") {
     return { taskId, status: "running", startedAt: at }
-  }
-  if (eventType === "worker-exit") {
-    return { taskId, status: "cancelled", weakStatus: true, finishedAt: at }
   }
   if (eventType === "task-message" && forwarded.direction === "outbound") {
     const message = eventData.message || {}
@@ -84,22 +88,33 @@ function forwardedTaskRuntime(forwarded = {}) {
       taskId,
       status: failed ? "failed" : "succeeded",
       finishedAt: at,
-      turns: Number(message.num_turns || 0),
     }
   }
   return undefined
 }
 
-// Every task-message frame is stored (full conversation stream for analysis):
-// human_input / agent_result mark the metric-relevant boundaries, everything
-// else (assistant turns, tool results, system messages) lands as agent_message
-// with the raw payload — eventData keeps senderType / from / message.type.
+// Task messages keep the full conversation stream; worker lifecycle changes
+// share one worker_state type and retain their original state in eventData.
 function forwardedTaskEvent(forwarded = {}) {
-  if (String(forwarded.eventType || "") !== "task-message") return undefined
+  const forwardedType = String(forwarded.eventType || "")
   const taskId = String(forwarded.taskId || "").trim()
   const eventId = String(forwarded.eventId || "").trim()
   if (!taskId || !eventId) return undefined
   const eventData = forwarded.eventData || {}
+  if (WORKER_STATE_EVENTS.has(forwardedType)) {
+    return {
+      taskId,
+      eventId,
+      chatId: String(forwarded.chatId || eventData.chatId || ""),
+      eventType: "worker_state",
+      eventData: sanitize(compactNulls({
+        ...eventData,
+        state: forwardedType.slice("worker-".length),
+      })),
+      createdAt: forwarded.createdAt,
+    }
+  }
+  if (forwardedType !== "task-message") return undefined
   const message = eventData.message || {}
   let eventType = "agent_message"
   if (forwarded.direction === "inbound" && String(eventData.senderType || "") === "human") {

@@ -226,6 +226,7 @@ model Task {
   agent              String    @default("")
   model              String    @default("")
   turns              Int       @default(0)
+  executionMs        Int       @default(0) @map("execution_ms")
   status             String    @default("queued")
   result             String    @default("")
   queuedAt           DateTime? @map("queued_at")

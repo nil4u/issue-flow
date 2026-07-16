@@ -329,6 +329,13 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     }));
     await applyForwardedEventToTaskFacts(store, forwardedEvent({
       cursor: 6,
+      eventId: 'evt-ready',
+      eventType: 'worker-ready',
+      eventData: { machineId: 'machine-1', duration: 30 * 60 * 1000 },
+      createdAt: at(HOUR_MS + 40 * 60000),
+    }));
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 7,
       eventId: 'evt-usage',
       eventType: 'task-usage-report',
       eventData: {
@@ -345,6 +352,21 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
           },
         },
       },
+      createdAt: at(HOUR_MS + 40 * 60000),
+    }));
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 3,
+      eventId: 'evt-human',
+      chatId: 'chat-1',
+      direction: 'inbound',
+      eventData: { senderType: 'human', message: { type: 'user' } },
+      createdAt: at(HOUR_MS + 12 * 60000),
+    }));
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 6,
+      eventId: 'evt-ready',
+      eventType: 'worker-ready',
+      eventData: { machineId: 'machine-1', duration: 30 * 60 * 1000 },
       createdAt: at(HOUR_MS + 40 * 60000),
     }));
     // resumed run reports its own usage: per-task tokens sum across reports
@@ -407,7 +429,8 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     assert.equal('costUsd' in usageReports[0], false, 'cost metadata is not persisted');
     assert.equal(task.agent, 'claude');
     assert.equal(task.model, 'claude-sonnet-5');
-    assert.equal(task.turns, 9);
+    assert.equal(task.turns, 1, 'task turns count unique human inputs');
+    assert.equal(task.executionMs, 30 * 60 * 1000, 'task execution sums unique worker-ready durations');
     assert.equal(task.startedAt, at(HOUR_MS + 10 * 60000));
     assert.equal(task.finishedAt, at(HOUR_MS + 40 * 60000));
     assert.equal(task.gitServerId, 'gitlab-main', 'agentrix git server id resolves to the console git server');
@@ -453,9 +476,13 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     );
 
     const events = await store.listTaskEvents('task-abc');
-    assert.equal(events.length, 3, 'usage reports stay out of the conversation event stream');
-    assert.deepEqual(events.map((event) => event.eventType), ['human_input', 'agent_message', 'agent_result']);
-    assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3]);
+    assert.equal(events.length, 5, 'usage reports stay out of the task event stream');
+    assert.deepEqual(events.map((event) => event.eventType), ['worker_state', 'human_input', 'agent_message', 'agent_result', 'worker_state']);
+    assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4, 5]);
+    assert.deepEqual(
+      events.filter((event) => event.eventType === 'worker_state').map((event) => event.eventData.state),
+      ['running', 'ready'],
+    );
     assert.ok(events.every((event) => event.issueId === '4207'), 'task events carry the issue linkage');
 
     // review task: dispatched with the source issue number and action=review metadata
@@ -486,8 +513,17 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
       eventData: { message: { type: 'result', subtype: 'success', num_turns: 2 } },
       createdAt: at(2 * HOUR_MS + 20 * 60000),
     }));
+    await applyForwardedEventToTaskFacts(store, forwardedEvent({
+      cursor: 11,
+      eventId: 'evt-review-ready',
+      taskId: 'task-review-1',
+      eventType: 'worker-ready',
+      eventData: { machineId: 'machine-1', duration: 10 * 60 * 1000 },
+      createdAt: at(2 * HOUR_MS + 20 * 60000),
+    }));
     const reviewTask = await store.getTask('task-review-1');
     assert.equal(reviewTask.action, 'review');
+    assert.equal(reviewTask.executionMs, 10 * 60 * 1000);
     assert.equal(reviewTask.issueId, '4207', 'review tasks link through the dispatched source issue number');
 
     await applyIssueSnapshotToFacts(store, issueSnapshot({
@@ -503,9 +539,9 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     const stats = await store.getIssueStats(issueRow.id);
     assert.equal(stats.cycleStartedAt, at(HOUR_MS + 10 * 60000));
     assert.equal(stats.buildTaskSeconds, 30 * 60);
-    assert.equal(stats.buildTaskTurns, 9);
+    assert.equal(stats.buildTaskTurns, 1);
     assert.equal(stats.reviewTaskSeconds, 10 * 60);
-    assert.equal(stats.reviewTaskTurns, 2);
+    assert.equal(stats.reviewTaskTurns, 0);
     assert.equal(stats.triageTaskSeconds, 0);
 
     const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
@@ -520,7 +556,7 @@ order by action`,
     assert.deepEqual(execution.rows.map((row) => row.action), ['build', 'review']);
     const buildRow = execution.rows[0];
     assert.equal(Number(buildRow.task_seconds), 1800);
-    assert.equal(Number(buildRow.turns), 9);
+    assert.equal(Number(buildRow.turns), 1);
     assert.equal(Number(buildRow.input_tokens), 2147483800);
     assert.equal(Number(buildRow.output_tokens), 500);
     assert.equal(Number(buildRow.total_tokens), 2147484400);

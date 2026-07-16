@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify"
 
 import {
+  getUserAgentrixCloudMachines,
   getUserAgentrixConfig,
   getUserAgentrixResources,
   updateUserAgentrixConfig,
@@ -27,6 +28,18 @@ export async function userAgentrixConfigRoutes(app: FastifyInstance) {
       ...contextFromRequest(request),
       userId,
       user,
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.get<{ Params: { cloudId: string } }>("/api/user/agentrix-resources/clouds/:cloudId/machines", async (request, reply) => {
+    const userId = await currentUserIdFromRequest(request)
+    const user = userId ? await request.server.issueFlowStore.getUser(userId, { includeAccounts: true }) : undefined
+    const result = await getUserAgentrixCloudMachines({
+      ...contextFromRequest(request),
+      userId,
+      user,
+      cloudId: request.params.cloudId,
     })
     return reply.code(result.status).send(result.body)
   })

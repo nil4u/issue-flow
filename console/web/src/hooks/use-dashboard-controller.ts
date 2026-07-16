@@ -39,6 +39,7 @@ import {
   requestInstallPlugin,
   streamInstallPlugin,
 } from "@/lib/install-flow"
+import { hasRepoSettingsData } from "@/lib/repo-settings"
 import { initializeIssueFlowSetup, type SetupInitializeInput } from "@/lib/setup-flow"
 
 function hasPendingAutoVariables(step?: InstallStep) {
@@ -105,6 +106,9 @@ export function useDashboardController() {
     steps: installCheckProgressSteps,
   })
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
+  const projectAccessKey = useRef("")
+  const projectAccessRequestKey = useRef("")
+  const autoCheckedSettingsVisit = useRef("")
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
   const {
@@ -426,9 +430,15 @@ export function useDashboardController() {
 
   async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
     if (!project || !gitServerId) {
+      projectAccessKey.current = ""
+      projectAccessRequestKey.current = ""
       setProjectAccess(undefined)
       return undefined
     }
+    const requestKey = `${gitServerId}:${project.id}`
+    projectAccessKey.current = ""
+    projectAccessRequestKey.current = requestKey
+    setProjectAccess(undefined)
     setLoadingProjectAccess(true)
     try {
       const body = await api<{ access: ProjectAccess }>("/api/gitlab/project-role", {
@@ -438,13 +448,17 @@ export function useDashboardController() {
           projectId: project.id,
         }),
       })
+      if (projectAccessRequestKey.current !== requestKey) return undefined
+      projectAccessKey.current = requestKey
       setProjectAccess(body.access)
       return body.access
     } catch (error) {
+      if (projectAccessRequestKey.current !== requestKey) return undefined
+      projectAccessKey.current = ""
       setProjectAccess(undefined)
       notifyError(error, "读取权限失败")
     } finally {
-      setLoadingProjectAccess(false)
+      if (projectAccessRequestKey.current === requestKey) setLoadingProjectAccess(false)
     }
   }
 
@@ -959,6 +973,23 @@ export function useDashboardController() {
     if (!selectedRepoSummary?.id || repositoryDetails[selectedRepoSummary.id]?.settings) return
     void loadRepositoryDetail(selectedRepoSummary.id).catch((error) => notifyError(error, "加载仓库详情失败"))
   }, [activeTab, selectedGitServerId, selectedRepoSummary?.id, userSession.authenticated, repositoryDetails])
+
+  useEffect(() => {
+    if (activeTab !== "settings") {
+      autoCheckedSettingsVisit.current = ""
+      return
+    }
+    if (!selectedGitServerId || !selectedProject || !selectedRepoSummary?.id || checking) return
+
+    const visitKey = `${selectedGitServerId}:${selectedProject.id}`
+    const repository = repositoryDetails[selectedRepoSummary.id]
+    if (!repository || hasRepoSettingsData(repository.settings)) return
+    if (projectAccessKey.current !== visitKey || !projectAccess?.canManage) return
+    if (autoCheckedSettingsVisit.current === visitKey) return
+
+    autoCheckedSettingsVisit.current = visitKey
+    void runInstallCheck()
+  }, [activeTab, checking, projectAccess, repositoryDetails, selectedGitServerId, selectedProject?.id, selectedRepoSummary?.id])
 
   useEffect(() => {
     if (activeTab !== "settings" || !selectedGitServerId || !selectedProject || !pendingPluginMergeRequestHref) return

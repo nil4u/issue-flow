@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { AlertCircle, Cloud, Server, Settings, Wrench } from "lucide-react"
+import { AlertCircle, ChevronDown, Cloud, Loader2, Server, Settings, Wrench } from "lucide-react"
 
 import { AgentrixPrivateCloudWizard } from "@/components/agentrix-private-cloud-wizard"
 import { Button } from "@/components/ui/button"
@@ -7,11 +7,21 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import {
   api,
   type AgentrixCloud,
+  type AgentrixCloudMachine,
+  type AgentrixLocalMachine,
   type AgentrixResources,
   type GitServer,
   type UserSession,
 } from "@/issue-flow-model"
+import { machineCliVersion } from "@/lib/agentrix-machines"
 import { notifyError } from "@/lib/errors"
+
+type CloudMachineState = {
+  loading?: boolean
+  loaded?: boolean
+  error?: boolean
+  machines: AgentrixCloudMachine[]
+}
 
 export function AgentrixPanel({
   gitServers,
@@ -27,6 +37,8 @@ export function AgentrixPanel({
   const gitServerId = useAgentrixContextGitServerId(userSession, gitServers)
   const [resources, setResources] = useState<AgentrixResources>()
   const [deployCloud, setDeployCloud] = useState<AgentrixCloud>()
+  const [expandedCloudId, setExpandedCloudId] = useState("")
+  const [cloudMachines, setCloudMachines] = useState<Record<string, CloudMachineState>>({})
   const privateClouds = resources?.privateClouds || []
   const localMachines = resources?.localMachines || []
 
@@ -42,6 +54,31 @@ export function AgentrixPanel({
       setResources(body)
     } catch (error) {
       notifyError(error, "加载 Agentrix 资源失败")
+    }
+  }
+
+  async function toggleCloud(cloudId: string) {
+    if (expandedCloudId === cloudId) {
+      setExpandedCloudId("")
+      return
+    }
+    setExpandedCloudId(cloudId)
+    if (cloudMachines[cloudId]?.loaded || cloudMachines[cloudId]?.loading) return
+
+    await loadCloudMachines(cloudId)
+  }
+
+  async function loadCloudMachines(cloudId: string) {
+    setCloudMachines((current) => ({ ...current, [cloudId]: { machines: [], loading: true } }))
+    try {
+      const body = await api<{ machines: AgentrixCloudMachine[] }>(`/api/user/agentrix-resources/clouds/${encodeURIComponent(cloudId)}/machines`)
+      setCloudMachines((current) => ({
+        ...current,
+        [cloudId]: { machines: body.machines || [], loaded: true },
+      }))
+    } catch (error) {
+      setCloudMachines((current) => ({ ...current, [cloudId]: { machines: [], error: true } }))
+      notifyError(error, "加载 Cloud machines 失败")
     }
   }
 
@@ -89,19 +126,41 @@ export function AgentrixPanel({
             </span>
           </header>
           <div className="agentrix-resource-list">
-            {privateClouds.map((cloud) => (
-              <div className="agentrix-resource-row" key={cloud.id}>
-                <span className="account-provider-icon"><Cloud className="size-4" /></span>
-                <span className="agentrix-resource-copy">
-                  <strong>{cloud.name || cloud.id}</strong>
-                  <small>{cloud.id} · {cloud.role || "member"} · 在线 {cloud.onlineMachineCount ?? 0}/{cloud.machineCount ?? 0}</small>
-                </span>
-                <Button type="button" size="sm" variant="secondary" onClick={() => setDeployCloud(cloud)}>
-                  <Wrench className="size-4" />
-                  部署
-                </Button>
-              </div>
-            ))}
+            {privateClouds.map((cloud) => {
+              const expanded = expandedCloudId === cloud.id
+              const machineState = cloudMachines[cloud.id]
+              return (
+                <div className={`agentrix-cloud-group ${expanded ? "expanded" : ""}`} key={cloud.id}>
+                  <div className="agentrix-resource-row agentrix-cloud-row">
+                    <button type="button" className="agentrix-cloud-trigger" aria-expanded={expanded} onClick={() => toggleCloud(cloud.id)}>
+                      <span className="account-provider-icon"><Cloud className="size-4" /></span>
+                      <span className="agentrix-resource-copy">
+                        <strong>{cloud.name || cloud.id}</strong>
+                        <small>{cloud.id} · {cloud.role || "member"} · 在线 {cloud.onlineMachineCount ?? 0}/{cloud.machineCount ?? 0}</small>
+                      </span>
+                      <ChevronDown className={`size-4 agentrix-cloud-chevron ${expanded ? "expanded" : ""}`} />
+                    </button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => setDeployCloud(cloud)}>
+                      <Wrench className="size-4" />
+                      部署
+                    </Button>
+                  </div>
+                  {expanded && (
+                    <div className="agentrix-cloud-machines">
+                      {machineState?.loading ? (
+                        <div className="agentrix-empty-row"><Loader2 className="size-4 animate-spin" />正在加载 machines</div>
+                      ) : machineState?.error ? (
+                        <button type="button" className="agentrix-empty-row agentrix-retry-row" onClick={() => loadCloudMachines(cloud.id)}>加载失败，点击重试</button>
+                      ) : machineState?.machines.length ? (
+                        machineState.machines.map((machine) => <MachineRow key={machine.id} machine={machine} />)
+                      ) : (
+                        <div className="agentrix-empty-row">这个 cloud 还没有 machine</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             {!privateClouds.length && (
               <div className="agentrix-empty-row">还没有 private cloud</div>
             )}
@@ -117,14 +176,7 @@ export function AgentrixPanel({
           </header>
           <div className="agentrix-resource-list">
             {localMachines.map((machine) => (
-              <div className="agentrix-resource-row" key={machine.id}>
-                <span className="account-provider-icon"><Server className="size-4" /></span>
-                <span className="agentrix-resource-copy">
-                  <strong>{machine.id}</strong>
-                  <small>{machine.status || "unknown"}{machine.controlPort ? ` · control:${machine.controlPort}` : ""}</small>
-                </span>
-                <span className={`agentrix-status-dot ${machine.status === "online" ? "online" : ""}`}>{machine.status || "unknown"}</span>
-              </div>
+              <MachineRow key={machine.id} machine={machine} local />
             ))}
             {!localMachines.length && (
               <div className="agentrix-empty-row">还没有 local machine</div>
@@ -148,6 +200,22 @@ export function AgentrixPanel({
         </DialogContent>
       </Dialog>
     </section>
+  )
+}
+
+function MachineRow({ machine, local = false }: { machine: AgentrixCloudMachine | AgentrixLocalMachine; local?: boolean }) {
+  const version = machineCliVersion(machine)
+  const deviceId = "deviceId" in machine ? machine.deviceId : undefined
+  const controlPort = "controlPort" in machine ? machine.controlPort : undefined
+  return (
+    <div className={`agentrix-resource-row agentrix-machine-row ${local ? "" : "cloud"}`}>
+      <span className="account-provider-icon"><Server className="size-4" /></span>
+      <span className="agentrix-resource-copy">
+        <strong>{deviceId || machine.id}</strong>
+        <small>CLI {version ? `v${version.replace(/^v/, "")}` : "unknown"}{controlPort ? ` · control:${controlPort}` : ""}</small>
+      </span>
+      <span className={`agentrix-status-dot ${machine.status === "online" ? "online" : ""}`}>{machine.status || "unknown"}</span>
+    </div>
   )
 }
 
