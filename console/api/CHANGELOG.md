@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/nil4u/issue-flow/compare/console-v0.10.0...console-v0.10.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* **console:** use repository ids for admin listings ([f9877c7](https://github.com/nil4u/issue-flow/commit/f9877c738b15f75baa6f880229c717280dff164e))
+
 ## [0.10.0](https://github.com/nil4u/issue-flow/compare/console-v0.9.0...console-v0.10.0) (2026-07-16)
 
 
