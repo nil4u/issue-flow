@@ -442,7 +442,7 @@ test('dispatch Plan review comment uses the standard PR review reply instruction
           commentBody: '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->\n## Visual Plan Review\n\n请修改。',
           body: [
             '<!-- issue-flow:source-issue=42 -->',
-            '<!-- issue-flow:agentrix:task=task-plan-42 -->',
+            '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
             '<!-- issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/index.html -->',
           ].join('\n'),
           labels: [{ name: 'mr-by::plan' }],

@@ -40,7 +40,6 @@ const VISUAL_PLAN_FEATURE_PREFIX = 'feature:visual-plan:';
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
 const VISUAL_PLAN_FEATURE_OFF = 'feature:visual-plan:off';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::', VISUAL_PLAN_FEATURE_PREFIX];
-const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
 const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
 const PROVIDER_TOKEN_ENV_KEYS = [
   'GITHUB_TOKEN',

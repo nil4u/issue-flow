@@ -43,6 +43,7 @@ This skill is active only when the source issue has `feature:visual-plan:on`. Wi
    - Publish a plan with `issue-flow pr submit plan --artifact plan`; it updates the same Plan branch/MR and sets `plan::pending` plus `flow::approve`.
    - Issue Flow owns publication, review routing, approval state, and provider operations after these commands complete.
    - Decision approval posts an approved review comment on the open Plan MR and resumes the same Plan task. Continue on the existing Plan branch and update the same MR with the Plan artifact.
+   - When generating the first Plan after Decision approval, delete `decision.html` and the `decision/` directory before committing. The Plan commit and eventual merge must not retain the superseded Decision artifact.
    - Plan approval advances the source issue to Build. Do not bypass the Issue Flow review page.
 
 4. Use diagrams instead of prose when structure is the point.
@@ -169,9 +170,17 @@ Guidelines:
 - `validation[].refs` should point to the risk, path, invariant, or behavior it proves.
 - Branching, merging, or looping topology should be represented as real edges, not prose.
 
+## Shared Styles
+
+The installer owns one fixed stylesheet at `.issue-flow/plan-kit/kit.css`.
+
+- `decision.html` links it as `../../plan-kit/kit.css`.
+- `plan/index.html` links it as `../../../plan-kit/kit.css`.
+- Keep only artifact-specific CSS under the current issue directory.
+
 ## HTML Rules
 
-- Use `plan-kit/kit.css` and `plan-kit/kit.js` when suitable.
+- Use the shared `.issue-flow/plan-kit/kit.css` and `plan-kit/kit.js` when suitable.
 - Use `plan-kit/diagram.mjs` for topology with branching, merging, loops, or dense edge labels.
 - Static SVG is acceptable for small diagrams when it is clearer and all important nodes have `data-ref`.
 - Do not put cards inside cards.

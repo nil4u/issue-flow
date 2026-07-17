@@ -62,14 +62,14 @@ Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan
 | 提交 Decision | MR body 写入 Decision Engine URL；`mr-by::plan` + `flow::clarify` |
 | 提交 Decision 讨论/修改 | 审阅记录写入 LocalStorage、评论同一个 Plan MR 并 resume 原 Plan task；保持 `flow::clarify` |
 | 提交 Decision 全部通过 | 清除 Decision 本地记录、评论同一个 Plan MR；`flow::plan`；review-comment pipeline resume 原 Plan task，不合并 MR |
-| 提交 Visual Plan | 更新 Decision 使用的同一分支/MR；`plan::pending` + `flow::approve` |
+| 提交 Visual Plan | 删除已完成的 Decision 产物，更新同一分支/MR；`plan::pending` + `flow::approve` |
 | 提交 Visual Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；`plan::changes-requested` + `flow::approve` |
 | Approve Visual Plan | 清除 Plan 本地记录并 merge Plan MR；`plan::approved` + `flow::build` |
 | Plan 合并失败 | 保持 MR open 和当前 pending/approve 状态 |
 | 提交 Build PR/MR | `mr-by::build` + `flow::approve` |
 | 合并 Build PR/MR | `status::done` + clear `flow::` |
 
-Engine 页面保留元素锚点、`data-ref`、`data-comment-scope`、点/区域标注、Decision Approve/Discuss、草稿增删改、Review Submit 和历史记录。草稿与已提交审阅按 repository、issue、Decision/Plan 分区保存在浏览器 LocalStorage；Approve 后删除对应分区。提交审阅时使用页面当前登录用户的 OAuth token 评论对应 PR/MR，只有 Plan Approve 使用同一身份合并。页面产物由 Issue Flow 服务通过 GitHub/GitLab provider API 按 MR marker 中的 commit 读取。
+Engine 页面保留元素锚点、`data-ref`、`data-comment-scope`、点/区域标注、Decision Approve/Discuss、草稿增删改、Review Submit 和历史记录。固定样式由 installer 统一写入 `.issue-flow/plan-kit/kit.css`，各 Issue 产物只保留自己的样式。草稿与已提交审阅按 repository、issue、Decision/Plan 分区保存在浏览器 LocalStorage；Approve 后删除对应分区。提交审阅时使用页面当前登录用户的 OAuth token 评论对应 PR/MR，只有 Plan Approve 使用同一身份合并。页面产物由 Issue Flow 服务通过 GitHub/GitLab provider API 按 MR marker 中的 commit 读取。
 
 ## Build 输入
 

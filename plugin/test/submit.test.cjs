@@ -1,9 +1,14 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
   assertBodyFileNotTracked,
+  assertDecisionArtifactsRemoved,
+  assertSharedVisualStylesheet,
   buildPrBodyWithMarkers,
   buildVisualArtifactComment,
   buildVisualArtifactMarker,
@@ -229,6 +234,43 @@ test('visual plan mode defaults off and rejects conflicting issue switches', () 
 test('Decision and Plan publication use their distinct issue gates', () => {
   assert.deepEqual(planSubmissionIssueState('decision'), { flow: 'flow::clarify', desired: {} });
   assert.deepEqual(planSubmissionIssueState('plan'), { flow: 'flow::approve', desired: { plan: 'plan::pending' } });
+});
+
+test('Visual Plan publication requires completed Decision artifacts to be removed', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-decision-'));
+  try {
+    const issueRoot = path.join(root, '.issue-flow/issues/42-issue');
+    fs.mkdirSync(path.join(issueRoot, 'decision/data'), { recursive: true });
+    fs.writeFileSync(path.join(issueRoot, 'decision.html'), '<!doctype html>', 'utf8');
+    process.chdir(root);
+    assert.throws(() => assertDecisionArtifactsRemoved(42), /Delete the completed Decision artifacts/);
+    fs.rmSync(path.join(issueRoot, 'decision.html'));
+    fs.rmSync(path.join(issueRoot, 'decision'), { recursive: true });
+    assert.doesNotThrow(() => assertDecisionArtifactsRemoved(42));
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Visual artifacts link the installed shared stylesheet', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-styles-'));
+  try {
+    const issueRoot = path.join(root, '.issue-flow/issues/42-issue');
+    fs.mkdirSync(path.join(issueRoot, 'plan'), { recursive: true });
+    fs.writeFileSync(path.join(issueRoot, 'decision.html'), '<link rel="stylesheet" href="../../plan-kit/kit.css">', 'utf8');
+    fs.writeFileSync(path.join(issueRoot, 'plan/index.html'), '<link rel="stylesheet" href="../../../plan-kit/kit.css">', 'utf8');
+    process.chdir(root);
+    assert.doesNotThrow(() => assertSharedVisualStylesheet('.issue-flow/issues/42-issue/decision.html', 'decision'));
+    assert.doesNotThrow(() => assertSharedVisualStylesheet('.issue-flow/issues/42-issue/plan/index.html', 'plan'));
+    fs.writeFileSync(path.join(issueRoot, 'plan/index.html'), '<link rel="stylesheet" href="css/kit.css">', 'utf8');
+    assert.throws(() => assertSharedVisualStylesheet('.issue-flow/issues/42-issue/plan/index.html', 'plan'), /must link the shared stylesheet/);
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('visual publishing uses ISSUE_FLOW_BASE_URL as its service URL', () => {

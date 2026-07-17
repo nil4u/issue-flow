@@ -37,6 +37,7 @@ const AGENTRIX_PROJECT_FILES = [
 const AGENTRIX_PROJECT_DIRS = [
   ['skills/issue-flow/assets/agentrix/runtime/prompts', '.issue-flow/prompts', { mode: MODE_CUSTOMIZABLE }],
   ['skills/issue-flow/assets/agentrix/runtime/templates', '.issue-flow/templates', { mode: MODE_CUSTOMIZABLE }],
+  ['skills/vision-plan/plan-kit/kit.css', '.issue-flow/plan-kit/kit.css', { mode: MODE_MANAGED }],
 ];
 const AGENTRIX_PLUGIN_ROOT = '.agentrix/plugins/issue-flow';
 const LEGACY_AGENTRIX_PROJECT_ROOT = '.agentrix/issue-flow';
@@ -60,7 +61,7 @@ const AGENTRIX_PLUGIN_DIRS = [
   [
     'skills/vision-plan',
     `${AGENTRIX_PLUGIN_ROOT}/skills/vision-plan`,
-    { mode: MODE_MANAGED },
+    { mode: MODE_MANAGED, exclude: ['plan-kit/kit.css'] },
   ],
 ];
 const AGENTRIX_PLUGIN_SPECS = [

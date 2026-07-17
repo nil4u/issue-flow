@@ -49,6 +49,8 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css')), false);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), true);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-impl.prompt.md'), 'utf8'), /提交方案(?:的)? PR\/MR/);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md'), 'utf8'), /Decision 或 Visual Plan/);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);

@@ -242,25 +242,52 @@ function resolveVisualPlanFeatureMode(issue = {}) {
   return labels[0] === VISUAL_PLAN_FEATURE_ON ? 'on' : 'off';
 }
 
+function findVisualIssueDirectory(issueNumber) {
+  const root = path.resolve(process.cwd(), '.issue-flow/issues');
+  if (!fs.existsSync(root)) return '';
+  const issueDir = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${issueNumber}-`))
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+  return issueDir ? path.join(root, issueDir) : '';
+}
+
 function findIssueArtifactPath(issueNumber, artifact, options = {}) {
   if (options.artifactPath) {
     const explicitPath = path.resolve(process.cwd(), options.artifactPath);
     if (!fs.existsSync(explicitPath)) throw new Error(`Visual artifact does not exist: ${options.artifactPath}`);
     return path.relative(process.cwd(), explicitPath).replace(/\\/g, '/');
   }
-  const root = path.resolve(process.cwd(), '.issue-flow/issues');
-  if (!fs.existsSync(root)) throw new Error('.issue-flow/issues does not exist');
-  const issueDir = fs.readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${issueNumber}-`))
-    .map((entry) => entry.name)
-    .sort()
-    .at(-1);
-  if (!issueDir) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
+  const issueRoot = findVisualIssueDirectory(issueNumber);
+  if (!issueRoot) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
+  const issueDir = path.basename(issueRoot);
   const relativePath = artifact === 'decision'
     ? path.join('.issue-flow', 'issues', issueDir, 'decision.html')
     : path.join('.issue-flow', 'issues', issueDir, 'plan', 'index.html');
   if (!fs.existsSync(path.resolve(process.cwd(), relativePath))) throw new Error(`Visual ${artifact} artifact does not exist: ${relativePath}`);
   return relativePath.replace(/\\/g, '/');
+}
+
+function assertDecisionArtifactsRemoved(issueNumber) {
+  const issueRoot = findVisualIssueDirectory(issueNumber);
+  if (!issueRoot) return;
+  const decisionPaths = [path.join(issueRoot, 'decision.html'), path.join(issueRoot, 'decision')]
+    .filter((candidate) => fs.existsSync(candidate));
+  if (!decisionPaths.length) return;
+  const relativePaths = decisionPaths.map((candidate) => path.relative(process.cwd(), candidate).replace(/\\/g, '/'));
+  throw new Error([
+    `Visual Plan cannot be published while Decision artifacts remain: ${relativePaths.join(', ')}.`,
+    'Delete the completed Decision artifacts, commit the deletion with the Plan, then publish again.',
+  ].join(' '));
+}
+
+function assertSharedVisualStylesheet(artifactPath, artifact) {
+  const expectedHref = artifact === 'decision' ? '../../plan-kit/kit.css' : '../../../plan-kit/kit.css';
+  const html = fs.readFileSync(path.resolve(process.cwd(), artifactPath), 'utf8');
+  const escapedHref = expectedHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`\\bhref=["']${escapedHref}["']`, 'i').test(html)) return;
+  throw new Error(`Visual ${artifact} artifact must link the shared stylesheet with href="${expectedHref}": ${artifactPath}`);
 }
 
 function findMarkdownPlanPath(issueNumber, options = {}) {
@@ -634,9 +661,15 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   const repositoryId = resolveIssueFlowRepositoryId(options);
   const routeRepository = resolveVisualRouteRepository(options, repo);
   const baseUrl = resolveIssueFlowBaseUrl();
+  if (visual && artifact === 'plan') {
+    assertDecisionArtifactsRemoved(issueNumber);
+  }
   const artifactPath = visual
     ? findIssueArtifactPath(issueNumber, artifact, options)
     : findMarkdownPlanPath(issueNumber, options);
+  if (visual) {
+    assertSharedVisualStylesheet(artifactPath, artifact);
+  }
   if (!isGitTrackedFile(artifactPath) && !options.dryRun) {
     throw new Error(`Plan artifact must be committed before publishing: ${artifactPath}`);
   }
@@ -821,6 +854,8 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   assertBodyFileNotTracked,
+  assertDecisionArtifactsRemoved,
+  assertSharedVisualStylesheet,
   buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,

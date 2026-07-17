@@ -1,7 +1,8 @@
-/* plan-kit — vendored CSS primitives for Agentrix visual plan artifacts.
+/* plan-kit — shared CSS primitives for Agentrix visual plan artifacts.
  *
- * Usage: copy this file into the issue as plan/css/kit.css (never link across
- * issue directories) and add artifact-specific styles in plan/css/plan.css.
+ * The Issue Flow installer writes this file to .issue-flow/plan-kit/kit.css.
+ * Decision and Plan artifacts link to that shared file and keep only
+ * artifact-specific styles inside their issue directory.
  *
  * Semantic encoding contract (do not repurpose):
  *   color        = state category (ok / active / warn / fail / neutral)

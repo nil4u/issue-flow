@@ -184,7 +184,7 @@ test('reviewable artifacts only include open Plan MRs for the current repository
 })
 
 test('visual artifact resources resolve from the full repository entry path', () => {
-  const html = '<link rel="stylesheet" href="../../../../.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css">'
+  const html = '<link rel="stylesheet" href="../../../plan-kit/kit.css">'
   const rewritten = rewriteHtmlResources(
     html,
     'gitlab-main',
@@ -195,7 +195,7 @@ test('visual artifact resources resolve from the full repository entry path', ()
   )
   assert.equal(
     rewritten,
-    '<link rel="stylesheet" href="/api/visual-artifacts/gitlab-main/43326/15/plan/file?path=.agentrix%2Fplugins%2Fissue-flow%2Fskills%2Fvision-plan%2Fplan-kit%2Fkit.css">',
+    '<link rel="stylesheet" href="/api/visual-artifacts/gitlab-main/43326/15/plan/file?path=.issue-flow%2Fplan-kit%2Fkit.css">',
   )
 })
 
