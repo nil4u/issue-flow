@@ -8,7 +8,7 @@ gitlab-bootstrap.test.cjs: 插件安装 MR 冲突流（plan 冲突终止、decis
 metrics-sql.test.cjs: 只读 metrics SQL 校验、参数绑定与 MR 快照解析的纯逻辑测试。
 metrics.test.cjs: issue_stats 重建、pull_requests/tasks/task_events/task_usage_reports 投影、metric views 与 dashboard API 的 Postgres 集成测试。
 plugin-paths.test.cjs: 插件目录解析与 ISSUE_FLOW_PLUGIN_DIR 覆盖的纯逻辑测试。
-service.test.cjs: console/api Fastify 服务、GitLab 控制台流程、插件安装状态 webhook 投影的 Postgres 集成测试；含 console session 场景（OAuth 回调签发 sid、伪造明文 cookie 无效、旧 cookie 零读取、git 凭证过期不掉登录态、登出/断开语义、Agentrix 解耦与旧键迁移）。
+service.test.cjs: console/api Fastify 服务、GitLab 控制台流程、插件安装状态 webhook 投影与 repo settings 本地最新版本派生的 Postgres 集成测试；含 console session 场景（OAuth 回调签发 sid、伪造明文 cookie 无效、旧 cookie 零读取、git 凭证过期不掉登录态、登出/断开语义、Agentrix 解耦与旧键迁移）。
 task-projection.test.cjs: forward create-task/resume-task 信封的 issue↔task 链接提取，以及 forward 事件到 task 生命周期、task_events、task_usage_reports 的映射测试。
 CLAUDE.md: 本目录的 L2 地图，记录测试文件职责。
 

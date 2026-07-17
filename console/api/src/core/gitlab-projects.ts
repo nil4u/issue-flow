@@ -38,6 +38,7 @@ import {
   ISSUE_FLOW_PLUGIN_KEY,
   LATEST_ISSUE_FLOW_VERSION,
   pluginCacheFromManifest,
+  pluginCacheWithLocalLatestVersion,
   pluginState,
 } from './issue-flow-plugin.js'
 import { sanitizeError } from './sanitize.js'
@@ -767,11 +768,10 @@ function pluginStepFromCache(cache, extra = {}) {
       plugins: [plugin],
     })
   }
-  const cacheWithLatest = {
+  const cacheWithLatest = pluginCacheWithLocalLatestVersion({
     ...cache,
-    latestVersion: cache.latestVersion || LATEST_ISSUE_FLOW_VERSION,
     targetVersion: cache.targetVersion || cache.latestVersion || LATEST_ISSUE_FLOW_VERSION,
-  }
+  })
   const state = pluginState(cacheWithLatest)
   const plugin = {
     ...cacheWithLatest,

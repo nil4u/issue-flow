@@ -61,6 +61,27 @@ function pluginState(cache) {
   return { status: 'passed', detail: `v${pluginVersionValue(cache.installedVersion)}`, needsUpgrade: false }
 }
 
+function pluginCacheWithLocalLatestVersion(cache = {}) {
+  const next = {
+    ...cache,
+    latestVersion: LATEST_ISSUE_FLOW_VERSION,
+    needsUpgrade: cache.installed
+      ? pluginNeedsUpgrade(cache.installedVersion, LATEST_ISSUE_FLOW_VERSION)
+      : Boolean(cache.pendingMergeRequest && cache.pendingMergeRequest.webUrl || cache.needsUpgrade),
+  }
+  if (next.manifestInvalid) {
+    return {
+      ...next,
+      status: 'needs_action',
+      detail: next.detail || 'manifest invalid',
+    }
+  }
+  return {
+    ...next,
+    ...pluginState(next),
+  }
+}
+
 function pluginCacheFromManifest(manifest = {}, extra = {}) {
   const installedVersion = String(manifest.issueFlowVersion || manifest.issue_flow_version || '')
   const latestVersion = extra.latestVersion || LATEST_ISSUE_FLOW_VERSION
@@ -111,6 +132,7 @@ export {
   compareVersions,
   pluginCacheFromManifest,
   pluginCacheFromMergedPending,
+  pluginCacheWithLocalLatestVersion,
   pluginNeedsUpgrade,
   pluginState,
   pluginVersionValue,

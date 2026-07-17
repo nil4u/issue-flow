@@ -16,7 +16,10 @@ import {
   latestTimestamp,
   repoTaskKey,
 } from "./shared.js"
-import { LATEST_ISSUE_FLOW_VERSION, pluginNeedsUpgrade } from "../issue-flow-plugin.js"
+import {
+  ISSUE_FLOW_PLUGIN_KEY,
+  pluginCacheWithLocalLatestVersion,
+} from "../issue-flow-plugin.js"
 import { fingerprintSecret } from "../sanitize.js"
 
 function withRepositoryStore(Base) {
@@ -111,7 +114,11 @@ function withRepositoryStore(Base) {
           continue
         }
         if (row.kind === "plugin") {
-          settings.plugins.items.push(data)
+          settings.plugins.items.push(
+            data.key === ISSUE_FLOW_PLUGIN_KEY
+              ? pluginCacheWithLocalLatestVersion(data)
+              : data,
+          )
           settings.plugins.checkedAt = latestTimestamp(settings.plugins.checkedAt, checkedAt)
           continue
         }
@@ -477,9 +484,10 @@ function withRepositoryStore(Base) {
         const key = repoTaskKey({ gitServerId: row.gitServerId, repositoryId: row.serverRepoId })
         const aggregate = aggregateByRepo.get(key) || {}
         const latestTask = latestByRepo.get(key)
-        const installedVersion = plugin.installedVersion || ""
-        const latestVersion = LATEST_ISSUE_FLOW_VERSION
-        const needsUpgrade = pluginNeedsUpgrade(installedVersion, latestVersion)
+        const currentPlugin = pluginCacheWithLocalLatestVersion(plugin)
+        const installedVersion = currentPlugin.installedVersion || ""
+        const latestVersion = currentPlugin.latestVersion || ""
+        const needsUpgrade = currentPlugin.needsUpgrade
         return {
           id: row.id,
           gitServerId: row.gitServerId || "",
@@ -494,7 +502,7 @@ function withRepositoryStore(Base) {
             installedVersion,
             latestVersion,
             status: needsUpgrade ? "needs_upgrade" : "passed",
-            detail: plugin.detail || "",
+            detail: currentPlugin.detail || "",
             needsUpgrade,
             checkedAt: timestampValue(setting && setting.checkedAt),
           },

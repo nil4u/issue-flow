@@ -1610,7 +1610,10 @@ test('GitLab merge request close webhook clears pending plugin MR', async () => 
     const repo = await store.getRepository(created.repo.id);
     const plugin = repo.settings.plugins.items.find((item) => item.key === 'issue-flow');
     assert.equal(plugin.pendingMergeRequest, undefined);
+    assert.equal(plugin.latestVersion, packageVersion);
     assert.equal(plugin.needsUpgrade, true);
+    assert.equal(plugin.status, 'needs_action');
+    assert.equal(plugin.detail, `0.1.0 -> ${packageVersion}`);
   } finally {
     await close(gitlab);
     await store.close();
