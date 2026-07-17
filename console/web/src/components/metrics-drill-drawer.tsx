@@ -1,4 +1,4 @@
-import { ExternalLink, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 
 import { issueWebUrl } from "@/components/issues/issue-view-model"
@@ -123,19 +123,32 @@ function IssueEvidenceList({
   const columns = drillColumns(kind)
   return (
     <section className="metrics-drill-evidence" aria-label="构成 issue">
-      <header className="metrics-drill-columns" aria-hidden="true">
+      <header className="metrics-drill-columns" data-kind={kind} aria-hidden="true">
         {columns.map((column) => <span key={column}>{column}</span>)}
-        <span />
       </header>
       <ol className="metrics-drill-list">
         {rows.map((row) => {
           const issueNumber = Number(row.issue_number || 0)
           const href = issueWebUrl(projectWebUrl, provider, issueNumber)
+          const title = String(row.title || "-")
           return (
             <li key={String(row.issue_row_id || issueNumber)} className="metrics-drill-item" data-kind={kind}>
               <div className="metrics-drill-identity">
                 <span>#{issueNumber}</span>
-                <strong title={String(row.title || "-")}>{String(row.title || "-")}</strong>
+                {href
+                  ? (
+                    <a
+                      className="metrics-drill-issue-link"
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`打开 issue #${issueNumber}：${title}`}
+                      title={title}
+                    >
+                      {title}
+                    </a>
+                  )
+                  : <strong title={title}>{title}</strong>}
                 <div>
                   {kind !== "issue_type" && <EvidenceTag value={row.type} prefix="type" />}
                   <EvidenceTag value={row.priority} prefix="priority" />
@@ -146,18 +159,6 @@ function IssueEvidenceList({
               {kind === "issue_type"
                 ? <IssueComplexity row={row} />
                 : <IssueDuration row={row} />}
-              {href && (
-                <a
-                  className="issue-external-link"
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`在 Git server 中打开 issue #${issueNumber}`}
-                  title="在 Git server 中打开"
-                >
-                  <ExternalLink className="size-4" />
-                </a>
-              )}
             </li>
           )
         })}
