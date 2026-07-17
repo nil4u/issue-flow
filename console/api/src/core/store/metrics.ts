@@ -28,14 +28,20 @@ function withMetricsStore(Base) {
         clarifySpanSeconds: row.clarifySpanSeconds || 0,
         approveSpanSeconds: row.approveSpanSeconds || 0,
         suspendSpanSeconds: row.suspendSpanSeconds || 0,
+        createTaskSeconds: row.createTaskSeconds || 0,
+        generalTaskSeconds: row.generalTaskSeconds || 0,
         triageTaskSeconds: row.triageTaskSeconds || 0,
         planTaskSeconds: row.planTaskSeconds || 0,
         buildTaskSeconds: row.buildTaskSeconds || 0,
         reviewTaskSeconds: row.reviewTaskSeconds || 0,
+        totalTaskSeconds: row.totalTaskSeconds || 0,
+        createTaskTurns: row.createTaskTurns || 0,
+        generalTaskTurns: row.generalTaskTurns || 0,
         triageTaskTurns: row.triageTaskTurns || 0,
         planTaskTurns: row.planTaskTurns || 0,
         buildTaskTurns: row.buildTaskTurns || 0,
         reviewTaskTurns: row.reviewTaskTurns || 0,
+        totalTaskTurns: row.totalTaskTurns || 0,
         pullRequestCount: row.pullRequestCount || 0,
         updatedAt: timestampValue(row.updatedAt),
       }
@@ -132,13 +138,17 @@ function withMetricsStore(Base) {
       const tasks = await client.task.findMany({
         where: { gitServerId, repositoryId, issueNumber: issue.issueNumber },
       })
-      const taskExecutionMs = { triage: 0, plan: 0, build: 0, review: 0 }
-      const taskTurns = { triage: 0, plan: 0, build: 0, review: 0 }
+      const taskExecutionMs = { create: 0, general: 0, triage: 0, plan: 0, build: 0, review: 0 }
+      const taskTurns = { create: 0, general: 0, triage: 0, plan: 0, build: 0, review: 0 }
+      let totalTaskExecutionMs = 0
+      let totalTaskTurns = 0
       let cycleStartedAt = null
       for (const task of tasks) {
         if (task.startedAt && (!cycleStartedAt || task.startedAt < cycleStartedAt)) {
           cycleStartedAt = task.startedAt
         }
+        totalTaskExecutionMs += task.executionMs || 0
+        totalTaskTurns += task.turns || 0
         if (!(task.action in taskExecutionMs)) continue
         taskExecutionMs[task.action] += task.executionMs || 0
         taskTurns[task.action] += task.turns || 0
@@ -155,14 +165,20 @@ function withMetricsStore(Base) {
         clarifySpanSeconds: spanSeconds.clarify,
         approveSpanSeconds: spanSeconds.approve,
         suspendSpanSeconds: spanSeconds.suspend,
+        createTaskSeconds: Math.round(taskExecutionMs.create / 1000),
+        generalTaskSeconds: Math.round(taskExecutionMs.general / 1000),
         triageTaskSeconds: Math.round(taskExecutionMs.triage / 1000),
         planTaskSeconds: Math.round(taskExecutionMs.plan / 1000),
         buildTaskSeconds: Math.round(taskExecutionMs.build / 1000),
         reviewTaskSeconds: Math.round(taskExecutionMs.review / 1000),
+        totalTaskSeconds: Math.round(totalTaskExecutionMs / 1000),
+        createTaskTurns: taskTurns.create,
+        generalTaskTurns: taskTurns.general,
         triageTaskTurns: taskTurns.triage,
         planTaskTurns: taskTurns.plan,
         buildTaskTurns: taskTurns.build,
         reviewTaskTurns: taskTurns.review,
+        totalTaskTurns,
         pullRequestCount,
         updatedAt: new Date(),
       }
@@ -301,22 +317,22 @@ function withMetricsStore(Base) {
           i."opened_at" as "openedAt",
           i."closed_at" as "closedAt",
           i."updated_at" as "updatedAt",
-          coalesce(st."triage_task_turns", 0)
-            + coalesce(st."plan_task_turns", 0)
-            + coalesce(st."build_task_turns", 0)
-            + coalesce(st."review_task_turns", 0) as "turnsCount",
+          coalesce(st."total_task_turns", 0) as "turnsCount",
           case
             when extract(epoch from (
               coalesce(st."done_at", st."drop_at", now() at time zone 'utc')
-              - coalesce(st."opened_at", i."opened_at")
+              - least(
+                  coalesce(st."cycle_started_at", st."opened_at", i."opened_at"),
+                  coalesce(st."opened_at", i."opened_at")
+                )
             )) > 0 then round((
-              coalesce(st."triage_task_seconds", 0)
-                + coalesce(st."plan_task_seconds", 0)
-                + coalesce(st."build_task_seconds", 0)
-                + coalesce(st."review_task_seconds", 0)
+              coalesce(st."total_task_seconds", 0)
             ) * 100.0 / extract(epoch from (
               coalesce(st."done_at", st."drop_at", now() at time zone 'utc')
-              - coalesce(st."opened_at", i."opened_at")
+              - least(
+                  coalesce(st."cycle_started_at", st."opened_at", i."opened_at"),
+                  coalesce(st."opened_at", i."opened_at")
+                )
             )))::int
             else 0
           end as "agentTimeSharePct"

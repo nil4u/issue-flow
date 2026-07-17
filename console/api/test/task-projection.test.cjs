@@ -12,6 +12,8 @@ const {
 } = require('../src/core/task-projection.ts');
 
 test('normalizeTaskAction folds review_fix into build and rejects unknown actions', () => {
+  assert.equal(normalizeTaskAction('create'), 'create');
+  assert.equal(normalizeTaskAction('general'), 'general');
   assert.equal(normalizeTaskAction('triage'), 'triage');
   assert.equal(normalizeTaskAction('Review'), 'review');
   assert.equal(normalizeTaskAction('review_fix'), 'build');
@@ -61,6 +63,18 @@ test('forwardedTaskLink accepts resume-task envelopes and partial linkage', () =
   });
   assert.equal(actionOnly.action, 'review', 'action alone still records the task kind');
   assert.equal(actionOnly.issueNumber, 0);
+
+  const general = forwardedTaskLink({
+    taskId: 'task-general',
+    eventType: 'create-task',
+    eventData: {
+      gitServerId: 'agx-main',
+      serverRepoId: '42',
+      issueNumber: 7,
+      metadata: { issue_flow_action: 'general' },
+    },
+  });
+  assert.equal(general.action, 'general', 'mention tasks preserve the general action');
 });
 
 test('forwardedTaskLink ignores other event types and empty envelopes', () => {

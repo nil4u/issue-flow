@@ -52,12 +52,26 @@ function withTaskStore(Base) {
     }
 
     async applyTaskIssueBackfill(row, issue, client = this.db) {
-      if (!row || !issue || row.issueNumber) return row
+      if (!row || !issue) return row
       const conflict = (
         row.gitServerId && row.gitServerId !== issue.gitServerId
         || row.repositoryId && row.repositoryId !== issue.repositoryId
       )
       if (conflict) return row
+
+      const sameIssue = !row.issueNumber || row.issueNumber === issue.issueNumber
+      const creatorAction = sameIssue && !row.action && issue.createdByTaskId === row.taskId
+        ? "create"
+        : row.action
+      if (row.issueNumber) {
+        if (!creatorAction || creatorAction === row.action) return row
+        const updated = await client.task.update({
+          where: { id: row.id },
+          data: { action: creatorAction, updatedAt: new Date() },
+        })
+        await this.syncTaskLinkDependents(updated, client)
+        return updated
+      }
 
       const updated = await client.task.updateMany({
         where: {
@@ -71,6 +85,7 @@ function withTaskStore(Base) {
           repositoryId: issue.repositoryId,
           repositoryFullName: issue.repositoryFullName,
           issueNumber: issue.issueNumber,
+          action: creatorAction,
           updatedAt: new Date(),
         },
       })
@@ -94,6 +109,7 @@ function withTaskStore(Base) {
               repositoryId: issue.repositoryId,
               repositoryFullName: issue.repositoryFullName,
               issueNumber: issue.issueNumber,
+              action: "create",
               status: "unknown",
               updatedAt: new Date(),
             },
@@ -109,7 +125,21 @@ function withTaskStore(Base) {
     }
 
     async backfillTaskIssueFromCreatedIssue(row, client = this.db) {
-      if (!row || row.issueNumber || !row.taskId) return row
+      if (!row || !row.taskId) return row
+      if (row.issueNumber) {
+        const issue = await client.issue.findUnique({
+          where: {
+            gitServerId_repositoryId_issueNumber: {
+              gitServerId: row.gitServerId,
+              repositoryId: row.repositoryId,
+              issueNumber: row.issueNumber,
+            },
+          },
+        })
+        return issue && issue.createdByTaskId === row.taskId
+          ? this.applyTaskIssueBackfill(row, issue, client)
+          : row
+      }
       const issues = await client.issue.findMany({
         where: { createdByTaskId: row.taskId },
         orderBy: { updatedAt: "desc" },
@@ -165,8 +195,28 @@ function withTaskStore(Base) {
         return { task: this.taskFromRecord(row), applied: !before.issueNumber && Boolean(issueNumber) }
       }
       if (issue) {
-        const row = await this.backfillTaskIssueFromCreator({ ...issue, createdByTaskId: taskId }, client)
-        return { task: this.taskFromRecord(row), applied: true }
+        try {
+          const row = await client.task.create({
+            data: {
+              id: input.id || randomId("task"),
+              taskId,
+              gitServerId,
+              repositoryId,
+              repositoryFullName: issue.repositoryFullName,
+              issueNumber,
+              action: issue.createdByTaskId === taskId ? "create" : "",
+              status: "unknown",
+              updatedAt: new Date(),
+            },
+          })
+          await this.syncTaskLinkDependents(row, client)
+          return { task: this.taskFromRecord(row), applied: true }
+        } catch (error) {
+          if (!error || error.code !== "P2002") throw error
+          const existing = await client.task.findUnique({ where: { taskId } })
+          const row = await this.applyTaskIssueBackfill(existing, issue, client)
+          return { task: this.taskFromRecord(row), applied: true }
+        }
       }
 
       try {
@@ -230,7 +280,10 @@ function withTaskStore(Base) {
           ? issue.repositoryFullName
           : issueChanged ? "" : existing && existing.repositoryFullName || "",
         issueNumber: issueNumber || existing && existing.issueNumber || 0,
-        action: normalizeTaskAction(input.action) || existing && existing.action || "",
+        action: normalizeTaskAction(input.action)
+          || existing && existing.action
+          || issue && issue.createdByTaskId === taskId && "create"
+          || "",
         queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
         updatedAt: new Date(),
       }

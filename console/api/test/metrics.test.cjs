@@ -87,6 +87,19 @@ function tempStore() {
   return { dir, store };
 }
 
+test('total task metric migration converts bigint milliseconds after division', () => {
+  const sql = fs.readFileSync(path.join(
+    __dirname,
+    '..',
+    'prisma',
+    'migrations',
+    '20260717150000_issue_total_task_metrics',
+    'migration.sql',
+  ), 'utf8');
+  assert.doesNotMatch(sql, /sum\(task\."execution_ms"\)[^\n]*::integer/);
+  assert.match(sql, /round\(task_metrics\.total_ms \/ 1000\.0\)::integer/);
+});
+
 const HOUR_MS = 3600000;
 const DAY_MS = 86400000;
 const BASE_TIME = Date.now() - 3 * DAY_MS;
@@ -309,6 +322,7 @@ test('issue markers persist creator provenance and create fill-only task placeho
 
     let task = await store.getTask('task-created-issue');
     assert.equal(task.status, 'unknown');
+    assert.equal(task.action, 'create');
     assert.equal(task.gitServerId, 'gitlab-main');
     assert.equal(task.repositoryId, '42');
     assert.equal('issueId' in task, false);
@@ -384,6 +398,7 @@ test('issue markers fill an existing task only when its issue link is empty', as
     await applyGitEventToIssueFacts(store, issueEvent());
     const task = await store.getTask('task-created-issue');
     assert.equal(task.status, 'running');
+    assert.equal(task.action, 'create');
     assert.equal(task.issueNumber, 7);
   } finally {
     await store.close();
@@ -424,6 +439,7 @@ test('GitLab issue snapshots backfill task links from stored descriptions', asyn
     });
     const task = await store.getTask('task-from-snapshot');
     assert.equal(task.status, 'unknown');
+    assert.equal(task.action, 'create');
     assert.equal(task.issueNumber, 7);
     const issue = await findIssueRow(store, issueSnapshot());
     assert.equal(issue.createdByTaskId, 'task-from-snapshot');
@@ -488,6 +504,156 @@ test('task metrics join by repository-scoped issue number when the issue arrives
     assert.equal(execution.rows[0].task_row_id, task.id);
     assert.equal(flow.rows[0].flow, 'triage');
     assert.equal(Number(flow.rows[0].task_seconds), 60);
+  } finally {
+    await store.close();
+  }
+});
+
+test('issue total turns include linked tasks without an action', async () => {
+  const { store } = tempStore();
+  try {
+    await store.ensureGitServer({
+      id: 'gitlab-main',
+      type: 'gitlab',
+      baseUrl: 'https://gitlab.example.com',
+    });
+    const repo = await store.upsertRepo({
+      gitServerId: 'gitlab-main',
+      serverRepoId: '42',
+      fullName: 'group/app',
+    });
+    await applyIssueSnapshotToFacts(store, issueSnapshot());
+    await store.upsertTaskLink({
+      taskId: 'task-without-action',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      issueNumber: 7,
+    });
+    await store.appendTaskEvent({
+      taskId: 'task-without-action',
+      eventId: 'evt-unclassified-human',
+      eventType: 'human_input',
+      eventData: { senderType: 'human' },
+      createdAt: at(HOUR_MS),
+    });
+    await store.upsertTaskLink({
+      taskId: 'task-general',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      issueNumber: 7,
+      action: 'general',
+    });
+    await store.appendTaskEvent({
+      taskId: 'task-general',
+      eventId: 'evt-general-human',
+      eventType: 'human_input',
+      eventData: { senderType: 'human' },
+      createdAt: at(HOUR_MS + 1000),
+    });
+    await store.flushIssueStatsRebuilds();
+
+    const task = await store.getTask('task-without-action');
+    assert.equal(task.action, '');
+    assert.equal(task.turns, 1);
+    const issueRow = await findIssueRow(store, issueSnapshot());
+    const stats = await store.getIssueStats(issueRow.id);
+    assert.equal(stats.totalTaskTurns, 2);
+    assert.equal(stats.createTaskTurns, 0);
+    assert.equal(stats.generalTaskTurns, 1);
+    assert.equal(stats.triageTaskTurns, 0);
+    const issues = await store.listIssues(repo.id);
+    assert.equal(issues[0].turnsCount, 2);
+  } finally {
+    await store.close();
+  }
+});
+
+test('create task time before issue opening uses the earlier lifecycle boundary', async () => {
+  const { store } = tempStore();
+  try {
+    await store.ensureGitServer({
+      id: 'gitlab-main',
+      type: 'gitlab',
+      baseUrl: 'https://gitlab.example.com',
+    });
+    const repo = await store.upsertRepo({
+      gitServerId: 'gitlab-main',
+      serverRepoId: '42',
+      fullName: 'group/app',
+    });
+    await store.upsertTaskLink({
+      taskId: 'task-create-before-open',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      issueNumber: 7,
+      action: 'create',
+    });
+    await store.upsertTaskRuntime({
+      taskId: 'task-create-before-open',
+      status: 'succeeded',
+      startedAt: at(0),
+      finishedAt: at(2 * HOUR_MS),
+    });
+    await store.appendTaskEvent({
+      taskId: 'task-create-before-open',
+      eventId: 'evt-create-before-open-ready',
+      eventType: 'worker_state',
+      eventData: { state: 'ready', duration: 2 * HOUR_MS },
+      createdAt: at(2 * HOUR_MS),
+    });
+    const opened = issueSnapshot({
+      openedAt: at(HOUR_MS),
+      updatedAt: at(HOUR_MS),
+    });
+    await applyIssueSnapshotToFacts(store, opened);
+    await applyIssueSnapshotToFacts(store, {
+      ...opened,
+      state: 'closed',
+      status: 'done',
+      flow: '',
+      closedAt: at(2 * HOUR_MS),
+      updatedAt: at(2 * HOUR_MS),
+    });
+    await store.flushIssueStatsRebuilds();
+
+    const issues = await store.listIssues(repo.id);
+    assert.equal(issues[0].agentTimeSharePct, 100, 'issue card includes the pre-open create interval');
+
+    const dashboard = await store.getDashboardBySlug('agent-first-overview');
+    const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
+    const timePanel = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share');
+    const timeResult = await store.runMetricsQuery(timePanel.querySql, {
+      ...repoParams,
+      from: at(-HOUR_MS),
+      to: at(3 * HOUR_MS),
+    });
+    const agent = timeResult.rows.find((row) => row.component === 'agent');
+    assert.equal(Number(agent.seconds), 2 * 3600);
+    assert.equal(Number(agent.task_share_pct), 100);
+
+    const completionPanel = dashboard.panels.find((panel) => panel.id === 'dashpanel_started_issue_distribution');
+    const completionResult = await store.runMetricsQuery(completionPanel.querySql, { ...repoParams, weeks: 8 });
+    const oneDayBucket = completionResult.rows.find((row) => row.done_bucket === '1d');
+    const completionDrill = await store.runMetricsQuery(completionPanel.drillQuerySql, {
+      ...repoParams,
+      week: String(oneDayBucket.week).slice(0, 10),
+      bucket: '1d',
+    });
+    assert.equal(completionDrill.rows[0].duration_seconds, HOUR_MS / 1000);
+    assert.equal(completionDrill.rows[0].duration_p50_seconds, HOUR_MS / 1000);
+    assert.equal(completionDrill.rows[0].agent_execution_pct, 100);
+
+    const turnsPanel = dashboard.panels.find((panel) => panel.id === 'dashpanel_issue_task_turns_distribution');
+    const turnsResult = await store.runMetricsQuery(turnsPanel.querySql, { ...repoParams, weeks: 8 });
+    const zeroBucket = turnsResult.rows.find((row) => row.turns_bucket === '0');
+    const drill = await store.runMetricsQuery(turnsPanel.drillQuerySql, {
+      ...repoParams,
+      week: String(zeroBucket.week).slice(0, 10),
+      bucket: '0',
+    });
+    assert.equal(drill.rows[0].agent_execution_pct, 100);
+    assert.equal(drill.rows[0].duration_seconds, HOUR_MS / 1000, 'drill duration stays issue-open to close');
+    assert.equal(new Date(drill.rows[0].opened_at).toISOString(), at(HOUR_MS));
   } finally {
     await store.close();
   }
@@ -767,6 +933,8 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     assert.equal(stats.reviewTaskSeconds, 10 * 60);
     assert.equal(stats.reviewTaskTurns, 0);
     assert.equal(stats.triageTaskSeconds, 0);
+    assert.equal(stats.totalTaskSeconds, 40 * 60);
+    assert.equal(stats.totalTaskTurns, 1);
 
     const repoParams = { git_server_id: 'gitlab-main', repository_id: '42' };
     const execution = await store.runMetricsQuery(
@@ -873,10 +1041,12 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       where: { id: doneIssueRow.id },
       data: {
         triageTaskSeconds: 3600,
+        totalTaskSeconds: 3600,
         triageTaskTurns: 1,
         planTaskTurns: 2,
         buildTaskTurns: 3,
         reviewTaskTurns: 1,
+        totalTaskTurns: 7,
       },
     });
     await store.db.issueStat.update({
@@ -886,16 +1056,19 @@ test('metric views and the read-only executor answer the seeded panel queries', 
         planTaskTurns: 0,
         buildTaskTurns: 0,
         reviewTaskTurns: 0,
+        totalTaskTurns: 0,
       },
     });
     await store.db.issueStat.update({
       where: { id: droppedIssueRow.id },
       data: {
         buildTaskSeconds: 1800,
+        totalTaskSeconds: 1800,
         triageTaskTurns: 0,
         planTaskTurns: 8,
         buildTaskTurns: 9,
         reviewTaskTurns: 4,
+        totalTaskTurns: 21,
       },
     });
     const weekly = await store.runMetricsQuery(
@@ -1053,8 +1226,9 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(turnsDrill.rows[0].issue_number, 9);
     assert.equal(turnsDrill.rows[0].task_turns, 21);
     assert.deepEqual(
-      ['triage_turns', 'plan_turns', 'build_turns', 'review_turns'].map((field) => turnsDrill.rows[0][field]),
-      [0, 8, 9, 4],
+      ['create_turns', 'general_turns', 'triage_turns', 'plan_turns', 'build_turns', 'review_turns', 'other_turns']
+        .map((field) => turnsDrill.rows[0][field]),
+      [0, 0, 0, 8, 9, 4, 0],
     );
     assert.equal(turnsDrill.rows[0].total_count, 1);
     assert.equal(turnsDrill.rows[0].weekly_count, 3);
@@ -1069,6 +1243,10 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(otherRepoTurns.rows.length, 0, 'task turns panel query is scoped to the requested repository');
 
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').chartType, 'stacked_bar_with_lines');
+    assert.deepEqual(
+      dashboard.panels.find((panel) => panel.id === 'dashpanel_token_consumption_trend').visualConfig.stackOrder,
+      ['create', 'general', 'triage', 'plan', 'build', 'review'],
+    );
     assert.equal(dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share').chartType, 'percent_stacked_bar_with_lines');
 
     const taskTimeShare = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share');

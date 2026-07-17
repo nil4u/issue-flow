@@ -267,9 +267,15 @@
   .metrics-drill-columns,
   .metrics-drill-item {
     display: grid;
-    grid-template-columns: minmax(12rem, 1fr) 13rem 10.5rem 2rem;
+    grid-template-columns: minmax(12rem, 1fr) 13rem 10.5rem;
     align-items: center;
     column-gap: 1rem;
+  }
+
+  .metrics-drill-columns[data-kind="issue_turns"],
+  .metrics-drill-item[data-kind="issue_turns"] {
+    grid-template-columns: minmax(10rem, 1fr) minmax(18rem, 1.35fr) 9.5rem;
+    column-gap: 0.875rem;
   }
 
   .metrics-drill-columns {
@@ -329,7 +335,9 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .metrics-drill-identity > strong {
+  .metrics-drill-identity > strong,
+  .metrics-drill-issue-link {
+    display: block;
     overflow: hidden;
     color: var(--if-color-text);
     font-size: 0.85rem;
@@ -337,6 +345,25 @@
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .metrics-drill-issue-link {
+    width: fit-content;
+    max-width: 100%;
+    text-decoration: none;
+    text-underline-offset: 0.16rem;
+    transition: color 120ms ease;
+  }
+
+  .metrics-drill-issue-link:hover {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+
+  .metrics-drill-issue-link:focus-visible {
+    border-radius: 0.2rem;
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 
   .metrics-drill-identity > div {
@@ -370,8 +397,10 @@
   }
 
   .metrics-drill-stage-turns {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.45rem;
+    grid-template-columns: repeat(auto-fit, 48px);
+    justify-content: center;
+    gap: 0.35rem;
+    text-align: center;
   }
 
   .metrics-drill-complexity > div,
@@ -380,6 +409,13 @@
     min-width: 0;
     display: grid;
     gap: 0.15rem;
+  }
+
+  .metrics-drill-stage-turns > div {
+    justify-items: center;
+    padding: 0.3rem 0.1rem;
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--if-color-surface-high) 68%, transparent);
   }
 
   .metrics-drill-complexity dt,
@@ -438,9 +474,14 @@
     }
 
     .metrics-drill-item {
-      grid-template-columns: minmax(0, 1fr) 2rem;
+      grid-template-columns: minmax(0, 1fr);
       row-gap: 0.65rem;
       padding-inline: 0.9rem;
+    }
+
+    .metrics-drill-item[data-kind="issue_turns"] {
+      grid-template-columns: minmax(0, 1fr);
+      column-gap: 1rem;
     }
 
     .metrics-drill-complexity,
@@ -450,6 +491,10 @@
       grid-row: 2;
       width: min(100%, 15rem);
       text-align: left;
+    }
+
+    .metrics-drill-stage-turns {
+      width: 100%;
     }
 
     .metrics-drill-duration {
@@ -463,9 +508,5 @@
       grid-row: 3;
     }
 
-    .metrics-drill-item > .issue-external-link {
-      grid-column: 2;
-      grid-row: 1 / span 3;
-    }
   }
 }
