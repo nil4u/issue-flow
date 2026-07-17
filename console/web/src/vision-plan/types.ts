@@ -90,10 +90,9 @@ export type IssueArtifact = {
   type: ArtifactType
   path: string
   title: string
-  url: string
   modifiedAt: string
   status: string
-  format?: "html" | "markdown"
+  format?: "json" | "markdown"
   mergeRequestNumber?: number
   mergeRequestUrl?: string
   mergeRequestState?: string
@@ -116,7 +115,7 @@ export type VisionRouteContext = {
 export type LoadedVisualArtifact = {
   issue: LoadedIssue
   html: string
-  format: "html" | "markdown"
+  format: "json" | "markdown"
   drafts: DraftReviewItem[]
   reviews: VisualReview[]
 }

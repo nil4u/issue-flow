@@ -23,6 +23,21 @@ function runInstall(args, options = {}) {
   });
 }
 
+test('vision-plan skill links a manual covering every supported Engine section type', () => {
+  const skill = fs.readFileSync(path.join(repoRoot, 'skills/vision-plan/SKILL.md'), 'utf8');
+  const manual = fs.readFileSync(path.join(repoRoot, 'skills/vision-plan/references/engine-json-contract.md'), 'utf8');
+  const submitSource = fs.readFileSync(path.join(repoRoot, 'skills/issue-flow/scripts/submit.cjs'), 'utf8');
+  const sectionTypesSource = submitSource.match(/const VISUAL_SECTION_TYPES = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(sectionTypesSource, 'VISUAL_SECTION_TYPES must be readable');
+  const sectionTypes = [...sectionTypesSource[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+
+  assert.match(skill, /references\/engine-json-contract\.md/);
+  assert.doesNotMatch(skill, /schemaVersion|sourceId|destinationId|recommendedOptionId|Component Data Rules|Plan JSON Contract/);
+  for (const sectionType of sectionTypes) {
+    assert.ok(manual.includes(`\`${sectionType}\``), `manual must document ${sectionType}`);
+  }
+});
+
 test('install script installs GitHub runtime from checkout source', () => {
   const root = makeTempRoot();
   try {
@@ -48,9 +63,10 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/references/engine-json-contract.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css')), false);
-    assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), false);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-impl.prompt.md'), 'utf8'), /提交方案(?:的)? PR\/MR/);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md'), 'utf8'), /Decision 或 Visual Plan/);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);

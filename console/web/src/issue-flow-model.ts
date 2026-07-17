@@ -468,7 +468,7 @@ export type IssueRow = {
 export type ReviewablePlanArtifact = {
   issueNumber: number
   type: "decision" | "plan"
-  format: "html" | "markdown"
+  format: "json" | "markdown"
   mergeRequestNumber?: number
 }
 

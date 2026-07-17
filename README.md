@@ -110,8 +110,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 
 ## What It Installs
 
-- `.agentrix/plugins/issue-flow/` - plugin manifest, Issue Flow and Vision Plan skills, scripts, plan-kit, and default prompts/templates
-- `.issue-flow/plan-kit/kit.css` - shared fixed stylesheet used by every Decision and Visual Plan artifact
+- `.agentrix/plugins/issue-flow/` - plugin manifest, Issue Flow and Vision Plan skills, scripts, and default prompts/templates
 - `.github/workflows/issue-flow-labels.yml` - automatic provider label synchronization after install or upgrade pushes
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing

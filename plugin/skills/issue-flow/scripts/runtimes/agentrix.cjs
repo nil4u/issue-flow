@@ -32,10 +32,11 @@ const PLAN_BRANCH_SUFFIX = 'plan';
 const BUILD_BRANCH_SUFFIX = 'build';
 const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
-const PLAN_ENTRY_FILE = 'index.html';
+const PLAN_ENTRY_FILE = 'data/plan-data.json';
 const PLAN_DATA_FILE = 'data/plan-data.json';
-const PLAN_BRIEF_FILE = 'data/visual-brief.md';
-const DECISION_ENTRY_FILE = 'decision.html';
+const PLAN_BRIEF_FILE = 'visual-brief.md';
+const VISUAL_BRIEF_TEMP_ROOT = path.join(os.tmpdir(), 'issue-flow', 'visual-plan');
+const DECISION_ENTRY_FILE = 'decision/data/decision-data.json';
 const VISUAL_PLAN_FEATURE_PREFIX = 'feature:visual-plan:';
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
 const VISUAL_PLAN_FEATURE_OFF = 'feature:visual-plan:off';
@@ -252,8 +253,8 @@ function buildIssuePlanDataFile(issue, options = {}) {
   return path.join(buildIssuePlanDir(issue, options), PLAN_DATA_FILE);
 }
 
-function buildIssuePlanBriefFile(issue, options = {}) {
-  return path.join(buildIssuePlanDir(issue, options), PLAN_BRIEF_FILE);
+function buildIssuePlanBriefFile(issue) {
+  return path.join(VISUAL_BRIEF_TEMP_ROOT, issueDirectoryName(issue), PLAN_BRIEF_FILE);
 }
 
 function buildIssuePlanPattern(issue, options = {}) {
@@ -420,9 +421,8 @@ function formatPlanOutput(issue, options = {}) {
     return lines.join('\n');
   }
   lines.push(`Optional decision output: \`${normalizeRepoPath(buildIssueDecisionFile(issue, options))}\``);
-  lines.push(`Plan output: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
-  lines.push(`Plan source data: \`${normalizeRepoPath(buildIssuePlanDataFile(issue, options))}\``);
-  lines.push(`Plan visual brief: \`${normalizeRepoPath(buildIssuePlanBriefFile(issue, options))}\``);
+  lines.push(`Plan output JSON: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
+  lines.push(`Temporary visual brief (do not commit): \`${buildIssuePlanBriefFile(issue).replace(/\\/g, '/')}\``);
   lines.push(`Plan branch: \`${buildIssuePlanBranch(issue)}\``);
   lines.push('If a blocking decision is required, publish `decision` and stop. Otherwise publish `plan`.');
   lines.push(`Publish with: \`node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr submit plan --issue ${issue.number} --artifact <decision|plan>\``);
@@ -520,8 +520,8 @@ function buildIssueCommentResumeInstruction() {
 
 function buildVisualReviewResumeInstruction(_issue, comment = {}, data = {}) {
   const visualReview = data.visualReview || {};
-  const formatMatch = String(data.pullRequest && data.pullRequest.body || '').match(/<!--\s*issue-flow:plan-artifact\s+artifact=(?:decision|plan)\s+format=(html|markdown)\b/i);
-  const format = formatMatch ? formatMatch[1].toLowerCase() : 'html';
+  const formatMatch = String(data.pullRequest && data.pullRequest.body || '').match(/<!--\s*issue-flow:plan-artifact\s+artifact=(?:decision|plan)\s+format=(json|markdown)\b/i);
+  const format = formatMatch ? formatMatch[1].toLowerCase() : 'json';
   const artifact = visualReview.artifact === 'decision'
     ? 'Decision'
     : format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
@@ -547,7 +547,7 @@ function buildVisualReviewResumeInstruction(_issue, comment = {}, data = {}) {
     '',
     reviewBody || '(没有附加审阅内容)',
     '',
-    `请基于当前任务上下文更新 ${artifact} 产物，commit 后按照 ${format === 'html' ? 'vision-plan 与 issue-flow skill' : 'issue-flow skill'} 重新提交；不要只回复解释。`,
+    `请基于当前任务上下文更新 ${artifact} 产物，commit 后按照 ${format === 'json' ? 'vision-plan 与 issue-flow skill' : 'issue-flow skill'} 重新提交；不要只回复解释。`,
     '提交完成后，按照 issue-flow skill 回复本次审阅。',
   ].join('\n');
 }

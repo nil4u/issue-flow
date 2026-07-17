@@ -155,8 +155,10 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   }, {}, { planRootDir: '.issue-flow/issues' });
 
   assert.match(prompt, /Decision 或根因修复 Visual Plan/);
-  assert.match(prompt, /Plan output: `\.issue-flow\/issues\/42-broken-login\/plan\/index\.html`/);
-  assert.match(prompt, /Plan source data: `\.issue-flow\/issues\/42-broken-login\/plan\/data\/plan-data\.json`/);
+  assert.match(prompt, /Plan output JSON: `\.issue-flow\/issues\/42-broken-login\/plan\/data\/plan-data\.json`/);
+  const visualBriefPath = path.join(os.tmpdir(), 'issue-flow', 'visual-plan', '42-broken-login', 'visual-brief.md').replace(/\\/g, '/');
+  assert.equal(prompt.includes(`Temporary visual brief (do not commit): \`${visualBriefPath}\``), true);
+  assert.doesNotMatch(prompt, /plan\/data\/visual-brief\.md/);
   assert.match(prompt, /--artifact <decision\|plan>/);
   assert.doesNotMatch(prompt, /PR body:/);
   assert.match(prompt.trimEnd(), /skills\/vision-plan\/SKILL\.md`$/);
@@ -205,7 +207,6 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
   try {
     const planDir = path.join(root, '42-add-export-button', 'plan');
     fs.mkdirSync(path.join(planDir, 'data'), { recursive: true });
-    fs.writeFileSync(path.join(planDir, 'data', 'visual-brief.md'), '- **Core outcome**: Add export\n');
     fs.writeFileSync(path.join(planDir, 'data', 'plan-data.json'), '{not parsed by runtime');
     fs.writeFileSync(path.join(planDir, '001-implementation.md'), '# Markdown plan\n');
 
@@ -880,13 +881,13 @@ test('agentrix visual review resume instruction includes submitted review conten
         '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->',
         '## Visual Plan Review',
         '',
-        '1. **plan/index.html** — 确认一下还会有其他状态吗？',
+        '1. **plan/data/plan-data.json** — 确认一下还会有其他状态吗？',
       ].join('\n'),
     },
     {
       visualReview: { artifact: 'plan', reviewId: 'visual_review_1', status: 'changes-requested' },
       pullRequest: {
-        body: '<!-- issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/index.html -->',
+        body: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
       },
     }
   );
@@ -907,7 +908,7 @@ test('agentrix approved Decision review continues the same Plan task', () => {
     {
       visualReview: { artifact: 'decision', reviewId: 'visual_review_2', status: 'approved' },
       pullRequest: {
-        body: '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision.html -->',
+        body: '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
       },
     }
   );

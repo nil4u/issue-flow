@@ -29,7 +29,7 @@ const feedback = {
   intent: "question",
   severity: "note",
   comment: "需要确认存储方案",
-  sourceRefs: [{ type: "decision", path: ".issue-flow/issues/42-login/decision.html" }],
+  sourceRefs: [{ type: "decision", path: ".issue-flow/issues/42-login/decision/data/decision-data.json" }],
 }
 
 test("local review storage separates Decision and Plan for the same issue", () => {

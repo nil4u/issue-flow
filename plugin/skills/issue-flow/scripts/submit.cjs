@@ -35,7 +35,19 @@ const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*
 const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan']);
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
 const VISUAL_PLAN_FEATURE_OFF = 'feature:visual-plan:off';
-const PLAN_ARTIFACT_FORMATS = new Set(['html', 'markdown']);
+const PLAN_ARTIFACT_FORMATS = new Set(['json', 'markdown']);
+const VISUAL_SECTION_TYPES = new Set([
+  'summary', 'solution-summary', 'architecture', 'dependency-graph', 'deployment',
+  'runtime-flow', 'sequence', 'state-machine', 'data-flow', 'swimlane', 'user-journey',
+  'tree', 'component-tree', 'erd', 'matrix', 'path-matrix', 'permission-matrix',
+  'compatibility-matrix', 'option-comparison', 'risk-control', 'validation-matrix',
+  'traceability', 'responsibility-matrix', 'state-action', 'failure-handling',
+  'timeline', 'implementation-steps', 'implementation-dag', 'rollout', 'screen-flow',
+  'wireframe', 'chart', 'change-set', 'contract', 'risk-register', 'validation',
+  'evidence', 'cards', 'diagram',
+]);
+const VISUAL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/;
+const VISUAL_CHART_VARIANTS = new Set(['bar', 'horizontal-bar', 'column', 'line', 'area', 'donut', 'pie']);
 
 function usage() {
   return [
@@ -263,8 +275,8 @@ function findIssueArtifactPath(issueNumber, artifact, options = {}) {
   if (!issueRoot) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
   const issueDir = path.basename(issueRoot);
   const relativePath = artifact === 'decision'
-    ? path.join('.issue-flow', 'issues', issueDir, 'decision.html')
-    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'index.html');
+    ? path.join('.issue-flow', 'issues', issueDir, 'decision', 'data', 'decision-data.json')
+    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'plan-data.json');
   if (!fs.existsSync(path.resolve(process.cwd(), relativePath))) throw new Error(`Visual ${artifact} artifact does not exist: ${relativePath}`);
   return relativePath.replace(/\\/g, '/');
 }
@@ -272,7 +284,7 @@ function findIssueArtifactPath(issueNumber, artifact, options = {}) {
 function assertDecisionArtifactsRemoved(issueNumber) {
   const issueRoot = findVisualIssueDirectory(issueNumber);
   if (!issueRoot) return;
-  const decisionPaths = [path.join(issueRoot, 'decision.html'), path.join(issueRoot, 'decision')]
+  const decisionPaths = [path.join(issueRoot, 'decision')]
     .filter((candidate) => fs.existsSync(candidate));
   if (!decisionPaths.length) return;
   const relativePaths = decisionPaths.map((candidate) => path.relative(process.cwd(), candidate).replace(/\\/g, '/'));
@@ -282,12 +294,137 @@ function assertDecisionArtifactsRemoved(issueNumber) {
   ].join(' '));
 }
 
-function assertSharedVisualStylesheet(artifactPath, artifact) {
-  const expectedHref = artifact === 'decision' ? '../../plan-kit/kit.css' : '../../../plan-kit/kit.css';
-  const html = fs.readFileSync(path.resolve(process.cwd(), artifactPath), 'utf8');
-  const escapedHref = expectedHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (new RegExp(`\\bhref=["']${escapedHref}["']`, 'i').test(html)) return;
-  throw new Error(`Visual ${artifact} artifact must link the shared stylesheet with href="${expectedHref}": ${artifactPath}`);
+function assertVisualBriefNotInIssueArtifacts(issueNumber) {
+  const issueRoot = findVisualIssueDirectory(issueNumber);
+  if (!issueRoot) return;
+  const pendingDirectories = [issueRoot];
+  const briefPaths = [];
+  while (pendingDirectories.length) {
+    const directory = pendingDirectories.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) pendingDirectories.push(candidate);
+      else if (entry.isFile() && entry.name === 'visual-brief.md') briefPaths.push(candidate);
+    }
+  }
+  if (!briefPaths.length) return;
+  const relativePaths = briefPaths.map((candidate) => path.relative(process.cwd(), candidate).replace(/\\/g, '/'));
+  throw new Error([
+    `Visual Plan cannot publish temporary visual briefs from the repository: ${relativePaths.join(', ')}.`,
+    'Delete them and use the system temporary path injected in the Plan prompt.',
+  ].join(' '));
+}
+
+function assertVisualArtifactData(artifactPath, artifact) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), artifactPath), 'utf8'));
+  } catch (error) {
+    throw new Error(`Visual ${artifact} artifact must be valid JSON: ${error.message}`);
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(`Visual ${artifact} artifact must contain a JSON object`);
+  if (data.schemaVersion !== 1) throw new Error(`Visual ${artifact} artifact schemaVersion must be 1`);
+  if (data.artifact !== artifact) throw new Error(`Visual ${artifact} artifact field must equal "${artifact}"`);
+  if (!data.meta || typeof data.meta !== 'object' || !String(data.meta.title || '').trim()) throw new Error(`Visual ${artifact} artifact must contain meta.title`);
+  const forbidden = [];
+  const invalidIds = [];
+  const visit = (value, location = '') => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) return value.forEach((entry, index) => visit(entry, `${location}[${index}]`));
+    for (const [key, entry] of Object.entries(value)) {
+      const next = location ? `${location}.${key}` : key;
+      if (['html', 'css', 'js', 'script', 'style'].includes(key.toLowerCase())) forbidden.push(next);
+      if (key === 'id' && (!String(entry || '').trim() || !VISUAL_ID_PATTERN.test(String(entry).trim()))) invalidIds.push(next);
+      visit(entry, next);
+    }
+  };
+  visit(data);
+  if (forbidden.length) throw new Error(`Visual ${artifact} JSON cannot contain presentation code fields: ${forbidden.join(', ')}`);
+  if (invalidIds.length) throw new Error(`Visual ${artifact} JSON contains invalid path-safe ids: ${invalidIds.join(', ')}`);
+  const collectIds = (items, location) => {
+    const ids = new Set();
+    for (const [index, item] of items.entries()) {
+      const id = String(item && item.id || '').trim();
+      if (!id) throw new Error(`${location}[${index}] must have an id`);
+      if (!VISUAL_ID_PATTERN.test(id)) throw new Error(`${location}[${index}] has an invalid id: ${id}`);
+      if (ids.has(id)) throw new Error(`${location} contains duplicate id: ${id}`);
+      ids.add(id);
+    }
+    return ids;
+  };
+  if (artifact === 'decision') {
+    if (!Array.isArray(data.decisions) || !data.decisions.length) throw new Error('Decision JSON must contain at least one decisions[] item');
+    collectIds(data.decisions, 'decisions');
+    for (const [index, decision] of data.decisions.entries()) {
+      const id = String(decision && decision.id || '').trim();
+      if (!String(decision.question || decision.title || '').trim()) throw new Error(`Decision ${id} must contain a question`);
+      const options = Array.isArray(decision.options) ? decision.options : [];
+      if (decision.type === 'choice' && options.length < 2) throw new Error(`Decision ${id} choice must contain at least two options`);
+      if (decision.type === 'choice') {
+        const optionIds = collectIds(options, `decisions.${id}.options`);
+        const recommended = String(decision.recommendedOptionId || decision.recommended || '').trim();
+        if (!recommended) throw new Error(`Decision ${id} choice must contain recommendedOptionId`);
+        if (!optionIds.has(recommended)) throw new Error(`Decision ${id} recommendedOptionId does not match an option: ${recommended}`);
+      }
+    }
+    return data;
+  }
+  if (!Array.isArray(data.sections) || !data.sections.length) throw new Error('Plan JSON must contain at least one sections[] item');
+  if (!data.core || typeof data.core !== 'object' || Array.isArray(data.core)) throw new Error('Plan JSON must contain a core object');
+  if (!String(data.core.outcome || data.core.goal || data.core.summary || '').trim()) throw new Error('Plan core must describe the outcome');
+  collectIds(data.sections, 'sections');
+  let hasSummary = false;
+  let hasValidation = false;
+  for (const [index, section] of data.sections.entries()) {
+    const id = String(section && section.id || '').trim();
+    const type = String(section && section.type || '').trim();
+    if (!VISUAL_SECTION_TYPES.has(type)) throw new Error(`Plan section ${id} uses unsupported type: ${type || '(empty)'}`);
+    if (type === 'summary' || type === 'solution-summary') hasSummary = true;
+    if (type === 'validation' || type === 'validation-matrix') hasValidation = true;
+    const graph = ['architecture', 'dependency-graph', 'deployment', 'runtime-flow', 'state-machine', 'data-flow', 'rollout', 'screen-flow', 'component-tree', 'implementation-dag'].includes(type)
+      || type === 'diagram' && String(section.variant || '').trim() !== 'sequence';
+    if (graph) {
+      const nodes = section.nodes || section.elements || section.states || section.screens || section.tasks || [];
+      const edges = section.edges || section.relationships || section.transitions || section.connections || [];
+      if (!Array.isArray(nodes) || !nodes.length) throw new Error(`Graph section ${id} must contain nodes`);
+      const nodeIds = collectIds(nodes, `sections.${id}.nodes`);
+      if (!Array.isArray(edges)) throw new Error(`Graph section ${id} edges must be an array`);
+      for (const [edgeIndex, edge] of edges.entries()) {
+        const source = String(edge && (edge.sourceId || edge.from || edge.source) || '').trim();
+        const target = String(edge && (edge.destinationId || edge.to || edge.target) || '').trim();
+        if (!source || !nodeIds.has(source)) throw new Error(`sections.${id}.edges[${edgeIndex}] has unknown source: ${source || '(empty)'}`);
+        if (!target || !nodeIds.has(target)) throw new Error(`sections.${id}.edges[${edgeIndex}] has unknown target: ${target || '(empty)'}`);
+      }
+      collectIds(edges, `sections.${id}.edges`);
+    }
+    const sequence = type === 'sequence' || type === 'diagram' && String(section.variant || '').trim() === 'sequence';
+    if (sequence) {
+      const participants = Array.isArray(section.participants || section.actors) ? section.participants || section.actors : [];
+      const messages = Array.isArray(section.messages || section.steps) ? section.messages || section.steps : [];
+      if (participants.length < 2) throw new Error(`Sequence section ${id} must contain at least two participants`);
+      if (!messages.length) throw new Error(`Sequence section ${id} must contain messages`);
+      const participantIds = collectIds(participants, `sections.${id}.participants`);
+      collectIds(messages, `sections.${id}.messages`);
+      for (const [messageIndex, message] of messages.entries()) {
+        const source = String(message && (message.sourceId || message.from || message.source) || '').trim();
+        const target = String(message && (message.destinationId || message.to || message.target) || '').trim();
+        if (!participantIds.has(source)) throw new Error(`sections.${id}.messages[${messageIndex}] has unknown source: ${source || '(empty)'}`);
+        if (!participantIds.has(target)) throw new Error(`sections.${id}.messages[${messageIndex}] has unknown target: ${target || '(empty)'}`);
+      }
+    }
+    if (type === 'chart') {
+      const variant = String(section.variant || 'bar').trim();
+      if (!VISUAL_CHART_VARIANTS.has(variant)) throw new Error(`Chart section ${id} uses unsupported variant: ${variant}`);
+      if (!Array.isArray(section.items) || !section.items.length) throw new Error(`Chart section ${id} must contain items`);
+      collectIds(section.items, `sections.${id}.items`);
+      for (const [itemIndex, item] of section.items.entries()) {
+        if (!Number.isFinite(Number(item && item.value))) throw new Error(`sections.${id}.items[${itemIndex}] must contain a numeric value`);
+      }
+    }
+  }
+  if (!hasSummary) throw new Error('Plan JSON must include a summary or solution-summary section');
+  if (!hasValidation) throw new Error('Plan JSON must include a validation or validation-matrix section');
+  return data;
 }
 
 function findMarkdownPlanPath(issueNumber, options = {}) {
@@ -320,7 +457,7 @@ function visualArtifactUrl(baseUrl, gitServerId, projectId, issueNumber, artifac
 }
 
 function buildVisualArtifactMarker(input = {}) {
-  const format = String(input.format || 'html').trim().toLowerCase();
+  const format = String(input.format || 'json').trim().toLowerCase();
   if (!PLAN_ARTIFACT_FORMATS.has(format)) throw new Error(`Unsupported Plan artifact format: ${format}`);
   return `<!-- issue-flow:plan-artifact artifact=${input.artifact} format=${format} repo=${input.repositoryId} issue=${input.issueNumber} branch=${input.branch} commit=${input.commit} path=${input.artifactPath} -->`;
 }
@@ -336,7 +473,7 @@ function buildVisualArtifactComment(input = {}) {
     `- Branch: \`${input.branch}\``,
     `- Commit: \`${input.commit}\``,
     `- Artifact: \`${input.artifactPath}\``,
-    `- Format: \`${input.format || 'html'}\``,
+    `- Format: \`${input.format || 'json'}\``,
     '',
     'Review this artifact in Issue Flow. Review comments and approval are recorded on this PR/MR.',
   ].join('\n');
@@ -657,19 +794,20 @@ function planSubmissionIssueState(artifact) {
 async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options }) {
   const visual = visualPlanMode === 'on';
   const artifact = visual ? resolveVisualArtifactType(options) : 'plan';
-  const format = visual ? 'html' : 'markdown';
+  const format = visual ? 'json' : 'markdown';
   const repositoryId = resolveIssueFlowRepositoryId(options);
   const routeRepository = resolveVisualRouteRepository(options, repo);
   const baseUrl = resolveIssueFlowBaseUrl();
+  if (visual) {
+    assertVisualBriefNotInIssueArtifacts(issueNumber);
+  }
   if (visual && artifact === 'plan') {
     assertDecisionArtifactsRemoved(issueNumber);
   }
   const artifactPath = visual
     ? findIssueArtifactPath(issueNumber, artifact, options)
     : findMarkdownPlanPath(issueNumber, options);
-  if (visual) {
-    assertSharedVisualStylesheet(artifactPath, artifact);
-  }
+  if (visual) assertVisualArtifactData(artifactPath, artifact);
   if (!isGitTrackedFile(artifactPath) && !options.dryRun) {
     throw new Error(`Plan artifact must be committed before publishing: ${artifactPath}`);
   }
@@ -855,7 +993,8 @@ async function main(argv = process.argv.slice(2)) {
 module.exports = {
   assertBodyFileNotTracked,
   assertDecisionArtifactsRemoved,
-  assertSharedVisualStylesheet,
+  assertVisualArtifactData,
+  assertVisualBriefNotInIssueArtifacts,
   buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,

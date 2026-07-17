@@ -6,9 +6,9 @@
 - 提出根因前，必须能写出：`我认为根因是 <具体文件/函数/条件>，因为 <证据>`。
 - 根因不能解释全部症状，或存在会改变修复方向的选择时，只生成 Decision artifact。
 - 根因和修复边界明确，或 Decision 已批准时，生成完整 Visual Plan。
-- 生成 Plan 时，在 commit 前删除同一 issue 目录下已完成使命的 `decision.html` 和 `decision/` 目录。
+- 生成 Plan 时，在 commit 前删除同一 issue 目录下已完成使命的 `decision/` 目录。
 - Decision 只呈现无法从 issue、仓库和现有约定中确定的真实阻塞选择，以及选项、推荐、判断标准和后果；每个可见区块都必须直接帮助用户作出选择。
-- Decision、Plan 的数据层、HTML、锚点、comment scope、data island、图形和 checker 必须遵循 Vision Plan Skill。
+- Decision 和 Plan 只生成 JSON；HTML、CSS、JavaScript、布局、图形和评论锚点全部由 Issue Flow Engine 根据 JSON 内置渲染。
 - Plan 必须可视化根因链、修复边界、失败路径、回归范围和验证闭环。
 - 使用注入的 Plan branch，提交全部产物后，通过统一 CLI 的 `pr submit plan --artifact decision|plan` 完成发布。
 - 不直接调用 `gh`、`glab` 或 provider API。

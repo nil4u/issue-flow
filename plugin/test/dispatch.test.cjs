@@ -315,7 +315,7 @@ test('dispatch visual review comment resumes the existing plan task with bot-aut
             '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->',
             '## Visual Plan Review',
             '',
-            '1. **plan/index.html** — 确认一下还会有其他状态吗？',
+            '1. **plan/data/plan-data.json** — 确认一下还会有其他状态吗？',
           ].join('\n'),
         }),
       }
@@ -443,7 +443,7 @@ test('dispatch Plan review comment uses the standard PR review reply instruction
           body: [
             '<!-- issue-flow:source-issue=42 -->',
             '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
-            '<!-- issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/index.html -->',
+            '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
           ].join('\n'),
           labels: [{ name: 'mr-by::plan' }],
         }),
@@ -454,7 +454,7 @@ test('dispatch Plan review comment uses the standard PR review reply instruction
     assert.equal(result.taskId, 'task-plan-42');
     assert.equal(reviewInstructionInput.data.visualReview.artifact, 'plan');
     assert.equal(reviewInstructionInput.data.visualReview.status, 'changes-requested');
-    assert.match(reviewInstructionInput.pullRequest.body, /format=html/);
+    assert.match(reviewInstructionInput.pullRequest.body, /format=json/);
   } finally {
     agentrix.buildVisualReviewResumeInstruction = originalPlanInstruction;
     agentrix.buildReviewCommentResumeInstruction = originalReviewInstruction;
@@ -878,7 +878,7 @@ test('dispatch Decision merge resumes the original Plan task', async () => {
         body: [
           '<!-- issue-flow:source-issue=42 -->',
           '<!-- issue-flow:agentrix:task=task-plan-42 -->',
-          '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision.html -->',
+          '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision-data.json -->',
         ].join('\n'),
         title: 'Decision #42: Add widget support',
         head: { ref: '42-add-widget-support/plan' },

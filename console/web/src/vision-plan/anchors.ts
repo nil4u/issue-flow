@@ -1,12 +1,5 @@
-// Review anchor support for data-compiled artifacts.
-//
-// New-style artifacts (produced by the agentrix-visual-artifact skill) embed their
-// logical plan facts as a JSON data island (<script type="application/json"
-// id="plan-data">) and tag every review object with data-ref="<path into that
-// JSON>" plus qualifier anchors (data-state, data-path, ...). This module holds the
-// pure logic for scoring, selector generation, and data-ref resolution so it can be
-// unit-tested without a DOM. Old artifacts without these attributes must keep the
-// exact pre-existing behavior; callers gate on that.
+// Engine-rendered artifacts embed their logical facts as a JSON data island and
+// tag every review object with a data-ref path into that JSON.
 
 export const PLAN_DATA_ISLAND_ID = "plan-data";
 

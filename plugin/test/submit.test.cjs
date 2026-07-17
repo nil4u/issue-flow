@@ -8,7 +8,8 @@ const test = require('node:test');
 const {
   assertBodyFileNotTracked,
   assertDecisionArtifactsRemoved,
-  assertSharedVisualStylesheet,
+  assertVisualArtifactData,
+  assertVisualBriefNotInIssueArtifacts,
   buildPrBodyWithMarkers,
   buildVisualArtifactComment,
   buildVisualArtifactMarker,
@@ -242,10 +243,9 @@ test('Visual Plan publication requires completed Decision artifacts to be remove
   try {
     const issueRoot = path.join(root, '.issue-flow/issues/42-issue');
     fs.mkdirSync(path.join(issueRoot, 'decision/data'), { recursive: true });
-    fs.writeFileSync(path.join(issueRoot, 'decision.html'), '<!doctype html>', 'utf8');
+    fs.writeFileSync(path.join(issueRoot, 'decision/data/decision-data.json'), '{}', 'utf8');
     process.chdir(root);
     assert.throws(() => assertDecisionArtifactsRemoved(42), /Delete the completed Decision artifacts/);
-    fs.rmSync(path.join(issueRoot, 'decision.html'));
     fs.rmSync(path.join(issueRoot, 'decision'), { recursive: true });
     assert.doesNotThrow(() => assertDecisionArtifactsRemoved(42));
   } finally {
@@ -254,19 +254,131 @@ test('Visual Plan publication requires completed Decision artifacts to be remove
   }
 });
 
-test('Visual artifacts link the installed shared stylesheet', () => {
+test('Visual Plan publication rejects visual briefs stored with repository artifacts', () => {
   const previousCwd = process.cwd();
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-styles-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-brief-'));
+  try {
+    const briefPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/visual-brief.md');
+    fs.mkdirSync(path.dirname(briefPath), { recursive: true });
+    fs.writeFileSync(briefPath, '- **Core outcome**: Add export\n', 'utf8');
+    process.chdir(root);
+    assert.throws(() => assertVisualBriefNotInIssueArtifacts(42), /use the system temporary path/);
+    fs.rmSync(briefPath);
+    assert.doesNotThrow(() => assertVisualBriefNotInIssueArtifacts(42));
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Visual artifacts contain renderable JSON without presentation code', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-json-'));
   try {
     const issueRoot = path.join(root, '.issue-flow/issues/42-issue');
-    fs.mkdirSync(path.join(issueRoot, 'plan'), { recursive: true });
-    fs.writeFileSync(path.join(issueRoot, 'decision.html'), '<link rel="stylesheet" href="../../plan-kit/kit.css">', 'utf8');
-    fs.writeFileSync(path.join(issueRoot, 'plan/index.html'), '<link rel="stylesheet" href="../../../plan-kit/kit.css">', 'utf8');
+    const planPath = path.join(issueRoot, 'plan/data/plan-data.json');
+    fs.mkdirSync(path.dirname(planPath), { recursive: true });
+    fs.writeFileSync(planPath, JSON.stringify({
+      schemaVersion: 1,
+      artifact: 'plan',
+      meta: { title: 'JSON Plan' },
+      core: { outcome: 'Render consistently' },
+      sections: [
+        { id: 'summary', type: 'summary' },
+        { id: 'validation', type: 'validation', items: [{ id: 'render' }] },
+      ],
+    }), 'utf8');
     process.chdir(root);
-    assert.doesNotThrow(() => assertSharedVisualStylesheet('.issue-flow/issues/42-issue/decision.html', 'decision'));
-    assert.doesNotThrow(() => assertSharedVisualStylesheet('.issue-flow/issues/42-issue/plan/index.html', 'plan'));
-    fs.writeFileSync(path.join(issueRoot, 'plan/index.html'), '<link rel="stylesheet" href="css/kit.css">', 'utf8');
-    assert.throws(() => assertSharedVisualStylesheet('.issue-flow/issues/42-issue/plan/index.html', 'plan'), /must link the shared stylesheet/);
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'));
+    fs.writeFileSync(planPath, JSON.stringify({ schemaVersion: 1, artifact: 'plan', meta: { title: 'Bad Plan' }, core: { outcome: 'Bad' }, sections: [{ id: 'bad', type: 'cards', html: '<div />' }] }), 'utf8');
+    assert.throws(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'), /cannot contain presentation code/);
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Visual artifact submission rejects invalid graph relationships and Decision choices', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-invalid-json-'));
+  try {
+    const artifactPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan-data.json');
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    process.chdir(root);
+    fs.writeFileSync(artifactPath, JSON.stringify({
+      schemaVersion: 1,
+      artifact: 'plan',
+      meta: { title: 'Broken graph' },
+      core: { outcome: 'Reject broken endpoints' },
+      sections: [
+        { id: 'summary', type: 'summary' },
+        {
+          id: 'architecture', type: 'architecture',
+          nodes: [{ id: 'engine' }],
+          edges: [{ id: 'read', sourceId: 'engine', destinationId: 'missing' }],
+        },
+        { id: 'validation', type: 'validation', items: [{ id: 'endpoint-check' }] },
+      ],
+    }), 'utf8');
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      /unknown target: missing/,
+    );
+
+    const decisionPath = path.join(root, '.issue-flow/issues/42-issue/decision/data/decision-data.json');
+    fs.mkdirSync(path.dirname(decisionPath), { recursive: true });
+    fs.writeFileSync(decisionPath, JSON.stringify({
+      schemaVersion: 1,
+      artifact: 'decision',
+      meta: { title: 'Broken choice' },
+      decisions: [{
+        id: 'storage', type: 'choice', question: 'Storage?', recommendedOptionId: 'missing',
+        options: [{ id: 'local' }, { id: 'database' }],
+      }],
+    }), 'utf8');
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/decision/data/decision-data.json', 'decision'),
+      /recommendedOptionId does not match an option: missing/,
+    );
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Visual artifact submission validates chart variants and numeric items', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-chart-json-'));
+  try {
+    const artifactPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan-data.json');
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    process.chdir(root);
+    const writePlan = (chart) => fs.writeFileSync(artifactPath, JSON.stringify({
+      schemaVersion: 1,
+      artifact: 'plan',
+      meta: { title: 'Chart plan' },
+      core: { outcome: 'Render charts' },
+      sections: [
+        { id: 'summary', type: 'summary' },
+        chart,
+        { id: 'validation', type: 'validation', items: [{ id: 'chart-check' }] },
+      ],
+    }), 'utf8');
+
+    writePlan({ id: 'metrics', type: 'chart', variant: 'radar', items: [{ id: 'value', label: 'Value', value: 1 }] });
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      /unsupported variant: radar/,
+    );
+
+    writePlan({ id: 'metrics', type: 'chart', variant: 'line', items: [{ id: 'value', label: 'Value', value: 'many' }] });
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      /must contain a numeric value/,
+    );
+
+    writePlan({ id: 'metrics', type: 'chart', variant: 'donut', items: [{ id: 'value', label: 'Value', value: 1 }] });
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'));
   } finally {
     process.chdir(previousCwd);
     fs.rmSync(root, { recursive: true, force: true });
@@ -290,15 +402,15 @@ test('visual artifact URLs use Git server and provider project routes', () => {
   );
   const comment = buildVisualArtifactComment({
     artifact: 'plan',
-    format: 'html',
+    format: 'json',
     repositoryId: 'repo_123',
     issueNumber: 42,
     branch: '42-broken-login/plan',
     commit: 'abc123',
-    artifactPath: '.issue-flow/issues/42-broken-login/plan/index.html',
+    artifactPath: '.issue-flow/issues/42-broken-login/plan/data/plan-data.json',
     url: 'https://flow.example/repos/gitlab-main/43326/plan/42/plan',
   });
-  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=html repo=repo_123 issue=42/);
+  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42/);
   assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42\/plan/);
   assert.match(comment, /Review comments and approval are recorded on this PR\/MR/);
 });
@@ -307,14 +419,14 @@ test('plan artifact marker records visual and Markdown formats in the MR body', 
   assert.equal(
     buildVisualArtifactMarker({
       artifact: 'decision',
-      format: 'html',
+      format: 'json',
       repositoryId: 'repo_123',
       issueNumber: 42,
       branch: '42-issue/plan',
       commit: 'abc123',
-      artifactPath: '.issue-flow/issues/42-issue/decision.html',
+      artifactPath: '.issue-flow/issues/42-issue/decision/data/decision-data.json',
     }),
-    '<!-- issue-flow:plan-artifact artifact=decision format=html repo=repo_123 issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision.html -->'
+    '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision-data.json -->'
   );
   assert.match(
     buildVisualArtifactComment({

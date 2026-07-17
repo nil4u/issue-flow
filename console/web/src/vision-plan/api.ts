@@ -15,7 +15,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 export async function loadVisualArtifact(context: VisionRouteContext): Promise<LoadedVisualArtifact> {
   const result = await parseResponse<{
     artifact: { entryPath: string; updatedAt: string; status?: string }
-    format?: "html" | "markdown"
+    format?: "json" | "markdown"
     mergeRequest?: { number?: number; url?: string; state?: string }
     repository?: { fullName?: string }
     html: string
@@ -31,17 +31,16 @@ export async function loadVisualArtifact(context: VisionRouteContext): Promise<L
         type: context.artifactType,
         path: artifact.entryPath,
         title: context.artifactType === "decision" ? "决策" : "方案",
-        url: endpoint(context, "/file"),
         modifiedAt: artifact.updatedAt,
         status: artifact.status || "pending",
-        format: result.format || "html",
+        format: result.format || "json",
         mergeRequestNumber: result.mergeRequest?.number,
         mergeRequestUrl: result.mergeRequest?.url,
         mergeRequestState: result.mergeRequest?.state,
       }],
     },
     html: result.html,
-    format: result.format || "html",
+    format: result.format || "json",
     drafts: stored.drafts,
     reviews: stored.reviews,
   }

@@ -68,8 +68,7 @@ function draftBelongsToArtifact(item: DraftReviewItem | null | undefined, artifa
   if (!item) return false;
   return item.visualTarget?.artifact === artifactType || (item.sourceRefs ?? []).some((ref) => (
     ref.type === artifactType ||
-    ref.path === `${artifactType}/index.html` ||
-    (artifactType === "decision" && ref.path === "decision.html")
+    ref.path === `${artifactType}/data/${artifactType}-data.json`
   ));
 }
 
@@ -229,29 +228,10 @@ function ensureCommentActionStyle(document: Document) {
   document.head?.appendChild(style);
 }
 
-// The platform bridge inlines artifact assets (img/source src, video poster) as data: URLs so the
-// srcDoc can render offline, which means a selected element's live outerHTML carries huge base64
-// blobs. The bridge records each asset's original repo-relative path on data-agentrix-src/-poster
-// at inline time; restore those here, and collapse any leftover inline data: payload, so the
-// captured DOM context mirrors the real source HTML file the agent can open.
 function elementSourceHtml(element: Element): string {
   const clone = element.cloneNode(true) as Element;
   clone.querySelectorAll("[data-agentrix-injected]").forEach((node) => node.remove());
-  const restore = (node: Element) => {
-    const originalSrc = node.getAttribute("data-agentrix-src");
-    if (originalSrc !== null) {
-      node.setAttribute("src", originalSrc);
-      node.removeAttribute("data-agentrix-src");
-    }
-    const originalPoster = node.getAttribute("data-agentrix-poster");
-    if (originalPoster !== null) {
-      node.setAttribute("poster", originalPoster);
-      node.removeAttribute("data-agentrix-poster");
-    }
-  };
-  if (clone.hasAttribute("data-agentrix-src") || clone.hasAttribute("data-agentrix-poster")) restore(clone);
-  clone.querySelectorAll("[data-agentrix-src],[data-agentrix-poster]").forEach((node) => restore(node));
-  return clone.outerHTML.replace(/data:[^"')\s]{48,}/gi, (value) => `${value.slice(0, 24)}…[inlined]`);
+  return clone.outerHTML;
 }
 
 function describeElement(element: Element | null, coverage?: ElementCoverage) {
@@ -263,16 +243,7 @@ function describeElement(element: Element | null, coverage?: ElementCoverage) {
   const ariaLabel = element.getAttribute("aria-label") || undefined;
   const html = elementSourceHtml(element).trim().replace(/\s+/g, " ").slice(0, 8000) || undefined;
   const dataRef = findDataRef(element);
-  // Anchor-attribute selectors are only emitted for data-compiled artifacts (own
-  // data-ref, or a plan-data island in the document); old artifacts keep the exact
-  // id/class selectors they always produced.
-  const isDataCompiled = element.hasAttribute("data-ref") || Boolean(element.ownerDocument?.getElementById(PLAN_DATA_ISLAND_ID));
-  const legacySelector = id
-    ? `${tagName}#${cssEscape(id)}`
-    : className
-      ? `${tagName}.${className.split(" ").slice(0, 3).map(cssEscape).join(".")}`
-      : tagName;
-  const selector = (isDataCompiled ? anchorSelector(element) : undefined) ?? legacySelector;
+  const selector = anchorSelector(element);
   return { selector, tagName, id, className, role, ariaLabel, dataRef, html, ...coverage };
 }
 
@@ -283,10 +254,6 @@ type ElementCoverage = {
   selectionCoverageRatio: number;
 };
 
-// Resolves the primary element's data-ref against the artifact's inline plan-data
-// island. Reading happens inside the iframe document, so it works identically for
-// server-hosted (iframe src) and bridge (srcDoc) artifacts. Returns undefined for
-// old artifacts without a data island or data-ref anchors.
 function resolvePlanDataForRef(frame: HTMLIFrameElement | null, ref: string | undefined): { data?: VisualTarget["data"]; value?: unknown } {
   if (!ref) return {};
   let islandText: string | null | undefined;
@@ -366,7 +333,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   const [busy, setBusy] = useState(true);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [artifactHtml, setArtifactHtml] = useState<string | null>(null);
-  const [artifactFormat, setArtifactFormat] = useState<"html" | "markdown">("html");
+  const [artifactFormat, setArtifactFormat] = useState<"json" | "markdown">("json");
   const [decisionItemMode, setDecisionItemMode] = useState<"approval" | "choice" | "mixed">("approval");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -818,7 +785,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     const input: FeedbackRequest = {
       targetType: "artifact",
       targetId: decision.ref,
-      sourceRefs: [{ type: sourceRefTypeForArtifact(currentArtifact?.type ?? "plan"), path: currentArtifact?.path ?? "plan/index.html", label: artifactLabel(currentArtifact?.type ?? "plan") }],
+      sourceRefs: [{ type: sourceRefTypeForArtifact(currentArtifact?.type ?? "plan"), path: currentArtifact?.path ?? "plan/data/plan-data.json", label: artifactLabel(currentArtifact?.type ?? "plan") }],
       visualTarget: decision.visualTarget,
       decision: decisionReviewPayload(decision, action),
       comment,

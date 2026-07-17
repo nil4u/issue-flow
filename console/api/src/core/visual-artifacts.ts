@@ -3,9 +3,10 @@ import crypto from "node:crypto"
 import path from "node:path"
 
 import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
+import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
 const ARTIFACT_TYPES = new Set(["decision", "plan"])
-const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(html|markdown)\s+repo=([^\s]+)\s+issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
+const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\s+repo=([^\s]+)\s+issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
 
 function requestError(message, status = 400, code = "visual_artifact_error") {
   const error = new Error(message); error.status = status; error.code = code; return error
@@ -105,43 +106,23 @@ async function resolveVisualArtifact(store, repo, server, issueNumber, type) {
   }
 }
 
-function contentTypeFor(filePath) {
-  const ext = path.posix.extname(filePath).toLowerCase()
-  return ({ ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" })[ext] || "application/octet-stream"
-}
-function isExternalResource(value) { return /^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(String(value || "").trim()) }
-function artifactFileUrl(gitServerId, projectId, issueNumber, type, relativePath) { return `/api/visual-artifacts/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/${issueNumber}/${type}/file?path=${encodeURIComponent(relativePath)}` }
-function resolveRelativePath(currentPath, resourcePath) {
-  const match = String(resourcePath || "").trim().match(/^([^?#]*)(.*)$/)
-  return { path: normalizeRepoPath(path.posix.join(path.posix.dirname(currentPath), match[1])), suffix: match[2] || "" }
-}
-function rewriteHtmlResources(html, gitServerId, projectId, issueNumber, type, currentPath) {
-  return String(html).replace(/\b(href|src|poster)=(["'])([^"']+)\2/gi, (full, attribute, quote, value) => {
-    if (isExternalResource(value)) return full
-    const resolved = resolveRelativePath(currentPath, value)
-    return `${attribute}=${quote}${artifactFileUrl(gitServerId, projectId, issueNumber, type, resolved.path)}${resolved.suffix}${quote}`
-  })
-}
-function rewriteCssResources(css, gitServerId, projectId, issueNumber, type, currentPath) {
-  return String(css).replace(/url\((["']?)(?![a-z][a-z0-9+.-]*:|#|\/)([^"')]+)\1\)/gi, (_full, _quote, value) => {
-    const resolved = resolveRelativePath(currentPath, value)
-    return `url("${artifactFileUrl(gitServerId, projectId, issueNumber, type, resolved.path)}${resolved.suffix}")`
-  })
-}
-
-async function readArtifactFile(server, repo, artifact, requestedPath = "") {
-  const repoPath = normalizeRepoPath(requestedPath || artifact.entryPath)
-  const bytes = await readVisualRepositoryFile(server, repo, artifact.commitSha, repoPath)
-  const contentType = contentTypeFor(repoPath)
-  if (contentType.startsWith("text/html")) return { body: rewriteHtmlResources(bytes.toString("utf8"), repo.gitServerId, repo.serverRepoId, artifact.issueNumber, artifact.type, repoPath), contentType }
-  if (contentType.startsWith("text/css")) return { body: rewriteCssResources(bytes.toString("utf8"), repo.gitServerId, repo.serverRepoId, artifact.issueNumber, artifact.type, repoPath), contentType }
-  return { body: bytes, contentType }
+async function readArtifactFile(server, repo, artifact) {
+  const bytes = await readVisualRepositoryFile(server, repo, artifact.commitSha, artifact.entryPath)
+  return { body: bytes }
 }
 
 function markdownDocument(renderedHtml, artifact) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
     :root{color:#18181b;background:#fff;font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}body{margin:0;padding:32px}article{max-width:920px;margin:0 auto}h1,h2,h3{line-height:1.3;margin:1.6em 0 .6em}h1{font-size:30px;border-bottom:1px solid #e4e4e7;padding-bottom:12px}h2{font-size:23px}h3{font-size:18px}p,ul,ol,pre,table,blockquote{margin:1em 0}pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}code{background:#f4f4f5;border-radius:4px;padding:.15em .35em}pre{overflow:auto;background:#18181b;color:#fafafa;border-radius:8px;padding:16px}pre code{background:none;padding:0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e4e4e7;padding:8px 10px;text-align:left}blockquote{margin-left:0;border-left:4px solid #d4d4d8;padding-left:16px;color:#52525b}a{color:#2563eb}img{max-width:100%}
   </style></head><body><article data-comment-scope="section" data-comment-label="Markdown Plan" data-ref="markdown.${artifact.type}">${renderedHtml}</article></body></html>`
+}
+
+function parseVisualArtifactJson(body) {
+  try {
+    return JSON.parse(String(body))
+  } catch (error) {
+    throw requestError(`invalid visual artifact JSON: ${error.message}`, 422)
+  }
 }
 
 async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, type: rawType, userId, session }) {
@@ -157,10 +138,10 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
         ? "changes-requested"
         : artifact.status
   const entry = await readArtifactFile(server, repo, artifact)
-  const format = artifact.data && artifact.data.format || "html"
-  const html = format === "markdown"
-    ? markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
-    : String(entry.body)
+  const format = artifact.data && artifact.data.format || "json"
+  let html
+  if (format === "markdown") html = markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
+  else html = renderVisualArtifactDocument(parseVisualArtifactJson(entry.body), type)
   return {
     artifact: { ...artifact, status }, format,
     mergeRequest: {
@@ -170,11 +151,6 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
     repository: { id: repo.id, fullName: repo.fullName, defaultBranch: repo.defaultBranch, provider: server.type },
     html,
   }
-}
-async function getVisualArtifactFile({ store, gitServerId, projectId, issueNumber, type, requestedPath, userId, session }) {
-  const context = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifact = await resolveVisualArtifact(store, context.repo, context.server, normalizeIssueNumber(issueNumber), normalizeArtifactType(type))
-  return readArtifactFile(context.server, context.repo, artifact, requestedPath)
 }
 function compactReviewText(value, maxLength = 500) {
   const text = String(value || "").replace(/\s+/g, " ").trim()
@@ -252,8 +228,7 @@ function decisionRequirementsFromData(data = {}) {
 
 async function decisionRequirements(server, repo, artifact) {
   try {
-    const decisionPath = normalizeRepoPath(path.posix.join(path.posix.dirname(artifact.entryPath), "decision/data/decision-data.json"))
-    const data = JSON.parse((await readVisualRepositoryFile(server, repo, artifact.commitSha, decisionPath)).toString("utf8"))
+    const data = JSON.parse((await readVisualRepositoryFile(server, repo, artifact.commitSha, artifact.entryPath)).toString("utf8"))
     return decisionRequirementsFromData(data)
   } catch { return [] }
 }
@@ -353,4 +328,4 @@ async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, u
   return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
 }
 
-export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, getVisualArtifactFile, listReviewablePlanArtifacts, parseArtifactMarker, pendingDecisionApprovalRefs, rewriteHtmlResources, submitVisualReview }
+export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, submitVisualReview }
