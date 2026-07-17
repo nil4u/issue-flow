@@ -225,16 +225,14 @@ test('Markdown plan and build submit use their PR or MR labels', () => {
   assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
 });
 
-test('visual plan mode defaults off and rejects conflicting issue switches', () => {
+test('visual plan mode is enabled only by the opt-in label', () => {
   assert.equal(resolveVisualPlanFeatureMode({ labels: [] }), 'off');
-  assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:off'] }), 'off');
   assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on'] }), 'on');
-  assert.throws(() => resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on', 'feature:visual-plan:off'] }), /conflicting Visual Plan feature labels/);
 });
 
 test('Decision and Plan publication use their distinct issue gates', () => {
-  assert.deepEqual(planSubmissionIssueState('decision'), { flow: 'flow::clarify', desired: {} });
-  assert.deepEqual(planSubmissionIssueState('plan'), { flow: 'flow::approve', desired: { plan: 'plan::pending' } });
+  assert.deepEqual(planSubmissionIssueState('decision'), { flow: 'flow::clarify' });
+  assert.deepEqual(planSubmissionIssueState('plan'), { flow: 'flow::approve' });
 });
 
 test('Visual Plan publication requires completed Decision artifacts to be removed', () => {

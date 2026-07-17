@@ -16,13 +16,13 @@ flow::triage ──(triage agent)──┬── flow::clarify
                                └── status::done
     │
     ▼
-flow::plan ──(plan agent)──┬── 默认 / feature:visual-plan:off
-                           │     └── Markdown Plan MR → plan::pending + flow::approve
+flow::plan ──(plan agent)──┬── 默认（无 Visual Plan opt-in）
+                           │     └── Markdown Plan MR → flow::approve
                            │           ├── 修改请求 → 评论 MR + resume Plan task
                            │           └── approve → merge → flow::build
                            └── feature:visual-plan:on
                                  ├── 可选 Decision → 同一 Plan MR + flow::clarify
-                                 └── Visual Plan → 同一 Plan MR + plan::pending + flow::approve
+                                 └── Visual Plan → 同一 Plan MR + flow::approve
 
 Decision 审阅：
   讨论/修改 → 评论 Plan MR + flow::clarify
@@ -33,11 +33,11 @@ Decision 审阅：
             → 原分支和原 MR 更新为 Visual Plan
 
 Visual Plan 审阅：
-  修改请求 → 评论 Plan MR + plan::changes-requested + flow::approve
+  修改请求 → 评论 Plan MR + flow::approve
            → resume 原 Plan task 修改 Plan
   Approve → 当前页面用户 merge Plan MR
-          → plan::approved + flow::build
-  合并失败/冲突 → 保持 MR open + plan::pending + flow::approve
+          → flow::build
+  合并失败/冲突 → 保持 MR open + flow::approve
 
 flow::build ──(build agent)── build PR/MR → flow::approve
     │
@@ -56,16 +56,16 @@ Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan
 
 | 动作 | 结果 |
 |------|------|
-| 提交 Markdown Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `plan::pending` + `flow::approve` |
-| 提交 Markdown Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；`plan::changes-requested` + `flow::approve` |
-| Approve Markdown Plan | 页面当前用户 merge MR；`plan::approved` + `flow::build` |
+| 提交 Markdown Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `flow::approve` |
+| 提交 Markdown Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
+| Approve Markdown Plan | 页面当前用户 merge MR；`flow::build` |
 | 提交 Decision | MR body 写入 Decision Engine URL；`mr-by::plan` + `flow::clarify` |
 | 提交 Decision 讨论/修改 | 审阅记录写入 LocalStorage、评论同一个 Plan MR 并 resume 原 Plan task；保持 `flow::clarify` |
 | 提交 Decision 全部通过 | 清除 Decision 本地记录、评论同一个 Plan MR；`flow::plan`；review-comment pipeline resume 原 Plan task，不合并 MR |
-| 提交 Visual Plan JSON | 删除已完成的 Decision JSON，更新同一分支/MR；Engine 内置渲染；`plan::pending` + `flow::approve` |
-| 提交 Visual Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；`plan::changes-requested` + `flow::approve` |
-| Approve Visual Plan | 清除 Plan 本地记录并 merge Plan MR；`plan::approved` + `flow::build` |
-| Plan 合并失败 | 保持 MR open 和当前 pending/approve 状态 |
+| 提交 Visual Plan JSON | 删除已完成的 Decision JSON，更新同一分支/MR；Engine 内置渲染；`flow::approve` |
+| 提交 Visual Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
+| Approve Visual Plan | 清除 Plan 本地记录并 merge Plan MR；`flow::build` |
+| Plan 合并失败 | 保持 MR open 和当前 `flow::approve` 状态 |
 | 提交 Build PR/MR | `mr-by::build` + `flow::approve` |
 | 合并 Build PR/MR | `status::done` + clear `flow::` |
 
@@ -84,17 +84,15 @@ Visual Plan Approve 后，Runtime 只向 Build Agent 提供已合并到默认分
 ## Plan 模式开关
 
 - `feature:visual-plan:on`：启用 Decision/Visual Plan。
-- `feature:visual-plan:off`：使用 Markdown Plan PR/MR。
-- 无开关：默认 off。
-- 同时出现 on/off：阻断 Plan，要求先修正。
+- 无该标签：使用 Markdown Plan PR/MR。
 
 Decision、Visual Plan 和 Markdown Plan 都使用 `mr-by::plan` PR/MR。Decision 和 Visual Plan 使用同一个 open MR；Plan 提交会将 MR body marker 从 Decision 更新为 Plan。
 
 | PR/MR Label | Merge 后 Source Issue 变化 |
 |-------------|--------------------------|
 | `mr-by::plan` + Decision marker | 非预期手工 merge 时回到 `flow::plan` |
-| `mr-by::plan` + Visual Plan marker | `plan::approved + flow::build` |
-| `mr-by::plan` + Markdown Plan marker | `plan::approved + flow::build` |
+| `mr-by::plan` + Visual Plan marker | `flow::build` |
+| `mr-by::plan` + Markdown Plan marker | `flow::build` |
 | `mr-by::build` | `status::done` + clear `flow::` |
 
 Source issue 仍按 marker、body 文本、标题和 branch 名解析。

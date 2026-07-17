@@ -11,7 +11,7 @@ metadata:
 
 issue-flow 定义了一套基于 issue、Plan 审批和 Build PR/MR 的 agent 自动化开发流程。
 
-Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态机的 source of truth。Plan 默认使用 Markdown 审阅；只有 issue 带 `feature:visual-plan:on` 时才使用 Decision/Visual Plan 页面。`feature:visual-plan:off` 和未设置开关都保持 Markdown 模式。实际代码始终通过 Build PR/MR 审批。
+Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态机的 source of truth。Plan 默认使用 Markdown 审阅；只有 issue 带 `feature:visual-plan:on` 时才使用 Decision/Visual Plan 页面。实际代码始终通过 Build PR/MR 审批。
 
 在 issue-flow 下工作时，agent-facing provider 操作必须使用统一入口：
 
@@ -38,8 +38,7 @@ issue-flow <resource> <action> [options]
 | `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops` |
 | `status::` | Issue | 生命周期状态 | `active`, `done`, `drop`, `suspend` |
 | `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `clarify`, `approve` |
-| `plan::` | Issue | Visual/Markdown Plan 审批状态 | `pending`, `approved`, `changes-requested` |
-| `feature:visual-plan:` | Issue | Plan 模式开关；未设置时默认 off | `on`, `off` |
+| `feature:visual-plan:` | Issue | Visual Plan opt-in；未设置时使用 Markdown | `on` |
 | `automation::` | Issue | 允许自动化推进到的级别，或显式关闭 | `off`, `plan`, `build` |
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
 | `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
@@ -91,7 +90,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 ```
 
-`pr submit plan` 会读取 source issue 的特性开关。默认/`feature:visual-plan:off` 发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
+`pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
 ### Labels 和 Dispatch
 
@@ -127,12 +126,16 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
 # 为单个 issue 开启 Visual Plan：
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
   --visual-plan-feature feature:visual-plan:on
+
+# 切回默认 Markdown Plan：
+node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+  --clear-visual-plan-feature
 ```
 
 ### Plan → Submit / Publish
 
 ```bash
-# 默认或 feature:visual-plan:off：提交 Markdown Plan：
+# 默认（无 feature:visual-plan:on）：提交 Markdown Plan：
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
   --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
 
@@ -145,7 +148,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
   --issue 123 --artifact plan
 ```
 
-Markdown Plan 与 Visual Plan 共用 `plan::pending|changes-requested|approved`。Visual 模式下，Decision 提交后使用 `flow::clarify`；修改意见和批准结果都评论在同一个 open Plan MR，批准评论把 Issue 转到 `flow::plan` 并恢复原 Plan task。Plan task 继续使用同一分支和 MR 发布 Visual Plan；Plan 批准后合并 MR并进入 `plan::approved + flow::build`。
+Markdown Plan 与 Visual Plan 的等待审批与已批准状态分别由 open/merged Plan MR 表示。Visual 模式下，Decision 提交后使用 `flow::clarify`；修改意见和批准结果都评论在同一个 open Plan MR，批准评论把 Issue 转到 `flow::plan` 并恢复原 Plan task。Plan task 继续使用同一分支和 MR 发布 Visual Plan；Plan 批准后合并 MR并进入 `flow::build`。
 
 ### Build → Submit
 

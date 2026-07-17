@@ -39,7 +39,7 @@ Before writing artifact JSON, read [references/engine-json-contract.md](referenc
    - After the user answers the gate, treat those answers as settled inputs and generate Plan JSON from them. The Plan should lead with the resulting solution, boundaries, implementation mechanism, and validation.
    - When no blocking question exists, generate the plan directly.
    - Publish a decision with `issue-flow pr submit plan --artifact decision`; publishing keeps the Plan branch/MR open and sets `flow::clarify`.
-   - Publish a plan with `issue-flow pr submit plan --artifact plan`; it updates the same Plan branch/MR and sets `plan::pending` plus `flow::approve`.
+   - Publish a plan with `issue-flow pr submit plan --artifact plan`; it updates the same Plan branch/MR and sets `flow::approve`.
    - Issue Flow owns publication, review routing, approval state, and provider operations after these commands complete.
    - Decision approval posts an approved review comment on the open Plan MR and resumes the same Plan task. Continue on the existing Plan branch and update the same MR with the Plan artifact.
    - When generating the first Plan after Decision approval, delete the `decision/` directory before committing. The Plan commit and eventual merge must not retain the superseded Decision artifact.

@@ -30,8 +30,11 @@ function artifactLabel(type: ArtifactType) {
 
 function artifactStatusLabel(status = "pending") {
   if (status === "approved") return "已通过";
-  if (status === "changes-requested") return "需修改";
   return "待审阅";
+}
+
+function reviewStatusLabel(status = "changes-requested") {
+  return status === "approved" ? "已通过" : "已提交";
 }
 
 function feedbackIntentLabel(intent: FeedbackRequest["intent"]) {
@@ -1073,7 +1076,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
           <div className="section-title"><FileText size={17} /><h2>审阅记录</h2><span className="section-count">{reviews.length}</span></div>
           {reviews.length ? reviews.map((review) => (
             <button key={review.id} type="button" className="review-history-item" onClick={() => openReviewHistory(review)} aria-label={`查看 ${new Date(review.submittedAt || review.createdAt).toLocaleString("zh-CN")} 的审阅记录`}>
-              <strong>{artifactStatusLabel(review.status)}</strong>
+              <strong>{reviewStatusLabel(review.status)}</strong>
               <span>{new Date(review.submittedAt || review.createdAt).toLocaleString("zh-CN")}</span>
               <p>{review.payload?.items?.length || 0} 条审阅意见</p>
             </button>
@@ -1197,7 +1200,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
               <>
                 <h2 id="review-modal-title">审阅详情</h2>
                 <div className="review-history-summary">
-                  <span className={`artifact-status status-${selectedReview.status}`}>{artifactStatusLabel(selectedReview.status)}</span>
+                  <span className={`artifact-status status-${selectedReview.status}`}>{reviewStatusLabel(selectedReview.status)}</span>
                   <span>{new Date(selectedReview.submittedAt || selectedReview.createdAt).toLocaleString("zh-CN")}</span>
                   {selectedReview.user?.name || selectedReview.user?.username ? <span>{selectedReview.user.name || selectedReview.user.username}</span> : null}
                 </div>

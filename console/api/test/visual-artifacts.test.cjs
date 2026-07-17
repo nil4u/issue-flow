@@ -515,7 +515,7 @@ test('visual label updates preserve unrelated labels', async (t) => {
   global.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options })
     if ((options.method || 'GET') === 'GET') {
-      return new Response(JSON.stringify({ labels: [{ name: 'type::bug' }, { name: 'flow::plan' }, { name: 'plan::changes-requested' }] }), { status: 200 })
+      return new Response(JSON.stringify({ labels: [{ name: 'type::bug' }, { name: 'flow::plan' }] }), { status: 200 })
     }
     return new Response(JSON.stringify({}), { status: 200 })
   }
@@ -523,7 +523,7 @@ test('visual label updates preserve unrelated labels', async (t) => {
     { type: 'github', apiUrl: 'https://api.github.test', userToken: 'user-token' },
     { fullName: 'acme/widget' },
     42,
-    { 'flow::': 'flow::approve', 'plan::': 'plan::pending' },
+    { 'flow::': 'flow::approve' },
   )
-  assert.deepEqual(JSON.parse(requests[1].options.body).labels, ['type::bug', 'flow::approve', 'plan::pending'])
+  assert.deepEqual(JSON.parse(requests[1].options.body).labels, ['type::bug', 'flow::approve'])
 })

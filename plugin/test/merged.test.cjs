@@ -28,7 +28,6 @@ test('merged PR transition is selected from exactly one source label', () => {
     kind: 'plan',
     label: 'mr-by::plan',
     flow: 'flow::build',
-    plan: 'plan::approved',
   });
   assert.throws(
     () => resolveMergedPrTransition(['mr-by::plan', 'mr-by::build']),
@@ -60,7 +59,6 @@ test('merged Plan MR distinguishes visual and Markdown plans', () => {
     kind: 'plan',
     label: 'mr-by::plan',
     flow: 'flow::build',
-    plan: 'plan::approved',
     artifact: 'plan',
     format: 'json',
   });
@@ -70,7 +68,6 @@ test('merged Plan MR distinguishes visual and Markdown plans', () => {
     kind: 'plan',
     label: 'mr-by::plan',
     flow: 'flow::build',
-    plan: 'plan::approved',
     artifact: 'plan',
     format: 'markdown',
   });

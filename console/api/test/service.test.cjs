@@ -2975,7 +2975,7 @@ test('GitLab install variable write failure marks only that row failed', async (
 test('GitLab install check automatically synchronizes missing Issue Flow labels', async () => {
   const { dir, store } = tempStore();
   const definitions = labelsForScope('all');
-  const missingNames = new Set(['feature:visual-plan:on', 'feature:visual-plan:off']);
+  const missingNames = new Set(['feature:visual-plan:on']);
   const labels = new Map(definitions
     .filter((definition) => !missingNames.has(definition.name))
     .map((definition) => [definition.name, {

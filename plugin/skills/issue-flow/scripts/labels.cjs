@@ -82,21 +82,11 @@ const MANAGED_LABEL_GROUPS = {
       },
     ],
   },
-  plan: {
-    prefix: 'plan::',
-    scope: 'issue',
-    labels: [
-      { name: 'plan::pending', color: 'FBCA04', description: 'Plan is published and waiting for approval' },
-      { name: 'plan::approved', color: '0E8A16', description: 'Plan has been approved and merged' },
-      { name: 'plan::changes-requested', color: 'D93F0B', description: 'Plan needs revision' },
-    ],
-  },
   visualPlanFeature: {
     prefix: 'feature:visual-plan:',
     scope: 'issue',
     labels: [
       { name: 'feature:visual-plan:on', color: '5319E7', description: 'Use Visual Decision and Visual Plan for this issue' },
-      { name: 'feature:visual-plan:off', color: 'BFD4F2', description: 'Use the Markdown Plan PR or MR flow for this issue' },
     ],
   },
   automation: {

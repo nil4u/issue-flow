@@ -65,7 +65,7 @@ Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to disc
 
 ## Visual Decision and Plan
 
-The default plan stage remains the Markdown Plan PR/MR flow. Add `feature:visual-plan:on` to an issue to use the installed `vision-plan` skill; `feature:visual-plan:off` and no switch both use Markdown mode. Conflicting on/off labels block planning until corrected.
+The default plan stage remains the Markdown Plan PR/MR flow. Add `feature:visual-plan:on` to an issue to use the installed `vision-plan` skill; without that opt-in label, Issue Flow uses Markdown mode.
 
 Visual artifacts are created under `.issue-flow/issues/{issue-number}-{slug}/`. Decision is optional; Decision and Plan are separate pages:
 

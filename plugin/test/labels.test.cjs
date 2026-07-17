@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  collectClearKeys,
   collectDesiredLabels,
   computeLabelChanges,
   shouldSkipIssueBodyUpdate,
@@ -31,11 +32,7 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'flow::build',
       'flow::clarify',
       'flow::approve',
-      'plan::pending',
-      'plan::approved',
-      'plan::changes-requested',
       'feature:visual-plan:on',
-      'feature:visual-plan:off',
       'automation::off',
       'automation::plan',
       'automation::build',
@@ -64,23 +61,27 @@ test('catalog exposes lookup by label name', () => {
   assert.equal(labelDefinitionFor('missing'), undefined);
 });
 
-test('apply script accepts explicit automation opt-out plus plan and build issue labels', () => {
+test('apply script accepts explicit automation opt-out', () => {
   assert.throws(
     () => collectDesiredLabels({ automation: 'automation::triage' }),
     /automation must be one of: automation::off, automation::plan, automation::build/
   );
   assert.deepEqual(collectDesiredLabels({ automation: 'automation::off' }), { automation: 'automation::off' });
-  assert.deepEqual(collectDesiredLabels({ plan: 'plan::pending' }), { plan: 'plan::pending' });
 });
 
 test('apply script accepts the visual plan feature switch without touching review status', () => {
   assert.deepEqual(collectDesiredLabels({ visualPlanFeature: 'feature:visual-plan:on' }), { visualPlanFeature: 'feature:visual-plan:on' });
   assert.deepEqual(
     computeLabelChanges(
-      ['plan::pending', 'feature:visual-plan:off'],
+      [],
       { visualPlanFeature: 'feature:visual-plan:on' }
     ),
-    { labelsToAdd: ['feature:visual-plan:on'], labelsToRemove: ['feature:visual-plan:off'] }
+    { labelsToAdd: ['feature:visual-plan:on'], labelsToRemove: [] }
+  );
+  assert.deepEqual(collectClearKeys({ clearVisualPlanFeature: true }), ['visualPlanFeature']);
+  assert.deepEqual(
+    computeLabelChanges(['feature:visual-plan:on'], {}, ['visualPlanFeature']),
+    { labelsToAdd: [], labelsToRemove: ['feature:visual-plan:on'] }
   );
 });
 

@@ -129,14 +129,9 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
   const issueNumber = normalizeIssueNumber(rawIssueNumber); const type = normalizeArtifactType(rawType)
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
   const artifact = await resolveVisualArtifact(store, repo, server, issueNumber, type)
-  const issueLabels = await readVisualIssueLabels(server, repo, issueNumber)
-  const status = type === "decision" && issueLabels.includes("flow::plan")
+  const status = type === "decision" && (await readVisualIssueLabels(server, repo, issueNumber)).includes("flow::plan")
     ? "approved"
-    : type === "plan" && issueLabels.includes("plan::approved")
-      ? "approved"
-      : type === "plan" && issueLabels.includes("plan::changes-requested")
-        ? "changes-requested"
-        : artifact.status
+    : artifact.status
   const entry = await readArtifactFile(server, repo, artifact)
   const format = artifact.data && artifact.data.format || "json"
   let html
@@ -305,15 +300,13 @@ async function submitVisualReview({ store, gitServerId, projectId, issueNumber, 
   }
   if (artifact.type === "decision" && status === "approved") {
     const review = createVisualReview(artifact, userId, input, drafts, status)
-    await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "plan::": "", "flow::": "flow::plan" })
+    await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": "flow::plan" })
     const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
     return { review, status, providerComment, flow: "flow::plan" }
   }
   const review = createVisualReview(artifact, userId, input, drafts, status)
   const flow = artifact.type === "decision" ? "flow::clarify" : "flow::approve"
-  await applyVisualIssueLabels(server, repo, artifact.issueNumber, artifact.type === "decision"
-    ? { "plan::": "", "flow::": flow }
-    : { "plan::": "plan::changes-requested", "flow::": flow })
+  await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": flow })
   const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
   return { review, status, providerComment, flow }
 }
@@ -324,7 +317,7 @@ async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, u
   const merge = await mergePlanMergeRequest(server, repo, artifact.data && artifact.data.mergeRequestNumber)
   const review = createVisualReview(artifact, userId, { kind: "approval", merge }, [], "approved")
   await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, "approved"))
-  await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "plan::": "plan::approved", "flow::": "flow::build" })
+  await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": "flow::build" })
   return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
 }
 

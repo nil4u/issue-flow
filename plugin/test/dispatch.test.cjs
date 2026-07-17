@@ -310,7 +310,7 @@ test('dispatch visual review comment resumes the existing plan task with bot-aut
         payload: githubIssueCommentPayload({
           userType: 'Bot',
           author: 'issue-flow-bot',
-          labels: [{ name: 'status::active' }, { name: 'flow::approve' }, { name: 'plan::changes-requested' }],
+          labels: [{ name: 'status::active' }, { name: 'flow::approve' }],
           commentBody: [
             '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->',
             '## Visual Plan Review',
@@ -354,7 +354,7 @@ test('dispatch approved visual plan comment leaves continuation to flow build', 
       payload: githubIssueCommentPayload({
         userType: 'Bot',
         author: 'issue-flow-bot',
-        labels: [{ name: 'status::active' }, { name: 'flow::build' }, { name: 'plan::approved' }],
+        labels: [{ name: 'status::active' }, { name: 'flow::build' }],
         commentBody: [
           '<!-- issue-flow:visual-review artifact=plan review=visual_review_2 status=approved -->',
           '## Visual Plan Review',

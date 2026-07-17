@@ -9,7 +9,6 @@ const MERGED_PR_TRANSITIONS = {
   plan: {
     label: 'mr-by::plan',
     flow: 'flow::build',
-    plan: 'plan::approved',
   },
   build: {
     label: 'mr-by::build',
@@ -259,9 +258,6 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   if (transition.status) {
     args.push('--status', transition.status);
   }
-  if (transition.plan) {
-    args.push('--plan', transition.plan);
-  }
   if (transition.clearFlow) {
     args.push('--clear-flow');
   }
@@ -284,7 +280,7 @@ function buildSourceIssueContext(provider, repo, issueNumber, transition) {
     projectId: repo.projectId,
     number: issueNumber,
     state: 'open',
-    labels: [status, transition.flow, transition.plan].filter(Boolean),
+    labels: [status, transition.flow].filter(Boolean),
   };
 }
 

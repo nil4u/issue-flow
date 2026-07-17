@@ -192,7 +192,6 @@
 .vision-plan-page .toolbar-actions > a:hover { border-color: #a1a1aa; background: #fafafa; }
 .vision-plan-page .artifact-status { padding: 5px 9px; border-radius: 999px; background: var(--vp-warning-soft); color: var(--vp-warning); font-size: 0.72rem; font-weight: 750; }
 .vision-plan-page .artifact-status.status-approved { background: var(--vp-success-soft); color: var(--vp-success); }
-.vision-plan-page .artifact-status.status-changes-requested { background: var(--vp-danger-soft); color: var(--vp-danger); }
 .vision-plan-page .approve-action { min-width: 112px; background: var(--vp-primary); border-color: var(--vp-primary); color: #fff; box-shadow: 0 4px 12px rgb(0 0 0 / 12%); }
 .vision-plan-page .approve-action:hover:not(:disabled) { background: var(--vp-primary-hover); border-color: var(--vp-primary-hover); }
 .vision-plan-page .submit-review-action { background: var(--vp-primary); border-color: var(--vp-primary); color: #fff; }

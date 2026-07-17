@@ -164,14 +164,6 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   assert.match(prompt.trimEnd(), /skills\/vision-plan\/SKILL\.md`$/);
 });
 
-test('agentrix rejects conflicting visual plan feature labels', () => {
-  assert.throws(() => agentrix.buildPrompt('plan', {
-    number: 42,
-    labels: ['feature:visual-plan:on', 'feature:visual-plan:off'],
-    title: 'Broken login',
-  }), /conflicting Visual Plan feature labels/);
-});
-
 test('agentrix build prompt injects build context without plan output section', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
     const prompt = agentrix.buildPrompt(
@@ -224,7 +216,7 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
 
     const markdownPrompt = agentrix.buildPrompt('build', {
       number: 42,
-      labels: ['type::feature', 'flow::build', 'feature:visual-plan:off'],
+      labels: ['type::feature', 'flow::build'],
       title: 'Add export button',
       body: 'Add CSV export.',
     }, {}, { planRootDir: root });

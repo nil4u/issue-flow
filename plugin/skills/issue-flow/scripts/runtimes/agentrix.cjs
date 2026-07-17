@@ -39,7 +39,6 @@ const VISUAL_BRIEF_TEMP_ROOT = path.join(os.tmpdir(), 'issue-flow', 'visual-plan
 const DECISION_ENTRY_FILE = 'decision/data/decision-data.json';
 const VISUAL_PLAN_FEATURE_PREFIX = 'feature:visual-plan:';
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
-const VISUAL_PLAN_FEATURE_OFF = 'feature:visual-plan:off';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::', VISUAL_PLAN_FEATURE_PREFIX];
 const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
 const PROVIDER_TOKEN_ENV_KEYS = [
@@ -178,13 +177,7 @@ function templateNameForIssue(issue) {
 }
 
 function visualPlanFeatureMode(issue) {
-  const labels = Array.isArray(issue && issue.labels)
-    ? issue.labels.filter((label) => label === VISUAL_PLAN_FEATURE_ON || label === VISUAL_PLAN_FEATURE_OFF)
-    : [];
-  if (labels.length > 1) {
-    throw new Error(`Issue has conflicting Visual Plan feature labels: ${labels.join(', ')}`);
-  }
-  return labels[0] === VISUAL_PLAN_FEATURE_ON ? 'on' : 'off';
+  return hasLabel(issue, VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
 function isVisualPlanEnabled(issue) {

@@ -34,7 +34,6 @@ const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^
 const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
 const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan']);
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
-const VISUAL_PLAN_FEATURE_OFF = 'feature:visual-plan:off';
 const PLAN_ARTIFACT_FORMATS = new Set(['json', 'markdown']);
 const VISUAL_SECTION_TYPES = new Set([
   'summary', 'solution-summary', 'architecture', 'dependency-graph', 'deployment',
@@ -247,11 +246,7 @@ function resolveVisualArtifactType(options = {}) {
 }
 
 function resolveVisualPlanFeatureMode(issue = {}) {
-  const labels = normalizeLabels(issue.labels || []).filter((label) => label === VISUAL_PLAN_FEATURE_ON || label === VISUAL_PLAN_FEATURE_OFF);
-  if (labels.length > 1) {
-    throw new Error(`Source issue has conflicting Visual Plan feature labels: ${labels.join(', ')}`);
-  }
-  return labels[0] === VISUAL_PLAN_FEATURE_ON ? 'on' : 'off';
+  return normalizeLabels(issue.labels || []).includes(VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
 function findVisualIssueDirectory(issueNumber) {
@@ -760,7 +755,7 @@ async function createOrUpdatePullRequest({ provider, repo, title, bodyFile, labe
   return createOrUpdate({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options });
 }
 
-function applyIssueFlow(provider, repo, issueNumber, flow, options, desired = {}) {
+function applyIssueFlow(provider, repo, issueNumber, flow, options) {
   const args = [
     path.join(__dirname, 'apply.cjs'),
     '--issue-number',
@@ -772,9 +767,6 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options, desired = {}
     '--flow',
     flow,
   ];
-  for (const [key, value] of Object.entries(desired)) {
-    if (value) args.push(`--${key}`, value);
-  }
   if (options.dryRun) {
     args.push('--dry-run');
   }
@@ -787,8 +779,8 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options, desired = {}
 
 function planSubmissionIssueState(artifact) {
   return artifact === 'decision'
-    ? { flow: 'flow::clarify', desired: {} }
-    : { flow: 'flow::approve', desired: { plan: 'plan::pending' } };
+    ? { flow: 'flow::clarify' }
+    : { flow: 'flow::approve' };
 }
 
 async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options }) {
@@ -848,7 +840,7 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
     markedBody.cleanup();
   }
   const publicationState = planSubmissionIssueState(artifact);
-  applyIssueFlow(provider, repo, issueNumber, publicationState.flow, options, publicationState.desired);
+  applyIssueFlow(provider, repo, issueNumber, publicationState.flow, options);
   const result = {
     kind: 'plan', artifact, format, provider: provider.name, issueNumber, repositoryId,
     ...routeRepository, branch: headBranch, commit, artifactPath, url, prUrl,
