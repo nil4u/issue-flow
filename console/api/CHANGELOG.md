@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/nil4u/issue-flow/compare/console-v0.10.1...console-v0.11.0) (2026-07-17)
+
+
+### Features
+
+* unify task provenance and metric attribution ([0fb3072](https://github.com/nil4u/issue-flow/commit/0fb307269b6e9df430336935a275a0640d84c121))
+
 ## [0.10.1](https://github.com/nil4u/issue-flow/compare/console-v0.10.0...console-v0.10.1) (2026-07-16)
 
 

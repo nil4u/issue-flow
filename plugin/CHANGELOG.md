@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/nil4u/issue-flow/compare/v0.4.1...v0.5.0) (2026-07-17)
+
+
+### Features
+
+* unify task provenance and metric attribution ([0fb3072](https://github.com/nil4u/issue-flow/commit/0fb307269b6e9df430336935a275a0640d84c121))
+
 ## [0.4.1](https://github.com/nil4u/issue-flow/compare/v0.4.0...v0.4.1) (2026-07-13)
 
 
