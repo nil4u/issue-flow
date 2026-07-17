@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/nil4u/issue-flow/compare/console-v0.11.0...console-v0.11.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **console:** preserve complete issue task metrics ([61cfc27](https://github.com/nil4u/issue-flow/commit/61cfc275b4f1b3e9a08c4f4beb5b1cda13b37980))
+* **console:** preserve complete issue task metrics ([87bf2ed](https://github.com/nil4u/issue-flow/commit/87bf2ed0c1306ddb233c42660d1006c2b34afc10))
+
 ## [0.11.0](https://github.com/nil4u/issue-flow/compare/console-v0.10.1...console-v0.11.0) (2026-07-17)
 
 
