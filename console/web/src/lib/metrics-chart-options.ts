@@ -31,6 +31,8 @@ const TASK_TURN_COLORS: Record<string, string> = {
 }
 
 const TASK_ACTION_COLORS: Record<string, string> = {
+  create: "#64748b",
+  general: "#14b8a6",
   triage: "#0ea5e9",
   plan: "#8b5cf6",
   build: "#22c55e",

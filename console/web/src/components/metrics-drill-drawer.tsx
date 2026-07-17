@@ -178,10 +178,13 @@ function IssueSecondaryFacts({ row, kind }: { row: Record<string, unknown>; kind
   if (kind === "issue_turns") {
     return (
       <dl className="metrics-drill-stage-turns">
+        <div><dt>Create</dt><dd>{formatInteger(row.create_turns)}</dd></div>
+        <div><dt>General</dt><dd>{formatInteger(row.general_turns)}</dd></div>
         <div><dt>Triage</dt><dd>{formatInteger(row.triage_turns)}</dd></div>
         <div><dt>Plan</dt><dd>{formatInteger(row.plan_turns)}</dd></div>
         <div><dt>Build</dt><dd>{formatInteger(row.build_turns)}</dd></div>
         <div><dt>Review</dt><dd>{formatInteger(row.review_turns)}</dd></div>
+        <div><dt>Other</dt><dd>{formatInteger(row.other_turns)}</dd></div>
       </dl>
     )
   }

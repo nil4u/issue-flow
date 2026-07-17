@@ -5,7 +5,7 @@ import { compactNulls, sanitize } from "./sanitize.js"
 // Agentrix forward owns task runtime facts. GitLab issue/MR provenance may
 // create an unknown-status placeholder or fill a missing link, but never
 // overwrites a non-empty link; a later forwarded envelope is authoritative.
-const TASK_ACTIONS = new Set(["triage", "plan", "build", "review"])
+const TASK_ACTIONS = new Set(["create", "general", "triage", "plan", "build", "review"])
 const WORKER_STATE_EVENTS = new Set([
   "worker-initializing",
   "worker-initialized",

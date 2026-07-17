@@ -1174,7 +1174,9 @@ test('git events project issue snapshots and flow spans', async () => {
         triageSpanSeconds: 3600,
         planSpanSeconds: 7200,
         triageTaskSeconds: 1800,
+        totalTaskSeconds: 1800,
         triageTaskTurns: 8,
+        totalTaskTurns: 8,
       },
     });
     issues = await store.listIssues(createdRepo.repo.id);
