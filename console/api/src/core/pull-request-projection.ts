@@ -1,9 +1,8 @@
 // @ts-nocheck
 
 import { labelsFromPayload } from "./issue-projection.js"
+import { issueFlowMarkers } from "./provenance-marker.js"
 
-const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i
-const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i
 const PR_KIND_BY_LABEL = new Map([
   ["mr-by::plan", "plan"],
   ["mr-by::build", "build"],
@@ -18,13 +17,11 @@ function pullRequestKind(labels = []) {
 }
 
 function sourceIssueNumber(description = "") {
-  const match = String(description || "").match(SOURCE_ISSUE_MARKER_PATTERN)
-  return match ? Number(match[1]) : 0
+  return issueFlowMarkers(description).sourceIssueNumber
 }
 
 function openedByTaskId(description = "") {
-  const match = String(description || "").match(AGENTRIX_TASK_MARKER_PATTERN)
-  return match ? String(match[1]).trim() : ""
+  return issueFlowMarkers(description).taskId
 }
 
 function pullRequestState(attributes = {}) {
@@ -43,14 +40,16 @@ function pullRequestSnapshot(gitEvent = {}) {
   const pullRequestId = String(attributes.id || prNumber || "")
   if (!pullRequestId || !prNumber) return undefined
   const description = attributes.description || ""
+  const markers = issueFlowMarkers(description)
   const state = pullRequestState(attributes)
   const updatedAt = attributes.updated_at || attributes.created_at || gitEvent.receivedAt
   return {
     gitServerId: gitEvent.gitServerId,
     repositoryId: gitEvent.repositoryId,
     repositoryFullName: gitEvent.repositoryFullName,
-    issueNumber: sourceIssueNumber(description),
-    openedByTaskId: openedByTaskId(description),
+    issueNumber: markers.sourceIssueNumber,
+    openedByTaskId: markers.taskId,
+    sourceRuntime: markers.sourceRuntime,
     pullRequestId,
     prNumber,
     kind: pullRequestKind(labelsFromPayload(payload)),
@@ -67,6 +66,15 @@ async function applyGitEventToPullRequestFacts(store, gitEvent = {}) {
   const snapshot = pullRequestSnapshot(gitEvent)
   if (!snapshot) return undefined
   const { pullRequest } = await store.upsertPullRequestSnapshot(snapshot)
+  if (snapshot.openedByTaskId && snapshot.sourceRuntime === "agentrix") {
+    await store.upsertTaskMarkerLink({
+      taskId: snapshot.openedByTaskId,
+      gitServerId: snapshot.gitServerId,
+      repositoryId: snapshot.repositoryId,
+      repositoryFullName: snapshot.repositoryFullName,
+      issueNumber: snapshot.issueNumber,
+    })
+  }
   return pullRequest
 }
 

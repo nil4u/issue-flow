@@ -2,12 +2,9 @@
 
 import { compactNulls, sanitize } from "./sanitize.js"
 
-// Task facts are driven entirely by forwarded agentrix events. The plugin's
-// dispatch passes `--issue-number` and `--metadata issue_flow_action=<action>`
-// to agentrix-run; agentrix persists them on the task and the CLI daemon
-// forwards a create-task/resume-task envelope projection carrying
-// gitServerId (agentrix id) / serverRepoId (GitLab project id) / issueNumber /
-// metadata, which is all the console needs to link a task to its issue.
+// Agentrix forward owns task runtime facts. GitLab issue/MR provenance may
+// create an unknown-status placeholder or fill a missing link, but never
+// overwrites a non-empty link; a later forwarded envelope is authoritative.
 const TASK_ACTIONS = new Set(["triage", "plan", "build", "review"])
 const WORKER_STATE_EVENTS = new Set([
   "worker-initializing",

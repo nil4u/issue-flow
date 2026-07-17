@@ -278,7 +278,7 @@ test('dispatch review-comment dry-run returns structured JSON envelope', () => {
       pull_request: {
         number: 7,
         state: 'open',
-        body: '<!-- issue-flow:agentrix:task=task-123 -->',
+        body: '<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->',
         html_url: 'https://github.com/acme/webapp/pull/7',
         head: { ref: '7-example/build', sha: 'abc123' },
       },

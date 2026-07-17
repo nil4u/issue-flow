@@ -145,6 +145,7 @@ function normalizeIssue(issue = {}) {
     title: issue.title || '',
     state: issue.state || '',
     labels: Array.isArray(issue.labels) ? issue.labels.map((label) => String(label || '')).filter(Boolean) : [],
+    description: issue.description || '',
     createdAt: issue.created_at || '',
     updatedAt: issue.updated_at || '',
     closedAt: issue.closed_at || '',

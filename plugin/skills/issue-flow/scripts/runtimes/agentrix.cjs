@@ -32,7 +32,6 @@ const BUILD_BRANCH_SUFFIX = 'build';
 const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PROMPT_CONTEXT_LABEL_SKIP_PREFIXES = ['status::', 'flow::', 'automation::'];
-const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
 const PIPELINE_FAILURE_MARKER_PATTERN = /<!--\s*issue-flow:pipeline-failure\b/i;
 const PROVIDER_TOKEN_ENV_KEYS = [
   'GITHUB_TOKEN',
@@ -438,8 +437,8 @@ function extractSourceIssueNumberFromPullRequest(pr = {}) {
 }
 
 function extractAgentrixTaskIdFromPullRequest(pr = {}) {
-  const match = String(pr.body || '').match(AGENTRIX_TASK_MARKER_PATTERN);
-  return match ? match[1].trim() : '';
+  const source = parseSourceMarker(pr.body || '');
+  return source.source_runtime === 'agentrix' ? String(source.source_task_id || '').trim() : '';
 }
 
 function buildReviewCommentResumeInstruction() {
@@ -875,6 +874,7 @@ function buildTaskComment(action, result, data = {}) {
   const sourceMarker = buildSourceMarker({
     sourceTaskId: result.runId || data.agentrixTaskId,
     sourceAgent: data.sourceAgent || data.agent || DEFAULT_AGENT,
+    sourceRuntime: 'agentrix',
   });
   if (sourceMarker) {
     lines.push(sourceMarker);

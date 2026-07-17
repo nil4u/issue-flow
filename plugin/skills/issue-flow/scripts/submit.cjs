@@ -30,7 +30,7 @@ const SUBMIT_KINDS = {
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
-const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->\s*/i;
 const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
 
 function usage() {
@@ -272,39 +272,25 @@ function buildSourceIssueMarker(issueNumber) {
   return `<!-- issue-flow:source-issue=${issueNumber} -->`;
 }
 
-function buildAgentrixTaskMarker(taskId) {
-  const normalized = String(taskId || '').trim();
-  return normalized ? `<!-- issue-flow:agentrix:task=${normalized} -->` : '';
-}
-
 function resolveAgentrixTaskId(options = {}) {
   return String(options.agentrixTaskId || process.env.AGENTRIX_TASK_ID || '').trim();
 }
 
 function buildPrBodyWithMarkers(body, issueNumber, taskId = '') {
   const sourceMarker = buildSourceIssueMarker(issueNumber);
-  const taskMarker = buildAgentrixTaskMarker(taskId);
-  const provenanceMarker = buildSourceMarker({ sourceTaskId: taskId });
-  const content = String(body || '').trimStart();
+  const sourceTaskId = String(taskId || process.env.AGENTRIX_TASK_ID || '').trim();
+  const provenanceMarker = buildSourceMarker({
+    sourceTaskId,
+    sourceRuntime: sourceTaskId ? 'agentrix' : '',
+  });
+  const content = String(body || '').replace(LEGACY_AGENTRIX_TASK_MARKER_PATTERN, '').trimStart();
   let marked = SOURCE_ISSUE_MARKER_PATTERN.test(content)
     ? content.replace(SOURCE_ISSUE_MARKER_PATTERN, sourceMarker)
     : `${sourceMarker}\n${content}`;
 
-  if (taskMarker) {
-    if (AGENTRIX_TASK_MARKER_PATTERN.test(marked)) {
-      marked = marked.replace(AGENTRIX_TASK_MARKER_PATTERN, taskMarker);
-    } else if (marked.startsWith(sourceMarker)) {
-      marked = `${sourceMarker}\n${taskMarker}${marked.slice(sourceMarker.length)}`;
-    } else {
-      marked = `${taskMarker}\n${marked}`;
-    }
-  }
-
   if (provenanceMarker) {
     if (SOURCE_PROVENANCE_MARKER_PATTERN.test(marked)) {
       marked = marked.replace(SOURCE_PROVENANCE_MARKER_PATTERN, `${provenanceMarker}\n`);
-    } else if (taskMarker && marked.includes(taskMarker)) {
-      marked = marked.replace(taskMarker, `${taskMarker}\n${provenanceMarker}`);
     } else if (marked.startsWith(sourceMarker)) {
       marked = `${sourceMarker}\n${provenanceMarker}${marked.slice(sourceMarker.length)}`;
     } else {
@@ -599,7 +585,6 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   assertBodyFileNotTracked,
-  buildAgentrixTaskMarker,
   buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,

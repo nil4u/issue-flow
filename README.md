@@ -136,7 +136,7 @@ Set these repository variables/secrets as needed:
 
 GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`. Provider tokens are only for issue-flow routing jobs; when issue-flow starts or resumes an Agentrix task, it does not forward `GITHUB_TOKEN`/`GH_TOKEN` into the Agentrix task environment.
 
-Review comment resume is separate from `ISSUE_FLOW_REVIEW_ENABLED`: when an open issue-flow PR/MR body contains `<!-- issue-flow:agentrix:task=<id> -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, adds an `eyes` reaction to acknowledge the trigger, and resumes that existing Agentrix task with the comment link. The task should reply through `issue-flow pr review-comments reply` and resolve the thread when supported.
+Review comment resume is separate from `ISSUE_FLOW_REVIEW_ENABLED`: when an open issue-flow PR/MR body contains `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, adds an `eyes` reaction to acknowledge the trigger, and resumes that existing Agentrix task with the comment link. The task should reply through `issue-flow pr review-comments reply` and resolve the thread when supported.
 
 Automatic pipeline failure intake is currently disabled. The low-level `dispatch pipeline-failed` command and its dedicated build prompt remain available, but the installer does not create a GitHub `workflow_run` trigger for it.
 

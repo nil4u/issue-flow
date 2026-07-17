@@ -5,8 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  buildAgentrixTaskMarker,
-  buildIssueBodyWithTaskMarker,
+  buildIssueBodyWithSourceMarker,
   collectCreateLabels,
   main,
   parseArgs,
@@ -117,15 +116,14 @@ test('create issue requires size when creating directly into plan or build', () 
   assert.equal(validateCreateSizeGate(['flow::triage'], { flow: 'flow::triage' }), undefined);
 });
 
-test('create issue Agentrix task marker prepends and replaces hidden marker', () => {
-  assert.equal(buildAgentrixTaskMarker('task_123'), '<!-- issue-flow:agentrix:task=task_123 -->');
+test('create issue source marker records task and runtime in one hidden marker', () => {
   assert.equal(
-    buildIssueBodyWithTaskMarker('## Goal\n\nShip it.', 'task_123'),
-    '<!-- issue-flow:agentrix:task=task_123 -->\n<!-- issue-flow:source source_task_id=task_123 -->\n## Goal\n\nShip it.'
+    buildIssueBodyWithSourceMarker('## Goal\n\nShip it.', 'task_123'),
+    '<!-- issue-flow:source source_task_id=task_123 source_runtime=agentrix -->\n## Goal\n\nShip it.'
   );
   assert.equal(
-    buildIssueBodyWithTaskMarker('<!-- issue-flow:agentrix:task=old -->\n\n## Goal', 'task_456'),
-    '<!-- issue-flow:agentrix:task=task_456 -->\n<!-- issue-flow:source source_task_id=task_456 -->\n## Goal'
+    buildIssueBodyWithSourceMarker('<!-- issue-flow:agentrix:task=old -->\n\n## Goal', 'task_456'),
+    '<!-- issue-flow:source source_task_id=task_456 source_runtime=agentrix -->\n## Goal'
   );
 });
 

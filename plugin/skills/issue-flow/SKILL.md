@@ -72,7 +72,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
 - `type::`、`status::`、`flow::`、`priority::`、`automation::`、`size::` 必须通过对应参数传入，不能放在 `--label`。
 - 进入 `flow::plan` 或 `flow::build` 前，issue 必须有且仅有一个 `size::`。缺失时根据标题、正文、评论和仓库上下文选择一个；无法判断时用 `size::M` 并留下低置信度说明。
 - `--label` 只用于 unmanaged label；`mr-by::*` 只用于 PR/MR，不能用于 issue。
-- 有 `AGENTRIX_TASK_ID` 时创建命令会自动在 body 顶部写入隐藏 task marker，agent 不需要手写。
+- 有 `AGENTRIX_TASK_ID` 时创建命令会自动在 body 顶部写入带 `source_runtime=agentrix` 的隐藏 source marker，agent 不需要手写。
 
 ### PR/MR
 
@@ -104,7 +104,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-fi
 
 所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
 
-`dispatch review-comment` 用于带 `<!-- issue-flow:agentrix:task=<id> -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，带 review batch id 的 inline comment 通过 PR/MR scoped review-batch lock 去重；普通 PR/MR comment 或缺少 batch id 的 payload 回退到 comment id lock。
+`dispatch review-comment` 用于带 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，带 review batch id 的 inline comment 通过 PR/MR scoped review-batch lock 去重；普通 PR/MR comment 或缺少 batch id 的 payload 回退到 comment id lock。
 
 ## 典型 Agent 工作流
 

@@ -448,6 +448,7 @@ export type IssueRow = {
   repositoryFullName?: string
   issueId: string
   issueNumber: number
+  createdByTaskId?: string
   title: string
   state?: "opened" | "closed" | string
   type?: string

@@ -1,5 +1,7 @@
 // @ts-nocheck
 
+import { issueFlowMarkers } from "./provenance-marker.js"
+
 const FLOW_VALUES = new Set(["triage", "plan", "build", "clarify", "approve", "suspend"])
 const TYPE_VALUES = new Set(["feature", "bug", "debt", "ops"])
 const AUTOMATION_VALUES = new Set(["off", "triage", "plan", "build"])
@@ -50,6 +52,7 @@ function issueSnapshot(gitEvent = {}) {
   const payload = gitEvent.payload || {}
   const attributes = payload.object_attributes || {}
   const labels = labelsFromPayload(payload)
+  const markers = issueFlowMarkers(attributes.description || "")
   const issueNumber = Number(attributes.iid || attributes.number || 0)
   const issueId = String(attributes.id || issueNumber || "")
   if (!issueId || !issueNumber) return undefined
@@ -73,6 +76,7 @@ function issueSnapshot(gitEvent = {}) {
     closedAt: status === "done" || status === "drop" ? attributes.closed_at || updatedAt : "",
     updatedAt,
     hasLabelSnapshot: Array.isArray(payload.labels),
+    createdByTaskId: markers.sourceRuntime === "agentrix" ? markers.taskId : "",
   }
 }
 
@@ -86,7 +90,9 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     created_at: issue.createdAt,
     updated_at: issue.updatedAt,
     closed_at: issue.closedAt,
+    description: issue.description,
   }
+  const markers = issueFlowMarkers(attributes.description || "")
   const status = issueStatus(attributes, labels)
   const updatedAt = attributes.updated_at || attributes.created_at || new Date().toISOString()
   return {
@@ -107,6 +113,7 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     closedAt: status === "done" || status === "drop" ? attributes.closed_at || updatedAt : "",
     updatedAt,
     hasLabelSnapshot: true,
+    createdByTaskId: markers.sourceRuntime === "agentrix" ? markers.taskId : "",
   }
 }
 
@@ -117,38 +124,35 @@ function shouldProjectSpan(snapshot, gitEvent = {}) {
   return (gitEvent.normalizedEvents || []).some((event) => event.label || event.batch && event.batch.labels)
 }
 
-async function applyIssueSnapshotToFacts(store, snapshot = {}) {
+async function applyIssueSnapshotToFacts(store, snapshot = {}, options = {}) {
   if (!snapshot) return undefined
   const { issue, applied } = await store.upsertIssueSnapshot(snapshot)
-  if (!applied || !issue) {
-    return issue
+  if (applied && issue) {
+    const at = snapshot.closedAt || snapshot.updatedAt
+    if (options.projectSpan === false) {
+      store.scheduleIssueStatsRebuild(snapshot)
+    } else if (snapshot.status === "done" || snapshot.status === "drop") {
+      await store.closeIssueFlowSpans({ ...snapshot, at })
+      store.scheduleIssueStatsRebuild(snapshot)
+    } else {
+      await store.setIssueFlowSpan({ ...snapshot, at, flow: snapshot.flow })
+      store.scheduleIssueStatsRebuild(snapshot)
+    }
   }
-
-  const at = snapshot.closedAt || snapshot.updatedAt
-  if (snapshot.status === "done" || snapshot.status === "drop") {
-    await store.closeIssueFlowSpans({ ...snapshot, at })
-  } else {
-    await store.setIssueFlowSpan({ ...snapshot, at, flow: snapshot.flow })
-  }
-  store.scheduleIssueStatsRebuild(snapshot)
   return issue
 }
 
-async function applyGitEventToIssueFacts(store, gitEvent = {}) {
+async function applyGitEventToIssueFacts(store, gitEvent = {}, options = {}) {
   const snapshot = issueSnapshot(gitEvent)
   if (!snapshot) return undefined
-  if (!shouldProjectSpan(snapshot, gitEvent)) {
-    const { issue, applied } = await store.upsertIssueSnapshot(snapshot)
-    if (applied && issue) {
-      store.scheduleIssueStatsRebuild(snapshot)
-    }
-    return issue
-  }
-  return applyIssueSnapshotToFacts(store, snapshot)
+  return applyIssueSnapshotToFacts(store, snapshot, {
+    ...options,
+    projectSpan: shouldProjectSpan(snapshot, gitEvent),
+  })
 }
 
-async function applyGitlabIssueSnapshotToFacts(store, repo = {}, issue = {}) {
-  return applyIssueSnapshotToFacts(store, issueSnapshotFromGitlabIssue(repo, issue))
+async function applyGitlabIssueSnapshotToFacts(store, repo = {}, issue = {}, options = {}) {
+  return applyIssueSnapshotToFacts(store, issueSnapshotFromGitlabIssue(repo, issue), options)
 }
 
 export {

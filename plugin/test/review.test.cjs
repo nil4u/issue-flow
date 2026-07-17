@@ -94,7 +94,7 @@ test('review script submits through provider review API', async () => {
     assert.equal(captured.pr.headSha, 'abc123');
     assert.equal(
       captured.body,
-      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->\n<!-- issue-flow:source source_task_id=task-review -->'
+      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->\n<!-- issue-flow:source source_task_id=task-review source_runtime=agentrix -->'
     );
     assert.deepEqual(captured.comments, [
       {
@@ -157,7 +157,7 @@ test('review script can post no-finding output as a normal PR comment', async ()
     assert.equal(captured.pr.number, 5);
     assert.equal(
       captured.body,
-      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->\n<!-- issue-flow:source source_task_id=task-review -->'
+      'No blocking issues.\n\n<!-- issue-flow:review task=task-review head=abc123 -->\n<!-- issue-flow:source source_task_id=task-review source_runtime=agentrix -->'
     );
     assert.equal(captured.options.asComment, true);
     assert.equal(result.action, 'commented');
