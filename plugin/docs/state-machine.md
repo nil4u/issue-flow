@@ -135,11 +135,11 @@ Weighted Throughput 按完成 issue 的唯一 `size::` label 求和：`size::XS=
 
 | 项 | 值 |
 |----|----|
-| Scope | 带 Agentrix task marker 的 PR/MR |
+| Scope | 带 Agentrix source marker 的 PR/MR |
 | Trigger | review comment created |
 | Command | `issue-flow dispatch review-comment` |
 | Issue state | 不读取 source issue state，不修改 label |
-| Task target | 从 PR/MR body 的 `<!-- issue-flow:agentrix:task=<id> -->` marker 解析 |
+| Task target | 从 PR/MR body 的 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->` marker 解析 |
 | Acknowledge | 给触发 comment 加 `eyes` reaction |
 | Close loop | task 处理后用 `issue-flow pr comments create` 在 PR/MR 下发一条普通总结 comment |
 | Skip | 非 open/draft/merged PR、缺少 PR/MR task marker、非 review comment created event |

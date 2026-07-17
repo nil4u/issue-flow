@@ -190,7 +190,7 @@ function githubReviewCommentPayload(overrides = {}) {
       merged: Boolean(overrides.merged),
       title: 'Build #42: Add widget support',
       body: overrides.body === undefined
-        ? '<!-- issue-flow:source-issue=42 -->\n<!-- issue-flow:agentrix:task=task-123 -->\nBody'
+        ? '<!-- issue-flow:source-issue=42 -->\n<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->\nBody'
         : overrides.body,
       html_url: 'https://github.com/example/platform/pull/9',
       base: { ref: 'main' },
@@ -336,7 +336,7 @@ test('dispatch review-comment skips issue-flow sourced comments', async () => {
     { dryRun: true },
     {
       payload: githubReviewCommentPayload({
-        commentBody: '<!-- issue-flow:source source_task_id=task-123 source_agent=codex -->\nAgent output.',
+        commentBody: '<!-- issue-flow:source source_task_id=task-123 source_agent=codex source_runtime=agentrix -->\nAgent output.',
       }),
     }
   );

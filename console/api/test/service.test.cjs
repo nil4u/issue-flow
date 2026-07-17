@@ -1233,6 +1233,7 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
           title: 'Existing issue',
           state: 'opened',
           labels: ['flow::build', 'type::feature', 'priority::p2', 'size::L', 'automation::plan'],
+          description: '<!-- issue-flow:source source_task_id=task-from-rest-snapshot source_runtime=agentrix -->',
           created_at: '2026-07-01T04:00:00.000Z',
           updated_at: '2026-07-01T05:00:00.000Z',
           closed_at: null,
@@ -1293,6 +1294,7 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
     assert.equal(issues[0].priority, 'P2');
     assert.equal(issues[0].size, 'L');
     assert.equal(issues[0].automation, 'plan');
+    assert.equal(issues[0].createdByTaskId, 'task-from-rest-snapshot');
     assert.equal(issues[1].closedAt, '2026-07-01T06:00:00.000Z');
     assert.equal(issues[1].state, 'closed');
     assert.equal(issues[2].state, 'opened');
@@ -1303,6 +1305,10 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
     assert.equal(spans[0].flow, 'build');
     assert.equal(spans[0].enteredAt, '2026-07-01T05:00:00.000Z');
     assert.equal(spans[0].exitedAt, '');
+    const task = await store.getTask('task-from-rest-snapshot');
+    assert.equal(task.status, 'unknown');
+    assert.equal('issueId' in task, false);
+    assert.equal(task.issueNumber, 9);
   } finally {
     await close(gitlab);
     await store.close();

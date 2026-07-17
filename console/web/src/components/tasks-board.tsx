@@ -26,6 +26,7 @@ import { notifyError } from "@/lib/errors"
 
 const TASKS_PER_PAGE = 20
 const taskStatusTones: Record<string, string> = {
+  unknown: "muted",
   succeeded: "success",
   failed: "failed",
   running: "running",

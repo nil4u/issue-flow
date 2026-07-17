@@ -370,7 +370,7 @@ test('agentrix task marker uses issue-flow namespace', () => {
   );
   const reviewComment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
     pullRequest: {
-      body: '<!-- issue-flow:agentrix:task=task-build -->',
+      body: '<!-- issue-flow:source source_task_id=task-build source_runtime=agentrix -->',
       headSha: 'abc123',
     },
   });
@@ -392,12 +392,12 @@ test('agentrix task marker uses issue-flow namespace', () => {
   assert.equal(agentrix.extractReviewHeadShaFromTaskComment('Head: `legacy-head`'), 'legacy-head');
   assert.match(
     agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, { pullRequest: { headSha: 'abc123' } }),
-    /<!-- issue-flow:source source_task_id=task-review source_agent=codex -->/
+    /<!-- issue-flow:source source_task_id=task-review source_agent=codex source_runtime=agentrix -->/
   );
   withTemporaryEnv({ AGENTRIX_TASK_ID: undefined }, () => {
     assert.match(
       agentrix.buildTaskComment('review', { status: 'starting' }, { pullRequest: { headSha: 'abc123' } }),
-      /<!-- issue-flow:source source_agent=codex -->/
+      /<!-- issue-flow:source source_agent=codex source_runtime=agentrix -->/
     );
   });
   assert.equal(
@@ -444,17 +444,23 @@ test('agentrix extracts only resumable issue tasks from task comments', () => {
   );
 });
 
-test('agentrix extracts PR/MR task id only from pull request body marker', () => {
+test('agentrix extracts PR/MR task id only from its runtime source marker', () => {
   assert.equal(
     agentrix.extractAgentrixTaskIdFromPullRequest({
-      body: '<!-- issue-flow:agentrix:task=task-123 -->\nBody',
+      body: '<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->\nBody',
     }),
     'task-123'
   );
   assert.equal(
     agentrix.extractAgentrixTaskIdFromPullRequest({
-      title: '<!-- issue-flow:agentrix:task=task-123 -->',
+      title: '<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->',
       body: '',
+    }),
+    ''
+  );
+  assert.equal(
+    agentrix.extractAgentrixTaskIdFromPullRequest({
+      body: '<!-- issue-flow:source source_task_id=task-123 source_runtime=other -->',
     }),
     ''
   );

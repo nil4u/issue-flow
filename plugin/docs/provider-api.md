@@ -222,11 +222,11 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 3. 读取 source issue 并校验有且仅有一个 `size::`；缺失或冲突时不 push、不创建 PR/MR
 4. 确保当前 `mr-by::*` PR/MR label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
 5. push 分支
-6. 在临时 PR/MR body 顶部写入 `<!-- issue-flow:source-issue=<num> -->`；如果存在 `AGENTRIX_TASK_ID` 或传入 `--agentrix-task-id`，同时写入 `<!-- issue-flow:agentrix:task=<id> -->`
+6. 在临时 PR/MR body 顶部写入 `<!-- issue-flow:source-issue=<num> -->`；如果存在 `AGENTRIX_TASK_ID` 或传入 `--agentrix-task-id`，同时写入 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->`
 
 ## PR/MR review comments
 
-`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:agentrix:task=<id>` marker 时，它会给触发 comment 加 `eyes` reaction，然后 resume 该 Agentrix task。该路径不再创建 PR/MR 顶层排队 comment。
+`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:source source_task_id=<id> source_runtime=agentrix` marker 时，它会给触发 comment 加 `eyes` reaction，然后 resume 该 Agentrix task。该路径不再创建 PR/MR 顶层排队 comment。
 
 被 resume 的 agent 处理完成后，应使用受控入口在 PR/MR 下发布一条普通总结 comment：
 
@@ -266,7 +266,7 @@ node create-issue.cjs --title "<title>" --body-file <tmp-body-file> [label-optio
 4. GitHub 有 token 时调用 `POST /repos/{owner}/{repo}/issues`，无 token 时 fallback 到 `gh api`
 5. GitLab 创建前读取每个 managed label，缺失或颜色/说明漂移时失败并提示先运行 `sync-labels.cjs`
 6. GitLab 有 token 时调用 `POST /projects/{project}/issues`，无 token 时 fallback 到 `glab api`
-7. 有 `AGENTRIX_TASK_ID` 或 `--agentrix-task-id` 时，在 issue body 顶部写入 `<!-- issue-flow:agentrix:task=<id> -->`
+7. 有 `AGENTRIX_TASK_ID` 或 `--agentrix-task-id` 时，在 issue body 顶部写入 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->`
 8. 输出稳定 JSON：provider、repo、issueNumber、issueUrl、labels、dryRun
 
 ## sync-labels.cjs

@@ -175,7 +175,7 @@ function buildReviewMetadataMarker(options = {}) {
 
 function appendReviewMetadata(body, options = {}) {
   const marker = buildReviewMetadataMarker(options);
-  const sourceMarker = buildSourceMarker({ sourceTaskId: options.taskId });
+  const sourceMarker = buildSourceMarker({ sourceTaskId: options.taskId, sourceRuntime: 'agentrix' });
   const markers = [marker, sourceMarker].filter(Boolean);
   if (markers.length === 0) {
     return body;

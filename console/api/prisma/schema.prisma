@@ -154,6 +154,7 @@ model Issue {
   repositoryFullName String    @map("repository_full_name")
   issueId            String    @map("issue_id")
   issueNumber        Int       @map("issue_number")
+  createdByTaskId    String    @default("") @map("created_by_task_id")
   title              String
   state              String    @default("")
   type               String    @default("")
@@ -168,6 +169,7 @@ model Issue {
 
   @@unique([gitServerId, repositoryId, issueId])
   @@unique([gitServerId, repositoryId, issueNumber])
+  @@index([createdByTaskId])
   @@index([gitServerId, repositoryId, state, updatedAt])
   @@map("issues")
 }
@@ -184,6 +186,7 @@ model IssueSpan {
   exitedAt           DateTime? @map("exited_at")
 
   @@index([gitServerId, repositoryId, issueId])
+  @@index([gitServerId, repositoryId, issueNumber, enteredAt], map: "issue_spans_git_server_id_repository_id_issue_number_entered_at")
   @@index([flow, enteredAt])
   @@index([exitedAt])
   @@map("issue_spans")
@@ -218,9 +221,7 @@ model Task {
   gitServerId        String    @default("") @map("git_server_id")
   repositoryId       String    @default("") @map("repository_id")
   repositoryFullName String    @default("") @map("repository_full_name")
-  issueId            String    @default("") @map("issue_id")
   issueNumber        Int       @default(0) @map("issue_number")
-  issueSpanRowId     String    @default("") @map("issue_span_row_id")
   taskId             String    @unique @map("task_id")
   action             String    @default("")
   agent              String    @default("")
@@ -234,7 +235,7 @@ model Task {
   finishedAt         DateTime? @map("finished_at")
   updatedAt          DateTime  @map("updated_at")
 
-  @@index([gitServerId, repositoryId, issueId])
+  @@index([gitServerId, repositoryId, issueNumber])
   @@index([action, startedAt])
   @@index([status])
   @@map("tasks")
@@ -262,7 +263,6 @@ model TaskEvent {
   gitServerId        String   @default("") @map("git_server_id")
   repositoryId       String   @default("") @map("repository_id")
   repositoryFullName String   @default("") @map("repository_full_name")
-  issueId            String   @default("") @map("issue_id")
   issueNumber        Int      @default(0) @map("issue_number")
   taskId             String   @map("task_id")
   chatId             String   @default("") @map("chat_id")
@@ -273,7 +273,7 @@ model TaskEvent {
   createdAt          DateTime @map("created_at")
 
   @@unique([taskId, sequence])
-  @@index([gitServerId, repositoryId, issueId])
+  @@index([gitServerId, repositoryId, issueNumber])
   @@map("task_events")
 }
 

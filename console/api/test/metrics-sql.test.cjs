@@ -14,6 +14,7 @@ const {
   pullRequestSnapshot,
   sourceIssueNumber,
 } = require('../src/core/pull-request-projection.ts');
+const { issueFlowMarkers } = require('../src/core/provenance-marker.ts');
 
 const STARTED_ISSUE_DISTRIBUTION_SQL = `select
   week,
@@ -305,7 +306,7 @@ test('pullRequestSnapshot parses merge request webhook payloads', () => {
     'Build result',
     '',
     '<!-- issue-flow:source-issue=42 -->',
-    '<!-- issue-flow:agentrix:task=task-abc-123 -->',
+    '<!-- issue-flow:source source_task_id=task-abc-123 source_runtime=agentrix -->',
   ].join('\n');
   assert.equal(sourceIssueNumber(description), 42);
   assert.equal(openedByTaskId(description), 'task-abc-123');
@@ -344,6 +345,23 @@ test('pullRequestSnapshot parses merge request webhook payloads', () => {
   assert.equal(snapshot.openedAt, '2026-06-20T09:59:00.000Z');
   assert.equal(snapshot.mergedAt, '');
   assert.equal(snapshot.closedAt, '');
+});
+
+test('issueFlowMarkers reads task, agent, and runtime from one provenance marker', () => {
+  assert.deepEqual(
+    issueFlowMarkers([
+      '<!-- issue-flow:source-issue=42 -->',
+      '<!-- issue-flow:source source_task_id=task-abc source_agent=codex source_runtime=agentrix -->',
+    ].join('\n')),
+    {
+      sourceIssueNumber: 42,
+      sourceTaskId: 'task-abc',
+      sourceAgent: 'codex',
+      sourceRuntime: 'agentrix',
+      taskId: 'task-abc',
+    },
+  );
+  assert.equal(issueFlowMarkers('<!-- issue-flow:agentrix:task=legacy-task -->').taskId, '');
 });
 
 test('pullRequestSnapshot maps merged and closed states', () => {

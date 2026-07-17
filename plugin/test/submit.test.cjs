@@ -4,7 +4,6 @@ const test = require('node:test');
 
 const {
   assertBodyFileNotTracked,
-  buildAgentrixTaskMarker,
   buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
@@ -50,14 +49,13 @@ function withTemporaryEnv(values, fn) {
 test('submit body wrapper inserts stable source issue marker', () => {
   withTemporaryEnv({ AGENTRIX_TASK_ID: undefined }, () => {
     assert.equal(buildSourceIssueMarker(482), '<!-- issue-flow:source-issue=482 -->');
-    assert.equal(buildAgentrixTaskMarker('task-123'), '<!-- issue-flow:agentrix:task=task-123 -->');
     assert.equal(
       buildPrBodyWithSourceMarker('Source issue: #111\n\nBody', 482),
       '<!-- issue-flow:source-issue=482 -->\nSource issue: #111\n\nBody'
     );
     assert.equal(
       buildPrBodyWithMarkers('Source issue: #111\n\nBody', 482, 'task-123'),
-      '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=task-123 -->\n<!-- issue-flow:source source_task_id=task-123 -->\nSource issue: #111\n\nBody'
+      '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->\nSource issue: #111\n\nBody'
     );
   });
 });
@@ -70,7 +68,7 @@ test('submit body wrapper replaces stale source issue marker', () => {
     );
     assert.equal(
       buildPrBodyWithMarkers('<!-- issue-flow:source-issue=111 -->\n<!-- issue-flow:agentrix:task=old -->\nBody', 482, 'new-task'),
-      '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:agentrix:task=new-task -->\n<!-- issue-flow:source source_task_id=new-task -->\nBody'
+      '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:source source_task_id=new-task source_runtime=agentrix -->\nBody'
     );
     assert.equal(
       buildPrBodyWithMarkers('Body', 482),

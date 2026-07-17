@@ -22,13 +22,6 @@ import { normalizeTaskAction } from "./task-projection.js"
 import { LATEST_ISSUE_FLOW_VERSION, pluginNeedsUpgrade } from "./issue-flow-plugin.js"
 
 const DEFAULT_STATE_DIR = ".issue-flow-service"
-const TASK_SPAN_FLOW_BY_ACTION = {
-  triage: "triage",
-  plan: "plan",
-  build: "build",
-  review: "approve",
-}
-
 function nowIso() {
   return new Date().toISOString()
 }
@@ -1663,6 +1656,7 @@ class IssueFlowStore {
       repositoryFullName: row.repositoryFullName,
       issueId: row.issueId,
       issueNumber: row.issueNumber,
+      createdByTaskId: row.createdByTaskId || "",
       title: row.title || "",
       state: row.state || "",
       type: row.type || "",
@@ -1723,6 +1717,7 @@ class IssueFlowStore {
       repositoryFullName,
       issueId,
       issueNumber,
+      createdByTaskId: String(input.createdByTaskId || existing && existing.createdByTaskId || ""),
       title: String(input.title || existing && existing.title || ""),
       state: String(input.state || ""),
       type: String(input.type || ""),
@@ -1749,6 +1744,7 @@ class IssueFlowStore {
       },
       update: data,
     })
+    await this.backfillTaskIssueFromCreator(row, client)
     return { issue: this.issueFromRecord(row), applied: true }
   }
 
@@ -1925,9 +1921,7 @@ class IssueFlowStore {
       gitServerId: row.gitServerId || "",
       repositoryId: row.repositoryId || "",
       repositoryFullName: row.repositoryFullName || "",
-      issueId: row.issueId || "",
       issueNumber: row.issueNumber || 0,
-      issueSpanRowId: row.issueSpanRowId || "",
       taskId: row.taskId,
       action: row.action || "",
       agent: row.agent || "",
@@ -1950,7 +1944,6 @@ class IssueFlowStore {
       gitServerId: row.gitServerId || "",
       repositoryId: row.repositoryId || "",
       repositoryFullName: row.repositoryFullName || "",
-      issueId: row.issueId || "",
       issueNumber: row.issueNumber || 0,
       taskId: row.taskId,
       chatId: row.chatId || "",
@@ -1962,30 +1955,149 @@ class IssueFlowStore {
     }
   }
 
-  async resolveTaskIssueSpan(row, client = this.db) {
-    if (!row || row.issueSpanRowId) return row
-    if (!row.gitServerId || !row.repositoryId || !row.issueId) return row
-    const at = row.startedAt || row.queuedAt
-    if (!at) return row
-    const spans = await client.issueSpan.findMany({
+  async applyTaskIssueBackfill(row, issue, client = this.db) {
+    if (!row || !issue || row.issueNumber) return row
+    const conflict = (
+      row.gitServerId && row.gitServerId !== issue.gitServerId
+      || row.repositoryId && row.repositoryId !== issue.repositoryId
+    )
+    if (conflict) return row
+
+    const updated = await client.task.updateMany({
       where: {
+        id: row.id,
         gitServerId: row.gitServerId,
         repositoryId: row.repositoryId,
-        issueId: row.issueId,
-        enteredAt: { lte: at },
-        OR: [
-          { exitedAt: null },
-          { exitedAt: { gte: at } },
-        ],
+        issueNumber: 0,
       },
-      orderBy: { enteredAt: "desc" },
+      data: {
+        gitServerId: issue.gitServerId,
+        repositoryId: issue.repositoryId,
+        repositoryFullName: issue.repositoryFullName,
+        issueNumber: issue.issueNumber,
+        updatedAt: new Date(),
+      },
     })
-    if (!spans.length) return row
-    const span = spans.find((item) => item.flow === TASK_SPAN_FLOW_BY_ACTION[row.action]) || spans[0]
-    return client.task.update({
-      where: { id: row.id },
-      data: { issueSpanRowId: span.id, updatedAt: new Date() },
+    if (!updated.count) return client.task.findUnique({ where: { id: row.id } })
+
+    const linked = await client.task.findUnique({ where: { id: row.id } })
+    await this.syncTaskLinkDependents(linked, client)
+    return linked
+  }
+
+  async backfillTaskIssueFromCreator(issue, client = this.db) {
+    if (!issue || !issue.createdByTaskId) return undefined
+    let task = await client.task.findUnique({ where: { taskId: issue.createdByTaskId } })
+    if (!task) {
+      try {
+        task = await client.task.create({
+          data: {
+            id: randomId("task"),
+            taskId: issue.createdByTaskId,
+            gitServerId: issue.gitServerId,
+            repositoryId: issue.repositoryId,
+            repositoryFullName: issue.repositoryFullName,
+            issueNumber: issue.issueNumber,
+            status: "unknown",
+            updatedAt: new Date(),
+          },
+        })
+        await this.syncTaskLinkDependents(task, client)
+        return task
+      } catch (error) {
+        if (!error || error.code !== "P2002") throw error
+        task = await client.task.findUnique({ where: { taskId: issue.createdByTaskId } })
+      }
+    }
+    return this.applyTaskIssueBackfill(task, issue, client)
+  }
+
+  async backfillTaskIssueFromCreatedIssue(row, client = this.db) {
+    if (!row || row.issueNumber || !row.taskId) return row
+    const issues = await client.issue.findMany({
+      where: { createdByTaskId: row.taskId },
+      orderBy: { updatedAt: "desc" },
+      take: 2,
     })
+    if (issues.length !== 1) return row
+    return this.applyTaskIssueBackfill(row, issues[0], client)
+  }
+
+  async syncTaskLinkDependents(row, client = this.db, options = {}) {
+    if (!row || !row.issueNumber) return row
+    await client.taskEvent.updateMany({
+      where: options.replace ? { taskId: row.taskId } : { taskId: row.taskId, issueNumber: 0 },
+      data: {
+        gitServerId: row.gitServerId,
+        repositoryId: row.repositoryId,
+        repositoryFullName: row.repositoryFullName,
+        issueNumber: row.issueNumber,
+      },
+    })
+    this.scheduleIssueStatsRebuild({
+      gitServerId: row.gitServerId,
+      repositoryId: row.repositoryId,
+      issueNumber: row.issueNumber,
+    })
+    return row
+  }
+
+  async upsertTaskMarkerLink(input = {}, client = this.db) {
+    await this.ready
+    const taskId = String(input.taskId || "").trim()
+    const gitServerId = String(input.gitServerId || "").trim()
+    const repositoryId = String(input.repositoryId || "").trim()
+    const issueNumber = Number(input.issueNumber || 0)
+    if (!taskId || !gitServerId || !repositoryId) {
+      return { task: undefined, applied: false }
+    }
+
+    const issue = issueNumber
+      ? await client.issue.findUnique({
+        where: { gitServerId_repositoryId_issueNumber: { gitServerId, repositoryId, issueNumber } },
+      })
+      : undefined
+    const before = await client.task.findUnique({ where: { taskId } })
+    if (before) {
+      const candidate = issue || {
+        gitServerId,
+        repositoryId,
+        repositoryFullName: String(input.repositoryFullName || ""),
+        issueNumber,
+      }
+      const row = await this.applyTaskIssueBackfill(before, candidate, client)
+      return { task: this.taskFromRecord(row), applied: !before.issueNumber && Boolean(issueNumber) }
+    }
+    if (issue) {
+      const row = await this.backfillTaskIssueFromCreator({ ...issue, createdByTaskId: taskId }, client)
+      return { task: this.taskFromRecord(row), applied: true }
+    }
+
+    try {
+      const row = await client.task.create({
+        data: {
+          id: input.id || randomId("task"),
+          taskId,
+          gitServerId,
+          repositoryId,
+          repositoryFullName: String(input.repositoryFullName || ""),
+          issueNumber,
+          status: "unknown",
+          updatedAt: new Date(),
+        },
+      })
+      return { task: this.taskFromRecord(row), applied: true }
+    } catch (error) {
+      if (!error || error.code !== "P2002") throw error
+      const row = await client.task.findUnique({ where: { taskId } })
+      const linked = await this.applyTaskIssueBackfill(row, {
+        gitServerId,
+        repositoryId,
+        repositoryFullName: String(input.repositoryFullName || ""),
+        issueNumber,
+      }, client)
+      return { task: this.taskFromRecord(linked), applied: Boolean(row && !row.issueNumber && issueNumber) }
+    }
   }
 
   async upsertTaskLink(input = {}, client = this.db) {
@@ -2010,11 +2122,17 @@ class IssueFlowStore {
       : undefined
 
     const existing = await client.task.findUnique({ where: { taskId } })
+    const issueChanged = Boolean(existing && issueNumber && (
+      existing.gitServerId !== (gitServerId || existing.gitServerId)
+      || existing.repositoryId !== (repositoryId || existing.repositoryId)
+      || existing.issueNumber !== issueNumber
+    ))
     const data = {
       gitServerId: gitServerId || existing && existing.gitServerId || "",
       repositoryId: repositoryId || existing && existing.repositoryId || "",
-      repositoryFullName: issue && issue.repositoryFullName || existing && existing.repositoryFullName || "",
-      issueId: issue && issue.issueId || existing && existing.issueId || "",
+      repositoryFullName: issue
+        ? issue.repositoryFullName
+        : issueChanged ? "" : existing && existing.repositoryFullName || "",
       issueNumber: issueNumber || existing && existing.issueNumber || 0,
       action: normalizeTaskAction(input.action) || existing && existing.action || "",
       queuedAt: existing && existing.queuedAt || nullableDate(input.queuedAt),
@@ -2029,22 +2147,13 @@ class IssueFlowStore {
       },
       update: data,
     })
-    row = await this.resolveTaskIssueSpan(row, client)
-    if (row.issueId) {
-      await client.taskEvent.updateMany({
-        where: { taskId, issueId: "" },
-        data: {
-          gitServerId: row.gitServerId,
-          repositoryId: row.repositoryId,
-          repositoryFullName: row.repositoryFullName,
-          issueId: row.issueId,
-          issueNumber: row.issueNumber,
-        },
-      })
+    row = await this.backfillTaskIssueFromCreatedIssue(row, client)
+    await this.syncTaskLinkDependents(row, client, { replace: issueChanged })
+    if (issueChanged && existing.issueNumber) {
       this.scheduleIssueStatsRebuild({
-        gitServerId: row.gitServerId,
-        repositoryId: row.repositoryId,
-        issueId: row.issueId,
+        gitServerId: existing.gitServerId,
+        repositoryId: existing.repositoryId,
+        issueNumber: existing.issueNumber,
       })
     }
     return { task: this.taskFromRecord(row), applied: true }
@@ -2077,12 +2186,12 @@ class IssueFlowStore {
       },
       update: data,
     })
-    row = await this.resolveTaskIssueSpan(row, client)
-    if (row.issueId) {
+    row = await this.backfillTaskIssueFromCreatedIssue(row, client)
+    if (row.issueNumber) {
       this.scheduleIssueStatsRebuild({
         gitServerId: row.gitServerId,
         repositoryId: row.repositoryId,
-        issueId: row.issueId,
+        issueNumber: row.issueNumber,
       })
     }
     return { task: this.taskFromRecord(row), applied: true }
@@ -2138,7 +2247,6 @@ class IssueFlowStore {
             gitServerId: task && task.gitServerId || "",
             repositoryId: task && task.repositoryId || "",
             repositoryFullName: task && task.repositoryFullName || "",
-            issueId: task && task.issueId || "",
             issueNumber: task && task.issueNumber || 0,
             taskId,
             chatId: String(input.chatId || ""),
@@ -2169,11 +2277,11 @@ class IssueFlowStore {
     const turns = await client.taskEvent.count({ where: { taskId, eventType: "human_input" } })
     await client.task.updateMany({ where: { taskId }, data: { turns } })
     const task = await client.task.findUnique({ where: { taskId } })
-    if (task && task.issueId) {
+    if (task && task.issueNumber) {
       this.scheduleIssueStatsRebuild({
         gitServerId: task.gitServerId,
         repositoryId: task.repositoryId,
-        issueId: task.issueId,
+        issueNumber: task.issueNumber,
       })
     }
     return turns
@@ -2195,11 +2303,11 @@ class IssueFlowStore {
     const executionMs = await this.taskExecutionMs(taskId, client)
     await client.task.updateMany({ where: { taskId }, data: { executionMs } })
     const task = await client.task.findUnique({ where: { taskId } })
-    if (task && task.issueId) {
+    if (task && task.issueNumber) {
       this.scheduleIssueStatsRebuild({
         gitServerId: task.gitServerId,
         repositoryId: task.repositoryId,
-        issueId: task.issueId,
+        issueNumber: task.issueNumber,
       })
     }
     return executionMs
@@ -2327,12 +2435,15 @@ class IssueFlowStore {
   scheduleIssueStatsRebuild(input = {}) {
     const gitServerId = String(input.gitServerId || "").trim()
     const repositoryId = String(input.repositoryId || "").trim()
-    const issueId = String(input.issueId || input.issueNumber || "").trim()
-    if (!gitServerId || !repositoryId || !issueId) return
-    this.pendingIssueStatsRebuilds.set(`${gitServerId}\n${repositoryId}\n${issueId}`, {
+    const issueId = String(input.issueId || "").trim()
+    const issueNumber = Number(input.issueNumber || 0)
+    if (!gitServerId || !repositoryId || (!issueId && !issueNumber)) return
+    const issueKey = issueId ? `id:${issueId}` : `number:${issueNumber}`
+    this.pendingIssueStatsRebuilds.set(`${gitServerId}\n${repositoryId}\n${issueKey}`, {
       gitServerId,
       repositoryId,
       issueId,
+      issueNumber,
     })
     if (this.issueStatsRebuildTimer) return
     this.issueStatsRebuildTimer = setTimeout(() => {
@@ -2366,18 +2477,30 @@ class IssueFlowStore {
     await this.ready
     const gitServerId = String(input.gitServerId || "").trim()
     const repositoryId = String(input.repositoryId || "").trim()
-    const issueId = String(input.issueId || input.issueNumber || "").trim()
-    if (!gitServerId || !repositoryId || !issueId) return undefined
-    const issue = await client.issue.findUnique({
-      where: {
-        gitServerId_repositoryId_issueId: {
-          gitServerId,
-          repositoryId,
-          issueId,
+    const requestedIssueId = String(input.issueId || "").trim()
+    const requestedIssueNumber = Number(input.issueNumber || 0)
+    if (!gitServerId || !repositoryId || (!requestedIssueId && !requestedIssueNumber)) return undefined
+    const issue = requestedIssueId
+      ? await client.issue.findUnique({
+        where: {
+          gitServerId_repositoryId_issueId: {
+            gitServerId,
+            repositoryId,
+            issueId: requestedIssueId,
+          },
         },
-      },
-    })
+      })
+      : await client.issue.findUnique({
+        where: {
+          gitServerId_repositoryId_issueNumber: {
+            gitServerId,
+            repositoryId,
+            issueNumber: requestedIssueNumber,
+          },
+        },
+      })
     if (!issue) return undefined
+    const issueId = issue.issueId
 
     const spans = await client.issueSpan.findMany({
       where: { gitServerId, repositoryId, issueId, exitedAt: { not: null } },
@@ -2398,7 +2521,7 @@ class IssueFlowStore {
       },
     })
     const tasks = await client.task.findMany({
-      where: { gitServerId, repositoryId, issueId },
+      where: { gitServerId, repositoryId, issueNumber: issue.issueNumber },
     })
     const taskExecutionMs = { triage: 0, plan: 0, build: 0, review: 0 }
     const taskTurns = { triage: 0, plan: 0, build: 0, review: 0 }
@@ -2557,6 +2680,7 @@ class IssueFlowStore {
         i."repository_full_name" as "repositoryFullName",
         i."issue_id" as "issueId",
         i."issue_number" as "issueNumber",
+        i."created_by_task_id" as "createdByTaskId",
         i."title" as "title",
         i."state" as "state",
         i."type" as "type",

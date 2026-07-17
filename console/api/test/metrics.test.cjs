@@ -31,7 +31,11 @@ require('tsx/cjs');
 
 const { createApp } = require('../src/app.ts');
 const { IssueFlowStore } = require('../src/core/store.ts');
-const { applyIssueSnapshotToFacts } = require('../src/core/issue-projection.ts');
+const {
+  applyGitEventToIssueFacts,
+  applyGitlabIssueSnapshotToFacts,
+  applyIssueSnapshotToFacts,
+} = require('../src/core/issue-projection.ts');
 const { applyGitEventToPullRequestFacts } = require('../src/core/pull-request-projection.ts');
 const { applyForwardedEventToTaskFacts } = require('../src/core/task-projection.ts');
 
@@ -127,10 +131,34 @@ function mergeRequestEvent(attributes = {}, labels = ['mr-by::build']) {
         id: 9001,
         iid: 12,
         title: 'Build #7: metrics',
-        description: '<!-- issue-flow:source-issue=7 -->\n<!-- issue-flow:agentrix:task=task-abc -->',
+        description: '<!-- issue-flow:source-issue=7 -->\n<!-- issue-flow:source source_task_id=task-abc source_runtime=agentrix -->',
         state: 'opened',
         url: 'https://gitlab.example.com/group/app/-/merge_requests/12',
         created_at: at(HOUR_MS),
+        updated_at: at(HOUR_MS),
+        ...attributes,
+      },
+    },
+  };
+}
+
+function issueEvent(attributes = {}, labels = ['flow::triage']) {
+  return {
+    eventName: 'issue',
+    gitServerId: 'gitlab-main',
+    repositoryId: '42',
+    repositoryFullName: 'group/app',
+    receivedAt: at(HOUR_MS),
+    payload: {
+      object_kind: 'issue',
+      labels: labels.map((title) => ({ title })),
+      object_attributes: {
+        id: 4207,
+        iid: 7,
+        title: 'Metrics issue',
+        description: '<!-- issue-flow:source source_task_id=task-created-issue source_runtime=agentrix -->',
+        state: 'opened',
+        created_at: at(0),
         updated_at: at(HOUR_MS),
         ...attributes,
       },
@@ -236,6 +264,9 @@ test('merge request events project pull_requests and update pull_request_count',
     assert.equal(opened.kind, 'build');
     assert.equal(opened.openedByTaskId, 'task-abc');
     assert.equal(opened.state, 'open');
+    const markerTask = await store.getTask('task-abc');
+    assert.equal(markerTask.status, 'unknown');
+    assert.equal(markerTask.issueNumber, 7);
     await store.flushIssueStatsRebuilds();
 
     const issueRow = await findIssueRow(store, issueSnapshot());
@@ -263,6 +294,200 @@ test('merge request events project pull_requests and update pull_request_count',
 
     stats = await store.getIssueStats(issueRow.id);
     assert.equal(stats.pullRequestCount, 1);
+  } finally {
+    await store.close();
+  }
+});
+
+test('issue markers persist creator provenance and create fill-only task placeholders', async () => {
+  const { store } = tempStore();
+  try {
+    await applyGitEventToIssueFacts(store, issueEvent());
+
+    let issue = await findIssueRow(store, issueSnapshot());
+    assert.equal(issue.createdByTaskId, 'task-created-issue');
+
+    let task = await store.getTask('task-created-issue');
+    assert.equal(task.status, 'unknown');
+    assert.equal(task.gitServerId, 'gitlab-main');
+    assert.equal(task.repositoryId, '42');
+    assert.equal('issueId' in task, false);
+    assert.equal(task.issueNumber, 7);
+
+    await store.upsertTaskRuntime({
+      taskId: 'task-created-issue',
+      status: 'running',
+      agent: 'codex',
+      model: 'gpt-5',
+      startedAt: at(HOUR_MS + 1000),
+    });
+    await store.appendTaskEvent({
+      taskId: 'task-created-issue',
+      eventId: 'evt-before-authoritative-link',
+      eventType: 'worker_state',
+      eventData: { state: 'ready', duration: 1000 },
+      createdAt: at(HOUR_MS + 2000),
+    });
+    await applyGitEventToIssueFacts(store, issueEvent());
+    task = await store.getTask('task-created-issue');
+    assert.equal(task.status, 'running');
+    assert.equal(task.agent, 'codex');
+    assert.equal(task.issueNumber, 7);
+
+    await applyIssueSnapshotToFacts(store, issueSnapshot({
+      issueId: '4208',
+      issueNumber: 8,
+      title: 'Another issue',
+      updatedAt: at(2 * HOUR_MS),
+    }));
+    await applyGitEventToIssueFacts(store, issueEvent({
+      id: 4208,
+      iid: 8,
+      title: 'Another issue',
+      updated_at: at(2 * HOUR_MS),
+    }));
+    issue = await findIssueRow(store, issueSnapshot({ issueId: '4208', issueNumber: 8 }));
+    assert.equal(issue.createdByTaskId, 'task-created-issue');
+    task = await store.getTask('task-created-issue');
+    assert.equal(task.issueNumber, 7, 'a later marker cannot rebind an existing task');
+
+    await store.upsertTaskLink({
+      taskId: 'task-created-issue',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      issueNumber: 8,
+      action: 'build',
+    });
+    task = await store.getTask('task-created-issue');
+    assert.equal(task.issueNumber, 8, 'the forwarded link remains authoritative');
+    assert.equal(task.action, 'build');
+    assert.equal(task.status, 'running');
+    assert.equal('issueSpanRowId' in task, false);
+    const events = await store.listTaskEvents('task-created-issue');
+    assert.equal('issueId' in events[0], false);
+    assert.equal(events[0].issueNumber, 8);
+  } finally {
+    await store.close();
+  }
+});
+
+test('issue markers fill an existing task only when its issue link is empty', async () => {
+  const { store } = tempStore();
+  try {
+    await store.upsertTaskRuntime({
+      taskId: 'task-created-issue',
+      status: 'running',
+      agent: 'codex',
+      startedAt: at(HOUR_MS + 1000),
+    });
+
+    await applyGitEventToIssueFacts(store, issueEvent());
+    const task = await store.getTask('task-created-issue');
+    assert.equal(task.status, 'running');
+    assert.equal(task.issueNumber, 7);
+  } finally {
+    await store.close();
+  }
+});
+
+test('issue provenance from another runtime does not create an Agentrix task', async () => {
+  const { store } = tempStore();
+  try {
+    await applyGitEventToIssueFacts(store, issueEvent({
+      description: '<!-- issue-flow:source source_task_id=foreign-task source_runtime=other -->',
+    }));
+    const issue = await findIssueRow(store, issueSnapshot());
+    assert.equal(issue.createdByTaskId, '');
+    assert.equal(await store.getTask('foreign-task'), undefined);
+  } finally {
+    await store.close();
+  }
+});
+
+test('GitLab issue snapshots backfill task links from stored descriptions', async () => {
+  const { store } = tempStore();
+  try {
+    await applyGitlabIssueSnapshotToFacts(store, {
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      projectPath: 'group/app',
+    }, {
+      id: '4207',
+      iid: 7,
+      title: 'Metrics issue',
+      state: 'opened',
+      labels: ['flow::triage'],
+      description: '<!-- issue-flow:source source_task_id=task-from-snapshot source_runtime=agentrix -->',
+      createdAt: at(0),
+      updatedAt: at(HOUR_MS),
+      closedAt: '',
+    });
+    const task = await store.getTask('task-from-snapshot');
+    assert.equal(task.status, 'unknown');
+    assert.equal(task.issueNumber, 7);
+    const issue = await findIssueRow(store, issueSnapshot());
+    assert.equal(issue.createdByTaskId, 'task-from-snapshot');
+  } finally {
+    await store.close();
+  }
+});
+
+test('task metrics join by repository-scoped issue number when the issue arrives later', async () => {
+  const { store } = tempStore();
+  try {
+    await store.upsertTaskLink({
+      taskId: 'task-before-issue',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      issueNumber: 7,
+      action: 'build',
+      queuedAt: at(HOUR_MS),
+    });
+    await store.upsertTaskRuntime({
+      taskId: 'task-before-issue',
+      status: 'running',
+      startedAt: at(HOUR_MS + 1000),
+    });
+    await store.appendTaskEvent({
+      taskId: 'task-before-issue',
+      eventId: 'evt-task-before-issue-ready',
+      eventType: 'worker_state',
+      eventData: { state: 'ready', duration: 60_000 },
+      createdAt: at(HOUR_MS + 61_000),
+    });
+
+    await applyIssueSnapshotToFacts(store, issueSnapshot());
+    await store.flushIssueStatsRebuilds();
+
+    const task = await store.getTask('task-before-issue');
+    const issue = await findIssueRow(store, issueSnapshot());
+    const stats = await store.getIssueStats(issue.id);
+    const execution = await store.runMetricsQuery(`select
+      issue_row_id,
+      task_row_id
+    from task_execution_metrics
+    where git_server_id = :git_server_id
+      and repository_id = :repository_id`, {
+      git_server_id: 'gitlab-main',
+      repository_id: '42',
+    });
+    const flow = await store.runMetricsQuery(`select
+      flow,
+      task_seconds
+    from issue_flow_metrics
+    where git_server_id = :git_server_id
+      and repository_id = :repository_id`, {
+      git_server_id: 'gitlab-main',
+      repository_id: '42',
+    });
+
+    assert.equal(task.issueNumber, 7);
+    assert.equal('issueId' in task, false);
+    assert.equal(stats.buildTaskSeconds, 60);
+    assert.equal(execution.rows[0].issue_row_id, issue.id);
+    assert.equal(execution.rows[0].task_row_id, task.id);
+    assert.equal(flow.rows[0].flow, 'triage');
+    assert.equal(Number(flow.rows[0].task_seconds), 60);
   } finally {
     await store.close();
   }
@@ -436,10 +661,9 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     assert.equal(task.gitServerId, 'gitlab-main', 'agentrix git server id resolves to the console git server');
     assert.equal(task.repositoryId, '42');
     assert.equal(task.repositoryFullName, 'group/app');
-    assert.equal(task.issueId, '4207');
     assert.equal(task.issueNumber, 7);
     assert.equal(task.action, 'build');
-    assert.ok(task.issueSpanRowId, 'task resolves onto the containing issue span');
+    assert.equal('issueSpanRowId' in task, false);
 
     const replay = await applyForwardedEventToTaskFacts(store, forwardedEvent({
       cursor: 5,
@@ -483,7 +707,7 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
       events.filter((event) => event.eventType === 'worker_state').map((event) => event.eventData.state),
       ['running', 'ready'],
     );
-    assert.ok(events.every((event) => event.issueId === '4207'), 'task events carry the issue linkage');
+    assert.ok(events.every((event) => event.issueNumber === 7), 'task events carry the issue linkage');
 
     // review task: dispatched with the source issue number and action=review metadata
     await applyForwardedEventToTaskFacts(store, forwardedEvent({
@@ -524,7 +748,7 @@ test('forwarded task envelopes link tasks to issues and fill task metrics', asyn
     const reviewTask = await store.getTask('task-review-1');
     assert.equal(reviewTask.action, 'review');
     assert.equal(reviewTask.executionMs, 10 * 60 * 1000);
-    assert.equal(reviewTask.issueId, '4207', 'review tasks link through the dispatched source issue number');
+    assert.equal(reviewTask.issueNumber, 7, 'review tasks link through the dispatched source issue number');
 
     await applyIssueSnapshotToFacts(store, issueSnapshot({
       state: 'closed',
