@@ -142,7 +142,8 @@ test('approved Decision comments on the open MR and advances the issue without m
   const labelUpdate = requests.find((request) => request.url.endsWith('/issues/42') && request.options.method === 'PUT')
   assert.deepEqual(JSON.parse(labelUpdate.options.body), { labels: 'type::feature,flow::plan' })
   const comment = requests.find((request) => request.url.endsWith('/merge_requests/11/notes'))
-  assert.match(JSON.parse(comment.options.body).body, /artifact=decision[^>]*status=approved/)
+  assert.match(JSON.parse(comment.options.body).body, /## Decision Review/)
+  assert.match(JSON.parse(comment.options.body).body, /Status: \*\*approved\*\*/)
   assert.match(JSON.parse(comment.options.body).body, /选择方案.*Database/)
 })
 

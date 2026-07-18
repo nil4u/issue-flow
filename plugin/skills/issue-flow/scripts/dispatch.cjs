@@ -14,7 +14,6 @@ const pipelineFailed = require('./pipeline-failed.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
 const TRIGGER_COMMENT_REACTION = 'eyes';
-const VISUAL_REVIEW_COMMENT_PATTERN = /<!--\s*issue-flow:visual-review\s+artifact=(decision|plan)\s+review=([^\s>]+)\s+status=([^\s>]+)\s*-->/i;
 const VALUE_OPTIONS = new Set([
   '--event',
   '--provider',
@@ -175,11 +174,6 @@ function isBotComment(payload, options = {}) {
 
 function getCommentContext(payload, options = {}) {
   return resolveProvider(options, payload).getCommentContext(payload);
-}
-
-function parseVisualReviewComment(body = '') {
-  const match = String(body || '').match(VISUAL_REVIEW_COMMENT_PATTERN);
-  return match ? { artifact: match[1].toLowerCase(), reviewId: match[2], status: match[3] } : undefined;
 }
 
 function isReviewCommentCreatedEvent(payload, options = {}) {
@@ -894,61 +888,6 @@ async function runComment(options = {}, provided = {}) {
     };
   }
   const comment = getCommentContext(payload, options);
-  const visualReview = parseVisualReviewComment(comment.body);
-  if (visualReview) {
-    const issue = buildIssueContext(payload, options);
-    const currentIssue = await fetchCurrentIssue(issue, options);
-    if (visualReview.artifact === 'plan' && visualReview.status === 'approved') {
-      logIssueFlow('Approved visual plan continues through flow::build without resuming plan task', {
-        issue: `#${currentIssue.number}`,
-        review: visualReview.reviewId,
-      });
-      return {
-        action: 'skipped',
-        reason: 'visual_plan_approved',
-        issueNumber: currentIssue.number,
-        visualReview,
-      };
-    }
-    const planTasks = listResumableIssueTasks(await listIssueComments(currentIssue, options), runtime)
-      .filter((task) => task.action === 'plan');
-    if (planTasks.length !== 1) {
-      logIssueFlow('Visual review did not have exactly one resumable plan task', {
-        issue: `#${currentIssue.number}`,
-        tasks: planTasks.length,
-      });
-      return {
-        action: 'skipped',
-        reason: planTasks.length ? 'ambiguous_visual_review_task' : 'visual_review_task_not_found',
-        issueNumber: currentIssue.number,
-      };
-    }
-    const issueTask = planTasks[0];
-    const instruction = typeof runtime.buildVisualReviewResumeInstruction === 'function'
-      ? runtime.buildVisualReviewResumeInstruction(currentIssue, comment, { issueTask, visualReview })
-      : comment.body;
-    const resume = await resumeTaskForReviewComment(currentIssue, issueTask.taskId, instruction, options, {
-      payload,
-      issue: currentIssue,
-      issueTask,
-      comment,
-      instruction,
-      visualReview,
-    });
-    logIssueFlow('Resumed plan task from visual review', {
-      issue: `#${currentIssue.number}`,
-      task: issueTask.taskId,
-      artifact: visualReview.artifact,
-      review: visualReview.reviewId,
-    });
-    return {
-      ...resume,
-      issueNumber: currentIssue.number,
-      taskId: issueTask.taskId,
-      taskAction: issueTask.action,
-      visualReview,
-    };
-  }
   if (isBotComment(payload, options)) {
     logIssueFlow('Bot comment ignored');
     return {
@@ -1222,10 +1161,8 @@ async function runReviewComment(options = {}, provided = {}) {
   }
 
   const sourceIssueNumber = options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr);
-  const visualReview = parseVisualReviewComment(reviewComment.body);
   const instruction = runtime.buildReviewCommentResumeInstruction(currentPr, reviewComment, {
     sourceIssueNumber,
-    visualReview,
   });
   await acknowledgeReviewComment(currentPr, reviewComment, options);
   const resume = await resumeTaskForReviewComment(currentPr, taskId, instruction, options, {
@@ -1234,7 +1171,6 @@ async function runReviewComment(options = {}, provided = {}) {
     pullRequest: currentPr,
     currentPullRequest: currentPr,
     reviewComment,
-    visualReview,
     sourceIssueNumber,
     taskAction: getPullRequestTaskAction(currentPr),
   });
@@ -1322,7 +1258,6 @@ module.exports = {
   loadRuntime,
   main,
   parseArgs,
-  parseVisualReviewComment,
   resolveAutomationDecision,
   resolveRepoDefaultAutomationLevel,
   resolveReviewEnabled,

@@ -197,7 +197,6 @@ function buildReviewComment(artifact, review, status) {
       ? "Decision 已批准，请基于已确认的选择生成并提交 Plan。"
       : ""
   return [
-    `<!-- issue-flow:visual-review artifact=${artifact.type} review=${review.id} status=${status} -->`,
     `## ${title}`,
     "",
     `Status: **${status}**`,

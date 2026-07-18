@@ -278,98 +278,6 @@ test('dispatch comment resumes the only resumable issue task while clarifying', 
   }
 });
 
-test('dispatch visual review comment resumes the existing plan task with bot-authored review', async () => {
-  const originalList = providers.github.listIssueComments;
-  const originalCreate = providers.github.createIssueComment;
-  const originalUpdate = providers.github.updateIssueComment;
-  const comments = [];
-  const updates = [];
-  providers.github.listIssueComments = async () => [
-    {
-      id: 300,
-      html_url: 'https://github.com/example/platform/issues/42#issuecomment-300',
-      body: agentrix.buildTaskComment('plan', {
-        status: 'queued',
-        runId: 'task-plan',
-        detailUrl: 'https://agentrix.example/tasks/task-plan',
-      }),
-    },
-  ];
-  providers.github.createIssueComment = async (issue, body) => {
-    comments.push({ issue: issue.number, body });
-    return { id: 502, body };
-  };
-  providers.github.updateIssueComment = async (issue, commentId, body) => {
-    updates.push({ issue: issue.number, commentId, body });
-  };
-
-  try {
-    const result = await runComment(
-      { dryRun: true },
-      {
-        payload: githubIssueCommentPayload({
-          userType: 'Bot',
-          author: 'issue-flow-bot',
-          labels: [{ name: 'status::active' }, { name: 'flow::approve' }],
-          commentBody: [
-            '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->',
-            '## Visual Plan Review',
-            '',
-            '1. **plan/data/plan-data.json** — 确认一下还会有其他状态吗？',
-          ].join('\n'),
-        }),
-      }
-    );
-
-    assert.equal(result.action, 'task_resume');
-    assert.equal(result.taskId, 'task-plan');
-    assert.equal(result.taskAction, 'plan');
-    assert.equal(result.issueNumber, 42);
-    assert.deepEqual(result.visualReview, {
-      artifact: 'plan',
-      reviewId: 'visual_review_1',
-      status: 'changes-requested',
-    });
-    assert.equal(result.result.status, 'dry-run');
-    assert.equal(comments.length, 1);
-    assert.equal(comments[0].issue, 42);
-    assert.match(comments[0].body, /Agentrix task queued/);
-    assert.match(comments[0].body, /\[open task\]\(https:\/\/agentrix\.example\/tasks\/task-plan\)/);
-    assert.match(comments[0].body, /^Action: `plan`$/m);
-    assert.match(comments[0].body, /^Run: `task-plan`$/m);
-    assert.match(comments[0].body, /Trigger: https:\/\/github\.com\/example\/platform\/issues\/42#issuecomment-501/);
-    assert.deepEqual(updates.map(({ issue, commentId }) => ({ issue, commentId })), [{ issue: 42, commentId: 502 }]);
-    assert.match(updates[0].body, /\[open task\]\(https:\/\/agentrix\.example\/tasks\/task-plan\)/);
-  } finally {
-    providers.github.listIssueComments = originalList;
-    providers.github.createIssueComment = originalCreate;
-    providers.github.updateIssueComment = originalUpdate;
-  }
-});
-
-test('dispatch approved visual plan comment leaves continuation to flow build', async () => {
-  const result = await runComment(
-    { dryRun: true },
-    {
-      payload: githubIssueCommentPayload({
-        userType: 'Bot',
-        author: 'issue-flow-bot',
-        labels: [{ name: 'status::active' }, { name: 'flow::build' }],
-        commentBody: [
-          '<!-- issue-flow:visual-review artifact=plan review=visual_review_2 status=approved -->',
-          '## Visual Plan Review',
-          '',
-          'Status: **approved**',
-        ].join('\n'),
-      }),
-    }
-  );
-
-  assert.equal(result.action, 'skipped');
-  assert.equal(result.reason, 'visual_plan_approved');
-  assert.equal(result.issueNumber, 42);
-});
-
 test('dispatch comment falls back to general when clarify has multiple resumable issue tasks', async () => {
   const originalList = providers.github.listIssueComments;
   providers.github.listIssueComments = async () => [
@@ -423,11 +331,9 @@ test('dispatch review-comment resumes GitHub PR ordinary issue comments', async 
   assert.equal(result.reviewComment, '101');
 });
 
-test('dispatch Plan review comment uses the standard PR review reply instruction', async () => {
-  const originalPlanInstruction = agentrix.buildVisualReviewResumeInstruction;
+test('dispatch Plan PR comment uses the standard PR review reply instruction', async () => {
   const originalReviewInstruction = agentrix.buildReviewCommentResumeInstruction;
   let reviewInstructionInput;
-  agentrix.buildVisualReviewResumeInstruction = () => assert.fail('Engine Plan reviews must use the standard PR review reply instruction');
   agentrix.buildReviewCommentResumeInstruction = (pullRequest, comment, data) => {
     reviewInstructionInput = { pullRequest, comment, data };
     return 'standard review reply instruction';
@@ -439,7 +345,7 @@ test('dispatch Plan review comment uses the standard PR review reply instruction
       {
         payload: githubReviewCommentPayload({
           issueComment: true,
-          commentBody: '<!-- issue-flow:visual-review artifact=plan review=visual_review_1 status=changes-requested -->\n## Visual Plan Review\n\n请修改。',
+          commentBody: '## Visual Plan Review\n\n请修改。',
           body: [
             '<!-- issue-flow:source-issue=42 -->',
             '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
@@ -452,11 +358,10 @@ test('dispatch Plan review comment uses the standard PR review reply instruction
 
     assert.equal(result.action, 'task_resume');
     assert.equal(result.taskId, 'task-plan-42');
-    assert.equal(reviewInstructionInput.data.visualReview.artifact, 'plan');
-    assert.equal(reviewInstructionInput.data.visualReview.status, 'changes-requested');
+    assert.equal(reviewInstructionInput.data.sourceIssueNumber, 42);
+    assert.equal(reviewInstructionInput.comment.body, '## Visual Plan Review\n\n请修改。');
     assert.match(reviewInstructionInput.pullRequest.body, /format=json/);
   } finally {
-    agentrix.buildVisualReviewResumeInstruction = originalPlanInstruction;
     agentrix.buildReviewCommentResumeInstruction = originalReviewInstruction;
   }
 });

@@ -511,40 +511,6 @@ function buildIssueCommentResumeInstruction() {
   return 'Issue 有新的 comment，请查看并继续处理。';
 }
 
-function buildVisualReviewResumeInstruction(_issue, comment = {}, data = {}) {
-  const visualReview = data.visualReview || {};
-  const formatMatch = String(data.pullRequest && data.pullRequest.body || '').match(/<!--\s*issue-flow:plan-artifact\s+artifact=(?:decision|plan)\s+format=(json|markdown)\b/i);
-  const format = formatMatch ? formatMatch[1].toLowerCase() : 'json';
-  const artifact = visualReview.artifact === 'decision'
-    ? 'Decision'
-    : format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
-  const reviewBody = String(comment.body || '')
-    .replace(/<!--\s*issue-flow:visual-review[^>]*-->\s*/i, '')
-    .trim();
-  if (visualReview.artifact === 'decision' && visualReview.status === 'approved') {
-    return [
-      'Decision 已批准，请继续当前 Plan task，生成并提交 Plan。',
-      '',
-      '## 已批准的决策',
-      '',
-      reviewBody || '(没有附加审阅内容)',
-      '',
-      '请基于当前任务上下文和已批准的 Decision 生成完整 Plan，commit 后按照 vision-plan 与 issue-flow skill 提交；不要只回复解释。',
-      '提交完成后，按照 issue-flow skill 回复本次处理结果。',
-    ].join('\n');
-  }
-  return [
-    `${artifact} 收到修改意见，请继续处理当前 Plan task。`,
-    '',
-    '## 审阅内容',
-    '',
-    reviewBody || '(没有附加审阅内容)',
-    '',
-    `请基于当前任务上下文更新 ${artifact} 产物，commit 后按照 ${format === 'json' ? 'vision-plan 与 issue-flow skill' : 'issue-flow skill'} 重新提交；不要只回复解释。`,
-    '提交完成后，按照 issue-flow skill 回复本次审阅。',
-  ].join('\n');
-}
-
 function buildDecisionMergeResumeInstruction(transition = {}) {
   return [
     'Decision 已批准，请继续当前 Plan task，生成并提交 Plan。',
@@ -1101,7 +1067,6 @@ module.exports = {
   buildAgentrixRepo,
   buildIssueCommentResumeInstruction,
   buildDecisionMergeResumeInstruction,
-  buildVisualReviewResumeInstruction,
   buildClientTaskId,
   buildResumeTaskArgs,
   buildRunArgs,

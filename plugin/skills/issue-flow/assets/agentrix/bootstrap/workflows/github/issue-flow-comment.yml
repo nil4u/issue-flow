@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   route:
-    if: github.event.issue.pull_request == null && github.event.issue.state == 'open' && ((github.event.comment.user.type != 'Bot' && contains(github.event.comment.body, '@agentrix')) || contains(github.event.comment.body, 'issue-flow:visual-review'))
+    if: github.event.issue.pull_request == null && github.event.issue.state == 'open' && github.event.comment.user.type != 'Bot' && contains(github.event.comment.body, '@agentrix')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
