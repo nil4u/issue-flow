@@ -127,13 +127,20 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-ci-failure.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-bug.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/review.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);
-	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/references/engine-json-contract.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css')), false);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), false);
 	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
@@ -392,6 +399,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
     assert.match(gitlabWorkflow, /\.issue-flow-runner:\n  tags:\n    - issue-flow/);
     for (const job of [
+      'issue-flow-labels',
       'issue-flow-auto',
       'issue-flow-comment',
       'issue-flow-merged',
@@ -400,8 +408,8 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ]) {
       assert.match(gitlabWorkflow, new RegExp(`${job}:\\n  extends: \\.issue-flow-runner\\n  stage: build`));
     }
-    assert.doesNotMatch(gitlabWorkflow, /issue-flow-labels:/);
-    assert.doesNotMatch(gitlabWorkflow, /sync-labels\.cjs/);
+    assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
+    assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issues"/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_LABELS_JSON =~ \/failure::ci\//);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_ISSUE_TITLE =~ \/\^Fix CI failure:\//);

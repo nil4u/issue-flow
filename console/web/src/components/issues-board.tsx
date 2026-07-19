@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertCircle, CircleDot, GitBranch, GitMerge, LayoutGrid, List, Loader2, RefreshCw, Search } from "lucide-react"
 
 import { EmptyPanel } from "@/components/empty-panel"
@@ -16,7 +16,7 @@ import {
   type IssueFilters,
 } from "@/components/issues/issue-view-model"
 import { Button } from "@/components/ui/button"
-import type { RepoWorkspaceProps } from "@/issue-flow-model"
+import { api, type RepoWorkspaceProps, type ReviewablePlanArtifact } from "@/issue-flow-model"
 
 type IssueViewMode = "board" | "list"
 
@@ -32,12 +32,31 @@ export function IssuesBoard({
 }: RepoWorkspaceProps) {
   const [viewMode, setViewMode] = useState<IssueViewMode>("board")
   const [filters, setFilters] = useState<IssueFilters>(emptyIssueFilters)
+  const [reviewArtifacts, setReviewArtifacts] = useState<ReviewablePlanArtifact[]>([])
   const openIssues = useMemo(() => openActiveIssues(issues || []), [issues])
   const sortedOpenIssues = useMemo(() => sortIssuesByUpdatedDesc(openIssues), [openIssues])
   const grouped = useMemo(() => groupIssuesByLane(sortedOpenIssues), [sortedOpenIssues])
   const filterOptions = useMemo(() => issueFilterOptions(openIssues), [openIssues])
   const filteredIssues = useMemo(() => filterIssues(sortedOpenIssues, filters), [filters, sortedOpenIssues])
   const activeFilterCount = activeIssueFilters(filters)
+
+  useEffect(() => {
+    const gitServerId = gitServer?.id
+    const projectId = repository?.serverRepoId || project?.id
+    if (!gitServerId || !projectId || !user) {
+      setReviewArtifacts([])
+      return
+    }
+    let active = true
+    api<{ artifacts?: ReviewablePlanArtifact[] }>(`/api/visual-artifacts/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/reviewable`)
+      .then((body) => {
+        if (active) setReviewArtifacts(Array.isArray(body.artifacts) ? body.artifacts : [])
+      })
+      .catch(() => {
+        if (active) setReviewArtifacts([])
+      })
+    return () => { active = false }
+  }, [gitServer?.id, project?.id, repository?.serverRepoId, user?.username])
 
   if (!gitServer) return <EmptyPanel icon={<GitBranch className="size-6" />} title="没有 Git server" detail="请先在后台配置 Git server。" />
   if (!user) {
@@ -55,6 +74,9 @@ export function IssuesBoard({
   const projectWebUrl = project.webUrl || repository.webUrl || repository.url
     || (gitBaseUrl && projectPath ? `${gitBaseUrl}/${projectPath.replace(/^\/+/, "")}` : "")
   const issueHref = (issueNumber: number) => issueWebUrl(projectWebUrl, gitServer.type, issueNumber)
+  const reviewHref = (issueNumber: number, artifactType: "decision" | "plan") => (
+    `/repos/${encodeURIComponent(gitServer.id)}/${encodeURIComponent(repository.serverRepoId || project.id)}/plan/${issueNumber}/${artifactType}`
+  )
 
   return (
     <div className="issue-board">
@@ -80,7 +102,7 @@ export function IssuesBoard({
         </div>
       </header>
       {viewMode === "board" ? (
-        <IssuesKanban groupedIssues={grouped} issueHref={issueHref} />
+        <IssuesKanban groupedIssues={grouped} issueHref={issueHref} reviewArtifacts={reviewArtifacts} reviewHref={reviewHref} />
       ) : (
         <IssuesList
           issues={filteredIssues}
@@ -89,6 +111,8 @@ export function IssuesBoard({
           activeFilterCount={activeFilterCount}
           onFilters={setFilters}
           issueHref={issueHref}
+          reviewArtifacts={reviewArtifacts}
+          reviewHref={reviewHref}
         />
       )}
     </div>

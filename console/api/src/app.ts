@@ -15,6 +15,7 @@ import { sessionRoutes } from "./routes/session.js"
 import { setupRoutes } from "./routes/setup.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { userGitPatRoutes } from "./routes/user/git-pats.js"
+import { visualArtifactRoutes } from "./routes/visual-artifacts.js"
 import { gitlabWebhookRoutes } from "./routes/webhooks/gitlab.js"
 import { attachAgentrixForwardServer } from "./core/agentrix-forward.js"
 import { errorResponse } from "./core/responses.js"
@@ -125,7 +126,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(cors, {
     origin: (origin, callback) => callback(null, allowedOrigin(origin || "")),
     credentials: true,
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -149,6 +150,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(userGitPatRoutes)
   await app.register(repositoryRoutes)
   await app.register(insightsRoutes)
+  await app.register(visualArtifactRoutes)
   await app.register(dashboardRoutes)
   await app.register(gitlabRoutes)
   await app.register(gitlabWebhookRoutes)

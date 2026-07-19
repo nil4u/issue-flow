@@ -9,9 +9,9 @@ metadata:
 
 # Issue Flow
 
-issue-flow 定义了一套基于 issue 和 PR/MR 的 agent 自动化开发流程。
+issue-flow 定义了一套基于 issue、Plan 审批和 Build PR/MR 的 agent 自动化开发流程。
 
-Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态机的 source of truth。PR/MR 是 human review 和审批介入的关键环节；agent 通过 PR/MR 提交 plan/build 产物，merge 后再推进 source issue。
+Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态机的 source of truth。Plan 默认使用 Markdown 审阅；只有 issue 带 `feature:visual-plan:on` 时才使用 Decision/Visual Plan 页面。实际代码始终通过 Build PR/MR 审批。
 
 在 issue-flow 下工作时，agent-facing provider 操作必须使用统一入口：
 
@@ -38,10 +38,11 @@ issue-flow <resource> <action> [options]
 | `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops` |
 | `status::` | Issue | 生命周期状态 | `active`, `done`, `drop`, `suspend` |
 | `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `clarify`, `approve` |
+| `feature:visual-plan:` | Issue | Visual Plan opt-in；未设置时使用 Markdown | `on` |
 | `automation::` | Issue | 允许自动化推进到的级别，或显式关闭 | `off`, `plan`, `build` |
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
 | `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
-| `mr-by::` | PR/MR | 标记 PR/MR 来源动作 | `plan`, `build` |
+| `mr-by::` | PR/MR | 标记 Decision、Visual/Markdown Plan 或 Build PR/MR 的来源动作 | `plan`, `build` |
 
 详情请参考：`references/labels.md`。
 
@@ -78,7 +79,9 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr get --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --title "Plan #123: Add auth" --body-file <tmp-pr-body-file>
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --artifact decision
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --artifact plan
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build --issue 123 --title "Build #123: Add auth" --body-file <tmp-pr-body-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments list --pr 45
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
@@ -87,7 +90,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 ```
 
-`--body-file` 用 repo 外临时文件（如 `mktemp`）；不要提交 PR body 文件。
+`pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
 ### Labels 和 Dispatch
 
@@ -116,19 +119,36 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-fi
 # 实现路径已确定的简单改动，直接进入 build：
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
   --type type::feature --priority priority::p1 --flow flow::build --automation automation::build
-# 需要先规划，plan PR 合并后自动续推到 build：
+# 需要先规划；默认使用 Markdown Plan：
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
   --type type::feature --priority priority::p1 --flow flow::plan --automation automation::build
+
+# 为单个 issue 开启 Visual Plan：
+node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+  --visual-plan-feature feature:visual-plan:on
+
+# 切回默认 Markdown Plan：
+node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+  --clear-visual-plan-feature
 ```
 
-### Plan → Submit
+### Plan → Submit / Publish
 
 ```bash
-# 1. 编写 plan，输出到文件
-# 2. 提交 PR/MR
+# 默认（无 feature:visual-plan:on）：提交 Markdown Plan：
 node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
-  --issue 123 --title "Plan #123: Add auth" --body-file <tmp-body-file>
+  --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
+
+# feature:visual-plan:on 且有阻塞选择时只发布 Decision：
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
+  --issue 123 --artifact decision
+
+# feature:visual-plan:on 且无阻塞选择或 Decision 已批准时发布 Plan：
+node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
+  --issue 123 --artifact plan
 ```
+
+Markdown Plan 与 Visual Plan 的等待审批与已批准状态分别由 open/merged Plan MR 表示。Visual 模式下，Decision 提交后使用 `flow::clarify`；修改意见和批准结果都评论在同一个 open Plan MR，批准评论把 Issue 转到 `flow::plan` 并恢复原 Plan task。Plan task 继续使用同一分支和 MR 发布 Visual Plan；Plan 批准后合并 MR并进入 `flow::build`。
 
 ### Build → Submit
 

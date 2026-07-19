@@ -146,6 +146,24 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.doesNotMatch(prompt, /Plan root directory/);
 });
 
+test('agentrix plan prompt enables visual artifacts only with the issue feature label', () => {
+  const prompt = agentrix.buildPrompt('plan', {
+    number: 42,
+    labels: ['type::bug', 'size::M', 'feature:visual-plan:on'],
+    title: 'Broken login',
+    body: 'Cannot log in.',
+  }, {}, { planRootDir: '.issue-flow/issues' });
+
+  assert.match(prompt, /Decision 或根因修复 Visual Plan/);
+  assert.match(prompt, /Plan output JSON: `\.issue-flow\/issues\/42-broken-login\/plan\/data\/plan-data\.json`/);
+  const visualBriefPath = path.join(os.tmpdir(), 'issue-flow', 'visual-plan', '42-broken-login', 'visual-brief.md').replace(/\\/g, '/');
+  assert.equal(prompt.includes(`Temporary visual brief (do not commit): \`${visualBriefPath}\``), true);
+  assert.doesNotMatch(prompt, /plan\/data\/visual-brief\.md/);
+  assert.match(prompt, /--artifact <decision\|plan>/);
+  assert.doesNotMatch(prompt, /PR body:/);
+  assert.match(prompt.trimEnd(), /skills\/vision-plan\/SKILL\.md`$/);
+});
+
 test('agentrix build prompt injects build context without plan output section', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
     const prompt = agentrix.buildPrompt(
@@ -174,6 +192,39 @@ test('agentrix build prompt injects build context without plan output section', 
     assert.doesNotMatch(prompt, /## Plan Output/);
     assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
   });
+});
+
+test('agentrix build prompt provides only the visual plan JSON path', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-visual-build-'));
+  try {
+    const planDir = path.join(root, '42-add-export-button', 'plan');
+    fs.mkdirSync(path.join(planDir, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(planDir, 'data', 'plan-data.json'), '{not parsed by runtime');
+    fs.writeFileSync(path.join(planDir, '001-implementation.md'), '# Markdown plan\n');
+
+    const visualPrompt = agentrix.buildPrompt('build', {
+      number: 42,
+      labels: ['type::feature', 'flow::build', 'feature:visual-plan:on'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }, {}, { planRootDir: root });
+    assert.match(visualPrompt, /plan\/data\/plan-data\.json/);
+    assert.doesNotMatch(visualPrompt, /\*\*Core outcome\*\*: Add export/);
+    assert.doesNotMatch(visualPrompt, /visual-brief\.md/);
+    assert.doesNotMatch(visualPrompt, /not parsed by runtime/);
+    assert.doesNotMatch(visualPrompt, /001-implementation\.md/);
+
+    const markdownPrompt = agentrix.buildPrompt('build', {
+      number: 42,
+      labels: ['type::feature', 'flow::build'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }, {}, { planRootDir: root });
+    assert.match(markdownPrompt, /001-implementation\.md/);
+    assert.doesNotMatch(markdownPrompt, /plan-data\.json/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('agentrix build prompt accepts current GitLab bridge base ref', () => {
@@ -408,6 +459,19 @@ test('agentrix task marker uses issue-flow namespace', () => {
     agentrix.buildTaskCommentMarker('task_resume', { reviewComment: { id: 101, reviewId: 9 } }),
     '<!-- issue-flow:agentrix:task:resume-review-comment:review:9 -->'
   );
+  const visualResumeComment = agentrix.buildTaskComment(
+    'task_resume',
+    { status: 'dry-run', runId: 'task-plan' },
+    {
+      agentrixTaskId: 'task-plan',
+      issueTask: { action: 'plan', taskId: 'task-plan' },
+      comment: { htmlUrl: 'https://github.com/example/platform/issues/42#issuecomment-501' },
+    }
+  );
+  assert.match(visualResumeComment, /^Action: `plan`$/m);
+  assert.match(visualResumeComment, /^Run: `task-plan`$/m);
+  assert.match(visualResumeComment, /Trigger: https:\/\/github\.com\/example\/platform\/issues\/42#issuecomment-501/);
+  assert.doesNotMatch(visualResumeComment, /^Agentrix task:/m);
   assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
 });
 
@@ -425,7 +489,11 @@ test('agentrix extracts only resumable issue tasks from task comments', () => {
   const taskComment = {
     id: 300,
     html_url: 'https://github.com/example/platform/issues/42#issuecomment-300',
-    body: agentrix.buildTaskComment('plan', { status: 'dry-run', runId: 'task-plan' }),
+    body: agentrix.buildTaskComment('plan', {
+      status: 'queued',
+      runId: 'task-plan',
+      detailUrl: 'https://agentrix.example/tasks/task-plan',
+    }),
   };
 
   assert.deepEqual(agentrix.extractIssueTaskFromTaskComment(taskComment), {
@@ -433,6 +501,7 @@ test('agentrix extracts only resumable issue tasks from task comments', () => {
     taskId: 'task-plan',
     commentId: '300',
     commentUrl: 'https://github.com/example/platform/issues/42#issuecomment-300',
+    detailUrl: 'https://agentrix.example/tasks/task-plan',
   });
   assert.equal(
     agentrix.extractIssueTaskFromTaskComment(agentrix.buildTaskComment('triage', { status: 'starting' })),

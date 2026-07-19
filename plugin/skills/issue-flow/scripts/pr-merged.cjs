@@ -17,6 +17,8 @@ const MERGED_PR_TRANSITIONS = {
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i;
+const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const PLAN_ARTIFACT_MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\b[^>]*-->/i;
 
 function usage() {
   return [
@@ -102,7 +104,17 @@ function pullRequestLabels(pullRequest) {
   return Array.isArray(pullRequest.labels) ? pullRequest.labels.map(normalizeLabelName).filter(Boolean) : [];
 }
 
-function resolveMergedPrTransition(labels) {
+function parsePlanArtifact(body = '') {
+  const match = String(body || '').match(PLAN_ARTIFACT_MARKER_PATTERN);
+  return match ? { artifact: match[1].toLowerCase(), format: match[2].toLowerCase() } : undefined;
+}
+
+function parseAgentrixTaskId(body = '') {
+  const match = String(body || '').match(AGENTRIX_TASK_MARKER_PATTERN);
+  return match ? match[1].trim() : '';
+}
+
+function resolveMergedPrTransition(labels, pullRequest = {}) {
   const matches = Object.entries(MERGED_PR_TRANSITIONS).filter(([, transition]) => labels.includes(transition.label));
   if (matches.length === 0) {
     return undefined;
@@ -111,9 +123,23 @@ function resolveMergedPrTransition(labels) {
     throw new Error(`Pull request has multiple issue-flow source labels: ${matches.map(([, transition]) => transition.label).join(', ')}`);
   }
   const [kind, transition] = matches[0];
+  const planArtifact = kind === 'plan' ? parsePlanArtifact(pullRequest.body) : undefined;
+  if (planArtifact && planArtifact.artifact === 'decision') {
+    return {
+      kind: 'decision',
+      label: transition.label,
+      flow: 'flow::plan',
+      artifact: planArtifact.artifact,
+      format: planArtifact.format,
+    };
+  }
   return {
     kind,
     ...transition,
+    ...(planArtifact ? {
+      artifact: planArtifact.artifact,
+      format: planArtifact.format,
+    } : {}),
   };
 }
 
@@ -171,7 +197,12 @@ function parseSourceIssueNumber(pullRequest) {
 function normalizeMergeRequestPayload(payload, options = {}) {
   const provider = resolveProvider(options, payload);
   if (provider.name === 'github') {
-    return payload.pull_request || {};
+    const pullRequest = payload.pull_request || {};
+    return {
+      ...pullRequest,
+      number: pullRequest.number,
+      url: pullRequest.html_url || '',
+    };
   }
 
   const attrs = payload.object_attributes || {};
@@ -180,6 +211,8 @@ function normalizeMergeRequestPayload(payload, options = {}) {
     labels: payload.labels || attrs.labels || [],
     body: typeof attrs.description === 'string' ? attrs.description : '',
     title: typeof attrs.title === 'string' ? attrs.title : '',
+    number: attrs.iid,
+    url: attrs.url || '',
     head: {
       ref: typeof attrs.source_branch === 'string' ? attrs.source_branch : '',
     },
@@ -265,7 +298,7 @@ async function runPrMerged(options) {
   }
 
   const labels = pullRequestLabels(pullRequest);
-  const transition = resolveMergedPrTransition(labels);
+  const transition = resolveMergedPrTransition(labels, pullRequest);
   if (!transition) {
     console.log('Merge request does not have an issue-flow source label; ignored.');
     return {
@@ -293,6 +326,12 @@ async function runPrMerged(options) {
     status: transition.status,
     clearFlow: Boolean(transition.clearFlow),
     label: transition.label,
+    artifact: transition.artifact,
+    format: transition.format,
+    taskId: parseAgentrixTaskId(pullRequest.body),
+    pullRequestNumber: pullRequest.number,
+    pullRequestUrl: pullRequest.url || '',
+    pullRequestBody: pullRequest.body || '',
   };
   console.log(JSON.stringify(result, null, 2));
   return result;
@@ -315,6 +354,8 @@ module.exports = {
   main,
   normalizeMergeRequestPayload,
   parseArgs,
+  parseAgentrixTaskId,
+  parsePlanArtifact,
   parseSourceIssueNumber,
   pullRequestLabels,
   resolveMergedPrTransition,

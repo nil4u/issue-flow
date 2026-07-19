@@ -63,6 +63,17 @@ Size labels also define Weighted Throughput: for completed issues in a time wind
 
 Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
 
+## Visual Decision and Plan
+
+The default plan stage remains the Markdown Plan PR/MR flow. Add `feature:visual-plan:on` to an issue to use the installed `vision-plan` skill; without that opt-in label, Issue Flow uses Markdown mode.
+
+Visual artifacts are created under `.issue-flow/issues/{issue-number}-{slug}/`. Decision is optional; Decision and Plan are separate pages:
+
+- `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/decision`
+- `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/plan`
+
+Decision, Visual Plan, and Markdown Plan all use an `mr-by::plan` PR/MR whose body links to the Engine page. Drafts and review history are stored in browser LocalStorage by repository, issue, and Decision/Plan type. Issue Flow reads the published commit through the configured GitHub or GitLab provider API and uses the current signed-in user's OAuth token for review comments and Plan merge approval. Decision approval comments on the still-open MR and resumes the original Plan task; the task updates the same branch and MR with the Visual Plan. Plan approval merges that MR and moves the issue to `flow::build`. Build always creates the normal Build PR/MR.
+
 ## Release Management
 
 `main` is the release branch. Pushes to `main` run Release Please, which opens or updates release PRs from Conventional Commit history. The plugin and the console are released independently:
@@ -99,7 +110,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 
 ## What It Installs
 
-- `.agentrix/plugins/issue-flow/` - plugin manifest, minimal runtime skill, scripts, and default prompts/templates
+- `.agentrix/plugins/issue-flow/` - plugin manifest, Issue Flow and Vision Plan skills, scripts, and default prompts/templates
 - `.github/workflows/issue-flow-labels.yml` - automatic provider label synchronization after install or upgrade pushes
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
@@ -287,7 +298,7 @@ Startup environment reference:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Yes | PostgreSQL connection string used by Prisma. |
-| `ISSUE_FLOW_BASE_URL` | Yes | Public API origin. GitLab OAuth callback and Agentrix event-forward WebSocket URLs are derived from this value. |
+| `ISSUE_FLOW_BASE_URL` | Yes | Public Issue Flow origin. GitLab OAuth callbacks, Agentrix event-forward WebSocket URLs, and Visual Decision/Plan URLs are derived from this value. |
 | `ISSUE_FLOW_APP_URL` | Production | Web console origin used for CORS and post-login redirects. Multiple origins can be comma-separated; the first one is used as the redirect target. |
 | `ISSUE_FLOW_WEB_API_BASE_URL` | Web build/dev | Browser-facing API origin injected into the web console. |
 | `ISSUE_FLOW_SERVICE_KEY` / `ISSUE_FLOW_SERVICE_KEY_FILE` | Production | Stable encryption key for OAuth sessions and stored Agentrix secrets. Prefer `ISSUE_FLOW_SERVICE_KEY_FILE` with persistent storage. |

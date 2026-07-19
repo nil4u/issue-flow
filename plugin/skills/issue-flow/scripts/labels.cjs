@@ -82,6 +82,13 @@ const MANAGED_LABEL_GROUPS = {
       },
     ],
   },
+  visualPlanFeature: {
+    prefix: 'feature:visual-plan:',
+    scope: 'issue',
+    labels: [
+      { name: 'feature:visual-plan:on', color: '5319E7', description: 'Use Visual Decision and Visual Plan for this issue' },
+    ],
+  },
   automation: {
     prefix: 'automation::',
     scope: 'issue',
@@ -94,12 +101,12 @@ const MANAGED_LABEL_GROUPS = {
       {
         name: 'automation::plan',
         color: '7057FF',
-        description: 'Automation may create plan PRs/MRs',
+        description: 'Automation may execute the configured plan flow',
       },
       {
         name: 'automation::build',
         color: '006B75',
-        description: 'Automation may create plan and build PRs/MRs',
+        description: 'Automation may execute the configured plan flow and create build PRs/MRs',
       },
     ],
   },

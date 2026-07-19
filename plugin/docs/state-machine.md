@@ -2,119 +2,100 @@
 
 ## 核心流程
 
-```
+```text
 Issue Created
     │
     ▼
 [intake] → status::active + flow::triage
     │
     ▼
-flow::triage ──(triage agent)──┬── flow::plan
-                               ├── flow::build (简单直接)
-                               ├── flow::clarify (缺信息)
-                               ├── status::done (已解决)
-                               └── status::drop (不处理)
+flow::triage ──(triage agent)──┬── flow::clarify
+                               ├── flow::plan
+                               ├── flow::build（简单且无需方案审批）
+                               ├── status::suspend / status::drop
+                               └── status::done
     │
     ▼
-flow::plan ──(plan agent)──┬── flow::approve (提交 plan PR)
-                           └── flow::clarify (缺信息)
+flow::plan ──(plan agent)──┬── 默认（无 Visual Plan opt-in）
+                           │     └── Markdown Plan MR → flow::approve
+                           │           ├── 修改请求 → 评论 MR + resume Plan task
+                           │           └── approve → merge → flow::build
+                           └── feature:visual-plan:on
+                                 ├── 可选 Decision → 同一 Plan MR + flow::clarify
+                                 └── Visual Plan → 同一 Plan MR + flow::approve
+
+Decision 审阅：
+  讨论/修改 → 评论 Plan MR + flow::clarify
+            → resume 原 Plan task 修改 Decision
+  全部通过 → 当前页面用户评论 Plan MR，不合并
+            → flow::plan
+            → review-comment pipeline resume 原 Plan task
+            → 原分支和原 MR 更新为 Visual Plan
+
+Visual Plan 审阅：
+  修改请求 → 评论 Plan MR + flow::approve
+           → resume 原 Plan task 修改 Plan
+  Approve → 当前页面用户 merge Plan MR
+          → flow::build
+  合并失败/冲突 → 保持 MR open + flow::approve
+
+flow::build ──(build agent)── build PR/MR → flow::approve
     │
     ▼
-flow::approve ──(人工审批)──┬── merge plan PR → flow::build
-                           └── 关闭/拒绝
-    │
-    ▼
-flow::build ──(build agent)──┬── flow::approve (提交 build PR)
-                             └── flow::clarify (缺信息)
-    │
-    ▼
-flow::approve ──(人工审批)──┬── merge build PR → status::done + clear flow
-                           └── 关闭/拒绝
+merge build PR/MR → status::done + clear flow
 ```
 
-## 流转触发方式
+Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan 页面并由 provider Markdown API 渲染：
 
-### 自动流转（由统一 CLI 确定性执行）
+- `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/decision`
+- `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/plan`
 
-| 触发条件 | 命令 | 结果 |
-|----------|------|------|
-| submit plan PR | `issue-flow pr submit plan` | source issue → `flow::approve` |
-| submit build PR | `issue-flow pr submit build` | source issue → `flow::approve` |
-| merge `mr-by::plan` PR | `issue-flow pr merged` | source issue → `flow::build` |
-| merge `mr-by::build` PR | `issue-flow pr merged` | source issue → `status::done` + clear flow |
-| 新 issue 缺默认 label | `issue-flow issue intake` | 添加 `status::active` + `flow::triage` |
-| AI 讨论已形成需求 | `issue-flow issue create` | 创建标准化 issue，可直接带 `status::active` + `flow::*` 或 `automation::off` |
+两种模式的产物都保存在 `.issue-flow/issues/{issue-number}-{slug}/`，Plan 分支继续沿用 `{issue-number}-{slug}/plan` 规则。未设置开关时默认 Markdown 模式，以保持已有线上行为。Decision 和后续 Visual Plan 更新同一个分支与 `mr-by::plan` PR/MR；Markdown Plan 使用相同的 Plan MR 规则；Build PR/MR 保持不变。
 
-### Agent 主动流转（通过统一 CLI）
+## 发布与审阅
 
-Agent 根据自己的判断决定流转方向，通过 `issue-flow issue apply` 执行：
+| 动作 | 结果 |
+|------|------|
+| 提交 Markdown Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `flow::approve` |
+| 提交 Markdown Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
+| Approve Markdown Plan | 页面当前用户 merge MR；`flow::build` |
+| 提交 Decision | MR body 写入 Decision Engine URL；`mr-by::plan` + `flow::clarify` |
+| 提交 Decision 讨论/修改 | 审阅记录写入 LocalStorage、评论同一个 Plan MR 并 resume 原 Plan task；保持 `flow::clarify` |
+| 提交 Decision 全部通过 | 清除 Decision 本地记录、评论同一个 Plan MR；`flow::plan`；review-comment pipeline resume 原 Plan task，不合并 MR |
+| 提交 Visual Plan JSON | 删除已完成的 Decision JSON，更新同一分支/MR；Engine 内置渲染；`flow::approve` |
+| 提交 Visual Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
+| Approve Visual Plan | 清除 Plan 本地记录并 merge Plan MR；`flow::build` |
+| Plan 合并失败 | 保持 MR open 和当前 `flow::approve` 状态 |
+| 提交 Build PR/MR | `mr-by::build` + `flow::approve` |
+| 合并 Build PR/MR | `status::done` + clear `flow::` |
 
-```bash
-# triage 完成，进入 plan
-issue-flow issue apply --issue 123 --flow flow::plan --type type::feature --size size::M
+Engine 页面保留元素锚点、`data-ref`、`data-comment-scope`、点/区域标注、Decision Approve/Discuss、草稿增删改、Review Submit 和历史记录。Agent 只提交 Decision/Plan JSON；Engine 根据 JSON 使用固定组件、统一布局和统一样式生成 HTML、CSS、JavaScript、图形和评论锚点。草稿与已提交审阅按 repository、issue、Decision/Plan 分区保存在浏览器 LocalStorage；Approve 后删除对应分区。提交审阅时使用页面当前登录用户的 OAuth token 评论对应 PR/MR，只有 Plan Approve 使用同一身份合并。JSON 产物由 Issue Flow 服务通过 GitHub/GitLab provider API 按 MR marker 中的 commit 读取。
 
-# 信息不足，需要人工补充
-issue-flow issue apply --issue 123 --flow flow::clarify
+## Build 输入
 
-# issue 已经解决了
-issue-flow issue apply --issue 123 --status status::done --clear-flow
-```
-
-进入 `flow::plan` 或 `flow::build` 前，最终 issue labels 必须有且仅有一个 `size::`。`issue create` 如果直接设置 `flow::plan` / `flow::build`，同一次请求必须传 `--size size::<value>`；`issue apply` 设置 `flow::plan` / `flow::build` 时会按最终 labels 校验唯一 size；`pr submit plan/build` 在 push 和创建 PR/MR 前会再次读取 source issue 校验 size。缺失时由 agent 根据标题、正文、评论和仓库上下文补打；无法判断时用 `size::M` 并留下低置信度说明。多个 size 会阻断流转，必须先修正为一个。
+Visual Plan Approve 后，Runtime 只向 Build Agent 提供已合并到默认分支的 `plan/data/plan-data.json` 仓库路径，由 Build Agent 自行读取完整结构化内容；不会把 JSON 正文或 `visual-brief.md` 注入提示词，也不从 HTML 抓取文字。`visual-brief.md` 仅用于 Plan Agent 生成方案时自检和组织视觉模型，保存在 Runtime 注入的系统临时目录中，不属于仓库产物。Markdown 模式继续读取 `plan/*.md`。
 
 ## 路由决策
 
-`resolve.cjs` 提供纯决策逻辑（无副作用）：
+`resolve.cjs` 仍提供无副作用的 auto/resume 决策。可自动执行的 flow 为 `triage`、`plan`、`build`；`clarify` 和 `approve` 是人工 gate。进入 `flow::plan` 或 `flow::build` 前，issue 必须有且仅有一个 `size::` label。
 
-### auto 决策
+有效自动化级别优先使用 issue 上的 `automation::` label；未设置时使用 `ISSUE_FLOW_AUTO_DEFAULT`。`automation::off` 禁止自动 intake 和自动推进。
 
-输入：issue 当前状态
-输出：shouldRun + action + reason
+## Plan 模式开关
 
-决策规则：
-1. 非 open 状态 → skip (reason: issue_not_open)
-2. 无 status:: label → skip (reason: missing_status_label)
-3. `status::done/drop/suspend` → skip
-4. status 不是 `status::active` → skip (reason: status_not_active)
-5. 无 flow:: label → skip (reason: missing_flow_label)
-6. flow:: 不是可执行的 → skip (reason: unsupported_flow)
-7. plan/build 且存在多个 `size::` → skip (code: multiple_size_labels)
-8. `automation::off` → skip (reason: automation_off)
-9. 有效自动化级别 < 所需级别 → skip (reason: automation_level_too_low)
-10. 通过 → shouldRun: true, action: triage/plan/build
+- `feature:visual-plan:on`：启用 Decision/Visual Plan。
+- 无该标签：使用 Markdown Plan PR/MR。
 
-有效自动化级别优先使用 issue 上的 `automation::` label；issue 未设置时才使用 `ISSUE_FLOW_AUTO_DEFAULT`。`automation::off` 也会让 intake 跳过默认 `status::active` / `flow::triage` 补标。labeled 事件只有新增 `flow::*`、`automation::plan`、`automation::build` 或 `status::active` 时才进入自动路由；`type::*`、`priority::*`、`size::*`、unmanaged label 和 `automation::off` 不单独触发 agent。
-
-### resume 决策
-
-输入：issue 当前 labels
-输出：shouldRun + action
-
-决策规则：
-1. 终态 status → skip
-2. 无 flow:: label → skip
-3. flow:: 不可执行 → skip
-4. 通过 → action = flow 对应的 command
-
-## Merge 转移表
+Decision、Visual Plan 和 Markdown Plan 都使用 `mr-by::plan` PR/MR。Decision 和 Visual Plan 使用同一个 open MR；Plan 提交会将 MR body marker 从 Decision 更新为 Plan。
 
 | PR/MR Label | Merge 后 Source Issue 变化 |
 |-------------|--------------------------|
-| `mr-by::plan` | `flow::build` |
+| `mr-by::plan` + Decision marker | 非预期手工 merge 时回到 `flow::plan` |
+| `mr-by::plan` + Visual Plan marker | `flow::build` |
+| `mr-by::plan` + Markdown Plan marker | `flow::build` |
 | `mr-by::build` | `status::done` + clear `flow::` |
 
-Source issue 通过以下优先级确定：
-1. PR body 中的 `<!-- issue-flow:source-issue=123 -->` marker
-2. PR body 中的 `Source issue: #123` 文本
-3. PR title 中的 `Plan #123` / `Build #123` 模式
-4. Branch 名中的 `123-slug/plan` / `123-slug/build` 模式
-
-## Gate Flow
-
-以下 flow 不会被自动化执行，需要人工介入：
-
-- `flow::clarify` — agent 缺少信息，需人工回答
-- `flow::approve` — plan/build PR 等待人工审批
+Source issue 仍按 marker、body 文本、标题和 branch 名解析。
 
 ## Weighted Throughput
 

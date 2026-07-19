@@ -46,7 +46,7 @@ child_process.execFile = fakeExecFile;
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test';
 
 require('tsx/cjs');
-const { installGitlabPluginMergeRequest } = require('../src/core/gitlab-bootstrap.ts');
+const { configureVisualPlan, installGitlabPluginMergeRequest } = require('../src/core/gitlab-bootstrap.ts');
 
 const realFetch = global.fetch;
 test.after(() => {
@@ -86,6 +86,35 @@ function gitCalls(subcommand) {
 function installScriptCalls() {
   return execState.calls.filter((call) => call.file === 'sh');
 }
+
+test('visual plan install config stores repository id and Issue Flow base URL', () => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'issue-flow-visual-config-'));
+  try {
+    const configDir = path.join(root, '.issue-flow');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+      visionPlan: { publicUrl: 'https://old.example', extra: 'preserved' },
+    }));
+
+    configureVisualPlan(root, {
+      repositoryId: 'repo_123',
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      issueFlowBaseUrl: 'https://flow.example/',
+    });
+
+    const config = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
+    assert.deepEqual(config.visionPlan, {
+      extra: 'preserved',
+      repositoryId: 'repo_123',
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      baseUrl: 'https://flow.example',
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 const conflictPlan = {
   fingerprint: 'fp-1',

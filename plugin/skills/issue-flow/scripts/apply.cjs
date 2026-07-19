@@ -16,6 +16,8 @@ function usage() {
     '  --status <status::...>',
     '  --flow <flow::...>',
     '  --clear-flow         Remove any existing flow:: label without adding a new one.',
+    '  --visual-plan-feature <feature:visual-plan:on>',
+    '  --clear-visual-plan-feature  Remove the Visual Plan opt-in label.',
     '  --automation <automation::...>',
     '  --clear-automation   Remove any existing automation:: label without adding a new one.',
     '  --priority <priority::...>',
@@ -50,6 +52,10 @@ function parseArgs(argv) {
     }
     if (arg === '--clear-flow') {
       options.clearFlow = true;
+      continue;
+    }
+    if (arg === '--clear-visual-plan-feature') {
+      options.clearVisualPlanFeature = true;
       continue;
     }
     if (arg === '--clear-automation') {
@@ -127,6 +133,9 @@ function collectClearKeys(options) {
   const clearKeys = [];
   if (options.clearFlow) {
     clearKeys.push('flow');
+  }
+  if (options.clearVisualPlanFeature) {
+    clearKeys.push('visualPlanFeature');
   }
   if (options.clearAutomation) {
     clearKeys.push('automation');
@@ -234,10 +243,6 @@ async function main(argv = process.argv.slice(2)) {
     console.log(usage());
     return 0;
   }
-  if (options.plan) {
-    throw new Error('--plan is no longer supported. Use --flow flow::plan or --flow flow::build.');
-  }
-
   const issueNumber = parsePositiveInteger(options.issueNumber || options.issue, '--issue-number');
   const repoHint = resolveRepoHint(options);
   const provider = resolveProvider({ ...options, repo: repoHint }, {});

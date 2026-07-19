@@ -8,6 +8,26 @@ variables:
   tags:
     - issue-flow
 
+issue-flow-labels:
+  extends: .issue-flow-runner
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - .agentrix/plugins/issue-flow/**/*
+        - .issue-flow/**/*
+        - .gitlab/issue-flow.gitlab-ci.yml
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
+
 issue-flow-auto:
   extends: .issue-flow-runner
   stage: build

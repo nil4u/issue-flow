@@ -687,7 +687,7 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   };
 }
 
-async function resumeTaskForReviewComment(pr, taskId, instruction, options = {}, data = {}) {
+async function resumeTaskForReviewComment(target, taskId, instruction, options = {}, data = {}) {
   const action = 'task_resume';
   const runtime = loadRuntime(options);
   if (typeof runtime.resumeTask !== 'function') {
@@ -696,30 +696,41 @@ async function resumeTaskForReviewComment(pr, taskId, instruction, options = {},
 
   const taskData = {
     ...data,
-    pullRequest: pr,
+    ...(data.issueTask ? { issue: target } : { pullRequest: target }),
     agentrixTaskId: taskId,
   };
-  const result = runtime.resumeTask(taskId, instruction, options, taskData);
-  return {
-    action,
-    result,
-  };
-}
-
-async function resumeTaskForIssueComment(issue, issueTask, instruction, options = {}, data = {}) {
-  const action = 'task_resume';
-  const runtime = loadRuntime(options);
-  if (typeof runtime.resumeTask !== 'function') {
-    throw new Error('Runtime does not support task resume');
+  let taskComment;
+  if (data.issueTask) {
+    taskComment = await createIssueComment(target, runtime.buildTaskComment(action, {
+      status: 'queued',
+      runId: taskId,
+      detailUrl: data.issueTask.detailUrl,
+    }, taskData), options);
   }
 
-  const taskData = {
-    ...data,
-    issue,
-    issueTask,
-    agentrixTaskId: issueTask.taskId,
-  };
-  const result = runtime.resumeTask(issueTask.taskId, instruction, options, taskData);
+  let result;
+  try {
+    result = runtime.resumeTask(taskId, instruction, options, taskData);
+  } catch (error) {
+    if (taskComment && taskComment.id) {
+      try {
+        await deleteIssueComment(target, taskComment.id, options);
+      } catch (deleteError) {
+        const detail = deleteError instanceof Error ? deleteError.message : String(deleteError);
+        console.warn(`Unable to delete failed issue-flow resume comment; continuing. ${detail}`);
+      }
+    }
+    throw error;
+  }
+
+  if (data.issueTask && taskComment && taskComment.id) {
+    const commentBody = runtime.buildTaskComment(action, {
+      ...result,
+      runId: taskId,
+      detailUrl: result.detailUrl || data.issueTask.detailUrl,
+    }, taskData);
+    await updateIssueComment(target, taskComment.id, commentBody, options);
+  }
   return {
     action,
     result,
@@ -729,6 +740,17 @@ async function resumeTaskForIssueComment(issue, issueTask, instruction, options 
 function getSingleFlowLabel(issue = {}) {
   const flowLabels = normalizeLabels(issue.labels).filter((label) => label.startsWith('flow::'));
   return flowLabels.length === 1 ? flowLabels[0] : '';
+}
+
+function getPullRequestTaskAction(pr = {}) {
+  const labels = normalizeLabels(pr.labels);
+  if (labels.includes('mr-by::plan')) {
+    return 'plan';
+  }
+  if (labels.includes('mr-by::build')) {
+    return 'build';
+  }
+  return 'task_resume';
 }
 
 function listResumableIssueTasks(comments, runtime) {
@@ -756,6 +778,12 @@ function shouldSkipPullRequestReview(pr) {
   return '';
 }
 
+function shouldCheckForResumableVisualPlanTask(issue = {}) {
+  const labels = normalizeLabels(issue.labels);
+  return labels.includes('feature:visual-plan:on')
+    && labels.includes('flow::plan');
+}
+
 async function runAuto(options = {}, provided = {}) {
   const runtime = loadRuntime(options);
   const payload = provided.payload || loadEvent(options);
@@ -777,6 +805,19 @@ async function runAuto(options = {}, provided = {}) {
 
   let issue = provided.issue || buildIssueContext(payload, options);
   issue = await fetchCurrentIssue(issue, options);
+  if (shouldCheckForResumableVisualPlanTask(issue)) {
+    const planTasks = listResumableIssueTasks(await listIssueComments(issue, options), runtime)
+      .filter((task) => task.action === 'plan');
+    if (planTasks.length === 1) {
+      logIssueFlow('Automatic Plan start skipped because the Decision review resumes its original task', { issue: `#${issue.number}` });
+      return {
+        action: 'skipped',
+        reason: 'decision_review_resumes_original_task',
+        issueNumber: issue.number,
+        taskId: planTasks[0].taskId,
+      };
+    }
+  }
   const decision = resolveAutomationDecision(issue, runtime, options);
   if (!decision.shouldRun) {
     logIssueFlow('Automatic issue-flow skipped', {
@@ -846,6 +887,7 @@ async function runComment(options = {}, provided = {}) {
       reason: 'pull_request',
     };
   }
+  const comment = getCommentContext(payload, options);
   if (isBotComment(payload, options)) {
     logIssueFlow('Bot comment ignored');
     return {
@@ -854,7 +896,6 @@ async function runComment(options = {}, provided = {}) {
     };
   }
 
-  const comment = getCommentContext(payload, options);
   const route = runtime.extractMention(comment.body, options);
   if (!route.triggered) {
     logIssueFlow('No runtime mention found; ignored');
@@ -878,9 +919,10 @@ async function runComment(options = {}, provided = {}) {
             instruction: route.instruction,
           })
           : route.instruction;
-        const resume = await resumeTaskForIssueComment(currentIssue, issueTasks[0], instruction, options, {
+        const resume = await resumeTaskForReviewComment(currentIssue, issueTasks[0].taskId, instruction, options, {
           payload,
           issue: currentIssue,
+          issueTask: issueTasks[0],
           comment,
           instruction: route.instruction,
         });
@@ -929,6 +971,40 @@ async function runPrMerged(options = {}) {
     flow: transition.flow,
     status: transition.status,
   });
+  if (transition.kind === 'decision') {
+    if (!transition.taskId || !transition.pullRequestNumber) {
+      return {
+        transition,
+        autoResume: {
+          action: 'skipped',
+          reason: transition.taskId ? 'decision_merge_request_missing' : 'decision_task_missing',
+        },
+      };
+    }
+    const runtime = loadRuntime(options);
+    const instruction = typeof runtime.buildDecisionMergeResumeInstruction === 'function'
+      ? runtime.buildDecisionMergeResumeInstruction(transition)
+      : 'Decision MR 已批准并合并，请继续当前任务并生成 Plan MR。';
+    const pullRequest = {
+      provider: transition.provider,
+      owner: transition.sourceIssue.owner,
+      repo: transition.sourceIssue.repo,
+      repoFullName: transition.sourceIssue.repoFullName,
+      projectId: transition.sourceIssue.projectId,
+      number: transition.pullRequestNumber,
+      htmlUrl: transition.pullRequestUrl,
+      body: transition.pullRequestBody,
+      state: 'closed',
+      merged: true,
+    };
+    const autoResume = await resumeTaskForReviewComment(pullRequest, transition.taskId, instruction, options, {
+      pullRequest,
+      sourceIssueNumber: transition.issueNumber,
+      taskAction: 'plan',
+      decisionMerge: transition,
+    });
+    return { transition, autoResume };
+  }
   const autoResume = await runAuto(options, {
     payload: {},
     issue: transition.sourceIssue,
@@ -1096,6 +1172,7 @@ async function runReviewComment(options = {}, provided = {}) {
     currentPullRequest: currentPr,
     reviewComment,
     sourceIssueNumber,
+    taskAction: getPullRequestTaskAction(currentPr),
   });
   return {
     action: 'task_resume',
@@ -1193,7 +1270,6 @@ module.exports = {
   runReview,
   runReviewComment,
   runResume,
-  resumeTaskForIssueComment,
   resumeTaskForReviewComment,
   startAction,
   startPullRequestReview,

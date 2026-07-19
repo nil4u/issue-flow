@@ -20,6 +20,10 @@ function projectFileApiPath(projectIdOrPath, filePath) {
   return `${projectApiPath(projectIdOrPath)}/repository/files/${encodeURIComponent(filePath)}`;
 }
 
+function projectLabelApiPath(projectIdOrPath, labelName) {
+  return `${projectApiPath(projectIdOrPath)}/labels/${encodeURIComponent(labelName)}`;
+}
+
 function parseScopes(headers) {
   const scopeHeader = headers && typeof headers.get === 'function'
     ? headers.get('x-oauth-scopes') || headers.get('x-accepted-oauth-scopes') || ''
@@ -194,6 +198,69 @@ async function listGitlabIssues(input = {}) {
     if (!page) break;
   }
   return issues;
+}
+
+async function listGitlabProjectLabels(input = {}) {
+  const labels = [];
+  let page = 1;
+  while (page <= Number(input.maxPages || 10)) {
+    const params = new URLSearchParams({
+      per_page: String(input.perPage || 100),
+      page: String(page),
+    });
+    const result = await fetchJson(
+      'GET',
+      input.apiUrl,
+      `${projectApiPath(input.projectIdOrPath)}/labels?${params}`,
+      input.token,
+      { authType: input.authType, logger: input.logger }
+    );
+    if (Array.isArray(result.parsed)) labels.push(...result.parsed);
+    const nextPage = result.headers && result.headers.get && result.headers.get('x-next-page');
+    if (!nextPage) break;
+    page = Number(nextPage);
+    if (!page) break;
+  }
+  return labels;
+}
+
+function gitlabLabelPayload(definition = {}, update = false) {
+  const rawColor = String(definition.color || '').replace(/^#/, '').toUpperCase();
+  return {
+    ...(update ? { new_name: definition.name } : { name: definition.name }),
+    color: `#${rawColor}`,
+    description: String(definition.description || ''),
+  };
+}
+
+async function createGitlabProjectLabel(input = {}, definition = {}) {
+  const result = await fetchJson(
+    'POST',
+    input.apiUrl,
+    `${projectApiPath(input.projectIdOrPath)}/labels`,
+    input.token,
+    {
+      authType: input.authType,
+      logger: input.logger,
+      body: gitlabLabelPayload(definition),
+    }
+  );
+  return result.parsed || {};
+}
+
+async function updateGitlabProjectLabel(input = {}, definition = {}) {
+  const result = await fetchJson(
+    'PUT',
+    input.apiUrl,
+    projectLabelApiPath(input.projectIdOrPath, definition.name),
+    input.token,
+    {
+      authType: input.authType,
+      logger: input.logger,
+      body: gitlabLabelPayload(definition, true),
+    }
+  );
+  return result.parsed || {};
 }
 
 function gitlabOAuthRedirectUri(config, basePublicUrl) {
@@ -1068,6 +1135,7 @@ async function validateGitlabToken(input = {}) {
 }
 
 export {
+  createGitlabProjectLabel,
   createGitlabProjectAccessToken,
   createGitlabUserImpersonationToken,
   createGitlabRepositoryCommit,
@@ -1089,6 +1157,7 @@ export {
   gitlabOAuthRedirectUri,
   installGitlabWebhook,
   listGitlabIssues,
+  listGitlabProjectLabels,
   enableGitlabRunnerForProject,
   listGitlabRunners,
   listGitlabProjectRunners,
@@ -1096,6 +1165,7 @@ export {
   listGitlabProjects,
   projectApiPath,
   updateGitlabProjectMember,
+  updateGitlabProjectLabel,
   updateGitlabProjectRunnerSettings,
   upsertGitlabProjectMember,
   upsertGitlabProjectVariable,
