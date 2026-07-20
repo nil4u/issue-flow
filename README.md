@@ -69,10 +69,11 @@ The default plan stage remains the Markdown Plan PR/MR flow. Add `feature:visual
 
 Visual artifacts are created under `.issue-flow/issues/{issue-number}-{slug}/`. Decision is optional; Decision and Plan are separate pages:
 
-- `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/decision`
-- `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/plan`
+- `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}`
 
-Decision, Visual Plan, and Markdown Plan all use an `mr-by::plan` PR/MR whose body links to the Engine page. Drafts and review history are stored in browser LocalStorage by repository, issue, and Decision/Plan type. Issue Flow reads the published commit through the configured GitHub or GitLab provider API and uses the current signed-in user's OAuth token for review comments and Plan merge approval. Decision approval comments on the still-open MR and resumes the original Plan task; the task updates the same branch and MR with the Visual Plan. Plan approval merges that MR and moves the issue to `flow::build`. Build always creates the normal Build PR/MR.
+Decision、Visual Plan 和 Markdown Plan 共用同一个 Issue 级 URL，Issue Flow 根据当前 Plan MR marker 选择实际产物并渲染。
+
+Decision, Visual Plan, and Markdown Plan all use an `mr-by::plan` PR/MR whose body links to the Engine page. Each successful submit also replies on that PR/MR with the shared Engine URL. Drafts and review history are stored in browser LocalStorage by repository, issue, and Decision/Plan type. Issue Flow reads the published commit through the configured GitHub or GitLab provider API and uses the current signed-in user's OAuth token for review comments and Plan merge approval. Decision approval comments on the still-open MR and resumes the original Plan task; the task updates the same branch and MR with the Visual Plan. Plan approval merges that MR and moves the issue to `flow::build`. Build always creates the normal Build PR/MR.
 
 ## Release Management
 

@@ -127,6 +127,81 @@ export type GitLabProject = {
   permissionStatus?: string
 }
 
+export type MergeRequestUser = {
+  id: string
+  username: string
+  name: string
+  avatarUrl: string
+  url: string
+}
+
+export type MergeRequestSummary = {
+  id: string
+  number: number
+  title: string
+  body: string
+  bodyHtml?: string
+  state: string
+  draft: boolean
+  merged: boolean
+  author: MergeRequestUser
+  sourceBranch: string
+  targetBranch: string
+  headSha: string
+  webUrl: string
+  labels: string[]
+  commentsCount: number
+  commitsCount: number
+  changedFilesCount: number
+  additions: number
+  deletions: number
+  createdAt: string
+  updatedAt: string
+  mergedAt: string
+  closedAt: string
+  sourceIssueNumber: number
+  previewable: boolean
+  mergeable?: boolean | null
+  mergeStatus?: string
+  permissions?: { canMerge: boolean; canClose: boolean; canApprove: boolean; hasApproved: boolean }
+  approvedBy?: MergeRequestUser[]
+  diffRefs?: { baseSha: string; startSha: string; headSha: string }
+}
+
+export type MergeRequestFile = {
+  path: string
+  oldPath: string
+  status: string
+  additions: number
+  deletions: number
+  patch: string
+  truncated: boolean
+}
+
+export type MergeRequestComment = {
+  id: string
+  type: "comment" | "review" | "inline"
+  body: string
+  bodyHtml?: string
+  state: string
+  author: MergeRequestUser
+  path: string
+  oldPath: string
+  line: number
+  side: string
+  createdAt: string
+  resolved: boolean
+  discussionId: string
+  discussionRoot: boolean
+}
+
+export type MergeRequestDetail = {
+  mergeRequest: MergeRequestSummary
+  files: MergeRequestFile[]
+  comments: MergeRequestComment[]
+  repository: { id: string; fullName: string; provider: string; webUrl: string }
+}
+
 export type InstallStatus = "passed" | "needs_action" | "needs_input" | "blocked" | "unknown" | "failed"
 export type VariableInstallStatus = "unchecked" | "passed" | "pending_auto" | "manual_required" | "failed"
 
@@ -590,7 +665,7 @@ export type InstalledAutomationPage = {
   hasMore: boolean
 }
 
-export type WorkspaceTab = "overview" | "issues" | "tasks" | "settings"
+export type WorkspaceTab = "overview" | "issues" | "merge-requests" | "tasks" | "settings"
 
 export type RepoWorkspaceProps = {
   tab: WorkspaceTab

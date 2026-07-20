@@ -313,8 +313,8 @@ function makeDecisionVisualTarget(artifact: IssueArtifact, overlay: HTMLDivEleme
   return makeElementVisualTarget(artifact, overlay, frame, element, "决策项");
 }
 
-export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactType }: VisionRouteContext) {
-  const context = useMemo(() => ({ gitServerId, projectId, issueNumber, artifactType }), [gitServerId, projectId, issueNumber, artifactType]);
+export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRouteContext) {
+  const context = useMemo(() => ({ gitServerId, projectId, issueNumber }), [gitServerId, projectId, issueNumber]);
   const [issue, setIssue] = useState<LoadedIssue | null>(null);
   const [draftItems, setDraftItems] = useState<DraftReviewItem[]>([]);
   const [reviews, setReviews] = useState<VisualReview[]>([]);
@@ -345,6 +345,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   const sectionObserverCleanupRef = useRef<(() => void) | null>(null);
   const overlayResizeObserverRef = useRef<ResizeObserver | null>(null);
   const decisionItemsRef = useRef<DecisionItem[]>([]);
+  const currentArtifact = useMemo(() => issue?.artifacts[0] ?? null, [issue]);
+  const artifactContext = useMemo(() => currentArtifact ? { ...context, artifactType: currentArtifact.type } : null, [context, currentArtifact]);
 
   useEffect(() => {
     setBusy(true);
@@ -380,9 +382,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     setVisualCommentText("");
     setArtifactSections([]);
     setActiveSectionId(null);
-  }, [artifactType, issue]);
-
-  const currentArtifact = useMemo(() => issue?.artifacts.find((artifact) => artifact.type === artifactType) ?? issue?.artifacts[0] ?? null, [artifactType, issue]);
+  }, [currentArtifact?.type, issue]);
   const refreshVisualPositions = useCallback(() => setVisualTick((value) => value + 1), []);
 
   function syncActiveSection() {
@@ -719,7 +719,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     };
   }, [currentArtifact?.path, refreshVisualPositions]);
 
-  const scopedDraftItems = useMemo(() => draftItems.filter((item) => draftBelongsToArtifact(item, currentArtifact?.type ?? artifactType)), [artifactType, currentArtifact?.type, draftItems]);
+  const scopedDraftItems = useMemo(() => currentArtifact ? draftItems.filter((item) => draftBelongsToArtifact(item, currentArtifact.type)) : [], [currentArtifact, draftItems]);
   const selectedDraft = scopedDraftItems.find((item) => item.id === selectedDraftId) ?? scopedDraftItems[0] ?? null;
   const editingDraft = scopedDraftItems.find((item) => item.id === editingDraftId) ?? null;
   const selectedReview = reviews.find((review) => review.id === selectedReviewId) ?? null;
@@ -727,14 +727,14 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   void visualTick;
 
   async function addFeedbackToDraft(input: Partial<FeedbackRequest> = {}, options: { resetGlobal?: boolean; resetVisual?: boolean } = {}) {
-    if (!issue || !currentArtifact) return;
+    if (!issue || !currentArtifact || !artifactContext) return;
     const comment = input.comment?.trim();
     if (!comment) return;
     setStatus(null);
     setAgentPrompt(null);
     setError(null);
     try {
-      const item = addStoredReviewDraft(context, {
+      const item = addStoredReviewDraft(artifactContext, {
         targetType: input.targetType ?? "artifact",
         targetId: input.targetId ?? currentArtifact.path,
         sourceRefs: input.sourceRefs ?? [{ type: sourceRefTypeForArtifact(currentArtifact.type), path: currentArtifact.path, label: artifactLabel(currentArtifact.type) }],
@@ -784,7 +784,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   }
 
   async function addDecisionReview(decision: DecisionAnchorTarget, action: DecisionReview["action"], comment: string) {
-    if (!currentArtifact) return;
+    if (!currentArtifact || !artifactContext) return;
     const input: FeedbackRequest = {
       targetType: "artifact",
       targetId: decision.ref,
@@ -800,8 +800,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
     try {
       const existing = scopedDraftItems.find((item) => item.decision?.ref === decision.ref);
       const saved = existing
-        ? updateStoredReviewDraft(context, existing.id, input)
-        : addStoredReviewDraft(context, input);
+        ? updateStoredReviewDraft(artifactContext, existing.id, input)
+        : addStoredReviewDraft(artifactContext, input);
       setDraftItems((items) => existing
         ? items.map((item) => item.id === existing.id ? saved : item)
         : [...items.filter(Boolean), saved]);
@@ -859,14 +859,14 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   }
 
   async function updateExistingDraft() {
-    if (!issue || !editingDraft) return;
+    if (!issue || !editingDraft || !artifactContext) return;
     const comment = visualCommentText.trim();
     if (!comment) return;
     setStatus(null);
     setAgentPrompt(null);
     setError(null);
     try {
-      const updated = updateStoredReviewDraft(context, editingDraft.id, {
+      const updated = updateStoredReviewDraft(artifactContext, editingDraft.id, {
         targetType: editingDraft.targetType,
         targetId: editingDraft.targetId,
         sourceRefs: editingDraft.sourceRefs,
@@ -901,11 +901,11 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   }
 
   async function removeReviewItem(itemId: string) {
-    if (!issue) return;
+    if (!issue || !artifactContext) return;
     setError(null);
     setStatus(null);
     try {
-      deleteStoredReviewDraft(context, itemId);
+      deleteStoredReviewDraft(artifactContext, itemId);
       setDraftItems((items) => items.filter((item) => item.id !== itemId));
       setStatus("已从当前审阅中删除");
     } catch (deleteError) {
@@ -914,7 +914,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   }
 
   async function confirmSubmitReview() {
-    if (!issue || !scopedDraftItems.length) return;
+    if (!issue || !artifactContext || !scopedDraftItems.length) return;
     setSubmittingReview(true);
     setError(null);
     try {
@@ -922,10 +922,10 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
       const submittedIds = new Set(scopedDraftItems.map((item) => item.id));
       setDraftItems((items) => items.filter((item) => !submittedIds.has(item.id)));
       if (result.status === "approved") {
-        clearReviewStorage(context);
+        clearReviewStorage(artifactContext);
         setReviews([]);
       } else {
-        saveSubmittedReview(context, result.review);
+        saveSubmittedReview(artifactContext, result.review);
         setReviews((items) => [result.review, ...items]);
       }
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
@@ -939,13 +939,13 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   }
 
   async function approvePlan() {
-    if (!issue) return;
+    if (!issue || !artifactContext) return;
     setStatus(null);
     setAgentPrompt(null);
     setError(null);
     try {
       const result = await approveVisionArtifact(context);
-      clearReviewStorage(context);
+      clearReviewStorage(artifactContext);
       setDraftItems([]);
       setReviews([]);
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.artifact.status })) } : loaded);
@@ -957,7 +957,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
   }
 
   async function approveEveryDecision() {
-    if (!issue || currentArtifact?.type !== "decision") return;
+    if (!issue || !artifactContext || currentArtifact?.type !== "decision") return;
     setSubmittingReview(true);
     setStatus(null);
     setAgentPrompt(null);
@@ -966,10 +966,10 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
       const result = await approveAllDecisions(context, scopedDraftItems);
       setDraftItems((items) => items.filter((item) => !draftBelongsToArtifact(item, "decision")));
       if (result.status === "approved") {
-        clearReviewStorage(context);
+        clearReviewStorage(artifactContext);
         setReviews([]);
       } else {
-        saveSubmittedReview(context, result.review);
+        saveSubmittedReview(artifactContext, result.review);
         setReviews((items) => [result.review, ...items]);
       }
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
@@ -1020,7 +1020,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
           <span className="brand-mark"><FileText size={20} /></span>
           <div>
             <p className="brand-kicker">ISSUE FLOW</p>
-            <h1>{artifactLabel(artifactType)}审阅</h1>
+            <h1>{currentArtifact ? `${artifactLabel(currentArtifact.type)}审阅` : "产物审阅"}</h1>
             <p>{issue ? issue.title : `议题 #${issueNumber}`}</p>
           </div>
         </div>
@@ -1090,7 +1090,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, artifactTy
         <header className="artifact-toolbar">
           <div className="artifact-heading">
             <a className="artifact-back-link" href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues`} aria-label="返回 Issues 看板" title="返回 Issues 看板"><ArrowLeft size={17} /></a>
-            <div><span className="toolbar-kicker">当前产物</span><strong>{artifactLabel(artifactType)}</strong></div>
+            <div><span className="toolbar-kicker">当前产物</span><strong>{currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}</strong></div>
             <span className={`artifact-status status-${currentArtifact?.status || "pending"}`}>{artifactStatusLabel(currentArtifact?.status)}</span>
           </div>
           <div className="toolbar-actions">

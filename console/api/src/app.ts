@@ -10,6 +10,7 @@ import { gitServerRoutes } from "./routes/git-servers.js"
 import { gitlabRoutes } from "./routes/gitlab.js"
 import { healthRoutes } from "./routes/health.js"
 import { insightsRoutes } from "./routes/insights.js"
+import { mergeRequestRoutes } from "./routes/merge-requests.js"
 import { repositoryRoutes } from "./routes/repositories.js"
 import { sessionRoutes } from "./routes/session.js"
 import { setupRoutes } from "./routes/setup.js"
@@ -150,6 +151,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(userGitPatRoutes)
   await app.register(repositoryRoutes)
   await app.register(insightsRoutes)
+  await app.register(mergeRequestRoutes)
   await app.register(visualArtifactRoutes)
   await app.register(dashboardRoutes)
   await app.register(gitlabRoutes)

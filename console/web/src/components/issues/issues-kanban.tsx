@@ -6,7 +6,7 @@ import { formatWhen } from "@/issue-flow-model"
 import { issueLanes } from "./issue-view-model"
 import { IssueMetrics } from "./issue-metrics"
 
-export function IssuesKanban({ groupedIssues, issueHref, reviewArtifacts, reviewHref }: { groupedIssues: Map<string, IssueRow[]>; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number, artifactType: "decision" | "plan") => string }) {
+export function IssuesKanban({ groupedIssues, issueHref, reviewArtifacts, reviewHref }: { groupedIssues: Map<string, IssueRow[]>; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   return (
     <div className="issue-board-lanes">
       {issueLanes.map((lane) => (
@@ -16,7 +16,7 @@ export function IssuesKanban({ groupedIssues, issueHref, reviewArtifacts, review
   )
 }
 
-function IssueLane({ title, detail, issues, issueHref, reviewArtifacts, reviewHref }: { title: string; detail: string; issues: IssueRow[]; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number, artifactType: "decision" | "plan") => string }) {
+function IssueLane({ title, detail, issues, issueHref, reviewArtifacts, reviewHref }: { title: string; detail: string; issues: IssueRow[]; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   return (
     <section className="issue-lane">
       <header>
@@ -34,7 +34,7 @@ function IssueLane({ title, detail, issues, issueHref, reviewArtifacts, reviewHr
   )
 }
 
-function IssueCard({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueRow; href: string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number, artifactType: "decision" | "plan") => string }) {
+function IssueCard({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueRow; href: string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   const meta = [
     issue.type ? `type::${issue.type}` : "",
     issue.priority ? `priority::${issue.priority}` : "",
@@ -51,7 +51,7 @@ function IssueCard({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueR
             <a
               key={artifact.type}
               className="issue-review-link"
-              href={reviewHref(issue.issueNumber, artifact.type)}
+              href={reviewHref(issue.issueNumber)}
               aria-label={`查看 issue #${issue.issueNumber} 的${artifact.type === "decision" ? "决策" : "方案"}`}
               title={artifact.type === "decision" ? "查看决策" : "查看方案"}
             >

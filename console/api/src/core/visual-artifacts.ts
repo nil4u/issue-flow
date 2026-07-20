@@ -5,16 +5,10 @@ import path from "node:path"
 import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
-const ARTIFACT_TYPES = new Set(["decision", "plan"])
 const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\s+repo=([^\s]+)\s+issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
 
 function requestError(message, status = 400, code = "visual_artifact_error") {
   const error = new Error(message); error.status = status; error.code = code; return error
-}
-function normalizeArtifactType(value) {
-  const type = String(value || "").trim().toLowerCase()
-  if (!ARTIFACT_TYPES.has(type)) throw requestError("artifact type must be decision or plan")
-  return type
 }
 function normalizeIssueNumber(value) {
   const issueNumber = Number.parseInt(String(value || ""), 10)
@@ -52,12 +46,12 @@ async function requireVisualContext(store, gitServerId, projectId, userId, sessi
 async function discoverVisualArtifact(store, repo, server, issueNumber, type) {
   const mergeRequests = await listPlanMergeRequests(server, repo)
   const marker = mergeRequests.map(parseArtifactMarker)
-    .filter((item) => item && item.type === type && item.repositoryId === repo.id && item.issueNumber === issueNumber)
+    .filter((item) => item && (!type || item.type === type) && item.repositoryId === repo.id && item.issueNumber === issueNumber)
     .sort((left, right) => {
       const stateRank = (item) => item.mergeRequestState === "opened" || item.mergeRequestState === "open" ? 2 : item.merged ? 1 : 0
       return stateRank(right) - stateRank(left) || String(right.publishedAt).localeCompare(String(left.publishedAt))
     })[0]
-  if (!marker) throw requestError(`${type} MR has not been published`, 404, "plan_artifact_not_published")
+  if (!marker) throw requestError(type ? `${type} MR has not been published` : "Plan MR has not been published", 404, "plan_artifact_not_published")
   return marker
 }
 
@@ -72,7 +66,7 @@ async function listReviewablePlanArtifacts({ store, gitServerId, projectId, user
     .sort((left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)))
   const seen = new Set()
   return artifacts.filter((artifact) => {
-    const key = `${artifact.issueNumber}:${artifact.type}`
+    const key = String(artifact.issueNumber)
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -88,10 +82,10 @@ async function resolveVisualArtifact(store, repo, server, issueNumber, type) {
   const marker = await discoverVisualArtifact(store, repo, server, issueNumber, type)
   const merged = marker.merged || marker.mergeRequestState === "merged"
   return {
-    id: `${repo.id}:${issueNumber}:${type}`,
+    id: `${repo.id}:${issueNumber}:${marker.type}`,
     repoId: repo.id,
     issueNumber,
-    type,
+    type: marker.type,
     branch: marker.branch,
     baseBranch: marker.baseBranch || repo.defaultBranch || "main",
     commitSha: marker.commitSha,
@@ -125,18 +119,18 @@ function parseVisualArtifactJson(body) {
   }
 }
 
-async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, type: rawType, userId, session }) {
-  const issueNumber = normalizeIssueNumber(rawIssueNumber); const type = normalizeArtifactType(rawType)
+async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, userId, session }) {
+  const issueNumber = normalizeIssueNumber(rawIssueNumber)
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifact = await resolveVisualArtifact(store, repo, server, issueNumber, type)
-  const status = type === "decision" && (await readVisualIssueLabels(server, repo, issueNumber)).includes("flow::plan")
+  const artifact = await resolveVisualArtifact(store, repo, server, issueNumber)
+  const status = artifact.type === "decision" && (await readVisualIssueLabels(server, repo, issueNumber)).includes("flow::plan")
     ? "approved"
     : artifact.status
   const entry = await readArtifactFile(server, repo, artifact)
   const format = artifact.data && artifact.data.format || "json"
   let html
   if (format === "markdown") html = markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
-  else html = renderVisualArtifactDocument(parseVisualArtifactJson(entry.body), type)
+  else html = renderVisualArtifactDocument(parseVisualArtifactJson(entry.body), artifact.type)
   return {
     artifact: { ...artifact, status }, format,
     mergeRequest: {
@@ -274,9 +268,9 @@ function decisionCompletionItem(artifact, userId, requirement) {
   }
 }
 
-async function submitVisualReview({ store, gitServerId, projectId, issueNumber, type, userId, session, input = {} }) {
+async function submitVisualReview({ store, gitServerId, projectId, issueNumber, userId, session, input = {} }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber), normalizeArtifactType(type))
+  const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber))
   let drafts = Array.isArray(input.items) ? input.items.filter(Boolean) : []
   if (artifact.type === "decision" && input.approveAll === true) {
     const requirements = await decisionRequirements(server, repo, artifact)

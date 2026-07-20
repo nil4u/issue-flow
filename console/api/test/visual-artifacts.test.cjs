@@ -130,7 +130,6 @@ test('approved Decision comments on the open MR and advances the issue without m
     gitServerId: 'gitlab-main',
     projectId: '43326',
     issueNumber: 42,
-    type: 'decision',
     userId: 'user-1',
     session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
     input: { approveAll: true, items: [] },
@@ -172,6 +171,16 @@ test('reviewable artifacts only include open Plan MRs for the current repository
       updated_at: '2026-07-15T03:00:00.000Z',
     },
     {
+      id: 74,
+      iid: 14,
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      state: 'opened',
+      source_branch: '42-login/plan',
+      target_branch: 'main',
+      sha: 'plan456',
+      updated_at: '2026-07-15T05:00:00.000Z',
+    },
+    {
       id: 73,
       iid: 13,
       description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_other issue=44 branch=44-other/plan commit=ghi789 path=.issue-flow/issues/44-other/plan/data/plan-data.json -->',
@@ -195,7 +204,7 @@ test('reviewable artifacts only include open Plan MRs for the current repository
     projectId: '43326',
     userId: 'user-1',
     session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
-  }), [{ issueNumber: 42, type: 'decision', format: 'json', mergeRequestNumber: 11 }])
+  }), [{ issueNumber: 42, type: 'plan', format: 'json', mergeRequestNumber: 14 }])
 })
 
 test('Engine renders Plan JSON with fixed layout and stable review anchors', () => {

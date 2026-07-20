@@ -12,6 +12,7 @@ const {
   assertVisualBriefNotInIssueArtifacts,
   buildPrBodyWithMarkers,
   buildVisualArtifactComment,
+  buildVisualArtifactPublishedComment,
   buildVisualArtifactMarker,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
@@ -25,6 +26,8 @@ const {
   normalizeOptionalUrl,
   normalizePrTitle,
   planSubmissionIssueState,
+  publishVisualArtifactComment,
+  pullRequestNumberFromUrl,
   resolveBaseBranch,
   resolveIssueFlowBaseUrl,
   resolveVisualPlanFeatureMode,
@@ -391,12 +394,8 @@ test('visual publishing uses ISSUE_FLOW_BASE_URL as its service URL', () => {
 
 test('visual artifact URLs use Git server and provider project routes', () => {
   assert.equal(
-    visualArtifactUrl('https://flow.example', 'gitlab-main', '43326', 42, 'decision'),
-    'https://flow.example/repos/gitlab-main/43326/plan/42/decision'
-  );
-  assert.equal(
-    visualArtifactUrl('https://flow.example', 'gitlab-main', '43326', 42, 'plan'),
-    'https://flow.example/repos/gitlab-main/43326/plan/42/plan'
+    visualArtifactUrl('https://flow.example', 'gitlab-main', '43326', 42),
+    'https://flow.example/repos/gitlab-main/43326/plan/42'
   );
   const comment = buildVisualArtifactComment({
     artifact: 'plan',
@@ -406,11 +405,47 @@ test('visual artifact URLs use Git server and provider project routes', () => {
     branch: '42-broken-login/plan',
     commit: 'abc123',
     artifactPath: '.issue-flow/issues/42-broken-login/plan/data/plan-data.json',
-    url: 'https://flow.example/repos/gitlab-main/43326/plan/42/plan',
+    url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
   });
   assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42/);
-  assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42\/plan/);
+  assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
   assert.match(comment, /Review comments and approval are recorded on this PR\/MR/);
+});
+
+test('visual artifact submission replies with the shared review URL on the PR or MR', () => {
+  const comment = buildVisualArtifactPublishedComment({
+    artifact: 'plan',
+    format: 'json',
+    commit: 'abc123',
+    url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
+  });
+  assert.match(comment, /issue-flow:plan-artifact-published artifact=plan commit=abc123/);
+  assert.match(comment, /Visual Plan 已发布/);
+  assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
+  assert.equal(pullRequestNumberFromUrl('https://github.com/acme/widget/pull/19'), 19);
+  assert.equal(pullRequestNumberFromUrl('https://gitlab.example/acme/widget/-/merge_requests/23'), 23);
+  assert.equal(pullRequestNumberFromUrl('https://gitlab.example/acme/widget'), undefined);
+});
+
+test('visual artifact publication posts the URL as an MR comment', async () => {
+  const calls = [];
+  const provider = {
+    name: 'gitlab',
+    createPullRequestComment: async (pullRequest, body, options) => {
+      calls.push({ pullRequest, body, options });
+      return { id: 501 };
+    },
+  };
+  await publishVisualArtifactComment(
+    provider,
+    { fullName: 'acme/widget', projectId: '43326' },
+    'https://gitlab.example/acme/widget/-/merge_requests/23',
+    { artifact: 'decision', format: 'json', commit: 'abc123', url: 'https://flow.example/repos/gitlab-main/43326/plan/42' },
+    { dryRun: false },
+  );
+  assert.equal(calls[0].pullRequest.number, 23);
+  assert.match(calls[0].body, /Decision 已发布/);
+  assert.match(calls[0].body, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
 });
 
 test('plan artifact marker records visual and Markdown formats in the MR body', () => {
@@ -435,7 +470,7 @@ test('plan artifact marker records visual and Markdown formats in the MR body', 
       branch: '42-issue/plan',
       commit: 'def456',
       artifactPath: '.issue-flow/issues/42-issue/plan/plan.md',
-      url: 'https://flow.example/repos/gitlab-main/43326/plan/42/plan',
+      url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
     }),
     /## Markdown Plan[\s\S]*Format: `markdown`/
   );

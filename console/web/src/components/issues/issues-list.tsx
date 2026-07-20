@@ -26,7 +26,7 @@ export function IssuesList({
   onFilters: (filters: IssueFilters) => void
   issueHref: (issueNumber: number) => string
   reviewArtifacts: ReviewablePlanArtifact[]
-  reviewHref: (issueNumber: number, artifactType: "decision" | "plan") => string
+  reviewHref: (issueNumber: number) => string
 }) {
   return (
     <>
@@ -108,7 +108,7 @@ function IssueSelect({
   )
 }
 
-function IssueListTable({ issues, issueHref, reviewArtifacts, reviewHref }: { issues: IssueRow[]; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number, artifactType: "decision" | "plan") => string }) {
+function IssueListTable({ issues, issueHref, reviewArtifacts, reviewHref }: { issues: IssueRow[]; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   if (issues.length === 0) {
     return <div className="issue-list-empty">没有匹配的 issue</div>
   }
@@ -137,7 +137,7 @@ function IssueListTable({ issues, issueHref, reviewArtifacts, reviewHref }: { is
   )
 }
 
-function IssueListRow({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueRow; href: string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number, artifactType: "decision" | "plan") => string }) {
+function IssueListRow({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueRow; href: string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   const lane = issueLane(issue)
 
   return (
@@ -157,7 +157,7 @@ function IssueListRow({ issue, href, reviewArtifacts, reviewHref }: { issue: Iss
       <td>{formatWhen(issue.updatedAt || issue.openedAt || "") || "-"}</td>
       <td className="issue-link-cell">
         {reviewArtifacts.map((artifact) => (
-          <a key={artifact.type} className="issue-review-link" href={reviewHref(issue.issueNumber, artifact.type)} title={artifact.type === "decision" ? "查看决策" : "查看方案"}>
+          <a key={artifact.type} className="issue-review-link" href={reviewHref(issue.issueNumber)} title={artifact.type === "decision" ? "查看决策" : "查看方案"}>
             <Eye className="size-4" />
             <span>{artifact.type === "decision" ? "Decision" : "Plan"}</span>
           </a>
