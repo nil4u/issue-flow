@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { getProviderMergeRequest, listProviderMergeRequests, mergeProviderMergeRequest, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
+import { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 
 function requestError(message, status = 400, code = "merge_request_error") {
@@ -57,11 +57,35 @@ async function getMergeRequest({ store, gitServerId, projectId, mergeRequestNumb
   }
 }
 
+async function getMergeRequestMentionUsers({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  return { users: await listProviderMentionUsers(server, repo, normalizeMergeRequestNumber(mergeRequestNumber)) }
+}
+
 async function submitMergeRequestReview({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
   const detail = await getProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber))
   if (detail.mergeRequest.state !== "open") throw requestError("merge request is not open", 409)
   return { review: await submitProviderMergeRequestReview(server, repo, detail.mergeRequest, input) }
+}
+
+async function submitMergeRequestComment({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  const body = String(input.body || "").trim()
+  if (!body) throw requestError("comment body is required")
+  return { comment: await submitProviderMergeRequestComment(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), body) }
+}
+
+async function submitMergeRequestReply({ store, gitServerId, projectId, mergeRequestNumber, commentId, userId, session, input = {} }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  const body = String(input.body || "").trim()
+  if (!body) throw requestError("reply body is required")
+  return { comment: await submitProviderMergeRequestReply(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), { commentId: String(commentId || ""), discussionId: String(input.discussionId || ""), type: input.type === "inline" ? "inline" : "comment" }, body) }
+}
+
+async function renderMergeRequestMarkdown({ store, gitServerId, projectId, userId, session, input = {} }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  return { html: await renderProviderMarkdown(server, repo, String(input.body || "")) }
 }
 
 async function mergeMergeRequest({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
@@ -76,4 +100,4 @@ async function updateMergeRequestState({ store, gitServerId, projectId, mergeReq
   return { mergeRequest: await updateProviderMergeRequestState(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), action) }
 }
 
-export { getMergeRequest, listMergeRequests, mergeMergeRequest, submitMergeRequestReview, updateMergeRequestState }
+export { getMergeRequest, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestState }

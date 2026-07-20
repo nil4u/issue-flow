@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
-import { AlertCircle, ArrowLeft, CheckCircle2, CircleDot, Eye, FileCode2, Files, GitMerge, GitPullRequest, Loader2, Maximize2, MessageCircle, Minimize2, Plus, RefreshCw, Search, Send, Trash2, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
+import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, CircleDot, Eye, FileCode2, Files, GitMerge, GitPullRequest, GitPullRequestClosed, Loader2, Maximize2, MessageCircle, Minimize2, Plus, RefreshCw, Search, Send, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { api, formatWhen, type MergeRequestComment, type MergeRequestDetail, type MergeRequestFile } from "@/issue-flow-model"
 
@@ -10,6 +11,18 @@ type DiffLine = { key: string; kind: "header" | "context" | "addition" | "deleti
 type LineTarget = { file: MergeRequestFile; line: number; side: "LEFT" | "RIGHT"; content: string }
 type DraftComment = LineTarget & { id: string; body: string }
 type ReviewView = "conversation" | "preview" | "files"
+type ConversationThread = { id: string; comments: MergeRequestComment[] }
+type MentionUser = { id: string; username: string; name: string; avatarUrl: string; url: string; bot: boolean }
+type MentionRange = { start: number; end: number; query: string }
+
+const mentionUsersCache = new Map<string, Promise<MentionUser[]>>()
+
+function loadMentionUsers(baseApi: string) {
+  if (!mentionUsersCache.has(baseApi)) {
+    mentionUsersCache.set(baseApi, api<{ users?: MentionUser[] }>(`${baseApi}/mentions`).then((result) => result.users || []).catch(() => []))
+  }
+  return mentionUsersCache.get(baseApi) as Promise<MentionUser[]>
+}
 
 function parsePatch(patch: string): DiffLine[] {
   let oldLine = 0
@@ -31,6 +44,25 @@ function parsePatch(patch: string): DiffLine[] {
 
 function commentKey(path: string, side: string, line: number) { return `${path}:${side}:${line}` }
 
+function groupConversationComments(comments: MergeRequestComment[]) {
+  const threads = new Map<string, MergeRequestComment[]>()
+  for (const comment of comments) {
+    const id = comment.discussionId || `comment:${comment.id}`
+    threads.set(id, [...(threads.get(id) || []), comment])
+  }
+  return [...threads.entries()].map(([id, threadComments]) => ({ id, comments: threadComments }))
+}
+
+function diffContext(files: MergeRequestFile[], comment: MergeRequestComment) {
+  if (!comment.path || !comment.line) return []
+  const file = files.find((candidate) => candidate.path === comment.path || candidate.oldPath === comment.path)
+  if (!file) return []
+  const lines = parsePatch(file.patch)
+  const targetIndex = lines.findIndex((line) => comment.side === "LEFT" ? line.oldLine === comment.line : line.newLine === comment.line)
+  if (targetIndex < 0) return []
+  return lines.slice(Math.max(0, targetIndex - 2), Math.min(lines.length, targetIndex + 3)).filter((line) => line.kind !== "meta")
+}
+
 export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }: { gitServerId: string; projectId: string; mergeRequestNumber: number }) {
   const baseApi = `/api/merge-requests/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/${mergeRequestNumber}`
   const [detail, setDetail] = useState<MergeRequestDetail>()
@@ -40,14 +72,18 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   const [fileFilter, setFileFilter] = useState("")
   const [reviewOpen, setReviewOpen] = useState(false)
   const [reviewBody, setReviewBody] = useState("")
+  const [conversationComment, setConversationComment] = useState("")
   const [reviewAction, setReviewAction] = useState<"comment" | "approve">("comment")
   const [draftComments, setDraftComments] = useState<DraftComment[]>([])
   const [commentTarget, setCommentTarget] = useState<LineTarget>()
   const [lineCommentBody, setLineCommentBody] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [commentSubmitting, setCommentSubmitting] = useState(false)
+  const [approving, setApproving] = useState(false)
   const [merging, setMerging] = useState(false)
   const [updatingState, setUpdatingState] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)
+  const [pendingAction, setPendingAction] = useState<"merge" | "close">()
 
   const loadDetail = useCallback(async () => {
     setLoading(true); setError("")
@@ -65,7 +101,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   useEffect(() => {
     if (!previewExpanded) return
     const previousOverflow = document.body.style.overflow
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setPreviewExpanded(false) }
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") setPreviewExpanded(false) }
     document.body.style.overflow = "hidden"
     window.addEventListener("keydown", closeOnEscape)
     return () => {
@@ -83,13 +119,17 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     }
     return result
   }, [detail?.comments])
-  const generalComments = useMemo(() => (detail?.comments || []).filter((comment) => !comment.path || !comment.line), [detail?.comments])
+  const conversationComments = useMemo(() => detail?.comments || [], [detail?.comments])
   const visibleFiles = useMemo(() => {
     const query = fileFilter.trim().toLowerCase()
     return query ? (detail?.files || []).filter((file) => file.path.toLowerCase().includes(query)) : detail?.files || []
   }, [detail?.files, fileFilter])
   const diffTotals = useMemo(() => (detail?.files || []).reduce((totals, file) => ({ additions: totals.additions + file.additions, deletions: totals.deletions + file.deletions }), { additions: 0, deletions: 0 }), [detail?.files])
   const isOpen = detail?.mergeRequest.state === "open"
+  const canMerge = Boolean(detail?.mergeRequest.permissions?.canMerge)
+  const canClose = Boolean(detail?.mergeRequest.permissions?.canClose)
+  const canApprove = Boolean(detail?.mergeRequest.permissions?.canApprove)
+  const hasApproved = Boolean(detail?.mergeRequest.permissions?.hasApproved)
   const sourceIssueNumber = detail?.mergeRequest.sourceIssueNumber || 0
   const listHref = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests`
   const previewHref = detail?.mergeRequest.previewable && sourceIssueNumber > 0 ? `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${sourceIssueNumber}` : ""
@@ -125,19 +165,38 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     finally { setSubmitting(false) }
   }
 
+  async function submitConversationComment() {
+    const body = conversationComment.trim()
+    if (!body || commentSubmitting) return
+    setCommentSubmitting(true); setError("")
+    try {
+      await api(`${baseApi}/comments`, { method: "POST", body: JSON.stringify({ body }) })
+      setConversationComment(""); await loadDetail()
+    } catch (commentError) { setError(commentError instanceof Error ? commentError.message : "发表评论失败") }
+    finally { setCommentSubmitting(false) }
+  }
+
+  async function approveMergeRequest() {
+    if (!isOpen || !canApprove || hasApproved || approving) return
+    setApproving(true); setError("")
+    try { await api(`${baseApi}/reviews`, { method: "POST", body: JSON.stringify({ action: "approve", body: "", comments: [] }) }); await loadDetail() }
+    catch (approveError) { setError(approveError instanceof Error ? approveError.message : "Approve failed") }
+    finally { setApproving(false) }
+  }
+
   async function mergeRequest() {
-    if (!isOpen || merging || !window.confirm(`确认合并 !${mergeRequestNumber}？`)) return
+    if (!isOpen || !canMerge || merging) return
     setMerging(true); setError("")
-    try { await api(`${baseApi}/merge`, { method: "POST", body: "{}" }); await loadDetail() }
+    try { await api(`${baseApi}/merge`, { method: "POST", body: "{}" }); setPendingAction(undefined); await loadDetail() }
     catch (mergeError) { setError(mergeError instanceof Error ? mergeError.message : "合并失败") }
     finally { setMerging(false) }
   }
 
   async function updateState(action: "close" | "reopen") {
     if (!detail || updatingState || merging) return
-    if (action === "close" && !window.confirm(`确认关闭 !${mergeRequestNumber}？`)) return
+    if ((action === "close" || action === "reopen") && !canClose) return
     setUpdatingState(true); setError("")
-    try { await api(`${baseApi}/state`, { method: "POST", body: JSON.stringify({ action }) }); await loadDetail() }
+    try { await api(`${baseApi}/state`, { method: "POST", body: JSON.stringify({ action }) }); setPendingAction(undefined); await loadDetail() }
     catch (stateError) { setError(stateError instanceof Error ? stateError.message : action === "close" ? "关闭失败" : "重新打开失败") }
     finally { setUpdatingState(false) }
   }
@@ -152,9 +211,11 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
           <h1>{detail?.mergeRequest.title || "Merge Request"} <span>#{mergeRequestNumber}</span></h1>
           <div className="gh-pr-actions">
             <Button variant="secondary" onClick={() => void loadDetail()} disabled={loading}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />刷新</Button>
-            {isOpen ? <Button variant="secondary" onClick={() => void updateState("close")} disabled={updatingState || merging}>{updatingState ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}{updatingState ? "正在关闭" : "Close"}</Button> : null}
-            {detail?.mergeRequest.state === "closed" && !detail.mergeRequest.merged ? <Button onClick={() => void updateState("reopen")} disabled={updatingState}>{updatingState ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequest className="size-4" />}{updatingState ? "正在重新打开" : "Reopen"}</Button> : null}
-            {isOpen ? <Button className="gh-merge-button" onClick={() => void mergeRequest()} disabled={merging || updatingState || detail?.mergeRequest.mergeable === false}>{merging ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}{merging ? "正在合并" : "Merge"}</Button> : null}
+            {isOpen && (canApprove || hasApproved) ? <Button className="gh-approve-button" variant="secondary" onClick={() => void approveMergeRequest()} disabled={approving || hasApproved}>{approving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}{approving ? "Approving…" : hasApproved ? "Approved" : "Approve"}</Button> : null}
+            {detail?.mergeRequest.state === "closed" && !detail.mergeRequest.merged && canClose ? <Button onClick={() => void updateState("reopen")} disabled={updatingState}>{updatingState ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequest className="size-4" />}{updatingState ? "正在重新打开" : "Reopen"}</Button> : null}
+            {isOpen && canMerge && canClose ? <DropdownMenu><DropdownMenuTrigger asChild><Button className="gh-merge-button" disabled={merging || updatingState}>{merging ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}{merging ? "正在合并" : "Merge"}<ChevronDown className="size-3.5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={detail?.mergeRequest.mergeable === false} onSelect={() => setPendingAction("merge")}><GitMerge className="size-4" />Merge</DropdownMenuItem><DropdownMenuItem onSelect={() => setPendingAction("close")}><GitPullRequestClosed className="size-4" />Close</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+            {isOpen && canMerge && !canClose ? <Button className="gh-merge-button" onClick={() => setPendingAction("merge")} disabled={merging || updatingState || detail?.mergeRequest.mergeable === false}><GitMerge className="size-4" />Merge</Button> : null}
+            {isOpen && !canMerge && canClose ? <Button variant="secondary" onClick={() => setPendingAction("close")} disabled={updatingState}><GitPullRequestClosed className="size-4" />Close</Button> : null}
           </div>
         </div>
         <div className="gh-pr-merge-line">
@@ -164,7 +225,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
           <code>{detail?.mergeRequest.targetBranch}</code><span>from</span><code>{detail?.mergeRequest.sourceBranch}</code>
         </div>
         <nav className="gh-pr-tabs" aria-label="Merge request views">
-          <button type="button" className={view === "conversation" ? "is-active" : ""} onClick={() => setView("conversation")}><MessageCircle className="size-4" />Conversation <span>{generalComments.length}</span></button>
+          <button type="button" className={view === "conversation" ? "is-active" : ""} onClick={() => setView("conversation")}><MessageCircle className="size-4" />Conversation <span>{conversationComments.length}</span></button>
           {previewHref ? <button type="button" className={view === "preview" ? "is-active" : ""} onClick={() => setView("preview")}><Eye className="size-4" />Preview</button> : null}
           <button type="button" className={view === "files" ? "is-active" : ""} onClick={() => setView("files")}><FileCode2 className="size-4" />Files changed <span>{detail?.files.length || 0}</span></button>
           {view === "files" ? <div className="gh-pr-diff-stat"><b>+{diffTotals.additions}</b><span>-{diffTotals.deletions}</span></div> : null}
@@ -173,7 +234,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
 
       {error ? <div className="gh-pr-error"><AlertCircle className="size-4" />{error}</div> : null}
       {view === "conversation" ? (
-        <ConversationView detail={detail} comments={generalComments} issueHref={issueHref} sourceIssueNumber={sourceIssueNumber} />
+        <ConversationView detail={detail} comments={conversationComments} issueHref={issueHref} sourceIssueNumber={sourceIssueNumber} comment={conversationComment} submitting={commentSubmitting} baseApi={baseApi} onCommentChange={setConversationComment} onSubmitComment={() => void submitConversationComment()} onUpdated={loadDetail} onError={setError} />
       ) : view === "preview" && previewHref ? (
         <section className={`gh-preview-view ${previewExpanded ? "is-expanded" : ""}`}>
           <Button className="gh-preview-expand" variant="secondary" size="icon" onClick={() => setPreviewExpanded((expanded) => !expanded)} aria-label={previewExpanded ? "退出全屏预览" : "全屏预览"} title={previewExpanded ? "退出全屏" : "全屏预览"}>{previewExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</Button>
@@ -197,12 +258,98 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
 
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}><DialogContent className="gh-review-dialog"><DialogHeader><DialogTitle>Submit review</DialogTitle></DialogHeader><div className="gh-review-kind"><button className={reviewAction === "comment" ? "is-active" : ""} onClick={() => setReviewAction("comment")}>Comment</button><button className={reviewAction === "approve" ? "is-active" : ""} onClick={() => setReviewAction("approve")}><CheckCircle2 className="size-4" />Approve</button></div><Textarea value={reviewBody} onChange={(event) => setReviewBody(event.currentTarget.value)} placeholder={reviewAction === "approve" ? "Leave an optional approval summary" : "Leave a review summary"} /><p>{draftComments.length} pending inline comments</p><div className="gh-dialog-actions"><Button onClick={() => void submitReview()} disabled={submitting || (!reviewBody.trim() && !draftComments.length && reviewAction !== "approve")}><Send className="size-4" />{submitting ? "Submitting…" : "Submit review"}</Button></div></DialogContent></Dialog>
       <Dialog open={Boolean(commentTarget)} onOpenChange={(open) => !open && setCommentTarget(undefined)}><DialogContent><DialogHeader><DialogTitle>Add a line comment</DialogTitle></DialogHeader><div className="gh-comment-target"><code>{commentTarget?.file.path}:{commentTarget?.line}</code><pre>{commentTarget?.content}</pre></div><Textarea autoFocus value={lineCommentBody} onChange={(event) => setLineCommentBody(event.currentTarget.value)} placeholder="Leave a comment" /><div className="gh-dialog-actions"><Button onClick={saveLineComment} disabled={!lineCommentBody.trim()}><Plus className="size-4" />Add to review</Button></div></DialogContent></Dialog>
+      <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => { if (!open && !merging && !updatingState) setPendingAction(undefined) }}><DialogContent className="gh-action-dialog" showCloseButton={false} onOpenAutoFocus={(event) => event.preventDefault()}><div className="gh-action-dialog-main"><div className={`gh-action-dialog-icon is-${pendingAction}`}>{pendingAction === "merge" ? <GitMerge className="size-4" /> : <GitPullRequestClosed className="size-4" />}</div><div><DialogHeader><DialogTitle>{pendingAction === "merge" ? "Merge this Merge Request?" : "Close this Merge Request?"}</DialogTitle></DialogHeader><p>{pendingAction === "merge" ? <><code>{detail?.mergeRequest.sourceBranch}</code> will be merged into <code>{detail?.mergeRequest.targetBranch}</code>.</> : "Close without merging. You can reopen it later."}</p></div></div><div className="gh-action-dialog-actions"><Button variant="secondary" onClick={() => setPendingAction(undefined)} disabled={merging || updatingState}>Cancel</Button><Button className={pendingAction === "merge" ? "gh-merge-button" : ""} onClick={() => pendingAction === "merge" ? void mergeRequest() : void updateState("close")} disabled={merging || updatingState}>{merging || updatingState ? <Loader2 className="size-4 animate-spin" /> : pendingAction === "merge" ? <GitMerge className="size-4" /> : <GitPullRequestClosed className="size-4" />}{pendingAction === "merge" ? merging ? "Merging…" : "Merge" : updatingState ? "Closing…" : "Close"}</Button></div></DialogContent></Dialog>
     </main>
   )
 }
 
-function ConversationView({ detail, comments, issueHref, sourceIssueNumber }: { detail?: MergeRequestDetail; comments: MergeRequestComment[]; issueHref: string; sourceIssueNumber: number }) {
-  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{comments.map((comment) => <TimelineCard key={comment.id} author={comment.author} createdAt={comment.createdAt} label={comment.type === "review" ? `submitted a ${comment.state.toLowerCase()} review` : "commented"}><MarkdownContent html={comment.bodyHtml} fallback={comment.body || (comment.state ? `Review: ${comment.state}` : "")} /></TimelineCard>)}</div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection><MetaSection title="Labels"><div className="gh-labels">{detail?.mergeRequest.labels.length ? detail.mergeRequest.labels.map((label) => <span key={label}>{label}</span>) : <p>None yet</p>}</div></MetaSection><MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref} target="_blank" rel="noreferrer"><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
+function ConversationView({ detail, comments, issueHref, sourceIssueNumber, comment, submitting, baseApi, onCommentChange, onSubmitComment, onUpdated, onError }: { detail?: MergeRequestDetail; comments: MergeRequestComment[]; issueHref: string; sourceIssueNumber: number; comment: string; submitting: boolean; baseApi: string; onCommentChange: (value: string) => void; onSubmitComment: () => void; onUpdated: () => Promise<void>; onError: (message: string) => void }) {
+  const threads = groupConversationComments(comments)
+  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={detail?.files || []} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection><MetaSection title="Labels"><div className="gh-labels">{detail?.mergeRequest.labels.length ? detail.mergeRequest.labels.map((label) => <span key={label}>{label}</span>) : <p>None yet</p>}</div></MetaSection><MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref} target="_blank" rel="noreferrer"><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
+}
+
+function DiscussionCard({ thread, files, baseApi, onUpdated, onError }: { thread: ConversationThread; files: MergeRequestFile[]; baseApi: string; onUpdated: () => Promise<void>; onError: (message: string) => void }) {
+  const root = thread.comments.find((comment) => comment.discussionRoot) || thread.comments[0]
+  const [reply, setReply] = useState("")
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const context = diffContext(files, root)
+  const displayName = root.author.name || root.author.username || "Unknown"
+
+  async function submitReply() {
+    const body = reply.trim()
+    if (!body || submitting) return
+    setSubmitting(true); onError("")
+    try {
+      await api(`${baseApi}/comments/${encodeURIComponent(root.id)}/replies`, { method: "POST", body: JSON.stringify({ body, discussionId: root.discussionId, type: root.type }) })
+      setReply(""); await onUpdated()
+    } catch (replyError) { onError(replyError instanceof Error ? replyError.message : "回复失败") }
+    finally { setSubmitting(false) }
+  }
+
+  const replies = root.type === "inline" ? thread.comments : thread.comments.filter((commentItem) => commentItem.id !== root.id)
+  return <article className="gh-timeline-entry"><div className="gh-timeline-avatar">{root.author.avatarUrl ? <img src={root.author.avatarUrl} alt="" /> : displayName.slice(0, 1)}</div><div className={`gh-discussion-card ${root.type === "inline" ? "is-inline" : ""}`}><header><div><strong>{displayName}</strong><span>{root.type === "inline" ? " started a thread on the diff " : root.type === "review" ? ` submitted a ${root.state.toLowerCase()} review ` : " commented "}{formatWhen(root.createdAt)}</span></div></header>{root.type === "inline" ? <><div className="gh-thread-location"><FileCode2 className="size-4" /><code>{root.path}</code><span>line {root.line}</span></div>{context.length ? <div className="gh-thread-diff">{context.map((line) => <div key={line.key} className={`is-${line.kind}`}><span>{line.newLine || line.oldLine || ""}</span><code>{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}{line.content}</code></div>)}</div> : null}</> : <div className="gh-comment-body"><MarkdownContent html={root.bodyHtml} fallback={root.body || (root.state ? `Review: ${root.state}` : "")} /></div>}{replies.length ? <div className="gh-thread-notes">{replies.map((commentItem) => <div key={commentItem.id} className="gh-thread-note"><Avatar user={commentItem.author} /><div><header><strong>{commentItem.author.name || commentItem.author.username || "Unknown"}</strong><span>{formatWhen(commentItem.createdAt)}</span></header><MarkdownContent html={commentItem.bodyHtml} fallback={commentItem.body || (commentItem.state ? `Review: ${commentItem.state}` : "")} /></div></div>)}</div> : null}<div className="gh-thread-reply">{replyOpen ? <CommentEditor compact baseApi={baseApi} value={reply} submitting={submitting} placeholder="Reply…" submitLabel="Reply" onChange={setReply} onSubmit={() => void submitReply()} onCancel={() => { setReplyOpen(false); setReply("") }} /> : <button type="button" className="gh-reply-trigger" onClick={() => setReplyOpen(true)}><MessageCircle className="size-4" />Reply…</button>}</div></div></article>
+}
+
+function CommentEditor({ baseApi, value, submitting, placeholder, submitLabel, compact = false, onChange, onSubmit, onCancel }: { baseApi: string; value: string; submitting: boolean; placeholder: string; submitLabel: string; compact?: boolean; onChange: (value: string) => void; onSubmit: () => void; onCancel?: () => void }) {
+  const [mode, setMode] = useState<"write" | "preview">("write")
+  const [previewHtml, setPreviewHtml] = useState("")
+  const [previewing, setPreviewing] = useState(false)
+  const [mentionRange, setMentionRange] = useState<MentionRange>()
+  const [mentionUsers, setMentionUsers] = useState<MentionUser[]>([])
+  const [mentionsLoading, setMentionsLoading] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const mentionCandidates = useMemo(() => {
+    if (!mentionRange) return []
+    const query = mentionRange.query.toLowerCase()
+    return mentionUsers.filter((user) => !query || user.username.toLowerCase().includes(query) || user.name.toLowerCase().includes(query)).slice(0, 8)
+  }, [mentionRange, mentionUsers])
+
+  useEffect(() => {
+    if (!mentionRange || mentionUsers.length) return
+    let active = true
+    setMentionsLoading(true)
+    void loadMentionUsers(baseApi).then((users) => { if (active) setMentionUsers(users) }).finally(() => { if (active) setMentionsLoading(false) })
+    return () => { active = false }
+  }, [baseApi, mentionRange, mentionUsers.length])
+
+  function updateMention(nextValue: string, cursor: number) {
+    const match = nextValue.slice(0, cursor).match(/(?:^|\s)@([\w.-]*)$/)
+    if (!match) { setMentionRange(undefined); return }
+    const query = match[1]
+    setMentionRange({ start: cursor - query.length - 1, end: cursor, query })
+    setMentionIndex(0)
+  }
+
+  function selectMention(user: MentionUser) {
+    if (!mentionRange) return
+    const insertion = `@${user.username} `
+    const nextValue = `${value.slice(0, mentionRange.start)}${insertion}${value.slice(mentionRange.end)}`
+    const cursor = mentionRange.start + insertion.length
+    onChange(nextValue)
+    setMentionRange(undefined)
+    requestAnimationFrame(() => { textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(cursor, cursor) })
+  }
+
+  function handleMentionKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (!mentionRange || !mentionCandidates.length) return
+    if (event.key === "ArrowDown") { event.preventDefault(); setMentionIndex((current) => (current + 1) % mentionCandidates.length) }
+    else if (event.key === "ArrowUp") { event.preventDefault(); setMentionIndex((current) => (current - 1 + mentionCandidates.length) % mentionCandidates.length) }
+    else if (event.key === "Enter" || event.key === "Tab") { event.preventDefault(); selectMention(mentionCandidates[mentionIndex] || mentionCandidates[0]) }
+    else if (event.key === "Escape") { event.preventDefault(); setMentionRange(undefined) }
+  }
+
+  async function showPreview() {
+    setMode("preview")
+    if (!value.trim()) { setPreviewHtml(""); return }
+    setPreviewing(true)
+    try { setPreviewHtml((await api<{ html?: string }>(`${baseApi}/markdown`, { method: "POST", body: JSON.stringify({ body: value }) })).html || "") }
+    finally { setPreviewing(false) }
+  }
+
+  return <div className={`gh-editor ${compact ? "is-compact" : ""}`}><div className="gh-editor-tabs"><button type="button" className={mode === "write" ? "is-active" : ""} onClick={() => setMode("write")}>Write</button><button type="button" className={mode === "preview" ? "is-active" : ""} onClick={() => void showPreview()}>Preview</button></div><div className="gh-editor-body">{mode === "write" ? <><Textarea ref={textareaRef} value={value} onChange={(event) => { const nextValue = event.currentTarget.value; onChange(nextValue); updateMention(nextValue, event.currentTarget.selectionStart) }} onClick={(event) => updateMention(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={handleMentionKeyDown} placeholder={placeholder} disabled={submitting} />{mentionRange ? <div className="gh-mention-menu">{mentionsLoading ? <div className="gh-mention-empty"><Loader2 className="size-4 animate-spin" />Loading users…</div> : mentionCandidates.length ? mentionCandidates.map((user, index) => <button key={user.username} type="button" className={index === mentionIndex ? "is-active" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(user)}><Avatar user={user} /><span><strong>@{user.username}</strong><small>{user.name}</small></span>{user.bot ? <em>Bot</em> : null}</button>) : <div className="gh-mention-empty">No matching users</div>}</div> : null}</> : previewing ? <div className="gh-editor-preview is-loading"><Loader2 className="size-4 animate-spin" />Rendering preview…</div> : previewHtml ? <MarkdownContent html={previewHtml} fallback="" /> : <div className="gh-editor-preview">Nothing to preview.</div>}</div><footer>{onCancel ? <Button variant="secondary" onClick={onCancel} disabled={submitting}>Cancel</Button> : null}<Button onClick={onSubmit} disabled={submitting || !value.trim()}>{submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}{submitting ? `${submitLabel}ing…` : submitLabel}</Button></footer></div>
 }
 
 function TimelineCard({ author, createdAt, label, children }: { author?: MergeRequestComment["author"]; createdAt?: string; label: string; children: ReactNode }) {

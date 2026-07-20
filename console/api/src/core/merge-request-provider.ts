@@ -16,6 +16,21 @@ function normalizeLabels(labels = []) {
   return (Array.isArray(labels) ? labels : []).map((label) => typeof label === "string" ? label : label && label.name).filter(Boolean)
 }
 
+function normalizeMentionUser(user = {}) {
+  const normalized = normalizeUser(user)
+  return { ...normalized, bot: Boolean(user.bot || user.type === "Bot" || user.user_type === "project_bot" || /(?:^|[-_])bot$/i.test(normalized.username)) }
+}
+
+function uniqueMentionUsers(users = []) {
+  const result = new Map()
+  for (const user of users.map(normalizeMentionUser)) {
+    if (!user.username) continue
+    const key = user.username.toLowerCase()
+    result.set(key, result.has(key) ? { ...result.get(key), ...user, bot: result.get(key).bot || user.bot } : user)
+  }
+  return [...result.values()].sort((left, right) => Number(right.bot) - Number(left.bot) || left.username.localeCompare(right.username))
+}
+
 function planPreview(body, labels) {
   const sourceIssueNumber = issueFlowMarkers(body).sourceIssueNumber
   return {
@@ -63,6 +78,21 @@ function normalizeGitlabMergeRequest(mergeRequest = {}) {
   }
 }
 
+function githubMergeRequestPermissions(repository = {}, currentUser = {}, mergeRequest = {}, reviews = []) {
+  const permissions = repository.permissions || {}
+  const canManage = Boolean(permissions.admin || permissions.maintain || permissions.push)
+  const isAuthor = String(currentUser.login || "").toLowerCase() === String(mergeRequest.user && mergeRequest.user.login || "").toLowerCase()
+  const currentUsername = String(currentUser.login || "").toLowerCase()
+  const hasApproved = (Array.isArray(reviews) ? reviews : []).some((review) => String(review.user && review.user.login || "").toLowerCase() === currentUsername && review.state === "APPROVED")
+  return { canMerge: canManage, canClose: canManage || Boolean(permissions.triage) || isAuthor, canApprove: Boolean(currentUsername) && !isAuthor && Boolean(permissions.pull || permissions.triage || canManage), hasApproved }
+}
+
+function gitlabMergeRequestPermissions(project = {}, currentUser = {}, mergeRequest = {}, approvals = {}) {
+  const accessLevel = Math.max(Number(project.permissions && project.permissions.project_access && project.permissions.project_access.access_level || 0), Number(project.permissions && project.permissions.group_access && project.permissions.group_access.access_level || 0))
+  const isAuthor = String(currentUser.id || "") === String(mergeRequest.author && mergeRequest.author.id || "")
+  return { canMerge: mergeRequest.user && typeof mergeRequest.user.can_merge === "boolean" ? mergeRequest.user.can_merge : accessLevel >= 30, canClose: accessLevel >= 30 || isAuthor, canApprove: typeof approvals.user_can_approve === "boolean" ? approvals.user_can_approve : accessLevel >= 20 && !isAuthor, hasApproved: Boolean(approvals.user_has_approved) }
+}
+
 async function listProviderMergeRequests(server, repo, state = "open") {
   if (server.type === "github") {
     const providerState = state === "open" ? "open" : state === "closed" || state === "merged" ? "closed" : "all"
@@ -77,6 +107,34 @@ async function listProviderMergeRequests(server, repo, state = "open") {
     const providerState = state === "open" ? "opened" : state === "all" ? "all" : state
     const result = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=100&order_by=updated_at&sort=desc`)
     return (Array.isArray(result) ? result : []).map(normalizeGitlabMergeRequest)
+  }
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function listProviderMentionUsers(server, repo, mergeRequestNumber) {
+  if (server.type === "gitlab") {
+    const root = gitlabProjectPath(repo)
+    const [members, participants] = await Promise.all([
+      providerFetch(server, "GET", `${root}/members/all?per_page=100`).catch(() => []),
+      providerFetch(server, "GET", `${root}/merge_requests/${mergeRequestNumber}/participants`).catch(() => []),
+    ])
+    return uniqueMentionUsers([...(Array.isArray(members) ? members : []), ...(Array.isArray(participants) ? participants : [])])
+  }
+  if (server.type === "github") {
+    const root = githubRepoPath(repo)
+    const [members, pullRequest, issueComments, reviewComments] = await Promise.all([
+      providerFetch(server, "GET", `${root}/collaborators?affiliation=all&per_page=100`).catch(() => providerFetch(server, "GET", `${root}/contributors?per_page=100`).catch(() => [])),
+      providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}`).catch(() => ({})),
+      providerFetch(server, "GET", `${root}/issues/${mergeRequestNumber}/comments?per_page=100`).catch(() => []),
+      providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/comments?per_page=100`).catch(() => []),
+    ])
+    return uniqueMentionUsers([
+      ...(Array.isArray(members) ? members : []),
+      pullRequest.user,
+      ...(Array.isArray(pullRequest.requested_reviewers) ? pullRequest.requested_reviewers : []),
+      ...(Array.isArray(issueComments) ? issueComments.map((comment) => comment.user) : []),
+      ...(Array.isArray(reviewComments) ? reviewComments.map((comment) => comment.user) : []),
+    ].filter(Boolean))
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
@@ -101,12 +159,14 @@ function normalizeGitlabFile(file = {}) {
 }
 
 function normalizeGithubComment(comment = {}, type = "comment") {
-  return { id: String(comment.id || ""), type, body: comment.body || "", state: comment.state || "", author: normalizeUser(comment.user), path: comment.path || "", oldPath: "", line: Number(comment.line || comment.original_line || 0), side: comment.side || "", createdAt: comment.submitted_at || comment.created_at || "", resolved: false }
+  const id = String(comment.id || "")
+  const rootId = String(comment.in_reply_to_id || comment.id || "")
+  return { id, type, body: comment.body || "", state: comment.state || "", author: normalizeUser(comment.user), path: comment.path || "", oldPath: "", line: Number(comment.line || comment.original_line || 0), side: comment.side || "", createdAt: comment.submitted_at || comment.created_at || "", resolved: false, discussionId: type === "inline" ? `review-comment:${rootId}` : `${type}:${id}`, discussionRoot: !comment.in_reply_to_id }
 }
 
-function normalizeGitlabComment(note = {}) {
-  const position = note.position || {}
-  return { id: String(note.id || ""), type: position.new_path || position.old_path ? "inline" : "comment", body: note.body || "", state: note.resolved ? "resolved" : "", author: normalizeUser(note.author), path: position.new_path || position.old_path || "", oldPath: position.old_path || "", line: Number(position.new_line || position.old_line || 0), side: position.new_line ? "RIGHT" : position.old_line ? "LEFT" : "", createdAt: note.created_at || "", resolved: Boolean(note.resolved) }
+function normalizeGitlabComment(note = {}, discussion = {}, rootPosition = {}) {
+  const position = note.position || rootPosition || {}
+  return { id: String(note.id || ""), type: position.new_path || position.old_path ? "inline" : "comment", body: note.body || "", state: note.resolved ? "resolved" : "", author: normalizeUser(note.author), path: position.new_path || position.old_path || "", oldPath: position.old_path || "", line: Number(position.new_line || position.old_line || 0), side: position.new_line ? "RIGHT" : position.old_line ? "LEFT" : "", createdAt: note.created_at || "", resolved: Boolean(note.resolved), discussionId: String(discussion.id || note.discussion_id || note.id || ""), discussionRoot: Boolean(discussion.rootNoteId ? String(note.id) === String(discussion.rootNoteId) : true) }
 }
 
 async function hydrateGitlabAvatars(server, detail) {
@@ -129,32 +189,41 @@ async function hydrateGitlabAvatars(server, detail) {
 async function getProviderMergeRequest(server, repo, mergeRequestNumber) {
   if (server.type === "github") {
     const root = githubRepoPath(repo)
-    const [pullRequest, files, issueComments, reviews, inlineComments] = await Promise.all([
+    const [pullRequest, files, issueComments, reviews, inlineComments, repository, currentUser] = await Promise.all([
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}`),
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/files?per_page=100`),
       providerFetch(server, "GET", `${root}/issues/${mergeRequestNumber}/comments?per_page=100`),
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/reviews?per_page=100`),
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/comments?per_page=100`),
+      providerFetch(server, "GET", root).catch(() => ({})),
+      providerFetch(server, "GET", "/user").catch(() => ({})),
     ])
     const comments = [
       ...(Array.isArray(issueComments) ? issueComments : []).map((item) => normalizeGithubComment(item)),
       ...(Array.isArray(reviews) ? reviews : []).map((item) => normalizeGithubComment(item, "review")),
       ...(Array.isArray(inlineComments) ? inlineComments : []).map((item) => normalizeGithubComment(item, "inline")),
     ].filter((item) => item.body || item.type === "review").sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)))
-    return { mergeRequest: normalizeGithubMergeRequest(pullRequest), files: (Array.isArray(files) ? files : []).map(normalizeGithubFile), comments }
+    return { mergeRequest: { ...normalizeGithubMergeRequest(pullRequest), permissions: githubMergeRequestPermissions(repository, currentUser, pullRequest, reviews) }, files: (Array.isArray(files) ? files : []).map(normalizeGithubFile), comments }
   }
   if (server.type === "gitlab") {
     const root = `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`
-    const [mergeRequest, changes, discussions, approvals] = await Promise.all([
+    const [mergeRequest, changes, discussions, approvals, project, currentUser] = await Promise.all([
       providerFetch(server, "GET", root),
       providerFetch(server, "GET", `${root}/changes`),
       providerFetch(server, "GET", `${root}/discussions?per_page=100`),
       providerFetch(server, "GET", `${root}/approvals`).catch(() => undefined),
+      providerFetch(server, "GET", gitlabProjectPath(repo)).catch(() => ({})),
+      providerFetch(server, "GET", "/user").catch(() => ({})),
     ])
     if (!mergeRequest.diff_refs && changes && changes.diff_refs) mergeRequest.diff_refs = changes.diff_refs
     if (approvals) mergeRequest.approved_by = approvals.approved_by
-    const comments = (Array.isArray(discussions) ? discussions : []).flatMap((discussion) => Array.isArray(discussion.notes) ? discussion.notes : []).filter((note) => !note.system).map(normalizeGitlabComment).sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)))
-    return hydrateGitlabAvatars(server, { mergeRequest: normalizeGitlabMergeRequest(mergeRequest), files: (Array.isArray(changes && changes.changes) ? changes.changes : []).map(normalizeGitlabFile), comments })
+    const comments = (Array.isArray(discussions) ? discussions : []).flatMap((discussion) => {
+      const notes = (Array.isArray(discussion.notes) ? discussion.notes : []).filter((note) => !note.system)
+      const rootNote = notes[0] || {}
+      const rootPosition = rootNote.position || {}
+      return notes.map((note) => normalizeGitlabComment(note, { id: discussion.id, rootNoteId: rootNote.id }, rootPosition))
+    }).sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)))
+    return hydrateGitlabAvatars(server, { mergeRequest: { ...normalizeGitlabMergeRequest(mergeRequest), permissions: gitlabMergeRequestPermissions(project, currentUser, mergeRequest, approvals) }, files: (Array.isArray(changes && changes.changes) ? changes.changes : []).map(normalizeGitlabFile), comments })
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
@@ -184,6 +253,30 @@ async function submitProviderMergeRequestReview(server, repo, mergeRequest, inpu
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
+async function submitProviderMergeRequestComment(server, repo, mergeRequestNumber, body) {
+  if (server.type === "github") {
+    return providerFetch(server, "POST", `${githubRepoPath(repo)}/issues/${mergeRequestNumber}/comments`, { body })
+  }
+  if (server.type === "gitlab") {
+    return providerFetch(server, "POST", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}/notes`, { body })
+  }
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function submitProviderMergeRequestReply(server, repo, mergeRequestNumber, target = {}, body) {
+  if (server.type === "github") {
+    if (target.type === "inline") {
+      return providerFetch(server, "POST", `${githubRepoPath(repo)}/pulls/${mergeRequestNumber}/comments/${encodeURIComponent(target.commentId)}/replies`, { body })
+    }
+    return providerFetch(server, "POST", `${githubRepoPath(repo)}/issues/${mergeRequestNumber}/comments`, { body })
+  }
+  if (server.type === "gitlab") {
+    if (!target.discussionId) throw providerApiError("discussion id is required", 400)
+    return providerFetch(server, "POST", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}/discussions/${encodeURIComponent(target.discussionId)}/notes`, { body })
+  }
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
 async function mergeProviderMergeRequest(server, repo, mergeRequestNumber) {
   if (server.type === "github") {
     const result = await providerFetch(server, "PUT", `${githubRepoPath(repo)}/pulls/${mergeRequestNumber}/merge`, { merge_method: "merge" })
@@ -209,4 +302,4 @@ async function updateProviderMergeRequestState(server, repo, mergeRequestNumber,
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { getProviderMergeRequest, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestReview, updateProviderMergeRequestState }
+export { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }

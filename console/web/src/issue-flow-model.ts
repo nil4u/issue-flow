@@ -163,6 +163,7 @@ export type MergeRequestSummary = {
   previewable: boolean
   mergeable?: boolean | null
   mergeStatus?: string
+  permissions?: { canMerge: boolean; canClose: boolean; canApprove: boolean; hasApproved: boolean }
   approvedBy?: MergeRequestUser[]
   diffRefs?: { baseSha: string; startSha: string; headSha: string }
 }
@@ -190,6 +191,8 @@ export type MergeRequestComment = {
   side: string
   createdAt: string
   resolved: boolean
+  discussionId: string
+  discussionRoot: boolean
 }
 
 export type MergeRequestDetail = {
