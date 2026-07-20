@@ -14,7 +14,22 @@ export type VisualArtifactRoute = {
   issueNumber: number
 }
 
-const tabs = new Set<WorkspaceTab>(["overview", "issues", "tasks", "settings"])
+export type MergeRequestRoute = {
+  gitServerId: string
+  projectId: string
+  mergeRequestNumber: number
+}
+
+const tabs = new Set<WorkspaceTab>(["overview", "issues", "merge-requests", "tasks", "settings"])
+
+export function parseMergeRequestRoute(pathname = window.location.pathname): MergeRequestRoute | undefined {
+  const parts = pathname.split("/").filter(Boolean).map((part) => {
+    try { return decodeURIComponent(part) } catch { return part }
+  })
+  const mergeRequestNumber = Number.parseInt(parts[4] || "", 10)
+  if (parts[0] !== "repos" || parts[3] !== "merge-requests" || parts.length !== 5 || !parts[1] || !parts[2] || !Number.isFinite(mergeRequestNumber) || mergeRequestNumber <= 0) return undefined
+  return { gitServerId: parts[1], projectId: parts[2], mergeRequestNumber }
+}
 
 export function parseVisualArtifactRoute(pathname = window.location.pathname): VisualArtifactRoute | undefined {
   const parts = pathname.split("/").filter(Boolean).map((part) => {
@@ -116,6 +131,7 @@ export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
   const project = encodeURIComponent(route.projectId)
   if (route.tab === "settings") return `/repos/${server}/${project}/settings`
   if (route.tab === "issues") return `/repos/${server}/${project}/issues`
+  if (route.tab === "merge-requests") return `/repos/${server}/${project}/merge-requests`
   if (route.tab === "tasks") return `/repos/${server}/${project}/tasks`
   return `/repos/${server}/${project}`
 }
