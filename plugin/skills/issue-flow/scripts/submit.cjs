@@ -447,8 +447,8 @@ function findMarkdownPlanPath(issueNumber, options = {}) {
   throw new Error(`No Markdown Plan file found for issue #${issueNumber}`);
 }
 
-function visualArtifactUrl(baseUrl, gitServerId, projectId, issueNumber, artifact) {
-  return `${baseUrl}/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${issueNumber}/${artifact}`;
+function visualArtifactUrl(baseUrl, gitServerId, projectId, issueNumber) {
+  return `${baseUrl}/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${issueNumber}`;
 }
 
 function buildVisualArtifactMarker(input = {}) {
@@ -472,6 +472,30 @@ function buildVisualArtifactComment(input = {}) {
     '',
     'Review this artifact in Issue Flow. Review comments and approval are recorded on this PR/MR.',
   ].join('\n');
+}
+
+function buildVisualArtifactPublishedComment(input = {}) {
+  const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  return [
+    `<!-- issue-flow:plan-artifact-published artifact=${input.artifact} commit=${input.commit} -->`,
+    `✅ ${title} 已发布：[在 Issue Flow 中审阅](${input.url})`,
+  ].join('\n');
+}
+
+function pullRequestNumberFromUrl(value) {
+  const match = String(value || '').match(/\/(?:pull|pulls|merge_requests)\/(\d+)(?:[/?#]|$)/i);
+  return match ? Number.parseInt(match[1], 10) : undefined;
+}
+
+async function publishVisualArtifactComment(provider, repo, prUrl, artifactInput, options = {}) {
+  if (!provider.createPullRequestComment) throw new Error(`Provider ${provider.name} does not support PR/MR comments`);
+  const number = options.dryRun ? 'dry-run' : pullRequestNumberFromUrl(prUrl);
+  if (!number) throw new Error(`Unable to resolve PR/MR number from submission URL: ${prUrl || '(empty)'}`);
+  return provider.createPullRequestComment(
+    { ...repo, number },
+    buildVisualArtifactPublishedComment(artifactInput),
+    options,
+  );
 }
 
 function parsePositiveInteger(value, name) {
@@ -811,7 +835,7 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
   const commit = runOutput('git', ['rev-parse', 'HEAD']);
-  const url = visualArtifactUrl(baseUrl, routeRepository.gitServerId, routeRepository.projectId, issueNumber, artifact);
+  const url = visualArtifactUrl(baseUrl, routeRepository.gitServerId, routeRepository.projectId, issueNumber);
   const artifactInput = { artifact, format, repositoryId, issueNumber, branch: headBranch, commit, artifactPath, url };
   const artifactBody = buildVisualArtifactComment(artifactInput);
   const suppliedBody = visual ? '' : fs.readFileSync(options.bodyFile, 'utf8').trim();
@@ -839,6 +863,7 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   } finally {
     markedBody.cleanup();
   }
+  await publishVisualArtifactComment(provider, repo, prUrl, artifactInput, options);
   const publicationState = planSubmissionIssueState(artifact);
   applyIssueFlow(provider, repo, issueNumber, publicationState.flow, options);
   const result = {
@@ -1004,6 +1029,7 @@ module.exports = {
   planSubmissionIssueState,
   parseArgs,
   buildVisualArtifactComment,
+  buildVisualArtifactPublishedComment,
   buildVisualArtifactMarker,
   findIssueArtifactPath,
   findMarkdownPlanPath,
@@ -1012,6 +1038,8 @@ module.exports = {
   resolveVisualRouteRepository,
   resolveVisualArtifactType,
   resolveVisualPlanFeatureMode,
+  publishVisualArtifactComment,
+  pullRequestNumberFromUrl,
   visualArtifactUrl,
   resolveAgentrixTaskId,
   resolveAgentrixWorkerBaseBranch,

@@ -227,7 +227,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision-data.json`、`plan/data/plan-data.json` 或 Markdown Plan 文件
 5. Decision/Visual Plan 只提交 JSON；HTML、CSS、JavaScript、布局、图形和审阅锚点由 Issue Flow Engine 内置生成；`visual-brief.md` 只写入 Plan prompt 注入的系统临时路径；Visual Plan 发布前必须删除同一 Issue 的 `decision/`
 6. 使用 `.issue-flow/config.json` 的 `visionPlan.gitServerId`、`visionPlan.projectId`、`visionPlan.repositoryId` 和 `ISSUE_FLOW_BASE_URL` 生成统一 Engine URL
-7. 创建或更新带 `mr-by::plan` label 的 PR/MR；body 写入 source/task marker、Engine URL 和 `issue-flow:plan-artifact` marker
+7. 创建或更新带 `mr-by::plan` label 的 PR/MR；body 写入 source/task marker、Engine URL 和 `issue-flow:plan-artifact` marker，随后在同一 PR/MR 下回复本次发布的统一 Engine URL
 8. Decision 设置 `flow::clarify`；Visual Plan 和 Markdown Plan 设置 `flow::approve`
 
 Engine 从 `mr-by::plan` PR/MR 发现 JSON 或 Markdown 产物。Visual JSON 使用固定组件、统一布局和统一样式渲染。草稿和历史评论按 repository、issue、Decision/Plan 分区保存在浏览器 LocalStorage。提交审阅时，Issue Flow 使用页面当前登录用户的 OAuth token 在该 PR/MR 下评论，由 review-comment pipeline resume 原 Plan task。Decision 批准只评论同一个 open MR并进入 `flow::plan`，不合并；恢复后的 Plan task 更新同一分支和 MR。Visual/Markdown Plan 批准后才合并 MR并进入 `flow::build`。

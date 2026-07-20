@@ -109,6 +109,9 @@ export type VisionRouteContext = {
   gitServerId: string
   projectId: string
   issueNumber: number
+}
+
+export type VisionArtifactContext = VisionRouteContext & {
   artifactType: ArtifactType
 }
 

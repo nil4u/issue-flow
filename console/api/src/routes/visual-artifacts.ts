@@ -14,18 +14,18 @@ export async function visualArtifactRoutes(app: FastifyInstance) {
     return { artifacts: await listReviewablePlanArtifacts({ ...contextFromRequest(request), gitServerId, projectId, ...await visualSession(request, gitServerId) }) }
   })
 
-  app.get("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/:type", async (request) => {
-    const { gitServerId, projectId, issueNumber, type } = request.params as Record<string, string>
-    return getVisualArtifact({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, type, ...await visualSession(request, gitServerId) })
+  app.get("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber", async (request) => {
+    const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
+    return getVisualArtifact({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId) })
   })
 
-  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/:type/reviews", async (request, reply) => {
-    const { gitServerId, projectId, issueNumber, type } = request.params as Record<string, string>
-    const result = await submitVisualReview({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, type, ...await visualSession(request, gitServerId), input: request.body || {} })
+  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/reviews", async (request, reply) => {
+    const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
+    const result = await submitVisualReview({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId), input: request.body || {} })
     return reply.code(201).send(result)
   })
 
-  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/plan/approve", async (request) => {
+  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/approve", async (request) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
     return approveVisualPlan({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId) })
   })

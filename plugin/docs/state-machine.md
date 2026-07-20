@@ -47,8 +47,9 @@ merge build PR/MR → status::done + clear flow
 
 Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan 页面并由 provider Markdown API 渲染：
 
-- `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/decision`
-- `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}/plan`
+- `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}`
+
+Decision、Visual Plan 和 Markdown Plan 共用同一个 Issue 级 URL；页面根据当前 Plan MR marker 中的 artifact 和 format 选择渲染方式。
 
 两种模式的产物都保存在 `.issue-flow/issues/{issue-number}-{slug}/`，Plan 分支继续沿用 `{issue-number}-{slug}/plan` 规则。未设置开关时默认 Markdown 模式，以保持已有线上行为。Decision 和后续 Visual Plan 更新同一个分支与 `mr-by::plan` PR/MR；Markdown Plan 使用相同的 Plan MR 规则；Build PR/MR 保持不变。
 
@@ -56,10 +57,10 @@ Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan
 
 | 动作 | 结果 |
 |------|------|
-| 提交 Markdown Plan PR/MR | MR body 写入 Plan Engine URL；`mr-by::plan` + `flow::approve` |
+| 提交 Markdown Plan PR/MR | MR body 写入统一 Engine URL，并在 MR 下回复该 URL；`mr-by::plan` + `flow::approve` |
 | 提交 Markdown Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
 | Approve Markdown Plan | 页面当前用户 merge MR；`flow::build` |
-| 提交 Decision | MR body 写入 Decision Engine URL；`mr-by::plan` + `flow::clarify` |
+| 提交 Decision | MR body 写入统一 Engine URL，并在 MR 下回复该 URL；`mr-by::plan` + `flow::clarify` |
 | 提交 Decision 讨论/修改 | 审阅记录写入 LocalStorage、评论同一个 Plan MR 并 resume 原 Plan task；保持 `flow::clarify` |
 | 提交 Decision 全部通过 | 清除 Decision 本地记录、评论同一个 Plan MR；`flow::plan`；review-comment pipeline resume 原 Plan task，不合并 MR |
 | 提交 Visual Plan JSON | 删除已完成的 Decision JSON，更新同一分支/MR；Engine 内置渲染；`flow::approve` |

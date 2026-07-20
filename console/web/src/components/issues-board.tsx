@@ -74,8 +74,8 @@ export function IssuesBoard({
   const projectWebUrl = project.webUrl || repository.webUrl || repository.url
     || (gitBaseUrl && projectPath ? `${gitBaseUrl}/${projectPath.replace(/^\/+/, "")}` : "")
   const issueHref = (issueNumber: number) => issueWebUrl(projectWebUrl, gitServer.type, issueNumber)
-  const reviewHref = (issueNumber: number, artifactType: "decision" | "plan") => (
-    `/repos/${encodeURIComponent(gitServer.id)}/${encodeURIComponent(repository.serverRepoId || project.id)}/plan/${issueNumber}/${artifactType}`
+  const reviewHref = (issueNumber: number) => (
+    `/repos/${encodeURIComponent(gitServer.id)}/${encodeURIComponent(repository.serverRepoId || project.id)}/plan/${issueNumber}`
   )
 
   return (

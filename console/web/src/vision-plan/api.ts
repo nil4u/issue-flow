@@ -2,7 +2,7 @@ import { loadReviewStorage } from "./review-storage"
 import type { DraftReviewItem, LoadedVisualArtifact, VisionRouteContext, VisualReview } from "./types"
 
 function endpoint(context: VisionRouteContext, suffix = "") {
-  const base = `/api/visual-artifacts/${encodeURIComponent(context.gitServerId)}/${encodeURIComponent(context.projectId)}/${context.issueNumber}/${context.artifactType}`
+  const base = `/api/visual-artifacts/${encodeURIComponent(context.gitServerId)}/${encodeURIComponent(context.projectId)}/${context.issueNumber}`
   return `${base}${suffix}`
 }
 
@@ -14,23 +14,24 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export async function loadVisualArtifact(context: VisionRouteContext): Promise<LoadedVisualArtifact> {
   const result = await parseResponse<{
-    artifact: { entryPath: string; updatedAt: string; status?: string }
+    artifact: { type: "decision" | "plan"; entryPath: string; updatedAt: string; status?: string }
     format?: "json" | "markdown"
     mergeRequest?: { number?: number; url?: string; state?: string }
     repository?: { fullName?: string }
     html: string
   }>(await fetch(endpoint(context)))
   const artifact = result.artifact
-  const stored = loadReviewStorage(context)
+  const artifactContext = { ...context, artifactType: artifact.type }
+  const stored = loadReviewStorage(artifactContext)
   return {
     issue: {
       issueId: `#${context.issueNumber}`,
       issuePath: `${context.gitServerId}/${context.projectId}/${context.issueNumber}`,
       title: `${result.repository?.fullName || context.projectId} · 议题 #${context.issueNumber}`,
       artifacts: [{
-        type: context.artifactType,
+        type: artifact.type,
         path: artifact.entryPath,
-        title: context.artifactType === "decision" ? "决策" : "方案",
+        title: artifact.type === "decision" ? "决策" : "方案",
         modifiedAt: artifact.updatedAt,
         status: artifact.status || "pending",
         format: result.format || "json",
@@ -64,7 +65,7 @@ export async function approveAllDecisions(context: VisionRouteContext, items: Dr
 
 export async function approveVisionArtifact(context: VisionRouteContext) {
   return parseResponse<{ artifact: { status: string }; review: VisualReview; flow: string }>(await fetch(
-    `/api/visual-artifacts/${encodeURIComponent(context.gitServerId)}/${encodeURIComponent(context.projectId)}/${context.issueNumber}/plan/approve`,
+    `/api/visual-artifacts/${encodeURIComponent(context.gitServerId)}/${encodeURIComponent(context.projectId)}/${context.issueNumber}/approve`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
   ))
 }

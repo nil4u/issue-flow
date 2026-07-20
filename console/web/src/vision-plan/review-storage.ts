@@ -1,4 +1,4 @@
-import type { DraftReviewItem, FeedbackRequest, VisionRouteContext, VisualReview } from "./types"
+import type { DraftReviewItem, FeedbackRequest, VisionArtifactContext, VisualReview } from "./types"
 
 type StoredReviews = {
   drafts: DraftReviewItem[]
@@ -7,7 +7,7 @@ type StoredReviews = {
 
 const STORAGE_PREFIX = "issue-flow:plan-reviews:v1"
 
-function storageKey(context: VisionRouteContext) {
+function storageKey(context: VisionArtifactContext) {
   return [STORAGE_PREFIX, context.gitServerId, context.projectId, context.issueNumber, context.artifactType]
     .map((part) => encodeURIComponent(String(part)))
     .join(":")
@@ -17,7 +17,7 @@ function emptyReviews(): StoredReviews {
   return { drafts: [], reviews: [] }
 }
 
-function readStoredReviews(context: VisionRouteContext): StoredReviews {
+function readStoredReviews(context: VisionArtifactContext): StoredReviews {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(storageKey(context)) || "null")
     return {
@@ -29,7 +29,7 @@ function readStoredReviews(context: VisionRouteContext): StoredReviews {
   }
 }
 
-function writeStoredReviews(context: VisionRouteContext, value: StoredReviews) {
+function writeStoredReviews(context: VisionArtifactContext, value: StoredReviews) {
   window.localStorage.setItem(storageKey(context), JSON.stringify(value))
   return value
 }
@@ -39,11 +39,11 @@ function localId(prefix: string) {
   return `${prefix}_${id}`
 }
 
-export function loadReviewStorage(context: VisionRouteContext) {
+export function loadReviewStorage(context: VisionArtifactContext) {
   return readStoredReviews(context)
 }
 
-export function addStoredReviewDraft(context: VisionRouteContext, input: FeedbackRequest) {
+export function addStoredReviewDraft(context: VisionArtifactContext, input: FeedbackRequest) {
   const stored = readStoredReviews(context)
   const now = new Date().toISOString()
   const item: DraftReviewItem = { ...input, id: localId("visual_draft"), createdAt: now, updatedAt: now }
@@ -51,7 +51,7 @@ export function addStoredReviewDraft(context: VisionRouteContext, input: Feedbac
   return item
 }
 
-export function updateStoredReviewDraft(context: VisionRouteContext, itemId: string, input: FeedbackRequest) {
+export function updateStoredReviewDraft(context: VisionArtifactContext, itemId: string, input: FeedbackRequest) {
   const stored = readStoredReviews(context)
   const current = stored.drafts.find((item) => item.id === itemId)
   if (!current) throw new Error("本地审阅意见不存在")
@@ -60,16 +60,16 @@ export function updateStoredReviewDraft(context: VisionRouteContext, itemId: str
   return updated
 }
 
-export function deleteStoredReviewDraft(context: VisionRouteContext, itemId: string) {
+export function deleteStoredReviewDraft(context: VisionArtifactContext, itemId: string) {
   const stored = readStoredReviews(context)
   writeStoredReviews(context, { ...stored, drafts: stored.drafts.filter((item) => item.id !== itemId) })
 }
 
-export function saveSubmittedReview(context: VisionRouteContext, review: VisualReview) {
+export function saveSubmittedReview(context: VisionArtifactContext, review: VisualReview) {
   const stored = readStoredReviews(context)
   writeStoredReviews(context, { drafts: [], reviews: [review, ...stored.reviews.filter((item) => item.id !== review.id)] })
 }
 
-export function clearReviewStorage(context: VisionRouteContext) {
+export function clearReviewStorage(context: VisionArtifactContext) {
   window.localStorage.removeItem(storageKey(context))
 }
