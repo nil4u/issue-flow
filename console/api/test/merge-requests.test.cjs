@@ -4,7 +4,7 @@ const test = require("node:test")
 process.env.DATABASE_URL ||= "postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test"
 require("tsx/cjs")
 
-const { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
+const { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
 const { getMergeRequest } = require("../src/core/merge-requests.ts")
 
 test("only Plan MR with a source issue can open the Plan preview", () => {
@@ -220,6 +220,38 @@ test("conversation replies stay in the provider discussion", async (t) => {
   assert.deepEqual(JSON.parse(requests[0].options.body), { body: "GitHub reply" })
   assert.match(requests[1].url, /\/merge_requests\/17\/discussions\/discussion-1\/notes$/)
   assert.deepEqual(JSON.parse(requests[1].options.body), { body: "GitLab reply" })
+})
+
+test("GitHub merge supports squash and editable commit messages", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  let request
+  global.fetch = async (url, options = {}) => {
+    request = { url: String(url), options }
+    return new Response(JSON.stringify({ merged: true }), { status: 200 })
+  }
+
+  await mergeProviderMergeRequest({ type: "github", apiUrl: "https://api.github.test", userToken: "token" }, { fullName: "acme/widget" }, 7, { method: "squash", commitMessage: "Squashed title\n\nDetailed body" })
+  assert.equal(request.options.method, "PUT")
+  assert.deepEqual(JSON.parse(request.options.body), { merge_method: "squash", commit_title: "Squashed title", commit_message: "Detailed body" })
+})
+
+test("GitLab merge supports merge commits, squash, and editable messages", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options })
+    return new Response(JSON.stringify({ state: "merged" }), { status: 200 })
+  }
+
+  const server = { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "token" }
+  const repo = { serverRepoId: "43326" }
+  await mergeProviderMergeRequest(server, repo, 17, { method: "merge", commitMessage: "Merge message" })
+  await mergeProviderMergeRequest(server, repo, 18, { method: "squash", commitMessage: "Squash message" })
+
+  assert.deepEqual(JSON.parse(requests[0].options.body), { should_remove_source_branch: true, squash: false, merge_commit_message: "Merge message" })
+  assert.deepEqual(JSON.parse(requests[1].options.body), { should_remove_source_branch: true, squash: true, squash_commit_message: "Squash message" })
 })
 
 test("GitHub merge request can be closed and reopened with the current user credential", async (t) => {

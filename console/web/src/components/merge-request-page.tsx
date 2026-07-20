@@ -84,6 +84,8 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   const [updatingState, setUpdatingState] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)
   const [pendingAction, setPendingAction] = useState<"merge" | "close">()
+  const [mergeMethod, setMergeMethod] = useState<"merge" | "squash">("merge")
+  const [mergeCommitMessage, setMergeCommitMessage] = useState("")
 
   const loadDetail = useCallback(async () => {
     setLoading(true); setError("")
@@ -142,6 +144,27 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     return "Closed"
   }
 
+  function defaultMergeMessage(method: "merge" | "squash") {
+    if (!detail) return ""
+    const mergeRequest = detail.mergeRequest
+    if (detail.repository.provider === "github") {
+      return method === "squash" ? `${mergeRequest.title} (#${mergeRequest.number})${mergeRequest.body ? `\n\n${mergeRequest.body}` : ""}` : `Merge pull request #${mergeRequest.number} from ${mergeRequest.sourceBranch}\n\n${mergeRequest.title}`
+    }
+    const reference = `${detail.repository.fullName}!${mergeRequest.number}`
+    return method === "squash" ? `${mergeRequest.title}\n\nSee merge request ${reference}` : `Merge branch '${mergeRequest.sourceBranch}' into '${mergeRequest.targetBranch}'\n\n${mergeRequest.title}\n\nSee merge request ${reference}`
+  }
+
+  function openMergeDialog() {
+    setMergeMethod("merge")
+    setMergeCommitMessage(defaultMergeMessage("merge"))
+    setPendingAction("merge")
+  }
+
+  function selectMergeMethod(method: "merge" | "squash") {
+    setMergeMethod(method)
+    setMergeCommitMessage(defaultMergeMessage(method))
+  }
+
   function openLineComment(file: MergeRequestFile, line: DiffLine) {
     const side = line.kind === "deletion" ? "LEFT" : "RIGHT"
     const lineNumber = side === "LEFT" ? line.oldLine : line.newLine
@@ -187,7 +210,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   async function mergeRequest() {
     if (!isOpen || !canMerge || merging) return
     setMerging(true); setError("")
-    try { await api(`${baseApi}/merge`, { method: "POST", body: "{}" }); setPendingAction(undefined); await loadDetail() }
+    try { await api(`${baseApi}/merge`, { method: "POST", body: JSON.stringify({ method: mergeMethod, commitMessage: mergeCommitMessage }) }); setPendingAction(undefined); await loadDetail() }
     catch (mergeError) { setError(mergeError instanceof Error ? mergeError.message : "合并失败") }
     finally { setMerging(false) }
   }
@@ -213,8 +236,8 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
             <Button variant="secondary" onClick={() => void loadDetail()} disabled={loading}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />刷新</Button>
             {isOpen && (canApprove || hasApproved) ? <Button className="gh-approve-button" variant="secondary" onClick={() => void approveMergeRequest()} disabled={approving || hasApproved}>{approving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}{approving ? "Approving…" : hasApproved ? "Approved" : "Approve"}</Button> : null}
             {detail?.mergeRequest.state === "closed" && !detail.mergeRequest.merged && canClose ? <Button onClick={() => void updateState("reopen")} disabled={updatingState}>{updatingState ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequest className="size-4" />}{updatingState ? "正在重新打开" : "Reopen"}</Button> : null}
-            {isOpen && canMerge && canClose ? <DropdownMenu><DropdownMenuTrigger asChild><Button className="gh-merge-button" disabled={merging || updatingState}>{merging ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}{merging ? "正在合并" : "Merge"}<ChevronDown className="size-3.5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={detail?.mergeRequest.mergeable === false} onSelect={() => setPendingAction("merge")}><GitMerge className="size-4" />Merge</DropdownMenuItem><DropdownMenuItem onSelect={() => setPendingAction("close")}><GitPullRequestClosed className="size-4" />Close</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
-            {isOpen && canMerge && !canClose ? <Button className="gh-merge-button" onClick={() => setPendingAction("merge")} disabled={merging || updatingState || detail?.mergeRequest.mergeable === false}><GitMerge className="size-4" />Merge</Button> : null}
+            {isOpen && canMerge && canClose ? <DropdownMenu><DropdownMenuTrigger asChild><Button className="gh-merge-button" disabled={merging || updatingState}>{merging ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}{merging ? "正在合并" : "Merge"}<ChevronDown className="size-3.5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={detail?.mergeRequest.mergeable === false} onSelect={openMergeDialog}><GitMerge className="size-4" />Merge</DropdownMenuItem><DropdownMenuItem onSelect={() => setPendingAction("close")}><GitPullRequestClosed className="size-4" />Close</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+            {isOpen && canMerge && !canClose ? <Button className="gh-merge-button" onClick={openMergeDialog} disabled={merging || updatingState || detail?.mergeRequest.mergeable === false}><GitMerge className="size-4" />Merge</Button> : null}
             {isOpen && !canMerge && canClose ? <Button variant="secondary" onClick={() => setPendingAction("close")} disabled={updatingState}><GitPullRequestClosed className="size-4" />Close</Button> : null}
           </div>
         </div>
@@ -258,7 +281,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
 
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}><DialogContent className="gh-review-dialog"><DialogHeader><DialogTitle>Submit review</DialogTitle></DialogHeader><div className="gh-review-kind"><button className={reviewAction === "comment" ? "is-active" : ""} onClick={() => setReviewAction("comment")}>Comment</button><button className={reviewAction === "approve" ? "is-active" : ""} onClick={() => setReviewAction("approve")}><CheckCircle2 className="size-4" />Approve</button></div><Textarea value={reviewBody} onChange={(event) => setReviewBody(event.currentTarget.value)} placeholder={reviewAction === "approve" ? "Leave an optional approval summary" : "Leave a review summary"} /><p>{draftComments.length} pending inline comments</p><div className="gh-dialog-actions"><Button onClick={() => void submitReview()} disabled={submitting || (!reviewBody.trim() && !draftComments.length && reviewAction !== "approve")}><Send className="size-4" />{submitting ? "Submitting…" : "Submit review"}</Button></div></DialogContent></Dialog>
       <Dialog open={Boolean(commentTarget)} onOpenChange={(open) => !open && setCommentTarget(undefined)}><DialogContent><DialogHeader><DialogTitle>Add a line comment</DialogTitle></DialogHeader><div className="gh-comment-target"><code>{commentTarget?.file.path}:{commentTarget?.line}</code><pre>{commentTarget?.content}</pre></div><Textarea autoFocus value={lineCommentBody} onChange={(event) => setLineCommentBody(event.currentTarget.value)} placeholder="Leave a comment" /><div className="gh-dialog-actions"><Button onClick={saveLineComment} disabled={!lineCommentBody.trim()}><Plus className="size-4" />Add to review</Button></div></DialogContent></Dialog>
-      <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => { if (!open && !merging && !updatingState) setPendingAction(undefined) }}><DialogContent className="gh-action-dialog" showCloseButton={false} onOpenAutoFocus={(event) => event.preventDefault()}><div className="gh-action-dialog-main"><div className={`gh-action-dialog-icon is-${pendingAction}`}>{pendingAction === "merge" ? <GitMerge className="size-4" /> : <GitPullRequestClosed className="size-4" />}</div><div><DialogHeader><DialogTitle>{pendingAction === "merge" ? "Merge this Merge Request?" : "Close this Merge Request?"}</DialogTitle></DialogHeader><p>{pendingAction === "merge" ? <><code>{detail?.mergeRequest.sourceBranch}</code> will be merged into <code>{detail?.mergeRequest.targetBranch}</code>.</> : "Close without merging. You can reopen it later."}</p></div></div><div className="gh-action-dialog-actions"><Button variant="secondary" onClick={() => setPendingAction(undefined)} disabled={merging || updatingState}>Cancel</Button><Button className={pendingAction === "merge" ? "gh-merge-button" : ""} onClick={() => pendingAction === "merge" ? void mergeRequest() : void updateState("close")} disabled={merging || updatingState}>{merging || updatingState ? <Loader2 className="size-4 animate-spin" /> : pendingAction === "merge" ? <GitMerge className="size-4" /> : <GitPullRequestClosed className="size-4" />}{pendingAction === "merge" ? merging ? "Merging…" : "Merge" : updatingState ? "Closing…" : "Close"}</Button></div></DialogContent></Dialog>
+      <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => { if (!open && !merging && !updatingState) setPendingAction(undefined) }}>{pendingAction === "merge" ? <DialogContent className="gh-merge-dialog" showCloseButton={false} onOpenAutoFocus={(event) => event.preventDefault()}><div className="gh-merge-dialog-header"><div className="gh-action-dialog-icon is-merge"><GitMerge className="size-4" /></div><div><DialogHeader><DialogTitle>Merge Merge Request</DialogTitle></DialogHeader><p><code>{detail?.mergeRequest.sourceBranch}</code> into <code>{detail?.mergeRequest.targetBranch}</code></p></div></div><div className="gh-merge-methods"><button type="button" className={mergeMethod === "merge" ? "is-selected" : ""} onClick={() => selectMergeMethod("merge")}><span className="gh-merge-method-radio" /><span><strong>Create a merge commit</strong><small>All commits from this branch will be added through a merge commit.</small></span></button><button type="button" className={mergeMethod === "squash" ? "is-selected" : ""} onClick={() => selectMergeMethod("squash")}><span className="gh-merge-method-radio" /><span><strong>Squash and merge</strong><small>{detail?.mergeRequest.commitsCount || "All"} commits will be combined into one commit.</small></span></button></div><label className="gh-merge-message"><span>{mergeMethod === "squash" ? "Squash commit message" : "Merge commit message"}</span><Textarea value={mergeCommitMessage} onChange={(event) => setMergeCommitMessage(event.currentTarget.value)} /></label><div className="gh-merge-dialog-actions"><Button variant="secondary" onClick={() => setPendingAction(undefined)} disabled={merging}>Cancel</Button><Button className="gh-merge-button" onClick={() => void mergeRequest()} disabled={merging || !mergeCommitMessage.trim()}>{merging ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}{merging ? "Merging…" : mergeMethod === "squash" ? "Squash and merge" : "Create merge commit"}</Button></div></DialogContent> : <DialogContent className="gh-action-dialog" showCloseButton={false} onOpenAutoFocus={(event) => event.preventDefault()}><div className="gh-action-dialog-main"><div className="gh-action-dialog-icon"><GitPullRequestClosed className="size-4" /></div><div><DialogHeader><DialogTitle>Close this Merge Request?</DialogTitle></DialogHeader><p>Close without merging. You can reopen it later.</p></div></div><div className="gh-action-dialog-actions"><Button variant="secondary" onClick={() => setPendingAction(undefined)} disabled={updatingState}>Cancel</Button><Button onClick={() => void updateState("close")} disabled={updatingState}>{updatingState ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequestClosed className="size-4" />}{updatingState ? "Closing…" : "Close"}</Button></div></DialogContent>}</Dialog>
     </main>
   )
 }

@@ -88,9 +88,9 @@ async function renderMergeRequestMarkdown({ store, gitServerId, projectId, userI
   return { html: await renderProviderMarkdown(server, repo, String(input.body || "")) }
 }
 
-async function mergeMergeRequest({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
+async function mergeMergeRequest({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
-  return { merge: await mergeProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber)) }
+  return { merge: await mergeProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), { method: input.method === "squash" ? "squash" : "merge", commitMessage: String(input.commitMessage || "") }) }
 }
 
 async function updateMergeRequestState({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {

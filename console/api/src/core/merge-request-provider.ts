@@ -277,14 +277,22 @@ async function submitProviderMergeRequestReply(server, repo, mergeRequestNumber,
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-async function mergeProviderMergeRequest(server, repo, mergeRequestNumber) {
+function splitGithubCommitMessage(commitMessage = "") {
+  const [title, ...bodyLines] = String(commitMessage || "").split("\n")
+  return { title: title.trim(), body: bodyLines.join("\n").trim() }
+}
+
+async function mergeProviderMergeRequest(server, repo, mergeRequestNumber, input = {}) {
+  const method = input.method === "squash" ? "squash" : "merge"
+  const commitMessage = String(input.commitMessage || "").trim()
   if (server.type === "github") {
-    const result = await providerFetch(server, "PUT", `${githubRepoPath(repo)}/pulls/${mergeRequestNumber}/merge`, { merge_method: "merge" })
+    const message = splitGithubCommitMessage(commitMessage)
+    const result = await providerFetch(server, "PUT", `${githubRepoPath(repo)}/pulls/${mergeRequestNumber}/merge`, { merge_method: method, ...(message.title ? { commit_title: message.title } : {}), ...(message.body ? { commit_message: message.body } : {}) })
     if (!result || result.merged !== true) throw providerApiError("pull request could not be merged", 409, result)
     return result
   }
   if (server.type === "gitlab") {
-    const result = await providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}/merge`, { should_remove_source_branch: true, squash: false })
+    const result = await providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}/merge`, { should_remove_source_branch: true, squash: method === "squash", ...(commitMessage ? method === "squash" ? { squash_commit_message: commitMessage } : { merge_commit_message: commitMessage } : {}) })
     if (!result || result.state !== "merged") throw providerApiError("merge request could not be merged", 409, result)
     return result
   }

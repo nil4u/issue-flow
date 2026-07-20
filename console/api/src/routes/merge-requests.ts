@@ -49,7 +49,7 @@ export async function mergeRequestRoutes(app: FastifyInstance) {
 
   app.post("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/merge", async (request) => {
     const { gitServerId, projectId, mergeRequestNumber } = request.params as Record<string, string>
-    return mergeMergeRequest({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId) })
+    return mergeMergeRequest({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
   })
 
   app.post("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/state", async (request) => {
