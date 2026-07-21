@@ -395,7 +395,7 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
   }
 });
 
-test('agentrix general prompt includes create issue guidance', () => {
+test('agentrix default general prompt delegates create issue guidance to the required skill', () => {
   const prompt = agentrix.buildPrompt(
     'general',
     {
@@ -408,9 +408,18 @@ test('agentrix general prompt includes create issue guidance', () => {
     { instruction: 'create an issue for this' }
   );
 
-  assert.match(prompt, /issue-flow issue create/);
-  assert.match(prompt, /automation::off/);
   assertRequiredSkillAtEnd(prompt);
+
+  const defaultPrompt = fs.readFileSync(
+    path.resolve(__dirname, '..', 'skills', 'issue-flow', 'assets', 'agentrix', 'runtime', 'prompts', 'general.prompt.md'),
+    'utf8',
+  );
+  assert.doesNotMatch(defaultPrompt, /issue-flow issue create/);
+  assert.doesNotMatch(defaultPrompt, /automation::off/);
+
+  const skill = fs.readFileSync(path.resolve(__dirname, '..', 'skills', 'issue-flow', 'SKILL.md'), 'utf8');
+  assert.match(skill, /开放讨论已经形成清晰需求/);
+  assert.match(skill, /automation::off/);
 });
 
 test('agentrix task marker uses issue-flow namespace', () => {

@@ -1049,6 +1049,21 @@ test('GitLab webhook bridge normalizes supported event classes', () => {
   }, 'webhook-secret');
   assert.equal(pipeline.events[0].eventName, 'workflow_run');
   assert.equal(pipeline.events[0].workflowRun.conclusion, 'failure');
+
+  const branch = normalizeGitLabWebhook({
+    headers,
+    body: {
+      object_kind: 'push',
+      ref: 'refs/heads/release/0721',
+      before: '0000000000000000000000000000000000000000',
+      after: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      project: { id: 42, path_with_namespace: 'team/app', default_branch: 'main' },
+    },
+  }, 'webhook-secret');
+  assert.equal(branch.events[0].eventName, 'create');
+  assert.equal(branch.events[0].eventAction, 'created');
+  assert.equal(branch.events[0].refType, 'branch');
+  assert.equal(branch.events[0].ref, 'release/0721');
 });
 
 test('git events project issue snapshots and flow spans', async () => {
@@ -3463,6 +3478,7 @@ test('GitLab webhook check only caches hooks matched from GitLab', async () => {
     hooks = [{
       id: 9001,
       url: expectedWebhookUrl,
+      push_events: true,
       issues_events: true,
       note_events: true,
       merge_requests_events: true,
@@ -3484,6 +3500,17 @@ test('GitLab webhook check only caches hooks matched from GitLab', async () => {
     });
     assert.equal(cached.data.url, expectedWebhookUrl);
     assert.equal(cached.data.hookId, '9001');
+    assert.equal(cached.data.pushEvents, true);
+
+    hooks[0].push_events = false;
+    const missingPush = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'webhook' },
+    });
+    assert.equal(missingPush.status, 200);
+    assert.equal(missingPush.body.steps[0].status, 'needs_action');
+    assert.match(missingPush.body.steps[0].detail, /Push events/);
 
     hooks = [];
     const missing = await checkGitlabProjectInstall({
@@ -3546,6 +3573,7 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
         assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
         assert.equal(body.url, expectedWebhookUrl);
         assert.equal(body.token, 'backend-webhook-secret');
+        assert.equal(body.push_events, true);
         assert.equal(body.issues_events, true);
         assert.equal(body.note_events, true);
         assert.equal(body.merge_requests_events, true);
@@ -3553,6 +3581,7 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
         res.end(JSON.stringify({
           id: 9101,
           url: body.url,
+          push_events: true,
           issues_events: true,
           note_events: true,
           merge_requests_events: true,
@@ -3601,6 +3630,7 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
     });
     assert.equal(cached.data.url, expectedWebhookUrl);
     assert.equal(cached.data.hookId, '9101');
+    assert.equal(cached.data.pushEvents, true);
     assert.equal(cached.data.issuesEvents, true);
     assert.deepEqual(calls, [
       'GET /api/v4/user',
@@ -3810,6 +3840,7 @@ test('GitLab webhook upsert updates an existing hook by URL when hook id is unkn
         assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
         assert.equal(body.url, 'https://issue-flow.internal/webhooks/gitlab/repo_existing');
         assert.equal(body.token, 'backend-webhook-secret');
+        assert.equal(body.push_events, true);
         assert.equal(body.issues_events, true);
         assert.equal(body.note_events, true);
         res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -28,6 +28,20 @@ issue-flow-labels:
       fi
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
 
+issue-flow-milestones:
+  extends: .issue-flow-runner
+  stage: build
+  rules:
+    - if: '$GITLAB_BRIDGE_EVENT_NAME == "create" || $GITLAB_BRIDGE_EVENT_NAME == "delete"'
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then set -- "$@" --repo "$CI_PROJECT_PATH"; fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs milestone sync "$@"
+
 issue-flow-auto:
   extends: .issue-flow-runner
   stage: build

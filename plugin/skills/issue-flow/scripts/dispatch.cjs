@@ -11,6 +11,7 @@ const {
 const { parseSourceMarker } = require('./provenance.cjs');
 const prMerged = require('./pr-merged.cjs');
 const pipelineFailed = require('./pipeline-failed.cjs');
+const { resolveIssueTarget } = require('./milestones.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
 const TRIGGER_COMMENT_REACTION = 'eyes';
@@ -515,7 +516,16 @@ async function startAction(action, issue, options = {}, data = {}) {
     dryRun: Boolean(options.dryRun),
   });
   const currentIssue = await fetchCurrentIssue(issue, options);
-  const taskClaim = await claimActionTask(currentIssue, action, runtime, data, options);
+  const provider = providers[currentIssue.provider] || resolveProvider(options);
+  const repo = {
+    owner: currentIssue.owner,
+    repo: currentIssue.repo,
+    fullName: currentIssue.repoFullName,
+    projectId: currentIssue.projectId,
+  };
+  const target = await resolveIssueTarget(currentIssue, provider, repo, options);
+  const taskData = target.enabled ? { ...data, ...target } : data;
+  const taskClaim = await claimActionTask(currentIssue, action, runtime, taskData, options);
   if (!taskClaim.claimed) {
     logIssueFlow('Skipping duplicate action task', {
       action,
@@ -533,7 +543,7 @@ async function startAction(action, issue, options = {}, data = {}) {
 
   let result;
   try {
-    result = runtime.run(action, currentIssue, options, data);
+    result = runtime.run(action, currentIssue, options, taskData);
   } catch (error) {
     if (taskClaim.comment && taskClaim.comment.id) {
       try {
@@ -546,9 +556,9 @@ async function startAction(action, issue, options = {}, data = {}) {
     throw error;
   }
 
-  await acknowledgeAutoIssue(currentIssue, action, runtime, data, options);
+  await acknowledgeAutoIssue(currentIssue, action, runtime, taskData, options);
   if (taskClaim.comment && taskClaim.comment.id) {
-    await updateIssueComment(currentIssue, taskClaim.comment.id, runtime.buildTaskComment(action, result, data), options);
+    await updateIssueComment(currentIssue, taskClaim.comment.id, runtime.buildTaskComment(action, result, taskData), options);
   }
   logIssueFlow('Finished action', {
     action,

@@ -749,6 +749,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
   appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
   appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
+  appendOptionalArg(args, '--checkout-ref', data.checkoutRef);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
 }

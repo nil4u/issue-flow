@@ -584,6 +584,7 @@ test('github create issue uses token API with labels in the create request', asy
         calls.push({ url: String(url), method: init.method, body: parsedBody });
         assert.equal(init.method, 'POST');
         assert.deepEqual(parsedBody.labels, ['type::feature', 'status::active', 'flow::plan']);
+        assert.equal(parsedBody.milestone, 7);
         return {
           ok: true,
           status: 201,
@@ -604,6 +605,7 @@ test('github create issue uses token API with labels in the create request', asy
         title: 'Create issue support',
         body: 'Body',
         labels: ['type::feature', 'status::active', 'flow::plan'],
+        milestone: { number: 7, title: 'release/0721' },
         options: {},
       });
 
@@ -651,6 +653,83 @@ test('github create issue falls back to gh api when token is missing', async () 
   global.fetch = previousFetch;
   assert.deepEqual(fakeGh.readCalls()[0].slice(0, 3), ['api', 'repos/acme-org/webapp/issues', '-X']);
   fakeGh.cleanup();
+});
+
+test('github milestone provider resolves branches and reopens existing milestones', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const previousFetch = global.fetch;
+  const calls = [];
+  let milestoneState = 'closed';
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsed = new URL(String(url));
+        const body = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ method: init.method, pathname: parsed.pathname, search: parsed.search, body });
+        if (parsed.pathname.endsWith('/branches/release%2F0721')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ name: 'release/0721' }) };
+        }
+        if (parsed.pathname.endsWith('/milestones') && init.method === 'GET') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([{ id: 70, number: 7, title: 'release/0721', state: milestoneState }]) };
+        }
+        if (parsed.pathname.endsWith('/milestones/7') && init.method === 'PATCH') {
+          milestoneState = body.state;
+          return { ok: true, status: 200, text: async () => JSON.stringify({ id: 70, number: 7, title: 'release/0721', state: milestoneState }) };
+        }
+        throw new Error(`Unexpected GitHub API call: ${init.method} ${url}`);
+      };
+      assert.equal(await provider.branchExists(repo, 'release/0721'), true);
+      assert.equal((await provider.ensureMilestone(repo, 'release/0721')).action, 'reopened');
+      assert.equal((await provider.closeMilestone(repo, 'release/0721')).action, 'closed');
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
+  assert.deepEqual(calls.map((call) => [call.method, call.pathname]), [
+    ['GET', '/repos/acme-org/webapp/branches/release%2F0721'],
+    ['GET', '/repos/acme-org/webapp/milestones'],
+    ['PATCH', '/repos/acme-org/webapp/milestones/7'],
+    ['GET', '/repos/acme-org/webapp/milestones'],
+    ['PATCH', '/repos/acme-org/webapp/milestones/7'],
+  ]);
+});
+
+test('github provider refuses to reuse an existing pull request with another target', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const bodyFile = createBodyFile('Body');
+  const previousFetch = global.fetch;
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        assert.equal(init.method, 'GET');
+        assert.match(String(url), /\/pulls\?/);
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify([{
+            number: 9,
+            html_url: 'https://github.com/acme-org/webapp/pull/9',
+            base: { ref: 'main' },
+          }]),
+        };
+      };
+      await assert.rejects(provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #42: Target check',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'release/0721',
+        headBranch: '42-target/build',
+        draft: false,
+        options: {},
+      }), /Existing pull request targets main, expected release\/0721/);
+    });
+  } finally {
+    global.fetch = previousFetch;
+    bodyFile.cleanup();
+  }
 });
 
 test('github token authorization failure does not fallback to gh CLI', async () => {
@@ -1121,6 +1200,7 @@ test('gitlab create issue preflights managed labels before creating', async () =
             title: 'Create GitLab issue',
             description: 'Body',
             labels: 'type::feature,status::active,flow::build',
+            milestone_id: 88,
           });
           return {
             ok: true,
@@ -1145,6 +1225,7 @@ test('gitlab create issue preflights managed labels before creating', async () =
         title: 'Create GitLab issue',
         body: 'Body',
         labels: ['type::feature', 'status::active', 'flow::build'],
+        milestone: { id: 88, title: 'release/0721' },
         managedLabelDefinitions: [
           labelDefinitionFor('type::feature'),
           labelDefinitionFor('status::active'),

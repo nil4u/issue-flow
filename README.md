@@ -59,6 +59,19 @@ node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs issue create \
 
 Use a repo-external temp body file, usually generated from `.issue-flow/templates/type-*.md`. Pass labels only when the discussion makes them clear. Creating or moving an issue directly into `flow::plan` or `flow::build` requires exactly one `size::` label; if the size cannot be judged, use `size::M` and leave a low-confidence note. Use `automation::off` when the issue should be recorded but not picked up by intake or automatic routing.
 
+Projects that need parallel release or integration lines can opt into Milestone target branches:
+
+```json
+{
+  "milestone": {
+    "enabled": true,
+    "branchPatterns": ["release/*", "integration/*"]
+  }
+}
+```
+
+Matching branch create/delete events open or close a same-name Milestone. Before creating an issue, the agent runs `issue-flow milestone list`; when enabled, issue creation must pass `--milestone <title|none>`. The selected branch becomes both the Agentrix checkout start and final PR/MR target, while the task still works on its own topic branch. Changing the Milestone after a Plan or Build task starts is not handled.
+
 Size labels also define Weighted Throughput: for completed issues in a time window, sum the weight of each issue's unique `size::` label (`XS=0.5`, `S=1`, `M=2`, `L=3`, `XL=5`). Issues without a size or with conflicting sizes should be excluded from the statistic.
 
 Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
@@ -115,6 +128,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 - `.github/workflows/issue-flow-labels.yml` - automatic provider label synchronization after install or upgrade pushes
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
+- `.github/workflows/issue-flow-milestones.yml` - target branch/Milestone synchronization
 - `.github/workflows/issue-flow-pr-review.yml` - optional PR/MR automatic review checks
 - `.github/workflows/issue-flow-pr-review-comment.yml` - resumes the PR/MR Agentrix task when a new review comment is added
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions

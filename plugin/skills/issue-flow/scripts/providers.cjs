@@ -203,7 +203,7 @@ function planLabelSync(providerName, existing, definition) {
 }
 
 function normalizeGitlabState(state) {
-  if (state === 'opened') {
+  if (state === 'opened' || state === 'active') {
     return 'open';
   }
   return typeof state === 'string' ? state : '';
@@ -391,6 +391,92 @@ function githubIssueApiPath(issue) {
   return `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}/issues/${issue.number}`;
 }
 
+function githubRepoApiPath(repo) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
+}
+
+function normalizeMilestone(milestone = {}) {
+  return {
+    id: milestone.id ?? milestone.number ?? milestone.iid,
+    number: milestone.number ?? milestone.iid ?? milestone.id,
+    title: String(milestone.title || '').trim(),
+    state: normalizeGitlabState(milestone.state || ''),
+    url: milestone.html_url || milestone.web_url || '',
+  };
+}
+
+async function getGithubDefaultBranch(repo, options = {}) {
+  if (options.dryRun) return options.base || process.env.CI_DEFAULT_BRANCH || 'main';
+  const current = await requestGithubForApply('GET', githubRepoApiPath(repo));
+  return String(current.default_branch || '').trim();
+}
+
+async function githubBranchExists(repo, branch, options = {}) {
+  if (options.dryRun) return true;
+  try {
+    await requestGithubForApply('GET', `${githubRepoApiPath(repo)}/branches/${encodeURIComponent(branch)}`);
+    return true;
+  } catch (error) {
+    if (error.status === 404 || /\b404\b|not found/i.test(error.message || '')) return false;
+    throw error;
+  }
+}
+
+async function listGithubMilestones(repo, state = 'open', options = {}) {
+  if (options.dryRun) return [];
+  const milestones = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const items = await requestGithubForApply(
+      'GET',
+      `${githubRepoApiPath(repo)}/milestones?state=${encodeURIComponent(state)}&per_page=100&page=${page}`
+    );
+    if (!Array.isArray(items) || items.length === 0) break;
+    milestones.push(...items.map(normalizeMilestone));
+    if (items.length < 100) break;
+  }
+  return milestones;
+}
+
+async function getGithubMilestoneByTitle(repo, title, options = {}) {
+  return (await listGithubMilestones(repo, 'all', options)).find((milestone) => milestone.title === title);
+}
+
+async function ensureGithubMilestone(repo, title, options = {}) {
+  const existing = await getGithubMilestoneByTitle(repo, title, options);
+  if (options.dryRun) return { title, state: 'open', action: existing ? 'reopen' : 'create' };
+  if (!existing) {
+    try {
+      const created = await requestGithubForApply('POST', `${githubRepoApiPath(repo)}/milestones`, { title });
+      return { ...normalizeMilestone(created), action: 'created' };
+    } catch (error) {
+      if (error.status !== 422 && !/already exists/i.test(error.message || '')) throw error;
+      const concurrent = await getGithubMilestoneByTitle(repo, title, options);
+      if (!concurrent) throw error;
+      return { ...concurrent, action: 'skipped' };
+    }
+  }
+  if (existing.state === 'closed') {
+    const reopened = await requestGithubForApply('PATCH', `${githubRepoApiPath(repo)}/milestones/${existing.number}`, { state: 'open' });
+    return { ...normalizeMilestone(reopened), action: 'reopened' };
+  }
+  return { ...existing, action: 'skipped' };
+}
+
+async function closeGithubMilestone(repo, title, options = {}) {
+  const existing = await getGithubMilestoneByTitle(repo, title, options);
+  if (!existing || existing.state === 'closed') return { title, state: 'closed', action: 'skipped' };
+  if (options.dryRun) return { ...existing, state: 'closed', action: 'close' };
+  const closed = await requestGithubForApply('PATCH', `${githubRepoApiPath(repo)}/milestones/${existing.number}`, { state: 'closed' });
+  return { ...normalizeMilestone(closed), action: 'closed' };
+}
+
+async function setGithubIssueMilestone(target, milestone, options = {}) {
+  if (options.dryRun) return;
+  await requestGithubForApply('PATCH', githubIssueApiPath({ ...target, number: target.issueNumber || target.number }), {
+    milestone: milestone ? milestone.number : null,
+  });
+}
+
 function githubPullRequestApiPath(pr) {
   return `/repos/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/pulls/${pr.number}`;
 }
@@ -438,6 +524,7 @@ function buildGithubIssueContext(payload = {}, options = {}) {
     state: typeof issue.state === 'string' ? issue.state : '',
     author: issue.user && typeof issue.user.login === 'string' ? issue.user.login : '',
     labels: normalizeLabels(issue.labels),
+    ...(issue.milestone ? { milestone: normalizeMilestone(issue.milestone) } : {}),
   };
 }
 
@@ -563,6 +650,7 @@ async function fetchCurrentGithubIssue(issue, options = {}) {
     state: typeof current.state === 'string' ? current.state : issue.state,
     author: current.user && typeof current.user.login === 'string' ? current.user.login : issue.author,
     labels: normalizeLabels(current.labels),
+    milestone: current.milestone ? normalizeMilestone(current.milestone) : null,
   };
 }
 
@@ -1048,6 +1136,80 @@ function gitlabIssueApiPath(issue) {
   return `/projects/${gitlabProjectRef(issue)}/issues/${encodeURIComponent(issue.number)}`;
 }
 
+function gitlabProjectApiPath(repo) {
+  return `/projects/${gitlabProjectRef(repo)}`;
+}
+
+async function getGitlabDefaultBranch(repo, options = {}) {
+  if (options.dryRun) return options.base || process.env.CI_DEFAULT_BRANCH || 'main';
+  const current = await requestGitlab('GET', gitlabProjectApiPath(repo), undefined, options);
+  return String(current.default_branch || '').trim();
+}
+
+async function gitlabBranchExists(repo, branch, options = {}) {
+  if (options.dryRun) return true;
+  try {
+    await requestGitlab('GET', `${gitlabProjectApiPath(repo)}/repository/branches/${encodeURIComponent(branch)}`, undefined, options);
+    return true;
+  } catch (error) {
+    if (error.status === 404 || /\b404\b|not found/i.test(error.message || '')) return false;
+    throw error;
+  }
+}
+
+async function listGitlabMilestones(repo, state = 'open', options = {}) {
+  if (options.dryRun) return [];
+  const milestones = [];
+  const gitlabState = state === 'open' ? 'active' : state === 'closed' ? 'closed' : '';
+  for (let page = 1; page <= 10; page += 1) {
+    const query = new URLSearchParams({ per_page: '100', page: String(page) });
+    if (gitlabState) query.set('state', gitlabState);
+    const items = await requestGitlab('GET', `${gitlabProjectApiPath(repo)}/milestones?${query}`, undefined, options);
+    if (!Array.isArray(items) || items.length === 0) break;
+    milestones.push(...items.map(normalizeMilestone));
+    if (items.length < 100) break;
+  }
+  return milestones;
+}
+
+async function getGitlabMilestoneByTitle(repo, title, options = {}) {
+  return (await listGitlabMilestones(repo, 'all', options)).find((milestone) => milestone.title === title);
+}
+
+async function ensureGitlabMilestone(repo, title, options = {}) {
+  const existing = await getGitlabMilestoneByTitle(repo, title, options);
+  if (options.dryRun) return { title, state: 'open', action: existing ? 'reopen' : 'create' };
+  if (!existing) {
+    try {
+      const created = await requestGitlab('POST', `${gitlabProjectApiPath(repo)}/milestones`, { title }, options);
+      return { ...normalizeMilestone(created), action: 'created' };
+    } catch (error) {
+      if (![400, 409].includes(error.status) && !/already (?:been )?taken|already exists/i.test(error.message || '')) throw error;
+      const concurrent = await getGitlabMilestoneByTitle(repo, title, options);
+      if (!concurrent) throw error;
+      return { ...concurrent, action: 'skipped' };
+    }
+  }
+  if (existing.state === 'closed') {
+    const reopened = await requestGitlab('PUT', `${gitlabProjectApiPath(repo)}/milestones/${existing.id}`, { state_event: 'activate' }, options);
+    return { ...normalizeMilestone(reopened), action: 'reopened' };
+  }
+  return { ...existing, action: 'skipped' };
+}
+
+async function closeGitlabMilestone(repo, title, options = {}) {
+  const existing = await getGitlabMilestoneByTitle(repo, title, options);
+  if (!existing || existing.state === 'closed') return { title, state: 'closed', action: 'skipped' };
+  if (options.dryRun) return { ...existing, state: 'closed', action: 'close' };
+  const closed = await requestGitlab('PUT', `${gitlabProjectApiPath(repo)}/milestones/${existing.id}`, { state_event: 'close' }, options);
+  return { ...normalizeMilestone(closed), action: 'closed' };
+}
+
+async function setGitlabIssueMilestone(target, milestone, options = {}) {
+  if (options.dryRun) return;
+  await requestGitlab('PUT', gitlabIssueApiPath(target), { milestone_id: milestone ? milestone.id : null }, options);
+}
+
 function gitlabIssueNotesApiPath(issue) {
   return `${gitlabIssueApiPath(issue)}/notes`;
 }
@@ -1085,6 +1247,7 @@ function buildGitlabIssueContext(payload = {}, options = {}) {
       (payload.user && (payload.user.username || payload.user.name)) ||
       '',
     labels: normalizeLabels(issue.labels || payload.labels),
+    ...(issue.milestone ? { milestone: normalizeMilestone(issue.milestone) } : {}),
   };
 }
 
@@ -1131,6 +1294,7 @@ async function fetchCurrentGitlabIssue(issue, options = {}) {
         ? current.author.username || current.author.name
         : issue.author,
     labels: normalizeLabels(current.labels),
+    milestone: current.milestone ? normalizeMilestone(current.milestone) : null,
   };
 }
 
@@ -1760,6 +1924,13 @@ function editGithubPullRequestWithCli(prUrl, title, bodyFile, label, options) {
   });
 }
 
+function assertGithubPullRequestBase(existing, baseBranch) {
+  const current = existing && existing.base && existing.base.ref;
+  if (current && current !== baseBranch) {
+    throw new Error(`Existing pull request targets ${current}, expected ${baseBranch}. Refusing to retarget it.`);
+  }
+}
+
 async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, baseBranch, headBranch, draft, options }) {
   if (options.dryRun) {
     const args = [
@@ -1789,9 +1960,14 @@ async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, b
   const body = readBodyFile(bodyFile);
   if (existing && existing.html_url) {
     if (!getGithubToken()) {
+      const currentBase = runProviderOutput('gh', ['pr', 'view', existing.html_url, '--json', 'baseRefName', '--jq', '.baseRefName']);
+      if (currentBase && currentBase !== baseBranch) {
+        throw new Error(`Existing pull request targets ${currentBase}, expected ${baseBranch}. Refusing to retarget it.`);
+      }
       editGithubPullRequestWithCli(existing.html_url, title, bodyFile, label, options);
       return existing.html_url;
     }
+    assertGithubPullRequestBase(existing, baseBranch);
     return updateGithubPullRequest(repo, existing, title, body, label);
   }
 
@@ -1826,6 +2002,10 @@ async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, b
       if (!duplicate || !duplicate.html_url) {
         throw error;
       }
+      const currentBase = runProviderOutput('gh', ['pr', 'view', duplicate.html_url, '--json', 'baseRefName', '--jq', '.baseRefName']);
+      if (currentBase && currentBase !== baseBranch) {
+        throw new Error(`Existing pull request targets ${currentBase}, expected ${baseBranch}. Refusing to retarget it.`);
+      }
       editGithubPullRequestWithCli(duplicate.html_url, title, bodyFile, label, options);
       return duplicate.html_url;
     }
@@ -1849,6 +2029,7 @@ async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, b
     if (!duplicate || !duplicate.html_url) {
       throw error;
     }
+    assertGithubPullRequestBase(duplicate, baseBranch);
     return updateGithubPullRequest(repo, duplicate, title, body, label);
   }
 }
@@ -1896,6 +2077,9 @@ async function createOrUpdateGitlabMergeRequest({ repo, title, bodyFile, label, 
   const description = readBodyFile(bodyFile);
   const mrTitle = draft && !/^draft:/i.test(title) ? `Draft: ${title}` : title;
   if (existing && existing.iid) {
+    if (existing.target_branch && existing.target_branch !== baseBranch) {
+      throw new Error(`Existing merge request targets ${existing.target_branch}, expected ${baseBranch}. Refusing to retarget it.`);
+    }
     const updated = await requestGitlab(
       'PUT',
       `${gitlabMergeRequestsApiPath(repo)}/${encodeURIComponent(existing.iid)}`,
@@ -1980,6 +2164,7 @@ function normalizeGitlabIssue(issue, repo, fallback = {}) {
       fallback.author ||
       '',
     labels: normalizeLabels(issue.labels || fallback.labels),
+    milestone: issue.milestone ? normalizeMilestone(issue.milestone) : fallback.milestone || null,
   };
 }
 
@@ -2068,14 +2253,16 @@ function normalizeGithubIssue(issue, repo, fallback = {}) {
     state: typeof issue.state === 'string' ? issue.state : fallback.state || '',
     author: issue.user && typeof issue.user.login === 'string' ? issue.user.login : fallback.author || '',
     labels: normalizeLabels(issue.labels || fallback.labels),
+    milestone: issue.milestone ? normalizeMilestone(issue.milestone) : fallback.milestone || null,
   };
 }
 
-async function createGithubIssue({ repo, title, body, labels }) {
+async function createGithubIssue({ repo, title, body, labels, milestone }) {
   const payload = {
     title,
     body,
     labels,
+    milestone: milestone ? milestone.number : undefined,
   };
   const apiPath = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues`;
   const created = getGithubToken()
@@ -2203,7 +2390,7 @@ async function preflightGitlabManagedLabels(repo, definitions = [], options = {}
   }
 }
 
-async function createGitlabIssue({ repo, title, body, labels, managedLabelDefinitions = [], options = {} }) {
+async function createGitlabIssue({ repo, title, body, labels, milestone, managedLabelDefinitions = [], options = {} }) {
   await preflightGitlabManagedLabels(repo, managedLabelDefinitions, options);
   const payload = {
     title,
@@ -2212,6 +2399,7 @@ async function createGitlabIssue({ repo, title, body, labels, managedLabelDefini
   if (labels.length > 0) {
     payload.labels = labels.join(',');
   }
+  if (milestone) payload.milestone_id = milestone.id;
   const created = await requestGitlab('POST', `/projects/${gitlabProjectRef(repo)}/issues`, payload, options);
   return normalizeGitlabIssue(created, repo, { title, body, labels });
 }
@@ -2265,6 +2453,7 @@ function normalizePortSubject(subject) {
     baseRef: subject.baseRef || '',
     headRef: subject.headRef || '',
     headSha: subject.headSha || '',
+    milestone: subject.milestone || null,
   };
 }
 
@@ -2475,6 +2664,13 @@ const githubProvider = {
   ensurePullRequestLabel: ensureGithubPullRequestLabel,
   findExistingPullRequest: findExistingGithubPullRequest,
   createOrUpdatePullRequest: createOrUpdateGithubPullRequest,
+  getDefaultBranch: getGithubDefaultBranch,
+  branchExists: githubBranchExists,
+  listMilestones: listGithubMilestones,
+  getMilestoneByTitle: getGithubMilestoneByTitle,
+  ensureMilestone: ensureGithubMilestone,
+  closeMilestone: closeGithubMilestone,
+  setIssueMilestone: setGithubIssueMilestone,
 };
 
 const gitlabProvider = {
@@ -2516,6 +2712,13 @@ const gitlabProvider = {
   getLabel: getGitlabLabel,
   ensureLabelDefinition: ensureGitlabLabelDefinition,
   createOrUpdatePullRequest: createOrUpdateGitlabMergeRequest,
+  getDefaultBranch: getGitlabDefaultBranch,
+  branchExists: gitlabBranchExists,
+  listMilestones: listGitlabMilestones,
+  getMilestoneByTitle: getGitlabMilestoneByTitle,
+  ensureMilestone: ensureGitlabMilestone,
+  closeMilestone: closeGitlabMilestone,
+  setIssueMilestone: setGitlabIssueMilestone,
 };
 
 const providers = {

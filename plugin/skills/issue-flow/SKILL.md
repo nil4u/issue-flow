@@ -1,7 +1,7 @@
 ---
 name: issue-flow
 version: 0.5.0 # x-release-please-version
-description: "Label-based issue 状态流转工具。通过统一 issue-flow CLI 操作 GitHub/GitLab issue、labels、comments、PR/MR 和 review。在使用 issue-flow managed labels（type::/status::/flow:: 等）或包含 .issue-flow/ 目录的仓库中处理 issue/PR 时使用。"
+description: "标签驱动的 issue 状态机与 provider 操作工具。通过统一 issue-flow CLI 操作 GitHub/GitLab 的 issue、label、comment、PR/MR 与 review。在含 `.issue-flow/` 目录或使用 issue-flow managed label（type::/status::/flow:: 等）的仓库中处理 issue/PR、提交 Plan/Build PR/MR 或进行 review 时使用。"
 metadata:
   requires:
     bins: ["node"]
@@ -57,8 +57,8 @@ issue-flow <resource> <action> [options]
 ```bash
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue get --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue create --title "<normalized title>" --body-file <tmp-issue-body-file> \
-  --type type::feature --status status::active --flow flow::plan --priority priority::p2 --size size::M
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build --size size::M
+  --type type::feature --status status::active --flow flow::plan --priority priority::p2 --size size::M [--milestone <title|none>]
+node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build --size size::M [--milestone <title|none>]
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --type type::bug --normalized-body-file <tmp-normalized-body-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue intake --issue 123
 node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments list --issue 123
@@ -69,7 +69,10 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
 - `issue apply` 只移除指定 prefix 的旧 label，不动其他 prefix。
 - 规范化正文：按 issue 的 `type::` 对应 `.issue-flow/templates/type-*.md` 重写正文，写到 repo 外临时文件，用 `--normalized-body-file` 随标签一起应用。
 - 设置 `flow::clarify` 时不会更新 issue body（会忽略 `--normalized-body-file`）。
+- 用户明确要求创建 issue，或开放讨论已经形成清晰需求时，创建规范化 issue；目标、边界、用户故事或关键事实仍不清楚时先询问，不创建模糊 issue。
 - 创建 issue 时，body 先按 `.issue-flow/templates/type-*.md` 整理，写到 repo 外临时文件（如 `mktemp`）；不要把 body 文件提交到 git。
+- 创建 issue 前先运行 `milestone list`：返回 `enabled: true` 时必须显式传 `--milestone <title|none>`；用户未指定且有候选项时先询问，没有候选项时传 `none`，返回 `enabled: false` 时省略该参数。
+- 创建 issue 时只设置已经能判断的 managed labels：实现路径明确可用 `flow::build`，需要先规划用 `flow::plan`，仍需自动分类用 `flow::triage`，只记录且不自动推进用 `automation::off`。
 - `type::`、`status::`、`flow::`、`priority::`、`automation::`、`size::` 必须通过对应参数传入，不能放在 `--label`。
 - 进入 `flow::plan` 或 `flow::build` 前，issue 必须有且仅有一个 `size::`。缺失时根据标题、正文、评论和仓库上下文选择一个；无法判断时用 `size::M` 并留下低置信度说明。
 - `--label` 只用于 unmanaged label；`mr-by::*` 只用于 PR/MR，不能用于 issue。
@@ -92,11 +95,12 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 
 `pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
-### Labels 和 Dispatch
+### Milestone、Labels 和 Dispatch
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/cli.cjs labels sync
 node ${CLAUDE_SKILL_DIR}/cli.cjs labels check
+node ${CLAUDE_SKILL_DIR}/cli.cjs milestone list
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch auto --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch comment --event <event-json-file>
 node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch review --pr 45
@@ -106,6 +110,8 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-fi
 ```
 
 所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
+
+项目可在 `.issue-flow/config.json` 中用 `milestone.enabled` 开启 target branch 选择，并用 `milestone.branchPatterns` 配置自动同步规则；缺省规则为 `release/*` 和 `integration/*`。匹配分支创建/删除时 CI 自动创建、重开/关闭同名 Milestone，`none` 使用仓库默认分支。Triage 确认用户倾向后可用 `issue apply --milestone <title|none>` 补选；暂不处理 Plan 或 Build 运行期间的 Milestone 变更。
 
 `dispatch review-comment` 用于带 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，带 review batch id 的 inline comment 通过 PR/MR scoped review-batch lock 去重；普通 PR/MR comment 或缺少 batch id 的 payload 回退到 comment id lock。
 

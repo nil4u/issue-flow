@@ -20,6 +20,7 @@ const AGENTRIX_GITHUB_WORKFLOWS = [
   ['workflows/github/issue-flow-labels.yml', '.github/workflows/issue-flow-labels.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-auto.yml', '.github/workflows/issue-flow-auto.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-comment.yml', '.github/workflows/issue-flow-comment.yml', { mode: MODE_MANAGED }],
+  ['workflows/github/issue-flow-milestones.yml', '.github/workflows/issue-flow-milestones.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-review.yml', '.github/workflows/issue-flow-pr-review.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-review-comment.yml', '.github/workflows/issue-flow-pr-review-comment.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-merged.yml', '.github/workflows/issue-flow-pr-merged.yml', { mode: MODE_MANAGED }],

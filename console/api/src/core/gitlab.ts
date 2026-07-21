@@ -610,6 +610,7 @@ function gitlabWebhookBody(input = {}) {
   return {
     url: input.webhookUrl,
     token: input.webhookSecret,
+    push_events: true,
     issues_events: true,
     note_events: true,
     merge_requests_events: true,

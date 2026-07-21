@@ -1,7 +1,11 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
+  applyIssueMilestone,
   collectClearKeys,
   collectDesiredLabels,
   computeLabelChanges,
@@ -14,6 +18,34 @@ const {
   labelsForScope,
   resolveIssueSizeLabel,
 } = require('../skills/issue-flow/scripts/labels.cjs');
+
+test('triage can apply an explicit milestone without running-task guards', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-apply-milestone-'));
+  const config = path.join(dir, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({ milestone: { enabled: true } }), 'utf8');
+  const applied = [];
+  const provider = {
+    getMilestoneByTitle: async (_repo, title) => ({ id: 7, title, state: 'open' }),
+    branchExists: async () => true,
+    setIssueMilestone: async (_target, milestone) => applied.push(milestone),
+  };
+  try {
+    assert.deepEqual(
+      await applyIssueMilestone({ number: 42 }, provider, {}, { config, milestone: 'release/0721' }),
+      { changed: true, milestone: 'release/0721' },
+    );
+    assert.deepEqual(
+      await applyIssueMilestone({ number: 42 }, provider, {}, { config, milestone: 'none' }),
+      { changed: true, milestone: null },
+    );
+    assert.deepEqual(applied, [
+      { id: 7, title: 'release/0721', state: 'open' },
+      null,
+    ]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('catalog covers issue and PR/MR managed labels with stable metadata', () => {
   assert.deepEqual(

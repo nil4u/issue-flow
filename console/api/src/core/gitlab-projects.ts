@@ -569,6 +569,7 @@ function webhookCache(hook) {
     source: 'gitlab',
     hookId: hook.id !== undefined ? String(hook.id) : '',
     url: hook.url || '',
+    pushEvents: Boolean(hook.push_events || hook.pushEvents),
     issuesEvents: Boolean(hook.issues_events || hook.issuesEvents),
     noteEvents: Boolean(hook.note_events || hook.noteEvents),
     mergeRequestsEvents: Boolean(hook.merge_requests_events || hook.mergeRequestsEvents),
@@ -1034,8 +1035,13 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
       const publicRepo = repoWithWebhook(basePublicUrl, existing);
       const hooks = await listGitlabWebhooks(apiInput);
       const hook = hooks.find((item) => item && item.url === publicRepo.webhookUrl);
-      const hookState = statusFromBoolean(Boolean(hook), '需要通过 API 配置 GitLab webhook', 'Webhook 已配置');
-      webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hook && hook.url || hookState.detail);
+      const hookState = statusFromBoolean(
+        Boolean(hook && (hook.push_events || hook.pushEvents)),
+        hook ? 'Webhook 需要启用 Push events' : '需要通过 API 配置 GitLab webhook',
+        'Webhook 已配置'
+      );
+      const hookDetail = hookState.status === 'passed' && hook ? hook.url : hookState.detail;
+      webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hookDetail);
       await store.updateRepositorySettingsCache(existing.id, {
         webhook: hook ? webhookCache(hook) : null,
       });

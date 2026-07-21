@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process');
 const { resolveProvider, normalizeLabelName } = require('./providers.cjs');
 const { labelDefinitionFor, labelGroupsForScope, resolveIssueSizeLabel } = require('./labels.cjs');
 const { upsertSourceMarker } = require('./provenance.cjs');
+const { resolveMilestoneSelection } = require('./milestones.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
 const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=[^>]*-->\s*/i;
@@ -23,6 +24,7 @@ function usage() {
     '',
     'Other options:',
     '  --label <name>            Add a non-managed provider label. May be repeated.',
+    '  --milestone <title|none>  Required when milestone target branches are enabled.',
     '  --agentrix-task-id <id>   Task id for the hidden source marker. Defaults from AGENTRIX_TASK_ID.',
     '  --provider <provider>     Git hosting provider: github or gitlab. Defaults from environment/repo.',
     '  --repo <owner/repo>       Repository/project override. Defaults to provider environment or git remote origin.',
@@ -220,6 +222,7 @@ async function main(argv = process.argv.slice(2)) {
   const provider = resolveProvider({ ...options, repo: repoHint }, {});
   const repo = provider.resolveRepo({}, { ...options, repo: repoHint });
   options.provider = provider.name;
+  const selection = await resolveMilestoneSelection(options.milestone, provider, repo, options);
 
   if (options.dryRun) {
     console.log(
@@ -231,6 +234,7 @@ async function main(argv = process.argv.slice(2)) {
           title,
           bodySummary: bodySummary(body),
           labels,
+          milestone: selection.milestone && selection.milestone.title || null,
         },
         null,
         2
@@ -244,6 +248,7 @@ async function main(argv = process.argv.slice(2)) {
     title,
     body,
     labels,
+    milestone: selection.milestone,
     managedLabelDefinitions: managedDefinitionsForLabels(labels),
     options,
   });
@@ -257,6 +262,7 @@ async function main(argv = process.argv.slice(2)) {
         issueNumber: issue.number,
         issueUrl: issue.htmlUrl,
         labels: issue.labels && issue.labels.length > 0 ? issue.labels : labels,
+        milestone: issue.milestone && issue.milestone.title || null,
       },
       null,
       2
