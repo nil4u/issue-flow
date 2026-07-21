@@ -1,6 +1,6 @@
 ---
 name: issue-flow
-version: 0.5.0 # x-release-please-version
+version: 0.6.0 # x-release-please-version
 description: "标签驱动的 issue 状态机与 provider 操作工具。通过统一 issue-flow CLI 操作 GitHub/GitLab 的 issue、label、comment、PR/MR 与 review。在含 `.issue-flow/` 目录或使用 issue-flow managed label（type::/status::/flow:: 等）的仓库中处理 issue/PR、提交 Plan/Build PR/MR 或进行 review 时使用。"
 metadata:
   requires:
