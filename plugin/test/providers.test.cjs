@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  buildAgentrixGitlabBridgePayload,
+  buildGitlabBridgePayload,
   labelTitlesFromEnv,
 } = require('../skills/issue-flow/scripts/events.cjs');
 
@@ -874,17 +874,17 @@ test('github API duplicate PR response updates the existing pull request', async
   );
 });
 
-test('agentrix GitLab bridge labels parse from JSON first', () => {
+test('GitLab bridge labels ignore Agentrix runtime variables', () => {
   assert.deepEqual(
     labelTitlesFromEnv({
       AGENTRIX_LABELS: 'stale',
       AGENTRIX_LABELS_JSON: '["flow::build","automation::build"]',
     }),
-    ['flow::build', 'automation::build']
+    []
   );
 });
 
-test('GitLab bridge labels prefer the current default variable prefix', () => {
+test('GitLab bridge labels use only the current variable prefix', () => {
   assert.deepEqual(
     labelTitlesFromEnv({
       GITLAB_BRIDGE_LABELS: 'stale',
@@ -1339,40 +1339,8 @@ test('provider label sync planning detects missing drift and current labels', ()
   );
 });
 
-test('agentrix GitLab bridge issue event normalizes to issue-flow context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
-    AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
-    AGENTRIX_PROVIDER: 'gitlab',
-    AGENTRIX_EVENT_NAME: 'issues',
-    AGENTRIX_EVENT_ACTION: 'labeled',
-    AGENTRIX_ISSUE_NUMBER: '17',
-    AGENTRIX_ISSUE_TITLE: 'Support GitLab bridge',
-    AGENTRIX_ISSUE_URL: 'https://gitlab.example/acme/platform/-/issues/17',
-    AGENTRIX_LABELS_JSON: '["status::active","flow::build","automation::build"]',
-    CI_PROJECT_ID: '42',
-    CI_PROJECT_PATH: 'acme/platform',
-    CI_PROJECT_URL: 'https://gitlab.example/acme/platform',
-  });
-  const provider = resolveProvider({ provider: 'gitlab' }, payload);
-
-  assert.deepEqual(provider.buildIssueContext(payload, { provider: 'gitlab' }), {
-    provider: 'gitlab',
-    owner: 'acme',
-    repo: 'platform',
-    repoFullName: 'acme/platform',
-    projectId: '42',
-    number: 17,
-    title: 'Support GitLab bridge',
-    body: '',
-    htmlUrl: 'https://gitlab.example/acme/platform/-/issues/17',
-    state: 'open',
-    author: '',
-    labels: ['status::active', 'flow::build', 'automation::build'],
-  });
-});
-
 test('current GitLab bridge issue event normalizes to issue-flow context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
+  const payload = buildGitlabBridgePayload({
     GITLAB_BRIDGE_EVENT_NAME: 'issues',
     GITLAB_BRIDGE_EVENT_ACTION: 'labeled',
     GITLAB_BRIDGE_ISSUE_NUMBER: '17',
@@ -1401,17 +1369,14 @@ test('current GitLab bridge issue event normalizes to issue-flow context', () =>
   });
 });
 
-test('agentrix GitLab bridge issue comment event carries note context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
-    AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
-    AGENTRIX_PROVIDER: 'gitlab',
-    AGENTRIX_EVENT_NAME: 'issue_comment',
-    AGENTRIX_EVENT_ACTION: 'created',
-    AGENTRIX_SUBJECT_KIND: 'issue',
-    AGENTRIX_ISSUE_NUMBER: '17',
-    AGENTRIX_COMMENT_ID: '101',
-    AGENTRIX_COMMENT_BODY: '@agentrix please plan',
-    AGENTRIX_COMMENT_URL: 'https://gitlab.example/acme/platform/-/issues/17#note_101',
+test('current GitLab bridge issue comment event carries note context', () => {
+  const payload = buildGitlabBridgePayload({
+    GITLAB_BRIDGE_EVENT_NAME: 'issue_comment',
+    GITLAB_BRIDGE_EVENT_ACTION: 'created',
+    GITLAB_BRIDGE_ISSUE_NUMBER: '17',
+    GITLAB_BRIDGE_COMMENT_ID: '101',
+    GITLAB_BRIDGE_COMMENT_BODY: '@agentrix please plan',
+    GITLAB_BRIDGE_COMMENT_URL: 'https://gitlab.example/acme/platform/-/issues/17#note_101',
     CI_PROJECT_ID: '42',
     CI_PROJECT_PATH: 'acme/platform',
   });
@@ -1428,7 +1393,7 @@ test('agentrix GitLab bridge issue comment event carries note context', () => {
 });
 
 test('current GitLab bridge merge request note carries review comment context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
+  const payload = buildGitlabBridgePayload({
     GITLAB_BRIDGE_EVENT_NAME: 'issue_comment',
     GITLAB_BRIDGE_EVENT_ACTION: 'created',
     GITLAB_BRIDGE_PR_NUMBER: '7',

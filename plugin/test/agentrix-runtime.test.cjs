@@ -289,7 +289,7 @@ test('agentrix build prompt uses CI failure template when only the body marker r
   assert.match(prompt, /^Labels: type::ops, size::M$/m);
 });
 
-test('agentrix run args forward target base ref from Agentrix bridge env', () => {
+test('agentrix run args forward target base ref from Agentrix runtime env', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
     const args = agentrix.buildRunArgs(
       'build',
@@ -795,7 +795,7 @@ test('agentrix-run child env carries resumed task id only for task resume', () =
   assert.equal(buildEnv.AGENTRIX_TASK_ID, undefined);
 });
 
-test('agentrix-run child env maps current GitLab bridge variables to Agentrix compatibility names', () => {
+test('agentrix-run child env maps GitLab bridge variables to Agentrix runtime names', () => {
   const env = agentrix.buildAgentrixRunEnv(
     { envEventName: 'GITLAB_EVENT_NAME' },
     'build',

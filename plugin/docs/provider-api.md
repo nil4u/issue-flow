@@ -85,7 +85,7 @@ issue-flow dispatch general --issue 123 --instruction "..."
 
 1. `--provider` 参数
 2. `ISSUE_FLOW_PROVIDER` env
-3. Agentrix bridge env（`AGENTRIX_PROVIDER=gitlab`）
+3. Agentrix runtime env（`AGENTRIX_PROVIDER=gitlab`）
 4. GitLab 特有 env（`GITLAB_BASE_URL` 等）
 5. repo 路径中包含 gitlab/github
 6. GitLab token env（`GITLAB_TOKEN` 等）
@@ -129,10 +129,10 @@ GitLab API token 至少需要 issue/label 与 merge request 写权限。`submit.
 
 GitHub Actions 使用 `GITHUB_EVENT_PATH` 读取事件文件。
 
-GitLab 的推荐入口是 Agentrix daemon webhook bridge。bridge 触发 pipeline 时没有事件文件，
-脚本会优先从当前 bridge 默认的 `GITLAB_BRIDGE_EVENT_NAME`、`GITLAB_BRIDGE_EVENT_ACTION`、
+GitLab webhook 由 issue-flow API 服务接收并通过 bridge 触发 pipeline。pipeline 没有事件文件，
+脚本从 `GITLAB_BRIDGE_EVENT_NAME`、`GITLAB_BRIDGE_EVENT_ACTION`、
 `GITLAB_BRIDGE_ISSUE_NUMBER`、`GITLAB_BRIDGE_PR_NUMBER`、`GITLAB_BRIDGE_LABELS_JSON`、
-`GITLAB_BRIDGE_PR_BODY` 等变量合成兼容 payload；旧的 `AGENTRIX_*` bridge 变量仍作为 fallback。
+`GITLAB_BRIDGE_PR_BODY` 等变量合成 payload。
 
 如果显式传入 `--event` 或设置 `GITLAB_EVENT_PATH`，事件文件优先。
 
@@ -159,7 +159,7 @@ issue-flow dispatch pipeline-failed --provider gitlab --repo group/project --log
 
 GitHub 默认安装产物为 `.github/workflows/issue-flow-failure-intake.yml`，初次安装时会扫描 `.github/workflows/*.yml` / `.github/workflows/*.yaml` 并生成 GitHub Actions 要求的显式 `workflow_run.workflows` 列表，监听 completed failure 并要求 `actions: read` 与 `issues: write`，同时需要 Agentrix 相关变量/密钥以便 intake 后直接启动自动路由。后续重装会保留已配置的 workflow 列表，不会自动加入新发现的 workflow，避免覆盖用户手动排除的项；如果要监听新增 workflow，需要手动编辑 `.github/workflows/issue-flow-failure-intake.yml` 的 `workflow_run.workflows`。
 
-GitLab 默认安装产物为 `.gitlab/issue-flow.gitlab-ci.yml` 内的 `issue-flow-failure-intake` job，仅由 Agentrix daemon webhook bridge 触发。当前 bridge 会把 GitLab pipeline failure 映射成 `workflow_run` / `completed`，并设置 `GITLAB_BRIDGE_WORKFLOW_RUN_CONCLUSION=failure`；旧的 `AGENTRIX_WORKFLOW_RUN_CONCLUSION=failure` 或 `AGENTRIX_PIPELINE_STATUS=failed` 仍可触发。GitLab 安装产物的 `issue-flow-auto` 会跳过 bridge issue 事件中带 `failure::ci` 或使用 `Fix CI failure:` 生成标题的 issue，避免 failure-intake direct auto-resume 后又为同一个 CI failure issue 消耗一条重复 auto job。
+GitLab 自动 failure intake 当前未写入 `.gitlab/issue-flow.gitlab-ci.yml`；console webhook ingestion 与底层 `dispatch pipeline-failed` 实现仍保留。`issue-flow-auto` 会跳过 bridge issue 事件中带 `failure::ci` 或使用 `Fix CI failure:` 生成标题的 issue，避免 failure-intake direct auto-resume 后又消耗一条重复 auto job。
 
 ## apply.cjs
 

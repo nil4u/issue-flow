@@ -229,30 +229,6 @@ test('failure intake unwraps unified issue create cli envelopes', () => {
   assert.deepEqual(stdoutWrapped.labels, ['type::ops', 'failure::ci']);
 });
 
-test('gitlab Agentrix bridge env is treated as a failed pipeline signal', () => {
-  const context = gitlabFailureContext(
-    {},
-    { fullName: 'acme/webapp' },
-    {},
-    {
-      AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
-      AGENTRIX_PROVIDER: 'gitlab',
-      AGENTRIX_EVENT_NAME: 'workflow_run',
-      AGENTRIX_EVENT_ACTION: 'completed',
-      AGENTRIX_WORKFLOW_RUN_CONCLUSION: 'failure',
-      AGENTRIX_PIPELINE_URL: 'https://gitlab.example/acme/webapp/-/pipelines/99',
-      AGENTRIX_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      AGENTRIX_REF: 'main',
-      ISSUE_FLOW_FAILURE_LOG: 'FAIL test/app.test.js',
-    }
-  );
-
-  assert.equal(context.provider, 'gitlab');
-  assert.equal(context.runUrl, 'https://gitlab.example/acme/webapp/-/pipelines/99');
-  assert.equal(context.commitSha, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-  assert.equal(context.skipped, undefined);
-});
-
 test('current GitLab bridge env is treated as a failed pipeline signal', () => {
   const context = gitlabFailureContext(
     {},
