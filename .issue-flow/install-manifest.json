@@ -1,18 +1,18 @@
 {
-  "version": 1,
-  "issueFlowVersion": "0.4.0",
+  "version": 2,
+  "issueFlowVersion": "0.5.0",
   "provider": "github",
   "runtime": "agentrix",
   "files": {
     ".agentrix/plugins/issue-flow/.claude-plugin/plugin.json": {
       "source": ".claude-plugin/plugin.json",
       "mode": "managed",
-      "sha256": "e749febbd2b5b4174d0a809ea26de33fe35805f20ee20fbb11e4597c03949a60"
+      "sha256": "7dc3aebc898c0d318ec7df1b3bb1bdb8f319f5081212df168442a7339b0d22dd"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "aaeb0a2fa2d5f708cb3fb1b0896e011d8a3952fa113c7cb00ffbf9d656c1f3a3"
+      "sha256": "68738ce67f58290aa36f26d06fc01810e042d3689259b631e9a45283f2ed121f"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md",
@@ -27,7 +27,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/general.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/general.prompt.md",
       "mode": "managed",
-      "sha256": "0358cabd83bd97b08d7105d2c11e642b75eaca2d91506c7bdf54e2bd27139034"
+      "sha256": "ed98d10f98c0002ab04b3fe6a4d01639da188874ca92d77307bc828ca2e9e540"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/plan-bug.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-bug.prompt.md",
@@ -38,6 +38,16 @@
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-impl.prompt.md",
       "mode": "managed",
       "sha256": "89f32ed4858769586a832ae020f11b604f7c62dd098f6b5d905d749d720a45c9"
+    },
+    ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-bug.prompt.md": {
+      "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-bug.prompt.md",
+      "mode": "managed",
+      "sha256": "0f5e77e13209db171ccec6657af3db361b731a6eb30ce88aa10cbd6b8ca98cde"
+    },
+    ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-impl.prompt.md": {
+      "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-impl.prompt.md",
+      "mode": "managed",
+      "sha256": "cc80b2089ea7045cb5e65419e905cf375b8d6ca49b68bbe971942e6ef6339b72"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/review.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/review.prompt.md",
@@ -87,27 +97,27 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs": {
       "source": "skills/issue-flow/cli.cjs",
       "mode": "managed",
-      "sha256": "06d0bba2a719404cdce512366e2ad0d91458c21108e1a30cd962487895122343"
+      "sha256": "3a0fe92d619066ecbb73bd57e11d61e7e892410dac5d34a7d84e05afa1214520"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/references/labels.md": {
       "source": "skills/issue-flow/references/labels.md",
       "mode": "managed",
-      "sha256": "f8e3ed3d06525e37fe4db3646342e049b2adab985a167c4f88009e3c9b57465a"
+      "sha256": "ff293d9534cba048aa74efb9c1674d8aa410049d1670c846af995f23482e5c2d"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/apply.cjs": {
       "source": "skills/issue-flow/scripts/apply.cjs",
       "mode": "managed",
-      "sha256": "74a63cbced49b60c0af060c21be3d46ad378136cda7556ea88c2300d30b01841"
+      "sha256": "19bcb119fc91d9d84afcef0f0455643a84f18edfd07378665b71b58d622451c1"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs": {
       "source": "skills/issue-flow/scripts/create-issue.cjs",
       "mode": "managed",
-      "sha256": "daaa2cdee6c9ec81e336288a6de6cd9c3492f2af63c39687aca3aa24db3d3481"
+      "sha256": "12e78dab15ecd4e13f59f3b463b3803e96d8aafd39f8eaf13e7a4f172fbc5901"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs": {
       "source": "skills/issue-flow/scripts/dispatch.cjs",
       "mode": "managed",
-      "sha256": "caf6071add0b8c49893a3f67b3d23f14e06fcc2e4be526361204591ff06955c7"
+      "sha256": "b44fb480731927630ba5feec660c8fcce4af32059493568142c95a11f64328cb"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/events.cjs": {
       "source": "skills/issue-flow/scripts/events.cjs",
@@ -127,7 +137,17 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/labels.cjs": {
       "source": "skills/issue-flow/scripts/labels.cjs",
       "mode": "managed",
-      "sha256": "aecda3dce00302d92caf7f17743060ff5d0ec24cee9aa8319d6b84860b3b7638"
+      "sha256": "20438d7f17193438ddbeaa8ee88985378a99554023818f326c364f2adfc2225c"
+    },
+    ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/milestone.cjs": {
+      "source": "skills/issue-flow/scripts/milestone.cjs",
+      "mode": "managed",
+      "sha256": "30aba2069ae645dba81cb2f6f9411b08511400896d04662c838b653c5d390fb6"
+    },
+    ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/milestones.cjs": {
+      "source": "skills/issue-flow/scripts/milestones.cjs",
+      "mode": "managed",
+      "sha256": "be9cf81369faf4a592c0dab2129e086e2b3cb5193c2a7fb5a6531a1b0e888681"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/pipeline-failed.cjs": {
       "source": "skills/issue-flow/scripts/pipeline-failed.cjs",
@@ -137,17 +157,17 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/pr-merged.cjs": {
       "source": "skills/issue-flow/scripts/pr-merged.cjs",
       "mode": "managed",
-      "sha256": "8ec5ea9f31a3b6bc5589e32f1e58a8a1c4bdf4250aff6d4dce34ad86f1256f2c"
+      "sha256": "18f9db3a49fa87c5197cdc01eb5a98f092388ce5794048b846c095e8ce803c31"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/provenance.cjs": {
       "source": "skills/issue-flow/scripts/provenance.cjs",
       "mode": "managed",
-      "sha256": "bdca3616197a9976bde7694102e12acc284203eec5d85ea6f548c645feac959b"
+      "sha256": "35d971c9e39e7b36804693798ee4ce9ffa0fa4d9baf55a373bf402b2b399e4b7"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/providers.cjs": {
       "source": "skills/issue-flow/scripts/providers.cjs",
       "mode": "managed",
-      "sha256": "c99018836a17db1eaec1824d986febbe1b813d3dbeb2e93cb15571f3d46d83ac"
+      "sha256": "d10b9715ba11ca815af7e5d5d716f4122ef48d1ca9daa5a3bbf94ffabdb37779"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/resolve.cjs": {
       "source": "skills/issue-flow/scripts/resolve.cjs",
@@ -157,7 +177,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/review.cjs": {
       "source": "skills/issue-flow/scripts/review.cjs",
       "mode": "managed",
-      "sha256": "e0cde5ae5771f36ed5402d519d49ddfb33d76ab612de10fea41b31b0769aa100"
+      "sha256": "6bae34cb5e6985ef8a5248cd344c766999fa8961e492db9b166b7575d1e84302"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/CLAUDE.md": {
       "source": "skills/issue-flow/scripts/runtimes/CLAUDE.md",
@@ -167,17 +187,32 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/runtimes/agentrix.cjs": {
       "source": "skills/issue-flow/scripts/runtimes/agentrix.cjs",
       "mode": "managed",
-      "sha256": "b353cee6bb0613cd99c8ad450426c69a4272e1e5d67f351a5791c84d7db6ea05"
+      "sha256": "58616e2e1a16e946e38a5c034186588152bb3cb1c9104458b9d5ec8fd17b3ae0"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
       "mode": "managed",
-      "sha256": "615a6b66ad72f88ae77edfa97d606c5fe98929b9ed800437a57cd2f122534952"
+      "sha256": "86d8c966910bc657a5ae5852b696731652617bed45d375d38923912d0c1ed241"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs": {
       "source": "skills/issue-flow/scripts/sync-labels.cjs",
       "mode": "managed",
       "sha256": "f169678b369aa0796bc8f36f67becfcb577847538827eeb5184194daa7160475"
+    },
+    ".agentrix/plugins/issue-flow/skills/vision-plan/SKILL.md": {
+      "source": "skills/vision-plan/SKILL.md",
+      "mode": "managed",
+      "sha256": "a29abc8ff29dba5752303016b18ba1ad4591bba3efe5574cdf8c3f088106115a"
+    },
+    ".agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs": {
+      "source": "skills/vision-plan/plan-kit/check.mjs",
+      "mode": "managed",
+      "sha256": "eaab812b41566841e0205297f1e7c138cb21aa6f4ef5df941cbc4b2b63d761df"
+    },
+    ".agentrix/plugins/issue-flow/skills/vision-plan/references/engine-json-contract.md": {
+      "source": "skills/vision-plan/references/engine-json-contract.md",
+      "mode": "managed",
+      "sha256": "f6b11620cec30e93be9a419c5b78a3fdf421190c2919c0ff3fb0bbc96de07f64"
     },
     ".github/workflows/issue-flow-auto.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-auto.yml",
@@ -194,6 +229,11 @@
       "mode": "managed",
       "sha256": "88ec8b03ff05790b2272c7aee1f2870928525e2289d571f57f13beef565703e3"
     },
+    ".github/workflows/issue-flow-milestones.yml": {
+      "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-milestones.yml",
+      "mode": "managed",
+      "sha256": "1508af279950ad59c140b7670fe8d0ed4a4eabf6f90341eaed97a29271399b53"
+    },
     ".github/workflows/issue-flow-pr-merged.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-pr-merged.yml",
       "mode": "managed",
@@ -202,7 +242,7 @@
     ".github/workflows/issue-flow-pr-review-comment.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-pr-review-comment.yml",
       "mode": "managed",
-      "sha256": "b42ca65c3ee9af5124e2c3f2599b8f78df41b0ee40078279e6739598258a868f"
+      "sha256": "6ef95f13a285408df1207b664e25789561088ab0c8831436e7ba75da5543335c"
     },
     ".github/workflows/issue-flow-pr-review.yml": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-pr-review.yml",
@@ -212,7 +252,7 @@
     ".issue-flow/config.json": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/config.json",
       "mode": "customizable",
-      "sha256": "c6956d49a6d8f18a1efed90d9442ab5f783828cbd483b9d239e2271fe90c98d9"
+      "sha256": "6235aeb8c2f6f6d732798e080ea8504891ab405559350e97c05c30b929c69a01"
     },
     ".issue-flow/issues/README.md": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/issue-flow/issues/README.md",
@@ -232,7 +272,7 @@
     ".issue-flow/prompts/general.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/general.prompt.md",
       "mode": "customizable",
-      "sha256": "0358cabd83bd97b08d7105d2c11e642b75eaca2d91506c7bdf54e2bd27139034"
+      "sha256": "ed98d10f98c0002ab04b3fe6a4d01639da188874ca92d77307bc828ca2e9e540"
     },
     ".issue-flow/prompts/plan-bug.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-bug.prompt.md",
@@ -243,6 +283,16 @@
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-impl.prompt.md",
       "mode": "customizable",
       "sha256": "89f32ed4858769586a832ae020f11b604f7c62dd098f6b5d905d749d720a45c9"
+    },
+    ".issue-flow/prompts/plan-visual-bug.prompt.md": {
+      "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-bug.prompt.md",
+      "mode": "customizable",
+      "sha256": "0f5e77e13209db171ccec6657af3db361b731a6eb30ce88aa10cbd6b8ca98cde"
+    },
+    ".issue-flow/prompts/plan-visual-impl.prompt.md": {
+      "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-impl.prompt.md",
+      "mode": "customizable",
+      "sha256": "cc80b2089ea7045cb5e65419e905cf375b8d6ca49b68bbe971942e6ef6339b72"
     },
     ".issue-flow/prompts/review.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/review.prompt.md",
@@ -288,6 +338,28 @@
       "source": "skills/issue-flow/assets/agentrix/runtime/templates/type-ops.md",
       "mode": "customizable",
       "sha256": "5a7ca246af601aa6763ef3eed161419d686defdad9d6056452e4cf919a73ef3a"
+    }
+  },
+  "links": {
+    ".agents/skills/issue-flow": {
+      "target": "../../.agentrix/plugins/issue-flow/skills/issue-flow",
+      "mode": "managed"
+    },
+    ".agents/skills/vision-plan": {
+      "target": "../../.agentrix/plugins/issue-flow/skills/vision-plan",
+      "mode": "managed"
+    },
+    ".claude/skills/issue-flow": {
+      "target": "../../.agentrix/plugins/issue-flow/skills/issue-flow",
+      "mode": "managed"
+    },
+    ".claude/skills/vision-plan": {
+      "target": "../../.agentrix/plugins/issue-flow/skills/vision-plan",
+      "mode": "managed"
+    },
+    ".issue-flow/cli.cjs": {
+      "target": "../.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs",
+      "mode": "managed"
     }
   }
 }

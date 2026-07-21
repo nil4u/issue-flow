@@ -26,6 +26,7 @@ function topHelp() {
     '  issue      Get, create, apply labels, intake, comments, and acknowledge issues.',
     '  pr         Get, submit, comment, review, and handle merged PRs/MRs.',
     '  labels     Sync or check managed provider labels.',
+    '  milestone  List target milestones or sync them from branch events.',
     '  dispatch   Run issue-flow runtime dispatch actions.',
     '',
     'Examples:',
@@ -132,6 +133,16 @@ function labelsHelp() {
     'Actions:',
     '  sync       Upsert managed labels.',
     '  check      Check managed labels and fail on drift.',
+  ].join('\n');
+}
+
+function milestoneHelp() {
+  return [
+    'Usage: issue-flow milestone <list|sync> [options]',
+    '',
+    'Actions:',
+    '  list       List selectable target milestones.',
+    '  sync       Handle a branch create/delete event.',
   ].join('\n');
 }
 
@@ -453,6 +464,18 @@ function handleLabels(argv) {
   throw new Error(`Unknown labels action: ${argv[0]}\n\n${labelsHelp()}`);
 }
 
+function handleMilestone(argv) {
+  if (argv.length === 0 || argv[0] === '--help') return milestoneHelp();
+  if (argv[0] === 'list' || argv[0] === 'sync') {
+    return runScript('milestone.cjs', [argv[0], ...argv.slice(1)], {
+      action: argv[0] === 'list' ? 'listed' : 'synced',
+      resource: 'milestone',
+      command: argv[0],
+    });
+  }
+  throw new Error(`Unknown milestone action: ${argv[0]}\n\n${milestoneHelp()}`);
+}
+
 function handleDispatch(argv) {
   if (argv.length === 0 || argv[0] === '--help') {
     return dispatchHelp();
@@ -490,6 +513,9 @@ async function run(argv = process.argv.slice(2)) {
   }
   if (resource === 'labels') {
     return handleLabels(argv.slice(1));
+  }
+  if (resource === 'milestone') {
+    return handleMilestone(argv.slice(1));
   }
   if (resource === 'dispatch') {
     return handleDispatch(argv.slice(1));
