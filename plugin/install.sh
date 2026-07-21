@@ -9,7 +9,7 @@ usage() {
 Usage: install.sh [github|gitlab|auto] [--force] [--dry-run] [--plan-json] [--decision-file <path>]
 
 Installs issue-flow into the current project, including Codex and Claude Code skill links.
-After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
+GitHub CI synchronizes issue-flow labels after push. For GitLab, use the management console or run issue-flow labels sync.
 
 Options:
   --force                  Apply without asking; overwrite conflicting files.

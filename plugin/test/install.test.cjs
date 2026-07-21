@@ -136,8 +136,7 @@ test('install script installs GitLab root include from checkout source', () => {
     assert.match(result.stdout, /written \.issue-flow\/templates/);
     assert.equal(fs.existsSync(path.join(root, '.gitlab-ci.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml')), true);
-    assert.match(fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8'), /issue-flow-labels:/);
-    assert.match(fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8'), /sync-labels\.cjs/);
+    assert.doesNotMatch(fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8'), /issue-flow-labels:/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);

@@ -39,8 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/instal
 ```
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project. It also links the installed skills into the project-level Codex (`.agents/skills/`) and Claude Code (`.claude/skills/`) discovery directories.
-After you commit and push the installed files, the installed CI workflow automatically synchronizes the built-in provider labels.
-That job creates missing labels and updates label colors/descriptions when they drift. If the workflow token cannot manage repository/project labels, the label sync job fails and the rest of the installed files remain unchanged.
+For GitHub, committing and pushing the installed files runs a workflow that synchronizes the built-in provider labels.
+For GitLab, the management console installs and updates the labels directly. Manual GitLab installs can run `issue-flow labels sync` with project label management permission.
 
 ## Create Normalized Issues
 
