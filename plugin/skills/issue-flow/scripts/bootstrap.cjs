@@ -8,9 +8,17 @@ const {
   addLocalInclude,
   hasLocalInclude,
 } = require('./gitlab-ci-include.cjs');
+const {
+  MANAGED_SYMLINKS,
+  applySymlinkOperation,
+  createStaleSymlinkOperations,
+  createSymlinkOperation,
+  desiredLinkManifestEntry,
+  managedSymlinkSpecs,
+} = require('./bootstrap-links.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
-const MANIFEST_VERSION = 1;
+const MANIFEST_VERSION = 2;
 const ISSUE_FLOW_VERSION = readIssueFlowVersion();
 const INSTALL_MANIFEST = '.issue-flow/install-manifest.json';
 const MODE_MANAGED = 'managed';
@@ -20,6 +28,7 @@ const AGENTRIX_GITHUB_WORKFLOWS = [
   ['workflows/github/issue-flow-labels.yml', '.github/workflows/issue-flow-labels.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-auto.yml', '.github/workflows/issue-flow-auto.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-comment.yml', '.github/workflows/issue-flow-comment.yml', { mode: MODE_MANAGED }],
+  ['workflows/github/issue-flow-milestones.yml', '.github/workflows/issue-flow-milestones.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-review.yml', '.github/workflows/issue-flow-pr-review.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-review-comment.yml', '.github/workflows/issue-flow-pr-review-comment.yml', { mode: MODE_MANAGED }],
   ['workflows/github/issue-flow-pr-merged.yml', '.github/workflows/issue-flow-pr-merged.yml', { mode: MODE_MANAGED }],
@@ -53,9 +62,15 @@ const AGENTRIX_PLUGIN_DIRS = [
       mode: MODE_MANAGED,
       exclude: [
         'assets/agentrix/bootstrap',
+        'scripts/bootstrap-links.cjs',
         'scripts/bootstrap.cjs',
       ],
     },
+  ],
+  [
+    'skills/vision-plan',
+    `${AGENTRIX_PLUGIN_ROOT}/skills/vision-plan`,
+    { mode: MODE_MANAGED },
   ],
 ];
 const AGENTRIX_PLUGIN_SPECS = [
@@ -257,6 +272,12 @@ function conflictPayload(operation) {
     currentHash: operation.currentHash || '',
     newHash: operation.newHash || '',
   };
+  if (operation.entryType === 'symlink') {
+    conflict.entryType = 'symlink';
+    conflict.currentTarget = operation.currentLinkTarget || '';
+    conflict.proposedTarget = operation.newLinkTarget || operation.previous?.target || '';
+    conflict.targetKind = operation.targetKind || '';
+  }
   if (conflictCategory(operation) === 'gitlab_ci') {
     if (Object.prototype.hasOwnProperty.call(operation, 'currentContent')) {
       conflict.currentContent = operation.currentContent;
@@ -281,6 +302,10 @@ function conflictFingerprint(conflicts) {
       reason: conflict.reason,
       currentHash: conflict.currentHash || '',
       newHash: conflict.newHash || '',
+      entryType: conflict.entryType || 'file',
+      currentTarget: conflict.currentTarget || '',
+      proposedTarget: conflict.proposedTarget || '',
+      targetKind: conflict.targetKind || '',
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   return textSha256(canonicalJson(shape));
@@ -339,6 +364,7 @@ function readInstallManifest(options = {}) {
     return {
       version: MANIFEST_VERSION,
       files: {},
+      links: {},
     };
   }
 
@@ -346,12 +372,21 @@ function readInstallManifest(options = {}) {
   if (!manifest || typeof manifest !== 'object' || !manifest.files || typeof manifest.files !== 'object') {
     throw new Error(`${INSTALL_MANIFEST} is invalid.`);
   }
+  if (manifest.links !== undefined && (!manifest.links || typeof manifest.links !== 'object' || Array.isArray(manifest.links))) {
+    throw new Error(`${INSTALL_MANIFEST} is invalid.`);
+  }
+  for (const link of Object.values(manifest.links || {})) {
+    if (!link || typeof link !== 'object' || typeof link.target !== 'string' || !link.target) {
+      throw new Error(`${INSTALL_MANIFEST} is invalid.`);
+    }
+  }
   return {
     version: manifest.version || MANIFEST_VERSION,
     issueFlowVersion: manifest.issueFlowVersion || '',
     provider: manifest.provider || '',
     runtime: manifest.runtime || '',
     files: manifest.files,
+    links: manifest.links || {},
   };
 }
 
@@ -360,12 +395,17 @@ function formatInstallManifest(manifest) {
   for (const target of Object.keys(manifest.files).sort()) {
     files[target] = manifest.files[target];
   }
+  const links = {};
+  for (const target of Object.keys(manifest.links || {}).sort()) {
+    links[target] = manifest.links[target];
+  }
   return `${JSON.stringify({
     version: MANIFEST_VERSION,
     issueFlowVersion: manifest.issueFlowVersion || ISSUE_FLOW_VERSION,
     provider: manifest.provider || '',
     runtime: manifest.runtime || DEFAULT_RUNTIME,
     files,
+    links,
   }, null, 2)}\n`;
 }
 
@@ -903,6 +943,10 @@ function resolveConflicts(operations, options = {}) {
 
 function applyFileOperation(operation) {
   if (operation.operation === 'write') {
+    if (operation.entryType === 'symlink') {
+      applySymlinkOperation(operation);
+      return;
+    }
     if (fs.existsSync(operation.target) && !fs.statSync(operation.target).isFile()) {
       fs.rmSync(operation.target, { recursive: true, force: true });
     }
@@ -916,6 +960,10 @@ function applyFileOperation(operation) {
   }
 
   if (operation.operation === 'remove') {
+    if (operation.entryType === 'symlink') {
+      applySymlinkOperation(operation);
+      return;
+    }
     fs.rmSync(operation.target, { recursive: true, force: true });
   }
 }
@@ -996,7 +1044,24 @@ function summarizeGroupOperations(operations, options = {}) {
 
 function nextManifestFromOperations(manifest, operations, options = {}) {
   const files = { ...manifest.files };
+  const links = { ...manifest.links };
   for (const operation of operations) {
+    if (operation.entryType === 'symlink') {
+      if (operation.kind === 'desired') {
+        if (
+          operation.operation === 'write'
+          || (operation.operation === 'skip' && ['current', 'keep', 'customized'].includes(operation.reason))
+        ) {
+          links[operation.targetRelative] = desiredLinkManifestEntry(operation);
+        } else if (!operation.previous) {
+          delete links[operation.targetRelative];
+        }
+      } else if (operation.kind === 'stale' && ['remove', 'forget'].includes(operation.operation)) {
+        delete links[operation.targetRelative];
+      }
+      continue;
+    }
+
     if (operation.kind === 'desired') {
       if (
         operation.operation === 'write'
@@ -1022,6 +1087,7 @@ function nextManifestFromOperations(manifest, operations, options = {}) {
     provider: options.provider || manifest.provider || '',
     runtime: resolveRuntime(options),
     files,
+    links,
   };
 }
 
@@ -1030,7 +1096,18 @@ function runFileInstall(specs, options = {}, extraOperations = []) {
   const desiredFiles = expandInstallSpecs(specs, options);
   const desiredOperations = desiredFiles.map((file) => createFileOperation(file, manifest, options));
   const staleOperations = options.pruneStale ? createStaleOperations(manifest, desiredFiles, options) : [];
-  const operations = resolveConflicts([...desiredOperations, ...staleOperations, ...extraOperations], options);
+  const desiredLinks = options.installManagedSymlinks ? managedSymlinkSpecs() : [];
+  const desiredLinkOperations = desiredLinks.map((link) => createSymlinkOperation(link, manifest, options));
+  const staleLinkOperations = options.pruneStale
+    ? createStaleSymlinkOperations(manifest, desiredLinks, options)
+    : [];
+  const operations = resolveConflicts([
+    ...desiredOperations,
+    ...staleOperations,
+    ...extraOperations,
+    ...desiredLinkOperations,
+    ...staleLinkOperations,
+  ], options);
 
   applyFileOperations(operations, options);
   const nextManifest = nextManifestFromOperations(manifest, operations, options);
@@ -1095,7 +1172,7 @@ function installGithub(options = {}) {
       ...githubWorkflowInstallSpecs(options),
       ...bootstrapInstallSpecs(AGENTRIX_PROJECT_FILES),
       ...packageInstallSpecs(AGENTRIX_PROJECT_DIRS),
-    ], { ...options, provider: 'github', pruneStale: true }),
+    ], { ...options, provider: 'github', pruneStale: true, installManagedSymlinks: true }),
   ];
 }
 
@@ -1224,7 +1301,12 @@ function installGitlab(options = {}) {
     ...bootstrapInstallSpecs(AGENTRIX_GITLAB_FILES),
     ...bootstrapInstallSpecs(AGENTRIX_PROJECT_FILES),
     ...packageInstallSpecs(AGENTRIX_PROJECT_DIRS),
-  ], { ...options, provider: 'gitlab', pruneStale: true }, [rootCi.operation]);
+  ], {
+    ...options,
+    provider: 'gitlab',
+    pruneStale: true,
+    installManagedSymlinks: true,
+  }, [rootCi.operation]);
   const results = fileResults.map((result) => {
     if (result.target !== rootCi.operation.target || !rootCi.message) {
       return result;
@@ -1317,6 +1399,7 @@ module.exports = {
   AGENTRIX_PLUGIN_ROOT,
   AGENTRIX_PLUGIN_SPECS,
   LEGACY_AGENTRIX_PROJECT_ROOT,
+  MANAGED_SYMLINKS,
   installAgentrixPlugin,
   installAgentrixProjectScaffold,
   installGithub,

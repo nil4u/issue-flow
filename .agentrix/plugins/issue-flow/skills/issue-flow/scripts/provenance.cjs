@@ -26,12 +26,23 @@ function resolveSourceAgent(options = {}, env = process.env) {
   );
 }
 
+function resolveSourceRuntime(options = {}, env = process.env) {
+  return normalizeMarkerValue(
+    options.sourceRuntime ||
+    options.runtime ||
+    env.ISSUE_FLOW_SOURCE_RUNTIME ||
+    ''
+  );
+}
+
 function buildSourceMarker(options = {}, env = process.env) {
   const fields = [];
   const sourceTaskId = resolveSourceTaskId(options, env);
   const sourceAgent = resolveSourceAgent(options, env);
+  const sourceRuntime = resolveSourceRuntime(options, env);
   if (sourceTaskId) fields.push(`source_task_id=${sourceTaskId}`);
   if (sourceAgent) fields.push(`source_agent=${sourceAgent}`);
+  if (sourceRuntime) fields.push(`source_runtime=${sourceRuntime}`);
   return fields.length ? `<!-- issue-flow:source ${fields.join(' ')} -->` : '';
 }
 
@@ -45,7 +56,7 @@ function parseSourceMarker(body = '') {
     if (eq <= 0) continue;
     const key = field.slice(0, eq);
     const value = field.slice(eq + 1);
-    if (key === 'source_task_id' || key === 'source_agent') {
+    if (key === 'source_task_id' || key === 'source_agent' || key === 'source_runtime') {
       parsed[key] = value;
     }
   }
@@ -72,6 +83,7 @@ module.exports = {
   normalizeMarkerValue,
   parseSourceMarker,
   resolveSourceAgent,
+  resolveSourceRuntime,
   resolveSourceTaskId,
   upsertSourceMarker,
 };

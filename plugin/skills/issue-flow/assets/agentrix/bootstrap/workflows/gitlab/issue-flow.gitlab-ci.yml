@@ -8,21 +8,50 @@ variables:
   tags:
     - issue-flow
 
-issue-flow-auto:
+issue-flow-labels:
   extends: .issue-flow-runner
   stage: build
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - .agentrix/plugins/issue-flow/**/*
+        - .issue-flow/**/*
+        - .gitlab/issue-flow.gitlab-ci.yml
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then
+        set -- "$@" --repo "$CI_PROJECT_PATH"
+      fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs "$@"
+
+issue-flow-milestones:
+  extends: .issue-flow-runner
+  stage: build
+  rules:
+    - if: '$GITLAB_BRIDGE_EVENT_NAME == "create" || $GITLAB_BRIDGE_EVENT_NAME == "delete"'
+      when: on_success
+    - when: never
+  script:
+    - |
+      set -eu
+      set -- --provider gitlab
+      if [ -n "${CI_PROJECT_PATH:-}" ]; then set -- "$@" --repo "$CI_PROJECT_PATH"; fi
+      node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs milestone sync "$@"
+
+issue-flow-auto:
+  extends: .issue-flow-runner
+  stage: build
+  resource_group: "issue-flow-auto-${CI_PROJECT_ID}-${GITLAB_BRIDGE_ISSUE_NUMBER}"
+  rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issues" && ($GITLAB_BRIDGE_LABELS_JSON =~ /failure::ci/ || $GITLAB_BRIDGE_LABELS =~ /failure::ci/ || $GITLAB_BRIDGE_ISSUE_TITLE =~ /^Fix CI failure:/)'
-      when: never
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && ($AGENTRIX_LABELS_JSON =~ /failure::ci/ || $AGENTRIX_LABELS =~ /failure::ci/ || $AGENTRIX_ISSUE_TITLE =~ /^Fix CI failure:/)'
       when: never
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issues" && $GITLAB_BRIDGE_EVENT_ACTION == "opened"'
       when: on_success
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issues" && $GITLAB_BRIDGE_EVENT_ACTION == "labeled"'
-      when: on_success
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && $AGENTRIX_EVENT_ACTION == "opened"'
-      when: on_success
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issues" && $AGENTRIX_EVENT_ACTION == "labeled"'
       when: on_success
     - if: '$GITLAB_EVENT_NAME == "issue"'
       when: on_success
@@ -34,10 +63,8 @@ issue-flow-auto:
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"
       fi
-      bridge_event_action="${GITLAB_BRIDGE_EVENT_ACTION:-${AGENTRIX_EVENT_ACTION:-}}"
-      bridge_issue_number="${GITLAB_BRIDGE_ISSUE_NUMBER:-${AGENTRIX_ISSUE_NUMBER:-}}"
-      if [ "$bridge_event_action" = "opened" ] && [ -n "$bridge_issue_number" ]; then
-        node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/intake.cjs --issue-number "$bridge_issue_number" "$@"
+      if [ "${GITLAB_BRIDGE_EVENT_ACTION:-}" = "opened" ] && [ -n "${GITLAB_BRIDGE_ISSUE_NUMBER:-}" ]; then
+        node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/intake.cjs --issue-number "$GITLAB_BRIDGE_ISSUE_NUMBER" "$@"
       fi
       if [ -n "${GITLAB_EVENT_PATH:-}" ]; then
         set -- "$@" --event "$GITLAB_EVENT_PATH"
@@ -49,8 +76,6 @@ issue-flow-comment:
   stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && $GITLAB_BRIDGE_ISSUE_NUMBER && $GITLAB_BRIDGE_COMMENT_BODY =~ /(^|[^A-Za-z0-9._-])(@agentrix|\/agentrix)($|[^A-Za-z0-9._-])/'
-      when: on_success
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issue_comment" && $AGENTRIX_SUBJECT_KIND == "issue" && $AGENTRIX_COMMENT_COMMAND == "true"'
       when: on_success
     - if: '$GITLAB_EVENT_NAME == "note"'
       when: on_success
@@ -72,8 +97,6 @@ issue-flow-merged:
   stage: build
   rules:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "pull_request" && $GITLAB_BRIDGE_EVENT_ACTION == "closed" && $GITLAB_BRIDGE_PULL_REQUEST_MERGED == "true"'
-      when: on_success
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "closed" && $AGENTRIX_PULL_REQUEST_MERGED == "true"'
       when: on_success
     - if: '$CI_MERGE_REQUEST_EVENT_TYPE == "merged"'
       when: on_success
@@ -102,13 +125,7 @@ issue-flow-review:
       when: on_success
     - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $GITLAB_BRIDGE_EVENT_NAME == "pull_request" && $GITLAB_BRIDGE_EVENT_ACTION == "ready_for_review"'
       when: on_success
-    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "opened"'
-      when: on_success
-    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "synchronize"'
-      when: on_success
-    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request" && $AGENTRIX_EVENT_ACTION == "ready_for_review"'
-      when: on_success
-    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && ($GITLAB_BRIDGE_PR_NUMBER || $AGENTRIX_PR_NUMBER)'
+    - if: '$ISSUE_FLOW_REVIEW_ENABLED =~ /^(true|1)$/ && $GITLAB_BRIDGE_PR_NUMBER'
       when: manual
     - when: never
   script:
@@ -122,13 +139,12 @@ issue-flow-review:
       fi
       if [ -n "${GITLAB_EVENT_PATH:-}" ]; then
         set -- "$@" --event "$GITLAB_EVENT_PATH"
-      elif [ -z "${GITLAB_BRIDGE_EVENT_NAME:-}" ] && [ "${AGENTRIX_TRIGGER_SOURCE:-}" != "agentrix_daemon_webhook" ]; then
-        bridge_pr_number="${GITLAB_BRIDGE_PR_NUMBER:-${AGENTRIX_PR_NUMBER:-}}"
-        if [ -z "$bridge_pr_number" ]; then
-          echo "GITLAB_BRIDGE_PR_NUMBER or AGENTRIX_PR_NUMBER is required for manual issue-flow-review" >&2
+      elif [ -z "${GITLAB_BRIDGE_EVENT_NAME:-}" ]; then
+        if [ -z "${GITLAB_BRIDGE_PR_NUMBER:-}" ]; then
+          echo "GITLAB_BRIDGE_PR_NUMBER is required for manual issue-flow-review" >&2
           exit 1
         fi
-        set -- "$@" --pr-number "$bridge_pr_number"
+        set -- "$@" --pr-number "$GITLAB_BRIDGE_PR_NUMBER"
       fi
       node .agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs review "$@"
 
@@ -139,10 +155,6 @@ issue-flow-review-comment:
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "pull_request_review_comment" && $GITLAB_BRIDGE_EVENT_ACTION == "created"'
       when: on_success
     - if: '$GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && $GITLAB_BRIDGE_PR_NUMBER && $GITLAB_BRIDGE_EVENT_ACTION == "created"'
-      when: on_success
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "pull_request_review_comment" && $AGENTRIX_EVENT_ACTION == "created"'
-      when: on_success
-    - if: '$AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook" && $AGENTRIX_PROVIDER == "gitlab" && $AGENTRIX_EVENT_NAME == "issue_comment" && $AGENTRIX_SUBJECT_KIND == "pull_request" && $AGENTRIX_EVENT_ACTION == "created"'
       when: on_success
     - if: '$GITLAB_EVENT_NAME == "note"'
       when: on_success

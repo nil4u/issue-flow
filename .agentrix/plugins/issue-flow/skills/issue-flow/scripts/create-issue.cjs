@@ -4,11 +4,11 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider, normalizeLabelName } = require('./providers.cjs');
 const { labelDefinitionFor, labelGroupsForScope, resolveIssueSizeLabel } = require('./labels.cjs');
-const { buildSourceMarker } = require('./provenance.cjs');
+const { upsertSourceMarker } = require('./provenance.cjs');
+const { resolveMilestoneSelection } = require('./milestones.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
-const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=[^>]*-->\s*/i;
-const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
+const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=[^>]*-->\s*/i;
 
 function usage() {
   return [
@@ -24,7 +24,8 @@ function usage() {
     '',
     'Other options:',
     '  --label <name>            Add a non-managed provider label. May be repeated.',
-    '  --agentrix-task-id <id>   Hidden Agentrix task marker id. Defaults from AGENTRIX_TASK_ID.',
+    '  --milestone <title|none>  Required when milestone target branches are enabled.',
+    '  --agentrix-task-id <id>   Task id for the hidden source marker. Defaults from AGENTRIX_TASK_ID.',
     '  --provider <provider>     Git hosting provider: github or gitlab. Defaults from environment/repo.',
     '  --repo <owner/repo>       Repository/project override. Defaults to provider environment or git remote origin.',
     '  --dry-run',
@@ -185,38 +186,13 @@ function validateCreateSizeGate(labels, options = {}) {
   );
 }
 
-function buildAgentrixTaskMarker(taskId) {
-  const normalized = String(taskId || '').trim();
-  if (!normalized) {
-    return '';
-  }
-  return `<!-- issue-flow:agentrix:task=${normalized} -->`;
-}
-
-function buildIssueBodyWithTaskMarker(body, taskId) {
-  const marker = buildAgentrixTaskMarker(taskId);
-  const provenanceMarker = buildSourceMarker({ sourceTaskId: taskId });
-  let currentBody = String(body || '').trim();
-  if (!marker && !provenanceMarker) {
-    return currentBody;
-  }
-  if (marker) {
-    if (AGENTRIX_TASK_MARKER_PATTERN.test(currentBody)) {
-      currentBody = currentBody.replace(AGENTRIX_TASK_MARKER_PATTERN, `${marker}\n`);
-    } else {
-      currentBody = `${marker}\n${currentBody}`;
-    }
-  }
-  if (provenanceMarker) {
-    if (SOURCE_PROVENANCE_MARKER_PATTERN.test(currentBody)) {
-      currentBody = currentBody.replace(SOURCE_PROVENANCE_MARKER_PATTERN, `${provenanceMarker}\n`);
-    } else if (marker && currentBody.startsWith(marker)) {
-      currentBody = `${marker}\n${provenanceMarker}${currentBody.slice(marker.length)}`;
-    } else {
-      currentBody = `${provenanceMarker}\n${currentBody}`;
-    }
-  }
-  return currentBody.trim();
+function buildIssueBodyWithSourceMarker(body, taskId) {
+  const content = String(body || '').replace(LEGACY_AGENTRIX_TASK_MARKER_PATTERN, '').trim();
+  const sourceTaskId = String(taskId || process.env.AGENTRIX_TASK_ID || '').trim();
+  return upsertSourceMarker(content, {
+    sourceTaskId,
+    sourceRuntime: sourceTaskId ? 'agentrix' : '',
+  });
 }
 
 function managedDefinitionsForLabels(labels) {
@@ -241,11 +217,12 @@ async function main(argv = process.argv.slice(2)) {
   const labels = collectCreateLabels(options);
   validateCreateSizeGate(labels, options);
   const rawBody = readBodyFile(options.bodyFile);
-  const body = buildIssueBodyWithTaskMarker(rawBody, options.agentrixTaskId || process.env.AGENTRIX_TASK_ID);
+  const body = buildIssueBodyWithSourceMarker(rawBody, options.agentrixTaskId || process.env.AGENTRIX_TASK_ID);
   const repoHint = resolveRepoHint(options);
   const provider = resolveProvider({ ...options, repo: repoHint }, {});
   const repo = provider.resolveRepo({}, { ...options, repo: repoHint });
   options.provider = provider.name;
+  const selection = await resolveMilestoneSelection(options.milestone, provider, repo, options);
 
   if (options.dryRun) {
     console.log(
@@ -257,6 +234,7 @@ async function main(argv = process.argv.slice(2)) {
           title,
           bodySummary: bodySummary(body),
           labels,
+          milestone: selection.milestone && selection.milestone.title || null,
         },
         null,
         2
@@ -270,6 +248,7 @@ async function main(argv = process.argv.slice(2)) {
     title,
     body,
     labels,
+    milestone: selection.milestone,
     managedLabelDefinitions: managedDefinitionsForLabels(labels),
     options,
   });
@@ -283,6 +262,7 @@ async function main(argv = process.argv.slice(2)) {
         issueNumber: issue.number,
         issueUrl: issue.htmlUrl,
         labels: issue.labels && issue.labels.length > 0 ? issue.labels : labels,
+        milestone: issue.milestone && issue.milestone.title || null,
       },
       null,
       2
@@ -292,8 +272,7 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
-  buildAgentrixTaskMarker,
-  buildIssueBodyWithTaskMarker,
+  buildIssueBodyWithSourceMarker,
   collectCreateLabels,
   collectManagedLabels,
   main,

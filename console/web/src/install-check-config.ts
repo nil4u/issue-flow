@@ -1,4 +1,4 @@
-export type InstallCheckItemType = "variable" | "webhook" | "permission" | "repo_file" | "plugin" | "git-runner"
+export type InstallCheckItemType = "variable" | "webhook" | "permission" | "labels" | "repo_file" | "plugin" | "git-runner"
 
 export type InstallCheckControl = {
   path: string
@@ -61,6 +61,12 @@ export const gitlabInstallCheckConfig = {
           type: "variable",
           name: "ISSUE_FLOW_GITLAB_TOKEN",
           description: "issue-flow GitLab CI jobs 调用 GitLab API 的项目访问 token，安装检查会自动创建并写入。",
+        },
+        {
+          id: "variable:ISSUE_FLOW_BASE_URL",
+          type: "variable",
+          name: "ISSUE_FLOW_BASE_URL",
+          description: "Issue Flow 服务地址，提交 Decision、Visual Plan 或 Markdown Plan 时使用它生成 Engine URL，安装检查会自动写入。",
         },
         {
           id: "variable:AGENTRIX_BASE_URL",
@@ -145,6 +151,12 @@ export const gitlabInstallCheckConfig = {
       id: "plugins",
       title: "Plugins",
       items: [
+        {
+          id: "labels",
+          type: "labels",
+          name: "Issue Flow labels",
+          description: "Issue Flow 状态机和功能开关使用的 GitLab 项目标签。",
+        },
         {
           id: "plugin:issue-flow",
           type: "plugin",

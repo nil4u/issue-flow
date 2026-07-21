@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
 const { labelGroupsForScope, requireSingleIssueSize } = require('./labels.cjs');
+const { resolveMilestoneConfig, resolveMilestoneSelection } = require('./milestones.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
 
@@ -16,6 +17,8 @@ function usage() {
     '  --status <status::...>',
     '  --flow <flow::...>',
     '  --clear-flow         Remove any existing flow:: label without adding a new one.',
+    '  --visual-plan-feature <feature:visual-plan:on>',
+    '  --clear-visual-plan-feature  Remove the Visual Plan opt-in label.',
     '  --automation <automation::...>',
     '  --clear-automation   Remove any existing automation:: label without adding a new one.',
     '  --priority <priority::...>',
@@ -24,6 +27,7 @@ function usage() {
     'Issue body options:',
     '  --normalized-body <markdown>',
     '  --normalized-body-file <path>',
+    '  --milestone <title|none>',
     '',
     'Provider options:',
     '  --provider <provider>   Git hosting provider: github or gitlab. Defaults from environment/repo.',
@@ -50,6 +54,10 @@ function parseArgs(argv) {
     }
     if (arg === '--clear-flow') {
       options.clearFlow = true;
+      continue;
+    }
+    if (arg === '--clear-visual-plan-feature') {
+      options.clearVisualPlanFeature = true;
       continue;
     }
     if (arg === '--clear-automation') {
@@ -127,6 +135,9 @@ function collectClearKeys(options) {
   const clearKeys = [];
   if (options.clearFlow) {
     clearKeys.push('flow');
+  }
+  if (options.clearVisualPlanFeature) {
+    clearKeys.push('visualPlanFeature');
   }
   if (options.clearAutomation) {
     clearKeys.push('automation');
@@ -228,16 +239,25 @@ async function applyIssueBody(target, issue, desiredByKey, options) {
   await provider.updateIssueBody(target, body, options);
 }
 
+async function applyIssueMilestone(target, provider, repo, options) {
+  if (options.milestone === undefined) return { changed: false };
+  if (!resolveMilestoneConfig(options).enabled) {
+    throw new Error('Enable milestone.enabled in .issue-flow/config.json before using --milestone.');
+  }
+  const selection = await resolveMilestoneSelection(options.milestone, provider, repo, options);
+  await provider.setIssueMilestone(target, selection.milestone, options);
+  return {
+    changed: true,
+    milestone: selection.milestone ? selection.milestone.title : null,
+  };
+}
+
 async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
     console.log(usage());
     return 0;
   }
-  if (options.plan) {
-    throw new Error('--plan is no longer supported. Use --flow flow::plan or --flow flow::build.');
-  }
-
   const issueNumber = parsePositiveInteger(options.issueNumber || options.issue, '--issue-number');
   const repoHint = resolveRepoHint(options);
   const provider = resolveProvider({ ...options, repo: repoHint }, {});
@@ -251,7 +271,7 @@ async function main(argv = process.argv.slice(2)) {
   };
   const desiredByKey = collectDesiredLabels(options);
   const clearKeys = collectClearKeys(options);
-  if (Object.keys(desiredByKey).length === 0 && clearKeys.length === 0 && !hasBodySection(options)) {
+  if (Object.keys(desiredByKey).length === 0 && clearKeys.length === 0 && !hasBodySection(options) && options.milestone === undefined) {
     throw new Error('Nothing to apply. Pass at least one managed label or triage body option.');
   }
 
@@ -261,6 +281,7 @@ async function main(argv = process.argv.slice(2)) {
   const currentLabels = Array.isArray(issue.labels) ? issue.labels.map(normalizeLabelName).filter(Boolean) : [];
 
   validateFlowSizeGate(currentLabels, desiredByKey, clearKeys, { issueNumber });
+  await applyIssueMilestone(target, provider, repo, options);
   await applyLabels(target, currentLabels, desiredByKey, clearKeys, options);
   await applyIssueBody(target, issue, desiredByKey, options);
 }
@@ -270,6 +291,7 @@ module.exports = {
   collectDesiredLabels,
   computeLabelChanges,
   computeNextLabels,
+  applyIssueMilestone,
   readNormalizedBody,
   requiresSizeForDesiredFlow,
   shouldSkipIssueBodyUpdate,

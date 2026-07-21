@@ -16,8 +16,13 @@ function issueFlowPackageJsonPath(env = process.env) {
   return path.join(issueFlowPluginDir(env), 'package.json')
 }
 
+function issueFlowLabelsCatalogPath(env = process.env) {
+  return path.join(issueFlowPluginDir(env), 'skills', 'issue-flow', 'scripts', 'labels.cjs')
+}
+
 export {
   issueFlowInstallScriptPath,
+  issueFlowLabelsCatalogPath,
   issueFlowPackageJsonPath,
   issueFlowPluginDir,
 }

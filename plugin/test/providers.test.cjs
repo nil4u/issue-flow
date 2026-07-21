@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  buildAgentrixGitlabBridgePayload,
+  buildGitlabBridgePayload,
   labelTitlesFromEnv,
 } = require('../skills/issue-flow/scripts/events.cjs');
 
@@ -584,6 +584,7 @@ test('github create issue uses token API with labels in the create request', asy
         calls.push({ url: String(url), method: init.method, body: parsedBody });
         assert.equal(init.method, 'POST');
         assert.deepEqual(parsedBody.labels, ['type::feature', 'status::active', 'flow::plan']);
+        assert.equal(parsedBody.milestone, 7);
         return {
           ok: true,
           status: 201,
@@ -604,6 +605,7 @@ test('github create issue uses token API with labels in the create request', asy
         title: 'Create issue support',
         body: 'Body',
         labels: ['type::feature', 'status::active', 'flow::plan'],
+        milestone: { number: 7, title: 'release/0721' },
         options: {},
       });
 
@@ -651,6 +653,83 @@ test('github create issue falls back to gh api when token is missing', async () 
   global.fetch = previousFetch;
   assert.deepEqual(fakeGh.readCalls()[0].slice(0, 3), ['api', 'repos/acme-org/webapp/issues', '-X']);
   fakeGh.cleanup();
+});
+
+test('github milestone provider resolves branches and reopens existing milestones', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const previousFetch = global.fetch;
+  const calls = [];
+  let milestoneState = 'closed';
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        const parsed = new URL(String(url));
+        const body = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ method: init.method, pathname: parsed.pathname, search: parsed.search, body });
+        if (parsed.pathname.endsWith('/branches/release%2F0721')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ name: 'release/0721' }) };
+        }
+        if (parsed.pathname.endsWith('/milestones') && init.method === 'GET') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([{ id: 70, number: 7, title: 'release/0721', state: milestoneState }]) };
+        }
+        if (parsed.pathname.endsWith('/milestones/7') && init.method === 'PATCH') {
+          milestoneState = body.state;
+          return { ok: true, status: 200, text: async () => JSON.stringify({ id: 70, number: 7, title: 'release/0721', state: milestoneState }) };
+        }
+        throw new Error(`Unexpected GitHub API call: ${init.method} ${url}`);
+      };
+      assert.equal(await provider.branchExists(repo, 'release/0721'), true);
+      assert.equal((await provider.ensureMilestone(repo, 'release/0721')).action, 'reopened');
+      assert.equal((await provider.closeMilestone(repo, 'release/0721')).action, 'closed');
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
+  assert.deepEqual(calls.map((call) => [call.method, call.pathname]), [
+    ['GET', '/repos/acme-org/webapp/branches/release%2F0721'],
+    ['GET', '/repos/acme-org/webapp/milestones'],
+    ['PATCH', '/repos/acme-org/webapp/milestones/7'],
+    ['GET', '/repos/acme-org/webapp/milestones'],
+    ['PATCH', '/repos/acme-org/webapp/milestones/7'],
+  ]);
+});
+
+test('github provider refuses to reuse an existing pull request with another target', async () => {
+  const provider = resolveProvider({ provider: 'github' }, {});
+  const repo = { owner: 'acme-org', repo: 'webapp', fullName: 'acme-org/webapp' };
+  const bodyFile = createBodyFile('Body');
+  const previousFetch = global.fetch;
+  try {
+    await withTemporaryEnv({ GITHUB_TOKEN: 'token-123', GH_TOKEN: undefined }, async () => {
+      global.fetch = async (url, init = {}) => {
+        assert.equal(init.method, 'GET');
+        assert.match(String(url), /\/pulls\?/);
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify([{
+            number: 9,
+            html_url: 'https://github.com/acme-org/webapp/pull/9',
+            base: { ref: 'main' },
+          }]),
+        };
+      };
+      await assert.rejects(provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #42: Target check',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'release/0721',
+        headBranch: '42-target/build',
+        draft: false,
+        options: {},
+      }), /Existing pull request targets main, expected release\/0721/);
+    });
+  } finally {
+    global.fetch = previousFetch;
+    bodyFile.cleanup();
+  }
 });
 
 test('github token authorization failure does not fallback to gh CLI', async () => {
@@ -795,17 +874,17 @@ test('github API duplicate PR response updates the existing pull request', async
   );
 });
 
-test('agentrix GitLab bridge labels parse from JSON first', () => {
+test('GitLab bridge labels ignore Agentrix runtime variables', () => {
   assert.deepEqual(
     labelTitlesFromEnv({
       AGENTRIX_LABELS: 'stale',
       AGENTRIX_LABELS_JSON: '["flow::build","automation::build"]',
     }),
-    ['flow::build', 'automation::build']
+    []
   );
 });
 
-test('GitLab bridge labels prefer the current default variable prefix', () => {
+test('GitLab bridge labels use only the current variable prefix', () => {
   assert.deepEqual(
     labelTitlesFromEnv({
       GITLAB_BRIDGE_LABELS: 'stale',
@@ -1121,6 +1200,7 @@ test('gitlab create issue preflights managed labels before creating', async () =
             title: 'Create GitLab issue',
             description: 'Body',
             labels: 'type::feature,status::active,flow::build',
+            milestone_id: 88,
           });
           return {
             ok: true,
@@ -1145,6 +1225,7 @@ test('gitlab create issue preflights managed labels before creating', async () =
         title: 'Create GitLab issue',
         body: 'Body',
         labels: ['type::feature', 'status::active', 'flow::build'],
+        milestone: { id: 88, title: 'release/0721' },
         managedLabelDefinitions: [
           labelDefinitionFor('type::feature'),
           labelDefinitionFor('status::active'),
@@ -1258,40 +1339,8 @@ test('provider label sync planning detects missing drift and current labels', ()
   );
 });
 
-test('agentrix GitLab bridge issue event normalizes to issue-flow context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
-    AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
-    AGENTRIX_PROVIDER: 'gitlab',
-    AGENTRIX_EVENT_NAME: 'issues',
-    AGENTRIX_EVENT_ACTION: 'labeled',
-    AGENTRIX_ISSUE_NUMBER: '17',
-    AGENTRIX_ISSUE_TITLE: 'Support GitLab bridge',
-    AGENTRIX_ISSUE_URL: 'https://gitlab.example/acme/platform/-/issues/17',
-    AGENTRIX_LABELS_JSON: '["status::active","flow::build","automation::build"]',
-    CI_PROJECT_ID: '42',
-    CI_PROJECT_PATH: 'acme/platform',
-    CI_PROJECT_URL: 'https://gitlab.example/acme/platform',
-  });
-  const provider = resolveProvider({ provider: 'gitlab' }, payload);
-
-  assert.deepEqual(provider.buildIssueContext(payload, { provider: 'gitlab' }), {
-    provider: 'gitlab',
-    owner: 'acme',
-    repo: 'platform',
-    repoFullName: 'acme/platform',
-    projectId: '42',
-    number: 17,
-    title: 'Support GitLab bridge',
-    body: '',
-    htmlUrl: 'https://gitlab.example/acme/platform/-/issues/17',
-    state: 'open',
-    author: '',
-    labels: ['status::active', 'flow::build', 'automation::build'],
-  });
-});
-
 test('current GitLab bridge issue event normalizes to issue-flow context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
+  const payload = buildGitlabBridgePayload({
     GITLAB_BRIDGE_EVENT_NAME: 'issues',
     GITLAB_BRIDGE_EVENT_ACTION: 'labeled',
     GITLAB_BRIDGE_ISSUE_NUMBER: '17',
@@ -1320,17 +1369,14 @@ test('current GitLab bridge issue event normalizes to issue-flow context', () =>
   });
 });
 
-test('agentrix GitLab bridge issue comment event carries note context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
-    AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
-    AGENTRIX_PROVIDER: 'gitlab',
-    AGENTRIX_EVENT_NAME: 'issue_comment',
-    AGENTRIX_EVENT_ACTION: 'created',
-    AGENTRIX_SUBJECT_KIND: 'issue',
-    AGENTRIX_ISSUE_NUMBER: '17',
-    AGENTRIX_COMMENT_ID: '101',
-    AGENTRIX_COMMENT_BODY: '@agentrix please plan',
-    AGENTRIX_COMMENT_URL: 'https://gitlab.example/acme/platform/-/issues/17#note_101',
+test('current GitLab bridge issue comment event carries note context', () => {
+  const payload = buildGitlabBridgePayload({
+    GITLAB_BRIDGE_EVENT_NAME: 'issue_comment',
+    GITLAB_BRIDGE_EVENT_ACTION: 'created',
+    GITLAB_BRIDGE_ISSUE_NUMBER: '17',
+    GITLAB_BRIDGE_COMMENT_ID: '101',
+    GITLAB_BRIDGE_COMMENT_BODY: '@agentrix please plan',
+    GITLAB_BRIDGE_COMMENT_URL: 'https://gitlab.example/acme/platform/-/issues/17#note_101',
     CI_PROJECT_ID: '42',
     CI_PROJECT_PATH: 'acme/platform',
   });
@@ -1347,7 +1393,7 @@ test('agentrix GitLab bridge issue comment event carries note context', () => {
 });
 
 test('current GitLab bridge merge request note carries review comment context', () => {
-  const payload = buildAgentrixGitlabBridgePayload({
+  const payload = buildGitlabBridgePayload({
     GITLAB_BRIDGE_EVENT_NAME: 'issue_comment',
     GITLAB_BRIDGE_EVENT_ACTION: 'created',
     GITLAB_BRIDGE_PR_NUMBER: '7',

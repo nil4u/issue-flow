@@ -8,7 +8,7 @@ This repository is an npm-workspaces monorepo with two independently versioned p
 
 - `plugin/` - the issue-flow plugin/CLI: installer, skill, deterministic scripts, docs, and tests. Zero runtime dependencies beyond Node.js built-ins.
 - `console/` - the management console: `console/api` (Fastify + Prisma API service) and `console/web` (Vite/React web console).
-- Root-level `.agentrix/`, `.issue-flow/`, and `.github/workflows/issue-flow-*.yml` are this repository's own installed copy of the plugin (dogfooding), managed by the installer rather than edited by hand.
+- Root-level `.agentrix/`, `.agents/skills/`, `.claude/skills/`, `.issue-flow/`, and `.github/workflows/issue-flow-*.yml` are this repository's own installed copy of the plugin (dogfooding), managed by the installer rather than edited by hand.
 
 ## Install
 
@@ -38,7 +38,7 @@ Overwrite generated files:
 curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --force
 ```
 
-The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.
+The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project. It also links the installed skills into the project-level Codex (`.agents/skills/`) and Claude Code (`.claude/skills/`) discovery directories.
 After you commit and push the installed files, the installed CI workflow automatically synchronizes the built-in provider labels.
 That job creates missing labels and updates label colors/descriptions when they drift. If the workflow token cannot manage repository/project labels, the label sync job fails and the rest of the installed files remain unchanged.
 
@@ -47,7 +47,7 @@ That job creates missing labels and updates label colors/descriptions when they 
 After an AI discussion clarifies a self-initiated requirement, the installed skill can create a standardized provider issue through the unified CLI:
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs issue create \
+node .issue-flow/cli.cjs issue create \
   --title "Add export support" \
   --body-file /tmp/issue-body.md \
   --type type::feature \
@@ -59,9 +59,34 @@ node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs issue create \
 
 Use a repo-external temp body file, usually generated from `.issue-flow/templates/type-*.md`. Pass labels only when the discussion makes them clear. Creating or moving an issue directly into `flow::plan` or `flow::build` requires exactly one `size::` label; if the size cannot be judged, use `size::M` and leave a low-confidence note. Use `automation::off` when the issue should be recorded but not picked up by intake or automatic routing.
 
+Projects that need parallel release or integration lines can opt into Milestone target branches:
+
+```json
+{
+  "milestone": {
+    "enabled": true,
+    "branchPatterns": ["release/*", "integration/*"]
+  }
+}
+```
+
+Matching branch create/delete events open or close a same-name Milestone. Before creating an issue, the agent runs `issue-flow milestone list`; when enabled, issue creation must pass `--milestone <title|none>`. The selected branch becomes both the Agentrix checkout start and final PR/MR target, while the task still works on its own topic branch. Changing the Milestone after a Plan or Build task starts is not handled.
+
 Size labels also define Weighted Throughput: for completed issues in a time window, sum the weight of each issue's unique `size::` label (`XS=0.5`, `S=1`, `M=2`, `L=3`, `XL=5`). Issues without a size or with conflicting sizes should be excluded from the statistic.
 
-Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
+Use `node .issue-flow/cli.cjs --help` from the repository root to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
+
+## Visual Decision and Plan
+
+The default plan stage remains the Markdown Plan PR/MR flow. Add `feature:visual-plan:on` to an issue to use the installed `vision-plan` skill; without that opt-in label, Issue Flow uses Markdown mode.
+
+Visual artifacts are created under `.issue-flow/issues/{issue-number}-{slug}/`. Decision is optional; Decision and Plan are separate pages:
+
+- `${ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}`
+
+Decision、Visual Plan 和 Markdown Plan 共用同一个 Issue 级 URL，Issue Flow 根据当前 Plan MR marker 选择实际产物并渲染。
+
+Decision, Visual Plan, and Markdown Plan all use an `mr-by::plan` PR/MR whose body links to the Engine page. Each successful submit also replies on that PR/MR with the shared Engine URL. Drafts and review history are stored in browser LocalStorage by repository, issue, and Decision/Plan type. Issue Flow reads the published commit through the configured GitHub or GitLab provider API and uses the current signed-in user's OAuth token for review comments and Plan merge approval. Decision approval comments on the still-open MR and resumes the original Plan task; the task updates the same branch and MR with the Visual Plan. Plan approval merges that MR and moves the issue to `flow::build`. Build always creates the normal Build PR/MR.
 
 ## Release Management
 
@@ -87,7 +112,7 @@ ISSUE_FLOW_REF=v0.1.1 \
 
 ## Reinstall and Upgrade
 
-The installer writes `.issue-flow/install-manifest.json` with the source path, mode, and sha256 for installed files. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, and removes stale files that were installed before and have not been edited.
+The installer writes `.issue-flow/install-manifest.json` with tracked files and managed symlink targets. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, repairs managed links, and removes stale entries that have not been edited.
 
 If an installed file was edited locally, reinstall prompts in an interactive terminal:
 
@@ -99,14 +124,18 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 
 ## What It Installs
 
-- `.agentrix/plugins/issue-flow/` - plugin manifest, minimal runtime skill, scripts, and default prompts/templates
+- `.agentrix/plugins/issue-flow/` - plugin manifest, Issue Flow and Vision Plan skills, scripts, and default prompts/templates
+- `.agents/skills/{issue-flow,vision-plan}` - Codex project skill links
+- `.claude/skills/{issue-flow,vision-plan}` - Claude Code project skill links
 - `.github/workflows/issue-flow-labels.yml` - automatic provider label synchronization after install or upgrade pushes
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
+- `.github/workflows/issue-flow-milestones.yml` - target branch/Milestone synchronization
 - `.github/workflows/issue-flow-pr-review.yml` - optional PR/MR automatic review checks
 - `.github/workflows/issue-flow-pr-review-comment.yml` - resumes the PR/MR Agentrix task when a new review comment is added
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions
 - `.issue-flow/config.json` - issue-flow runtime path config
+- `.issue-flow/cli.cjs` - stable repository-local CLI link shared by all agents
 - `.issue-flow/install-manifest.json` - reinstall tracking metadata
 - `.issue-flow/prompts/` - default prompt files you can edit
 - `.issue-flow/templates/` - default plan templates you can edit
@@ -142,10 +171,7 @@ Automatic pipeline failure intake is currently disabled. The low-level `dispatch
 
 ## GitLab Configuration
 
-GitLab has two supported paths:
-
-- Internal service mode: GitLab project webhooks point directly at the issue-flow API service. The API service stores the project token, webhook secret, Agentrix API config, delivery records, and automation policy in PostgreSQL. The web management console is a separate Vite/React app that talks to the API over HTTP.
-- Compatibility CI bridge mode: existing GitLab CI and Agentrix daemon webhook bridge behavior remains supported.
+GitLab project webhooks point directly at the issue-flow API service. The API service stores the project token, webhook secret, Agentrix API config, delivery records, and automation policy in PostgreSQL. The web management console is a separate Vite/React app that talks to the API over HTTP.
 
 Start both the API service and web management console in development:
 
@@ -287,7 +313,7 @@ Startup environment reference:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Yes | PostgreSQL connection string used by Prisma. |
-| `ISSUE_FLOW_BASE_URL` | Yes | Public API origin. GitLab OAuth callback and Agentrix event-forward WebSocket URLs are derived from this value. |
+| `ISSUE_FLOW_BASE_URL` | Yes | Public Issue Flow origin. GitLab OAuth callbacks, Agentrix event-forward WebSocket URLs, and Visual Decision/Plan URLs are derived from this value. |
 | `ISSUE_FLOW_APP_URL` | Production | Web console origin used for CORS and post-login redirects. Multiple origins can be comma-separated; the first one is used as the redirect target. |
 | `ISSUE_FLOW_WEB_API_BASE_URL` | Web build/dev | Browser-facing API origin injected into the web console. |
 | `ISSUE_FLOW_SERVICE_KEY` / `ISSUE_FLOW_SERVICE_KEY_FILE` | Production | Stable encryption key for OAuth sessions and stored Agentrix secrets. Prefer `ISSUE_FLOW_SERVICE_KEY_FILE` with persistent storage. |
@@ -327,7 +353,7 @@ The service installs the GitLab project webhook with the API service URL and bac
 
 Direct webhook handling performs `X-Gitlab-Token` validation, delivery recording, duplicate delivery suppression, GitLab event normalization, routing to `auto`, `comment`, `review`, `review-comment`, `pr-merged`, or `pipeline-failed`, and then calls the existing issue-flow dispatch/runtime code. For GitLab API calls, issue-flow resolves the repository's linked OAuth session and refreshes it when needed. Agentrix task environments continue to have GitLab provider token variables removed.
 
-For compatibility CI bridge mode, configure the GitLab server in Agentrix, add the daemon webhook URL and secret to the GitLab project, then push the files generated by `install.sh gitlab`. The installer creates the root `.gitlab-ci.yml` include for new projects. If `.gitlab-ci.yml` already exists, modifying it is treated as an install conflict: the installer appends the issue-flow local include to a simple top-level `include` after confirmation (an interactive prompt, `--force`, or a `--decision-file` produced by the console). Complex include structures are reported for manual review instead of being rewritten.
+The installer creates the root `.gitlab-ci.yml` include for new projects. If `.gitlab-ci.yml` already exists, modifying it is treated as an install conflict: the installer appends the issue-flow local include to a simple top-level `include` after confirmation (an interactive prompt, `--force`, or a `--decision-file` produced by the console). Complex include structures are reported for manual review instead of being rewritten.
 
 Set these CI variables as needed:
 
@@ -343,7 +369,7 @@ GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `G
 
 Automatic GitLab failure intake through the generated CI include is currently disabled because the include has no failure-intake job. Console webhook ingestion and the low-level dispatch implementation remain unchanged.
 
-GitLab review comment resume is handled by the `issue-flow-review-comment` job for Agentrix bridge `pull_request_review_comment` events and native MR note events. The dispatch command safely skips non-MR notes, closed MRs, and missing task markers, then acknowledges the trigger with an `eyes` reaction before resuming the existing Agentrix task.
+GitLab review comment resume is handled by the `issue-flow-review-comment` job for GitLab bridge `pull_request_review_comment` events and native MR note events. The dispatch command safely skips non-MR notes, closed MRs, and missing task markers, then acknowledges the trigger with an `eyes` reaction before resuming the existing Agentrix task.
 
 ## Development Install
 

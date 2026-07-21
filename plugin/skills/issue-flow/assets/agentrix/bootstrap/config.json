@@ -3,5 +3,15 @@
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
     "planRootDir": ".issue-flow/issues"
+  },
+  "milestone": {
+    "enabled": true,
+    "branchPatterns": ["release/*", "integration/*"]
+  },
+  "visionPlan": {
+    "repositoryId": "",
+    "gitServerId": "",
+    "projectId": "",
+    "baseUrl": ""
   }
 }

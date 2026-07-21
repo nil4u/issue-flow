@@ -2,11 +2,14 @@ import { LoginPage } from "@/components/login-page"
 import { InstalledAutomationsPage } from "@/components/installed-automations-page"
 import { RepoSidebar } from "@/components/repo-sidebar"
 import { RepoWorkspace } from "@/components/repo-workspace"
+import { MergeRequestPage } from "@/components/merge-request-page"
 import { SetupPage } from "@/components/setup-page"
 import { UserSettings } from "@/components/user-settings"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDashboardController } from "@/hooks/use-dashboard-controller"
+import { parseMergeRequestRoute, parseVisualArtifactRoute } from "@/app-route"
+import { VisionPlanPage } from "@/vision-plan/VisionPlanPage"
 
 function AppShell() {
   return (
@@ -19,6 +22,8 @@ function AppShell() {
 
 function Dashboard() {
   const dashboard = useDashboardController()
+  const visualRoute = parseVisualArtifactRoute()
+  const mergeRequestRoute = parseMergeRequestRoute()
 
   if (dashboard.booting) {
     return <main className="login-screen"><div className="shell-loading">正在检查控制台配置...</div></main>
@@ -43,6 +48,14 @@ function Dashboard() {
         onReload={dashboard.reloadLoginState}
       />
     )
+  }
+
+  if (visualRoute) {
+    return <VisionPlanPage {...visualRoute} />
+  }
+
+  if (mergeRequestRoute) {
+    return <MergeRequestPage {...mergeRequestRoute} />
   }
 
   return (

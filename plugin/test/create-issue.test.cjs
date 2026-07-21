@@ -164,3 +164,22 @@ test('create issue dry-run outputs stable JSON without calling provider APIs', a
     bodyFile.cleanup();
   }
 });
+
+test('create issue requires an explicit milestone decision only when enabled', async () => {
+  const bodyFile = createBodyFile('Targeted issue.');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-create-config-'));
+  const config = path.join(dir, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({ milestone: { enabled: true } }), 'utf8');
+  const args = [
+    '--provider', 'github', '--repo', 'acme/webapp', '--config', config,
+    '--title', 'Targeted issue', '--body-file', bodyFile.path, '--dry-run',
+  ];
+  try {
+    await assert.rejects(main(args), /Milestone selection is required/);
+    const output = await captureConsole(() => main([...args, '--milestone', 'release/0721']));
+    assert.equal(JSON.parse(output).milestone, 'release/0721');
+  } finally {
+    bodyFile.cleanup();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

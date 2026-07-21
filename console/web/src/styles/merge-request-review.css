@@ -1,0 +1,222 @@
+@layer components {
+  .gh-pr-page { height: 100svh; overflow-y: auto; background: var(--background); color: var(--foreground); }
+  .gh-pr-loading { min-height: 18rem; display: flex; align-items: center; justify-content: center; gap: .5rem; color: var(--muted-foreground); }
+  .gh-pr-header { max-width: 92rem; margin: 0 auto; padding: .8rem 2rem 0; }
+  .gh-pr-title-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .75rem; }
+  .gh-pr-title-row h1 { margin: 0; font-size: clamp(1.35rem, 1.7vw, 1.75rem); font-weight: 500; letter-spacing: -.025em; }
+  .gh-pr-title-row h1 span { color: var(--muted-foreground); font-weight: 400; }
+  .gh-pr-back { width: 2.25rem; height: 2.25rem; display: inline-grid; place-items: center; border: 1px solid var(--border); border-radius: 7px; color: var(--muted-foreground); }
+  .gh-pr-back:hover { background: var(--muted); color: var(--foreground); }
+  .gh-pr-actions { display: flex; align-items: center; gap: .45rem; }
+  .gh-merge-button:not(:disabled) { border-color: var(--foreground); background: var(--foreground); color: var(--background); }
+  .gh-approve-button { color: var(--foreground); }
+  .gh-approve-button:not(:disabled) { border: 1px solid var(--border); background: var(--secondary); }
+  .gh-approve-button:not(:disabled):hover { background: var(--muted); }
+  .gh-pr-merge-line { display: flex; flex-wrap: wrap; align-items: center; gap: .42rem; margin: .4rem 0 .5rem 3rem; color: var(--muted-foreground); font-size: .82rem; }
+  .gh-pr-merge-line strong { color: var(--foreground); }
+  .gh-pr-merge-line code { padding: .18rem .4rem; border-radius: 5px; background: #ddf4ff; color: #0969da; font-family: var(--font-mono); font-size: .8rem; }
+  .gh-pr-state { display: inline-flex; align-items: center; gap: .35rem; padding: .36rem .65rem; border-radius: 999px; color: #fff; font-weight: 650; }
+  .gh-pr-state.state-open { background: #1f883d; }
+  .gh-pr-state.state-merged { background: #8250df; }
+  .gh-pr-state.state-closed, .gh-pr-state.state-draft { background: #6e7781; }
+  .gh-pr-tabs { min-height: 2.65rem; display: flex; align-items: end; gap: .15rem; border-bottom: 1px solid var(--border); }
+  .gh-pr-tabs button { min-height: 2.55rem; display: inline-flex; align-items: center; gap: .45rem; padding: 0 .75rem; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--foreground); font-size: .82rem; }
+  .gh-pr-tabs button:hover { background: var(--muted); }
+  .gh-pr-tabs button.is-active { border-bottom-color: #fd8c73; font-weight: 650; }
+  .gh-pr-tabs button span { min-width: 1.3rem; height: 1.3rem; display: inline-grid; place-items: center; border-radius: 999px; background: var(--muted); font-size: .68rem; }
+  .gh-pr-diff-stat { margin-left: auto; display: flex; gap: .45rem; padding: 0 .5rem .85rem; font-size: .74rem; }
+  .gh-pr-diff-stat b { color: #1a7f37; }
+  .gh-pr-diff-stat span { color: #cf222e; }
+  .gh-pr-error { max-width: 88rem; display: flex; align-items: center; gap: .45rem; margin: .75rem auto; padding: .6rem .8rem; border: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); border-radius: 7px; color: var(--destructive); }
+
+  .gh-conversation-view { max-width: 84rem; display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 2rem; margin: 1.25rem auto 3rem; padding: 0 2rem; }
+  .gh-timeline { position: relative; min-width: 0; display: grid; gap: 1.25rem; }
+  .gh-timeline::before { content: ""; position: absolute; top: 2rem; bottom: 0; left: 1.35rem; width: 2px; background: var(--border); }
+  .gh-timeline-entry { position: relative; display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .85rem; }
+  .gh-timeline-avatar, .gh-avatar { width: 2.75rem; height: 2.75rem; z-index: 1; display: inline-grid; place-items: center; border-radius: 50%; background: var(--muted); object-fit: cover; font-size: .85rem; }
+  .gh-timeline-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+  .gh-comment-card { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
+  .gh-comment-card > header { display: flex; align-items: center; gap: .35rem; padding: .65rem .85rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 55%, var(--card)); font-size: .82rem; }
+  .gh-comment-card > header span { color: var(--muted-foreground); }
+  .gh-comment-body { padding: 1rem 1.15rem; }
+  .gh-comment-composer { margin-top: .35rem; }
+  .gh-comment-editor { min-width: 0; display: grid; gap: .65rem; }
+  .gh-comment-editor > strong { padding-left: .1rem; font-size: 1rem; }
+  .gh-editor { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
+  .gh-editor-tabs { display: flex; align-items: end; height: 2.6rem; padding: 0 .65rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 45%, var(--card)); }
+  .gh-editor-tabs button { height: 2.6rem; padding: 0 .85rem; border: 1px solid transparent; border-bottom: 0; background: transparent; color: var(--muted-foreground); font-size: .8rem; }
+  .gh-editor-tabs button.is-active { margin-bottom: -1px; border-color: var(--border); border-radius: 6px 6px 0 0; background: var(--card); color: var(--foreground); font-weight: 600; }
+  .gh-editor-body { position: relative; min-height: 8.6rem; padding: .75rem; }
+  .gh-editor textarea { width: 100%; min-height: 7.1rem; resize: vertical; border-radius: 6px; }
+  .gh-editor-preview { min-height: 7.1rem; padding: .65rem .75rem; color: var(--muted-foreground); }
+  .gh-editor-preview.is-loading { display: flex; align-items: center; justify-content: center; gap: .45rem; }
+  .gh-editor footer { display: flex; justify-content: flex-end; gap: .45rem; padding: 0 .75rem .75rem; }
+  .gh-editor footer [data-slot="button"]:not(:disabled) { background: var(--foreground); color: var(--background); }
+  .gh-editor.is-compact .gh-editor-body { min-height: 5.5rem; }
+  .gh-editor.is-compact textarea, .gh-editor.is-compact .gh-editor-preview { min-height: 4rem; }
+  .gh-mention-menu { position: absolute; z-index: 8; top: 3.25rem; left: 1rem; width: min(26rem, calc(100% - 2rem)); max-height: 17rem; overflow-y: auto; padding: .3rem; border: 1px solid var(--border); border-radius: 7px; background: var(--popover); box-shadow: 0 8px 28px rgb(0 0 0 / 16%); }
+  .gh-mention-menu > button { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .6rem; padding: .45rem .55rem; border: 0; border-radius: 5px; background: transparent; color: var(--foreground); text-align: left; }
+  .gh-mention-menu > button:hover, .gh-mention-menu > button.is-active { background: var(--muted); }
+  .gh-mention-menu .gh-avatar { width: 1.8rem; height: 1.8rem; }
+  .gh-mention-menu > button > span { min-width: 0; display: flex; align-items: baseline; gap: .45rem; }
+  .gh-mention-menu strong { font-size: .78rem; }
+  .gh-mention-menu small { overflow: hidden; color: var(--muted-foreground); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+  .gh-mention-menu em { padding: .12rem .35rem; border-radius: 999px; background: color-mix(in srgb, #8250df 12%, var(--muted)); color: #8250df; font-size: .62rem; font-style: normal; font-weight: 650; }
+  .gh-mention-empty { display: flex; align-items: center; justify-content: center; gap: .4rem; min-height: 3.2rem; color: var(--muted-foreground); font-size: .75rem; }
+
+  .gh-discussion-card { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
+  .gh-discussion-card > header { min-height: 2.75rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .45rem .7rem .45rem .9rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 45%, var(--card)); font-size: .82rem; }
+  .gh-discussion-card > header div { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .gh-discussion-card > header span { color: var(--muted-foreground); }
+  .gh-thread-location { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .45rem; padding: .6rem .85rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 25%, var(--card)); font-size: .75rem; }
+  .gh-thread-location code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-weight: 600; }
+  .gh-thread-location span { color: var(--muted-foreground); }
+  .gh-thread-diff { overflow-x: auto; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: .72rem; }
+  .gh-thread-diff > div { min-width: 34rem; display: grid; grid-template-columns: 3rem minmax(30rem, 1fr); line-height: 1.55rem; }
+  .gh-thread-diff > div > span { padding: 0 .5rem; border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent); color: var(--muted-foreground); text-align: right; }
+  .gh-thread-diff > div > code { padding: 0 .6rem; white-space: pre; }
+  .gh-thread-diff .is-addition { background: #dafbe1; color: #1f2328; }
+  .gh-thread-diff .is-deletion { background: #ffebe9; color: #1f2328; }
+  .gh-thread-diff .is-header { background: #ddf4ff; color: #57606a; }
+  .gh-thread-notes { display: grid; }
+  .gh-thread-note { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .7rem; padding: .9rem; border-bottom: 1px solid var(--border); }
+  .gh-thread-note .gh-avatar { width: 2rem; height: 2rem; }
+  .gh-thread-note header { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-bottom: .35rem; font-size: .78rem; }
+  .gh-thread-note header span { color: var(--muted-foreground); }
+  .gh-thread-reply { padding: .75rem; background: color-mix(in srgb, var(--muted) 18%, var(--card)); }
+  .gh-reply-trigger { width: 100%; min-height: 2.45rem; display: flex; align-items: center; gap: .45rem; padding: 0 .75rem; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--muted-foreground); text-align: left; }
+  .gh-reply-trigger:hover { border-color: color-mix(in srgb, var(--foreground) 24%, var(--border)); background: color-mix(in srgb, var(--muted) 35%, var(--card)); }
+  .gh-pr-meta { display: grid; align-content: start; }
+  .gh-pr-meta > section { display: grid; gap: .55rem; padding: 1rem 0; border-bottom: 1px solid var(--border); font-size: .78rem; }
+  .gh-pr-meta > section > strong { color: var(--muted-foreground); }
+  .gh-pr-meta p { margin: 0; }
+  .gh-pr-meta a { display: inline-flex; align-items: center; gap: .35rem; color: #0969da; }
+  .gh-labels { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .gh-labels span { padding: .18rem .5rem; border-radius: 999px; background: #0969da; color: #fff; font-size: .68rem; font-weight: 650; }
+
+  .gh-preview-view { position: relative; height: calc(100svh - 7.5rem); min-height: 38rem; background: var(--background); }
+  .gh-preview-view iframe { width: 100%; height: 100%; display: block; border: 0; background: var(--background); }
+  .gh-preview-view.is-expanded { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100svh; min-height: 0; }
+  .gh-preview-expand { position: absolute; z-index: 2; top: .75rem; right: 1rem; border: 1px solid var(--border); box-shadow: 0 4px 18px rgb(0 0 0 / 12%); }
+
+  .gh-files-view { max-width: 100rem; margin: 0 auto; padding: .8rem 1.5rem 3rem; }
+  .gh-files-toolbar { min-height: 3.4rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); font-size: .82rem; }
+  .gh-files-toolbar > div { display: flex; align-items: center; gap: .7rem; }
+  .gh-files-toolbar [data-slot="button"]:not(:disabled) { border-color: var(--foreground); background: var(--foreground); color: var(--background); }
+  .gh-review-progress { color: var(--muted-foreground); }
+  .gh-files-layout { display: grid; grid-template-columns: 18rem minmax(0, 1fr); align-items: start; gap: 1rem; padding-top: 1rem; }
+  .gh-file-tree { position: sticky; top: 0; min-width: 0; max-height: calc(100svh - 9rem); overflow: hidden; border-right: 1px solid var(--border); padding-right: 1rem; }
+  .gh-file-tree label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .45rem; height: 2.15rem; padding: 0 .6rem; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); }
+  .gh-file-tree input { min-width: 0; border: 0; outline: 0; background: transparent; }
+  .gh-file-tree label button { display: grid; place-items: center; border: 0; background: transparent; color: var(--muted-foreground); }
+  .gh-file-tree nav { max-height: calc(100svh - 12rem); display: grid; align-content: start; overflow-y: auto; margin-top: .75rem; }
+  .gh-file-tree nav a { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .45rem; padding: .45rem .4rem; border-radius: 5px; color: var(--foreground); font-size: .74rem; }
+  .gh-file-tree nav a:hover { background: var(--muted); }
+  .gh-file-tree nav code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+  .gh-file-tree nav span { color: var(--muted-foreground); font-size: .62rem; text-transform: uppercase; }
+  .gh-file-diffs { min-width: 0; display: grid; gap: 1rem; }
+  .gh-file-diff { min-width: 0; overflow: hidden; scroll-margin-top: 1rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
+  .gh-file-diff > header { min-height: 2.8rem; display: flex; align-items: center; gap: .5rem; padding: 0 .75rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 52%, var(--card)); }
+  .gh-file-diff > header code { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: .76rem; font-weight: 600; }
+  .gh-file-diff > header div { display: flex; align-items: center; gap: .45rem; font-size: .68rem; }
+  .gh-file-diff > header b { color: #1a7f37; }
+  .gh-file-diff > header span { color: #cf222e; }
+  .gh-file-diff > header em { padding: .15rem .4rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-style: normal; text-transform: uppercase; }
+  .gh-diff-table { width: 100%; overflow-x: auto; }
+  .gh-diff-line { min-width: 48rem; min-height: 1.5rem; display: grid; grid-template-columns: 3.2rem 3.2rem 1.6rem minmax(30rem, 1fr); align-items: stretch; font-family: var(--font-mono); font-size: .72rem; line-height: 1.5rem; }
+  .gh-diff-line > span:not(.gh-line-comment) { padding: 0 .45rem; border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent); color: var(--muted-foreground); text-align: right; user-select: none; }
+  .gh-diff-line > code { padding: 0 .55rem; white-space: pre; }
+  .gh-diff-line.is-addition { background: #dafbe1; color: #1f2328; }
+  .gh-diff-line.is-deletion { background: #ffebe9; color: #1f2328; }
+  .gh-diff-line.is-header { background: #ddf4ff; color: #57606a; }
+  .gh-diff-line.is-meta { color: var(--muted-foreground); }
+  .gh-line-comment { display: grid; place-items: center; }
+  .gh-line-comment button { width: 1.2rem; height: 1.2rem; display: none; place-items: center; border: 0; border-radius: 4px; background: #0969da; color: #fff; }
+  .gh-diff-line:hover .gh-line-comment button { display: grid; }
+  .gh-inline-comment { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .65rem; margin: .45rem .8rem .7rem; padding: .75rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); font-family: var(--font-sans); line-height: 1.45; }
+  .gh-inline-comment.is-draft { border-style: dashed; background: color-mix(in srgb, #0969da 5%, var(--card)); }
+  .gh-inline-comment .gh-avatar { width: 2rem; height: 2rem; }
+  .gh-inline-comment header { display: flex; justify-content: space-between; gap: .5rem; font-size: .74rem; }
+  .gh-inline-comment header span { color: var(--muted-foreground); }
+  .gh-inline-comment > button { border: 0; background: transparent; color: var(--muted-foreground); }
+  .gh-empty-diff { padding: 2rem; color: var(--muted-foreground); text-align: center; }
+  .gh-empty-diff.is-collapsed { display: flex; min-height: 7rem; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; }
+  .gh-empty-diff.is-collapsed p { margin: 0; font-size: .82rem; }
+
+  .gh-markdown { min-width: 0; color: var(--foreground); font-size: .86rem; line-height: 1.65; overflow-wrap: anywhere; }
+  .gh-markdown > :first-child { margin-top: 0; }
+  .gh-markdown > :last-child { margin-bottom: 0; }
+  .gh-markdown p, .gh-markdown ul, .gh-markdown ol, .gh-markdown pre, .gh-markdown blockquote, .gh-markdown table { margin: .75em 0; }
+  .gh-markdown h1, .gh-markdown h2, .gh-markdown h3, .gh-markdown h4 { margin: 1.15em 0 .5em; line-height: 1.3; font-weight: 650; }
+  .gh-markdown h1 { padding-bottom: .35rem; border-bottom: 1px solid var(--border); font-size: 1.35rem; }
+  .gh-markdown h2 { padding-bottom: .3rem; border-bottom: 1px solid var(--border); font-size: 1.12rem; }
+  .gh-markdown h3 { font-size: .98rem; }
+  .gh-markdown ul, .gh-markdown ol { padding-left: 1.5rem; }
+  .gh-markdown li + li { margin-top: .22rem; }
+  .gh-markdown code { padding: .12em .32em; border-radius: 4px; background: var(--muted); font-family: var(--font-mono); font-size: .9em; }
+  .gh-markdown pre { overflow-x: auto; padding: .8rem; border-radius: 6px; background: var(--muted); }
+  .gh-markdown pre code { padding: 0; background: transparent; }
+  .gh-markdown blockquote { padding-left: .8rem; border-left: 3px solid var(--border); color: var(--muted-foreground); }
+  .gh-markdown a { color: #0969da; text-decoration: underline; text-underline-offset: 2px; }
+  .gh-markdown table { width: 100%; border-collapse: collapse; }
+  .gh-markdown th, .gh-markdown td { padding: .45rem .55rem; border: 1px solid var(--border); text-align: left; }
+  .gh-review-dialog { max-width: 38rem; }
+  .gh-review-kind { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; padding: .25rem; border-radius: 7px; background: var(--muted); }
+  .gh-review-kind button { min-height: 2.1rem; display: flex; align-items: center; justify-content: center; gap: .35rem; border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); }
+  .gh-review-kind button.is-active { background: var(--card); color: var(--foreground); box-shadow: 0 1px 3px rgb(0 0 0 / 10%); }
+  .gh-review-dialog textarea { min-height: 9rem; }
+  .gh-review-dialog > p { margin: 0; color: var(--muted-foreground); font-size: .78rem; }
+  .gh-comment-target { display: grid; gap: .45rem; }
+  .gh-comment-target code { color: var(--muted-foreground); font-size: .75rem; }
+  .gh-comment-target pre { margin: 0; overflow-x: auto; padding: .75rem; border-radius: 6px; background: var(--muted); }
+  .gh-dialog-actions { display: flex; justify-content: flex-end; }
+  .gh-action-dialog { width: min(28rem, calc(100% - 2rem)) !important; max-width: 28rem !important; gap: 0; padding: 0; overflow: hidden; }
+  .gh-action-dialog-main { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .75rem; padding: 1.15rem 1.2rem 1rem; text-align: left; }
+  .gh-action-dialog-icon { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--muted) 75%, var(--card)); color: var(--muted-foreground); }
+  .gh-action-dialog-icon.is-merge { background: var(--muted); color: var(--foreground); }
+  .gh-action-dialog [data-slot="dialog-title"] { font-size: .95rem; line-height: 1.3; }
+  .gh-action-dialog p { margin: .4rem 0 0; color: var(--muted-foreground); font-size: .78rem; line-height: 1.5; }
+  .gh-action-dialog p code { padding: .12rem .3rem; border-radius: 4px; background: var(--muted); color: var(--foreground); font-family: var(--font-mono); }
+  .gh-action-dialog-actions { display: flex; justify-content: flex-end; gap: .45rem; padding: .75rem 1.2rem; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 35%, var(--card)); }
+  .gh-action-dialog-actions [data-slot="button"] { min-width: 4.8rem; }
+  .gh-action-dialog .gh-merge-button:not(:disabled) { background: var(--foreground); color: var(--background); }
+  .gh-merge-dialog { width: min(36rem, calc(100% - 2rem)) !important; max-width: 36rem !important; gap: 0; padding: 0; overflow: hidden; }
+  .gh-merge-dialog-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .75rem; padding: 1.1rem 1.2rem .9rem; border-bottom: 1px solid var(--border); }
+  .gh-merge-dialog-header [data-slot="dialog-title"] { font-size: 1rem; line-height: 1.3; }
+  .gh-merge-dialog-header p { margin: .35rem 0 0; color: var(--muted-foreground); font-size: .76rem; }
+  .gh-merge-dialog-header code { padding: .1rem .3rem; border-radius: 4px; background: var(--muted); color: var(--foreground); font-family: var(--font-mono); }
+  .gh-merge-methods { display: grid; gap: .45rem; padding: 1rem 1.2rem .75rem; }
+  .gh-merge-methods > button { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .7rem; padding: .75rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--foreground); text-align: left; }
+  .gh-merge-methods > button:hover { background: color-mix(in srgb, var(--muted) 40%, var(--card)); }
+  .gh-merge-methods > button.is-selected { border-color: color-mix(in srgb, var(--foreground) 48%, var(--border)); background: var(--muted); box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 16%, transparent); }
+  .gh-merge-methods > button > span:last-child { display: grid; gap: .2rem; }
+  .gh-merge-methods strong { font-size: .82rem; }
+  .gh-merge-methods small { color: var(--muted-foreground); font-size: .72rem; line-height: 1.45; }
+  .gh-merge-method-radio { width: 1rem; height: 1rem; margin-top: .1rem; border: 1.5px solid var(--border); border-radius: 50%; background: var(--card); }
+  .gh-merge-methods .is-selected .gh-merge-method-radio { border: 4px solid var(--foreground); }
+  .gh-merge-message { display: grid; gap: .45rem; padding: .25rem 1.2rem 1rem; }
+  .gh-merge-message > span { font-size: .78rem; font-weight: 650; }
+  .gh-merge-message textarea { min-height: 8rem; resize: vertical; font-family: var(--font-mono); font-size: .76rem; line-height: 1.55; }
+  .gh-merge-dialog-actions { display: flex; justify-content: flex-end; gap: .45rem; padding: .75rem 1.2rem; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 35%, var(--card)); }
+  .gh-merge-dialog .gh-merge-button:not(:disabled) { background: var(--foreground); color: var(--background); }
+}
+
+@media (max-width: 1050px) {
+  .gh-pr-title-row { grid-template-columns: auto minmax(0, 1fr); }
+  .gh-pr-actions { grid-column: 2; flex-wrap: wrap; }
+  .gh-files-layout { grid-template-columns: 14rem minmax(0, 1fr); }
+  .gh-conversation-view { grid-template-columns: minmax(0, 1fr) 14rem; }
+}
+@media (max-width: 760px) {
+  .gh-pr-header, .gh-files-view, .gh-conversation-view { padding-inline: .75rem; }
+  .gh-pr-title-row { grid-template-columns: auto minmax(0, 1fr); }
+  .gh-pr-title-row h1 { font-size: 1.25rem; }
+  .gh-pr-actions { grid-column: 1 / -1; }
+  .gh-pr-merge-line { margin-left: 0; }
+  .gh-pr-tabs { overflow-x: auto; }
+  .gh-files-layout, .gh-conversation-view { grid-template-columns: 1fr; }
+  .gh-file-tree { position: static; max-height: none; border-right: 0; padding-right: 0; }
+  .gh-file-tree nav { max-height: 12rem; }
+  .gh-pr-meta { display: none; }
+  .gh-files-toolbar { align-items: flex-start; flex-direction: column; padding: .65rem 0; }
+}

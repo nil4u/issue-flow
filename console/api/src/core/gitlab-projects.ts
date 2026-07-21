@@ -1,5 +1,6 @@
 // @ts-nocheck
 import {
+  createGitlabProjectLabel,
   createGitlabProjectAccessToken,
   enableGitlabRunnerForProject,
   getGitlabCurrentUser,
@@ -11,6 +12,7 @@ import {
   getGitlabVariableForInstall,
   getGitlabVariableForValidation,
   listGitlabProjects,
+  listGitlabProjectLabels,
   listGitlabProjectRunners,
   listGitlabRunners,
   listGitlabWebhooks,
@@ -18,6 +20,7 @@ import {
   upsertGitlabProjectVariable,
   upsertGitlabWebhook,
   updateGitlabProjectRunnerSettings,
+  updateGitlabProjectLabel,
   validateGitlabProjectApiToken,
 } from './gitlab.js'
 import {
@@ -38,14 +41,21 @@ import {
   ISSUE_FLOW_PLUGIN_KEY,
   LATEST_ISSUE_FLOW_VERSION,
   pluginCacheFromManifest,
+  pluginCacheWithLocalLatestVersion,
   pluginState,
 } from './issue-flow-plugin.js'
 import { sanitizeError } from './sanitize.js'
+import { issueFlowLabelsCatalogPath } from './plugin-paths.js'
 
 const ADMIN_PAT_PERMISSION_KEY = 'admin-pat'
 const ISSUE_FLOW_RUNNER_TAG = 'issue-flow'
 const ISSUE_FLOW_GITLAB_TOKEN_KEY = 'ISSUE_FLOW_GITLAB_TOKEN'
 const ISSUE_FLOW_AUTO_DEFAULT_VALUES = new Set(['off', 'triage', 'plan', 'build'])
+
+function issueFlowManagedLabels() {
+  const { labelsForScope } = require(issueFlowLabelsCatalogPath())
+  return labelsForScope('all')
+}
 
 function automationDefaultValue(value) {
   const normalized = String(value || '').trim()
@@ -59,10 +69,11 @@ function booleanVariableValue(value) {
   return value ? 'true' : 'false'
 }
 
-function gitlabCiVariablesForInstall({ config, installConfig }) {
+function gitlabCiVariablesForInstall({ config, installConfig, basePublicUrl = '', env = process.env }) {
   const automation = installConfig.automation || {};
   const agentrix = installConfig.agentrix || {};
   const runnerId = agentrix.runnerId || automation.runnerId || '';
+  const issueFlowBaseUrl = String(basePublicUrl || env.ISSUE_FLOW_BASE_URL || '').trim().replace(/\/+$/, '');
   return [
     {
       key: ISSUE_FLOW_GITLAB_TOKEN_KEY,
@@ -72,6 +83,7 @@ function gitlabCiVariablesForInstall({ config, installConfig }) {
       label: ISSUE_FLOW_GITLAB_TOKEN_KEY,
       description: 'issue-flow GitLab CI jobs 调用 GitLab API 的项目访问 token。',
     },
+    { key: 'ISSUE_FLOW_BASE_URL', value: issueFlowBaseUrl, required: true },
     { key: 'AGENTRIX_BASE_URL', value: agentrix.baseUrl, required: true },
     { key: 'AGENTRIX_API_KEY', value: agentrix.apiKey, masked: true, required: true },
     { key: 'AGENTRIX_RUNNER_ID', value: runnerId, required: true },
@@ -176,9 +188,41 @@ function normalizeCheckTypes(input = {}) {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-  const allowed = new Set(['permissions', 'variables', 'runners', 'webhook', 'plugins']);
+  const allowed = new Set(['permissions', 'variables', 'labels', 'runners', 'webhook', 'plugins']);
   const values = raw.filter((item) => allowed.has(item));
-  return values.length ? Array.from(new Set(values)) : ['permissions', 'webhook', 'variables', 'runners', 'plugins'];
+  return values.length ? Array.from(new Set(values)) : ['permissions', 'webhook', 'variables', 'labels', 'runners', 'plugins'];
+}
+
+function normalizedLabelColor(value = '') {
+  return String(value || '').replace(/^#/, '').toUpperCase()
+}
+
+function gitlabLabelSyncAction(existing, definition) {
+  if (!existing) return 'create'
+  if (normalizedLabelColor(existing.color) !== normalizedLabelColor(definition.color)) return 'update'
+  if (String(existing.description || '') !== String(definition.description || '')) return 'update'
+  return 'skip'
+}
+
+async function checkGitlabIssueFlowLabels({ apiInput }) {
+  const definitions = issueFlowManagedLabels()
+  const current = await listGitlabProjectLabels(apiInput)
+  const currentByName = new Map(current.map((label) => [String(label.name || ''), label]))
+  const pending = definitions
+    .map((definition) => ({ definition, action: gitlabLabelSyncAction(currentByName.get(definition.name), definition) }))
+    .filter((item) => item.action !== 'skip')
+  const missing = pending.filter((item) => item.action === 'create').map((item) => item.definition.name)
+  const drifted = pending.filter((item) => item.action === 'update').map((item) => item.definition.name)
+  const status = pending.length ? 'needs_action' : 'passed'
+  const detail = pending.length
+    ? `${missing.length} 个缺失，${drifted.length} 个需要更新`
+    : `${definitions.length} 个标签已同步`
+  return installStep('labels', 'api', 'Issue Flow labels', status, detail, {
+    missing,
+    drifted,
+    actionCount: pending.length,
+    labelActions: pending,
+  })
 }
 
 function gitlabRunnerAvailable(runner = {}) {
@@ -525,6 +569,7 @@ function webhookCache(hook) {
     source: 'gitlab',
     hookId: hook.id !== undefined ? String(hook.id) : '',
     url: hook.url || '',
+    pushEvents: Boolean(hook.push_events || hook.pushEvents),
     issuesEvents: Boolean(hook.issues_events || hook.issuesEvents),
     noteEvents: Boolean(hook.note_events || hook.noteEvents),
     mergeRequestsEvents: Boolean(hook.merge_requests_events || hook.mergeRequestsEvents),
@@ -767,11 +812,10 @@ function pluginStepFromCache(cache, extra = {}) {
       plugins: [plugin],
     })
   }
-  const cacheWithLatest = {
+  const cacheWithLatest = pluginCacheWithLocalLatestVersion({
     ...cache,
-    latestVersion: cache.latestVersion || LATEST_ISSUE_FLOW_VERSION,
     targetVersion: cache.targetVersion || cache.latestVersion || LATEST_ISSUE_FLOW_VERSION,
-  }
+  })
   const state = pluginState(cacheWithLatest)
   const plugin = {
     ...cacheWithLatest,
@@ -991,8 +1035,13 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
       const publicRepo = repoWithWebhook(basePublicUrl, existing);
       const hooks = await listGitlabWebhooks(apiInput);
       const hook = hooks.find((item) => item && item.url === publicRepo.webhookUrl);
-      const hookState = statusFromBoolean(Boolean(hook), '需要通过 API 配置 GitLab webhook', 'Webhook 已配置');
-      webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hook && hook.url || hookState.detail);
+      const hookState = statusFromBoolean(
+        Boolean(hook && (hook.push_events || hook.pushEvents)),
+        hook ? 'Webhook 需要启用 Push events' : '需要通过 API 配置 GitLab webhook',
+        'Webhook 已配置'
+      );
+      const hookDetail = hookState.status === 'passed' && hook ? hook.url : hookState.detail;
+      webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hookDetail);
       await store.updateRepositorySettingsCache(existing.id, {
         webhook: hook ? webhookCache(hook) : null,
       });
@@ -1009,7 +1058,7 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
   }
 
   if (checkTypes.includes('variables')) {
-    const variables = gitlabCiVariablesForInstall({ config, installConfig });
+    const variables = gitlabCiVariablesForInstall({ config, installConfig, basePublicUrl, env });
     const { variableResults, variableCaches } = await readInstallVariableResults(apiInput, variables);
     steps.push(variableStepFromResults(variableResults));
     if (existing) {
@@ -1020,6 +1069,10 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
         },
       });
     }
+  }
+
+  if (checkTypes.includes('labels')) {
+    steps.push(await checkGitlabIssueFlowLabels({ apiInput }));
   }
 
   if (checkTypes.includes('runners')) {
@@ -1098,6 +1151,52 @@ async function checkGitlabProjectInstall({ store, basePublicUrl, input = {}, ses
   };
 }
 
+async function setGitlabProjectInstallLabels({ store, input = {}, session, env = process.env, logger = undefined }) {
+  let context;
+  try {
+    context = await gitlabInstallContext({ store, input, session, env, logger });
+  } catch (error) {
+    return {
+      status: error && error.status || 500,
+      body: {
+        error: error && error.code || 'gitlab_labels_sync_failed',
+        validation: error && error.validation || undefined,
+      },
+    };
+  }
+  const { project, existing, apiInput, user } = context;
+  const access = await resolveGitlabProjectAccess({ project, apiInput, user });
+  if (!access.canManage) {
+    return { status: 403, body: { error: 'gitlab_project_permission_required', access } };
+  }
+  try {
+    const initial = await checkGitlabIssueFlowLabels({ apiInput });
+    for (const item of initial.labelActions || []) {
+      if (item.action === 'create') await createGitlabProjectLabel(apiInput, item.definition);
+      if (item.action === 'update') await updateGitlabProjectLabel(apiInput, item.definition);
+    }
+    const step = await checkGitlabIssueFlowLabels({ apiInput });
+    return {
+      status: 200,
+      body: {
+        repository: existing ? await store.getRepository(existing.id) : null,
+        access,
+        step,
+        steps: [step],
+        installable: step.status === 'passed',
+      },
+    };
+  } catch (error) {
+    return {
+      status: error && error.status || 502,
+      body: {
+        error: 'gitlab_labels_sync_failed',
+        detail: sanitizeError(error),
+      },
+    };
+  }
+}
+
 async function writeInstallVariable({ definition, input = {}, key = '', config, project, apiInput, env = process.env }) {
   const nextValue = input.value !== undefined && key ? input.value : definition.value;
   if (definition.key === ISSUE_FLOW_GITLAB_TOKEN_KEY && (nextValue === undefined || nextValue === '')) {
@@ -1122,7 +1221,7 @@ async function writeInstallVariable({ definition, input = {}, key = '', config, 
   });
 }
 
-async function setGitlabProjectInstallVariable({ store, input = {}, session, env = process.env, logger = undefined }) {
+async function setGitlabProjectInstallVariable({ store, basePublicUrl, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
     context = await gitlabInstallContext({ store, input, session, env, logger });
@@ -1144,7 +1243,7 @@ async function setGitlabProjectInstallVariable({ store, input = {}, session, env
     return { status: 404, body: { error: 'repository_not_found' } };
   }
   const key = String(input.key || '').trim();
-  const definitions = gitlabCiVariablesForInstall({ config, installConfig });
+  const definitions = gitlabCiVariablesForInstall({ config, installConfig, basePublicUrl, env });
   const initial = await readInstallVariableResults(apiInput, definitions);
   const initialByKey = new Map(initial.variableResults.map((item) => [item.key, item]));
   const selectedDefinitions = key
@@ -1318,7 +1417,7 @@ async function setGitlabProjectInstallRunner({ store, input = {}, session, env =
   return { status: 200, body: { repository: existing ? await store.getRepository(existing.id) : null, access, project: currentProject, step, steps: [step], installable: false } };
 }
 
-async function installGitlabProjectPlugin({ store, input = {}, session, env = process.env, logger = undefined }) {
+async function installGitlabProjectPlugin({ store, basePublicUrl, input = {}, session, env = process.env, logger = undefined }) {
   let context;
   try {
     context = await gitlabInstallContext({ store, input, session, env, logger });
@@ -1381,6 +1480,10 @@ async function installGitlabProjectPlugin({ store, input = {}, session, env = pr
       projectIdOrPath: apiInput.projectIdOrPath,
       baseUrl: config.baseUrl,
       projectPath: project.pathWithNamespace,
+      repositoryId: existing.id,
+      gitServerId: server.id,
+      projectId: project.id,
+      issueFlowBaseUrl: basePublicUrl,
       branch: project.defaultBranch || existing.defaultBranch || 'main',
       operation,
       commitAuthor: config.commitAuthor,
@@ -1485,6 +1588,7 @@ export {
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
+  setGitlabProjectInstallLabels,
   setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,

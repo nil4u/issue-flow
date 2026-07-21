@@ -15,12 +15,12 @@ export type IssueFilters = {
 }
 
 export const issueLanes: IssueLane[] = [
-  { id: "untriaged", title: "No flow", detail: "无 flow:: 标签" },
+  { id: "clarify", title: "Clarify", detail: "flow::clarify" },
+  { id: "approve", title: "Approve", detail: "flow::approve" },
   { id: "triage", title: "Triage", detail: "flow::triage" },
   { id: "plan", title: "Plan", detail: "flow::plan" },
   { id: "build", title: "Build", detail: "flow::build" },
-  { id: "clarify", title: "Clarify", detail: "flow::clarify" },
-  { id: "approve", title: "Approve", detail: "flow::approve" },
+  { id: "untriaged", title: "No flow", detail: "无 flow:: 标签" },
 ]
 
 export const emptyIssueFilters: IssueFilters = {

@@ -30,21 +30,41 @@ const SUBMIT_KINDS = {
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
-const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
+const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->\s*/i;
 const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
+const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan']);
+const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
+const PLAN_ARTIFACT_FORMATS = new Set(['json', 'markdown']);
+const VISUAL_SECTION_TYPES = new Set([
+  'summary', 'solution-summary', 'architecture', 'dependency-graph', 'deployment',
+  'runtime-flow', 'sequence', 'state-machine', 'data-flow', 'swimlane', 'user-journey',
+  'tree', 'component-tree', 'erd', 'matrix', 'path-matrix', 'permission-matrix',
+  'compatibility-matrix', 'option-comparison', 'risk-control', 'validation-matrix',
+  'traceability', 'responsibility-matrix', 'state-action', 'failure-handling',
+  'timeline', 'implementation-steps', 'implementation-dag', 'rollout', 'screen-flow',
+  'wireframe', 'chart', 'change-set', 'contract', 'risk-register', 'validation',
+  'evidence', 'cards', 'diagram',
+]);
+const VISUAL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/;
+const VISUAL_CHART_VARIANTS = new Set(['bar', 'horizontal-bar', 'column', 'line', 'area', 'donut', 'pie']);
 
 function usage() {
   return [
     'Usage: submit.cjs <kind> --issue-number <number> --title <title> --body-file <path> [options]',
     '',
     'Kinds:',
-    '  plan    Publish a plan PR and move the issue to flow::approve',
+    '  plan    Submit a Decision or Plan PR/MR for Engine review',
     '  build   Publish a build PR/MR and move the issue to flow::approve',
     '',
     'Options:',
     '  --issue-number <num>    Source issue number.',
     '  --title <title>         PR title. #<issue-number> is prepended when missing.',
-    '  --body-file <path>      PR body markdown file.',
+    '  --body-file <path>      Markdown Plan or Build PR/MR body file.',
+    '  --artifact <type>       Visual mode artifact: decision or plan.',
+    '  --artifact-path <path>  Artifact entry file. Auto-detected when omitted.',
+    '  --repo-id <id>          Issue Flow repository id.',
+    '  --git-server-id <id>    Issue Flow Git server id used in the visual URL.',
+    '  --project-id <id>       Provider repository/project id used in the visual URL.',
     '  --agentrix-task-id <id> Agentrix task id to embed in the PR/MR body. Defaults to AGENTRIX_TASK_ID.',
     '  --provider <provider>   Git hosting provider: github or gitlab. Defaults from environment/repo.',
     '  --repo <owner/repo>     Repository/project override. Defaults to provider environment or git remote origin.',
@@ -161,6 +181,323 @@ function resolveSubmitProvider(options) {
   return resolveProvider({ ...options, repo: resolveRepoHint(options) }, {});
 }
 
+function readIssueFlowProjectConfig() {
+  const configPath = path.resolve(process.cwd(), '.issue-flow/config.json');
+  if (!fs.existsSync(configPath)) return {};
+  return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+}
+
+function resolveIssueFlowRepositoryId(options = {}) {
+  const config = readIssueFlowProjectConfig();
+  const visualPlan = config.visionPlan || config.visualPlan || {};
+  const repositoryId = String(
+    options.repoId
+    || process.env.ISSUE_FLOW_REPOSITORY_ID
+    || process.env.ISSUE_FLOW_REPO_ID
+    || visualPlan.repositoryId
+    || visualPlan.repoId
+    || ''
+  ).trim();
+  if (!repositoryId) {
+    throw new Error('Issue Flow repository id is required. Set ISSUE_FLOW_REPOSITORY_ID, pass --repo-id, or configure visionPlan.repositoryId in .issue-flow/config.json.');
+  }
+  return repositoryId;
+}
+
+function resolveIssueFlowBaseUrl() {
+  const config = readIssueFlowProjectConfig();
+  const visualPlan = config.visionPlan || config.visualPlan || {};
+  const baseUrl = String(process.env.ISSUE_FLOW_BASE_URL || visualPlan.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) throw new Error('ISSUE_FLOW_BASE_URL is required to publish a visual decision or plan. It may also be configured as visionPlan.baseUrl in .issue-flow/config.json.');
+  return baseUrl;
+}
+
+function resolveVisualRouteRepository(options = {}, repo = {}) {
+  const config = readIssueFlowProjectConfig();
+  const visualPlan = config.visionPlan || config.visualPlan || {};
+  const gitServerId = String(
+    options.gitServerId
+    || process.env.ISSUE_FLOW_GIT_SERVER_ID
+    || visualPlan.gitServerId
+    || ''
+  ).trim();
+  const projectId = String(
+    options.projectId
+    || process.env.ISSUE_FLOW_PROJECT_ID
+    || process.env.CI_PROJECT_ID
+    || process.env.GITHUB_REPOSITORY_ID
+    || visualPlan.projectId
+    || repo.projectId
+    || ''
+  ).trim();
+  if (!gitServerId) {
+    throw new Error('Issue Flow Git server id is required. Set ISSUE_FLOW_GIT_SERVER_ID, pass --git-server-id, or configure visionPlan.gitServerId in .issue-flow/config.json.');
+  }
+  if (!projectId) {
+    throw new Error('Provider project id is required. Set ISSUE_FLOW_PROJECT_ID, pass --project-id, or configure visionPlan.projectId in .issue-flow/config.json.');
+  }
+  return { gitServerId, projectId };
+}
+
+function resolveVisualArtifactType(options = {}) {
+  const artifact = String(options.artifact || 'plan').trim().toLowerCase();
+  if (!VISUAL_ARTIFACT_TYPES.has(artifact)) throw new Error('--artifact must be decision or plan');
+  return artifact;
+}
+
+function resolveVisualPlanFeatureMode(issue = {}) {
+  return normalizeLabels(issue.labels || []).includes(VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
+}
+
+function findVisualIssueDirectory(issueNumber) {
+  const root = path.resolve(process.cwd(), '.issue-flow/issues');
+  if (!fs.existsSync(root)) return '';
+  const issueDir = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${issueNumber}-`))
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+  return issueDir ? path.join(root, issueDir) : '';
+}
+
+function findIssueArtifactPath(issueNumber, artifact, options = {}) {
+  if (options.artifactPath) {
+    const explicitPath = path.resolve(process.cwd(), options.artifactPath);
+    if (!fs.existsSync(explicitPath)) throw new Error(`Visual artifact does not exist: ${options.artifactPath}`);
+    return path.relative(process.cwd(), explicitPath).replace(/\\/g, '/');
+  }
+  const issueRoot = findVisualIssueDirectory(issueNumber);
+  if (!issueRoot) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
+  const issueDir = path.basename(issueRoot);
+  const relativePath = artifact === 'decision'
+    ? path.join('.issue-flow', 'issues', issueDir, 'decision', 'data', 'decision-data.json')
+    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'plan-data.json');
+  if (!fs.existsSync(path.resolve(process.cwd(), relativePath))) throw new Error(`Visual ${artifact} artifact does not exist: ${relativePath}`);
+  return relativePath.replace(/\\/g, '/');
+}
+
+function assertDecisionArtifactsRemoved(issueNumber) {
+  const issueRoot = findVisualIssueDirectory(issueNumber);
+  if (!issueRoot) return;
+  const decisionPaths = [path.join(issueRoot, 'decision')]
+    .filter((candidate) => fs.existsSync(candidate));
+  if (!decisionPaths.length) return;
+  const relativePaths = decisionPaths.map((candidate) => path.relative(process.cwd(), candidate).replace(/\\/g, '/'));
+  throw new Error([
+    `Visual Plan cannot be published while Decision artifacts remain: ${relativePaths.join(', ')}.`,
+    'Delete the completed Decision artifacts, commit the deletion with the Plan, then publish again.',
+  ].join(' '));
+}
+
+function assertVisualBriefNotInIssueArtifacts(issueNumber) {
+  const issueRoot = findVisualIssueDirectory(issueNumber);
+  if (!issueRoot) return;
+  const pendingDirectories = [issueRoot];
+  const briefPaths = [];
+  while (pendingDirectories.length) {
+    const directory = pendingDirectories.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) pendingDirectories.push(candidate);
+      else if (entry.isFile() && entry.name === 'visual-brief.md') briefPaths.push(candidate);
+    }
+  }
+  if (!briefPaths.length) return;
+  const relativePaths = briefPaths.map((candidate) => path.relative(process.cwd(), candidate).replace(/\\/g, '/'));
+  throw new Error([
+    `Visual Plan cannot publish temporary visual briefs from the repository: ${relativePaths.join(', ')}.`,
+    'Delete them and use the system temporary path injected in the Plan prompt.',
+  ].join(' '));
+}
+
+function assertVisualArtifactData(artifactPath, artifact) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), artifactPath), 'utf8'));
+  } catch (error) {
+    throw new Error(`Visual ${artifact} artifact must be valid JSON: ${error.message}`);
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(`Visual ${artifact} artifact must contain a JSON object`);
+  if (data.schemaVersion !== 1) throw new Error(`Visual ${artifact} artifact schemaVersion must be 1`);
+  if (data.artifact !== artifact) throw new Error(`Visual ${artifact} artifact field must equal "${artifact}"`);
+  if (!data.meta || typeof data.meta !== 'object' || !String(data.meta.title || '').trim()) throw new Error(`Visual ${artifact} artifact must contain meta.title`);
+  const forbidden = [];
+  const invalidIds = [];
+  const visit = (value, location = '') => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) return value.forEach((entry, index) => visit(entry, `${location}[${index}]`));
+    for (const [key, entry] of Object.entries(value)) {
+      const next = location ? `${location}.${key}` : key;
+      if (['html', 'css', 'js', 'script', 'style'].includes(key.toLowerCase())) forbidden.push(next);
+      if (key === 'id' && (!String(entry || '').trim() || !VISUAL_ID_PATTERN.test(String(entry).trim()))) invalidIds.push(next);
+      visit(entry, next);
+    }
+  };
+  visit(data);
+  if (forbidden.length) throw new Error(`Visual ${artifact} JSON cannot contain presentation code fields: ${forbidden.join(', ')}`);
+  if (invalidIds.length) throw new Error(`Visual ${artifact} JSON contains invalid path-safe ids: ${invalidIds.join(', ')}`);
+  const collectIds = (items, location) => {
+    const ids = new Set();
+    for (const [index, item] of items.entries()) {
+      const id = String(item && item.id || '').trim();
+      if (!id) throw new Error(`${location}[${index}] must have an id`);
+      if (!VISUAL_ID_PATTERN.test(id)) throw new Error(`${location}[${index}] has an invalid id: ${id}`);
+      if (ids.has(id)) throw new Error(`${location} contains duplicate id: ${id}`);
+      ids.add(id);
+    }
+    return ids;
+  };
+  if (artifact === 'decision') {
+    if (!Array.isArray(data.decisions) || !data.decisions.length) throw new Error('Decision JSON must contain at least one decisions[] item');
+    collectIds(data.decisions, 'decisions');
+    for (const [index, decision] of data.decisions.entries()) {
+      const id = String(decision && decision.id || '').trim();
+      if (!String(decision.question || decision.title || '').trim()) throw new Error(`Decision ${id} must contain a question`);
+      const options = Array.isArray(decision.options) ? decision.options : [];
+      if (decision.type === 'choice' && options.length < 2) throw new Error(`Decision ${id} choice must contain at least two options`);
+      if (decision.type === 'choice') {
+        const optionIds = collectIds(options, `decisions.${id}.options`);
+        const recommended = String(decision.recommendedOptionId || decision.recommended || '').trim();
+        if (!recommended) throw new Error(`Decision ${id} choice must contain recommendedOptionId`);
+        if (!optionIds.has(recommended)) throw new Error(`Decision ${id} recommendedOptionId does not match an option: ${recommended}`);
+      }
+    }
+    return data;
+  }
+  if (!Array.isArray(data.sections) || !data.sections.length) throw new Error('Plan JSON must contain at least one sections[] item');
+  if (!data.core || typeof data.core !== 'object' || Array.isArray(data.core)) throw new Error('Plan JSON must contain a core object');
+  if (!String(data.core.outcome || data.core.goal || data.core.summary || '').trim()) throw new Error('Plan core must describe the outcome');
+  collectIds(data.sections, 'sections');
+  let hasSummary = false;
+  let hasValidation = false;
+  for (const [index, section] of data.sections.entries()) {
+    const id = String(section && section.id || '').trim();
+    const type = String(section && section.type || '').trim();
+    if (!VISUAL_SECTION_TYPES.has(type)) throw new Error(`Plan section ${id} uses unsupported type: ${type || '(empty)'}`);
+    if (type === 'summary' || type === 'solution-summary') hasSummary = true;
+    if (type === 'validation' || type === 'validation-matrix') hasValidation = true;
+    const graph = ['architecture', 'dependency-graph', 'deployment', 'runtime-flow', 'state-machine', 'data-flow', 'rollout', 'screen-flow', 'component-tree', 'implementation-dag'].includes(type)
+      || type === 'diagram' && String(section.variant || '').trim() !== 'sequence';
+    if (graph) {
+      const nodes = section.nodes || section.elements || section.states || section.screens || section.tasks || [];
+      const edges = section.edges || section.relationships || section.transitions || section.connections || [];
+      if (!Array.isArray(nodes) || !nodes.length) throw new Error(`Graph section ${id} must contain nodes`);
+      const nodeIds = collectIds(nodes, `sections.${id}.nodes`);
+      if (!Array.isArray(edges)) throw new Error(`Graph section ${id} edges must be an array`);
+      for (const [edgeIndex, edge] of edges.entries()) {
+        const source = String(edge && (edge.sourceId || edge.from || edge.source) || '').trim();
+        const target = String(edge && (edge.destinationId || edge.to || edge.target) || '').trim();
+        if (!source || !nodeIds.has(source)) throw new Error(`sections.${id}.edges[${edgeIndex}] has unknown source: ${source || '(empty)'}`);
+        if (!target || !nodeIds.has(target)) throw new Error(`sections.${id}.edges[${edgeIndex}] has unknown target: ${target || '(empty)'}`);
+      }
+      collectIds(edges, `sections.${id}.edges`);
+    }
+    const sequence = type === 'sequence' || type === 'diagram' && String(section.variant || '').trim() === 'sequence';
+    if (sequence) {
+      const participants = Array.isArray(section.participants || section.actors) ? section.participants || section.actors : [];
+      const messages = Array.isArray(section.messages || section.steps) ? section.messages || section.steps : [];
+      if (participants.length < 2) throw new Error(`Sequence section ${id} must contain at least two participants`);
+      if (!messages.length) throw new Error(`Sequence section ${id} must contain messages`);
+      const participantIds = collectIds(participants, `sections.${id}.participants`);
+      collectIds(messages, `sections.${id}.messages`);
+      for (const [messageIndex, message] of messages.entries()) {
+        const source = String(message && (message.sourceId || message.from || message.source) || '').trim();
+        const target = String(message && (message.destinationId || message.to || message.target) || '').trim();
+        if (!participantIds.has(source)) throw new Error(`sections.${id}.messages[${messageIndex}] has unknown source: ${source || '(empty)'}`);
+        if (!participantIds.has(target)) throw new Error(`sections.${id}.messages[${messageIndex}] has unknown target: ${target || '(empty)'}`);
+      }
+    }
+    if (type === 'chart') {
+      const variant = String(section.variant || 'bar').trim();
+      if (!VISUAL_CHART_VARIANTS.has(variant)) throw new Error(`Chart section ${id} uses unsupported variant: ${variant}`);
+      if (!Array.isArray(section.items) || !section.items.length) throw new Error(`Chart section ${id} must contain items`);
+      collectIds(section.items, `sections.${id}.items`);
+      for (const [itemIndex, item] of section.items.entries()) {
+        if (!Number.isFinite(Number(item && item.value))) throw new Error(`sections.${id}.items[${itemIndex}] must contain a numeric value`);
+      }
+    }
+  }
+  if (!hasSummary) throw new Error('Plan JSON must include a summary or solution-summary section');
+  if (!hasValidation) throw new Error('Plan JSON must include a validation or validation-matrix section');
+  return data;
+}
+
+function findMarkdownPlanPath(issueNumber, options = {}) {
+  if (options.artifactPath) {
+    const explicitPath = path.resolve(process.cwd(), options.artifactPath);
+    if (!fs.existsSync(explicitPath)) throw new Error(`Markdown Plan does not exist: ${options.artifactPath}`);
+    return path.relative(process.cwd(), explicitPath).replace(/\\/g, '/');
+  }
+  const root = path.resolve(process.cwd(), '.issue-flow/issues');
+  if (!fs.existsSync(root)) throw new Error('.issue-flow/issues does not exist');
+  const issueDirs = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${issueNumber}-`))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+  for (const issueDir of issueDirs) {
+    const planDir = path.join(root, issueDir, 'plan');
+    if (!fs.existsSync(planDir)) continue;
+    const planFile = fs.readdirSync(planDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map((entry) => entry.name)
+      .sort()[0];
+    if (planFile) return path.join('.issue-flow', 'issues', issueDir, 'plan', planFile).replace(/\\/g, '/');
+  }
+  throw new Error(`No Markdown Plan file found for issue #${issueNumber}`);
+}
+
+function visualArtifactUrl(baseUrl, gitServerId, projectId, issueNumber) {
+  return `${baseUrl}/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${issueNumber}`;
+}
+
+function buildVisualArtifactMarker(input = {}) {
+  const format = String(input.format || 'json').trim().toLowerCase();
+  if (!PLAN_ARTIFACT_FORMATS.has(format)) throw new Error(`Unsupported Plan artifact format: ${format}`);
+  return `<!-- issue-flow:plan-artifact artifact=${input.artifact} format=${format} repo=${input.repositoryId} issue=${input.issueNumber} branch=${input.branch} commit=${input.commit} path=${input.artifactPath} -->`;
+}
+
+function buildVisualArtifactComment(input = {}) {
+  const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  return [
+    buildVisualArtifactMarker(input),
+    `## ${title}`,
+    '',
+    `[Open ${title}](${input.url})`,
+    '',
+    `- Branch: \`${input.branch}\``,
+    `- Commit: \`${input.commit}\``,
+    `- Artifact: \`${input.artifactPath}\``,
+    `- Format: \`${input.format || 'json'}\``,
+    '',
+    'Review this artifact in Issue Flow. Review comments and approval are recorded on this PR/MR.',
+  ].join('\n');
+}
+
+function buildVisualArtifactPublishedComment(input = {}) {
+  const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  return [
+    `<!-- issue-flow:plan-artifact-published artifact=${input.artifact} commit=${input.commit} -->`,
+    `✅ ${title} 已发布：[在 Issue Flow 中审阅](${input.url})`,
+  ].join('\n');
+}
+
+function pullRequestNumberFromUrl(value) {
+  const match = String(value || '').match(/\/(?:pull|pulls|merge_requests)\/(\d+)(?:[/?#]|$)/i);
+  return match ? Number.parseInt(match[1], 10) : undefined;
+}
+
+async function publishVisualArtifactComment(provider, repo, prUrl, artifactInput, options = {}) {
+  if (!provider.createPullRequestComment) throw new Error(`Provider ${provider.name} does not support PR/MR comments`);
+  const number = options.dryRun ? 'dry-run' : pullRequestNumberFromUrl(prUrl);
+  if (!number) throw new Error(`Unable to resolve PR/MR number from submission URL: ${prUrl || '(empty)'}`);
+  return provider.createPullRequestComment(
+    { ...repo, number },
+    buildVisualArtifactPublishedComment(artifactInput),
+    options,
+  );
+}
+
 function parsePositiveInteger(value, name) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -209,7 +546,7 @@ function assertCleanWorktree(options) {
       console.log(JSON.stringify({ dryRun: true, dirtyWorktree: status.split('\n') }, null, 2));
       return;
     }
-    throw new Error('Working tree has uncommitted changes. Commit the plan before publishing the PR.');
+    throw new Error('Working tree has uncommitted changes. Commit the current work before publishing.');
   }
 }
 
@@ -272,39 +609,25 @@ function buildSourceIssueMarker(issueNumber) {
   return `<!-- issue-flow:source-issue=${issueNumber} -->`;
 }
 
-function buildAgentrixTaskMarker(taskId) {
-  const normalized = String(taskId || '').trim();
-  return normalized ? `<!-- issue-flow:agentrix:task=${normalized} -->` : '';
-}
-
 function resolveAgentrixTaskId(options = {}) {
   return String(options.agentrixTaskId || process.env.AGENTRIX_TASK_ID || '').trim();
 }
 
 function buildPrBodyWithMarkers(body, issueNumber, taskId = '') {
   const sourceMarker = buildSourceIssueMarker(issueNumber);
-  const taskMarker = buildAgentrixTaskMarker(taskId);
-  const provenanceMarker = buildSourceMarker({ sourceTaskId: taskId });
-  const content = String(body || '').trimStart();
+  const sourceTaskId = String(taskId || process.env.AGENTRIX_TASK_ID || '').trim();
+  const provenanceMarker = buildSourceMarker({
+    sourceTaskId,
+    sourceRuntime: sourceTaskId ? 'agentrix' : '',
+  });
+  const content = String(body || '').replace(LEGACY_AGENTRIX_TASK_MARKER_PATTERN, '').trimStart();
   let marked = SOURCE_ISSUE_MARKER_PATTERN.test(content)
     ? content.replace(SOURCE_ISSUE_MARKER_PATTERN, sourceMarker)
     : `${sourceMarker}\n${content}`;
 
-  if (taskMarker) {
-    if (AGENTRIX_TASK_MARKER_PATTERN.test(marked)) {
-      marked = marked.replace(AGENTRIX_TASK_MARKER_PATTERN, taskMarker);
-    } else if (marked.startsWith(sourceMarker)) {
-      marked = `${sourceMarker}\n${taskMarker}${marked.slice(sourceMarker.length)}`;
-    } else {
-      marked = `${taskMarker}\n${marked}`;
-    }
-  }
-
   if (provenanceMarker) {
     if (SOURCE_PROVENANCE_MARKER_PATTERN.test(marked)) {
       marked = marked.replace(SOURCE_PROVENANCE_MARKER_PATTERN, `${provenanceMarker}\n`);
-    } else if (taskMarker && marked.includes(taskMarker)) {
-      marked = marked.replace(taskMarker, `${taskMarker}\n${provenanceMarker}`);
     } else if (marked.startsWith(sourceMarker)) {
       marked = `${sourceMarker}\n${provenanceMarker}${marked.slice(sourceMarker.length)}`;
     } else {
@@ -321,6 +644,10 @@ function buildPrBodyWithSourceMarker(body, issueNumber) {
 
 function writePrBodyWithMarkers(bodyFile, issueNumber, taskId = '') {
   const body = fs.readFileSync(bodyFile, 'utf8');
+  return writePrBodyTextWithMarkers(body, issueNumber, taskId);
+}
+
+function writePrBodyTextWithMarkers(body, issueNumber, taskId = '') {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-pr-body-'));
   const markedBodyFile = path.join(tempDir, 'body.md');
   fs.writeFileSync(markedBodyFile, `${buildPrBodyWithMarkers(body, issueNumber, taskId)}\n`, 'utf8');
@@ -474,6 +801,80 @@ function applyIssueFlow(provider, repo, issueNumber, flow, options) {
   });
 }
 
+function planSubmissionIssueState(artifact) {
+  return artifact === 'decision'
+    ? { flow: 'flow::clarify' }
+    : { flow: 'flow::approve' };
+}
+
+async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options }) {
+  const visual = visualPlanMode === 'on';
+  const artifact = visual ? resolveVisualArtifactType(options) : 'plan';
+  const format = visual ? 'json' : 'markdown';
+  const repositoryId = resolveIssueFlowRepositoryId(options);
+  const routeRepository = resolveVisualRouteRepository(options, repo);
+  const baseUrl = resolveIssueFlowBaseUrl();
+  if (visual) {
+    assertVisualBriefNotInIssueArtifacts(issueNumber);
+  }
+  if (visual && artifact === 'plan') {
+    assertDecisionArtifactsRemoved(issueNumber);
+  }
+  const artifactPath = visual
+    ? findIssueArtifactPath(issueNumber, artifact, options)
+    : findMarkdownPlanPath(issueNumber, options);
+  if (visual) assertVisualArtifactData(artifactPath, artifact);
+  if (!isGitTrackedFile(artifactPath) && !options.dryRun) {
+    throw new Error(`Plan artifact must be committed before publishing: ${artifactPath}`);
+  }
+  if (!visual) {
+    validateBodyFile(options.bodyFile);
+    assertBodyFileNotTracked(options.bodyFile);
+  }
+  const label = SUBMIT_KINDS.plan.label;
+  await ensureMergeRequestLabel(provider, repo, label, options);
+  pushCurrentBranch(headBranch, options);
+  const commit = runOutput('git', ['rev-parse', 'HEAD']);
+  const url = visualArtifactUrl(baseUrl, routeRepository.gitServerId, routeRepository.projectId, issueNumber);
+  const artifactInput = { artifact, format, repositoryId, issueNumber, branch: headBranch, commit, artifactPath, url };
+  const artifactBody = buildVisualArtifactComment(artifactInput);
+  const suppliedBody = visual ? '' : fs.readFileSync(options.bodyFile, 'utf8').trim();
+  const markedBody = writePrBodyTextWithMarkers(
+    [artifactBody, suppliedBody].filter(Boolean).join('\n\n'),
+    issueNumber,
+    resolveAgentrixTaskId(options),
+  );
+  const titleConfig = artifact === 'decision'
+    ? { ...SUBMIT_KINDS.plan, titlePrefix: 'Decision' }
+    : SUBMIT_KINDS.plan;
+  let prUrl;
+  try {
+    prUrl = await createOrUpdatePullRequest({
+      provider,
+      repo,
+      title: normalizePrTitle(titleConfig, issueNumber, options.title),
+      bodyFile: markedBody.path,
+      label,
+      baseBranch,
+      headBranch,
+      draft: options.draft,
+      options,
+    });
+  } finally {
+    markedBody.cleanup();
+  }
+  await publishVisualArtifactComment(provider, repo, prUrl, artifactInput, options);
+  const publicationState = planSubmissionIssueState(artifact);
+  applyIssueFlow(provider, repo, issueNumber, publicationState.flow, options);
+  const result = {
+    kind: 'plan', artifact, format, provider: provider.name, issueNumber, repositoryId,
+    ...routeRepository, branch: headBranch, commit, artifactPath, url, prUrl,
+    issueFlow: publicationState.flow, label,
+  };
+  console.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
 async function loadSourceIssueForSubmit(provider, repo, issueNumber, options = {}) {
   const target = {
     ...repo,
@@ -489,7 +890,7 @@ async function loadSourceIssueForSubmit(provider, repo, issueNumber, options = {
           dryRun: true,
           plannedCheck: 'source_issue_size',
           issueNumber,
-          reason: 'Source issue must have exactly one size:: label before submitting a plan/build PR/MR.',
+          reason: 'Source issue must have exactly one size:: label before publishing a plan or submitting a build PR/MR.',
         },
         null,
         2
@@ -536,7 +937,7 @@ function validateSourceIssueSize(issue, issueNumber) {
   }
   throw new Error(
     [
-      `Source issue #${issueNumber} needs exactly one size:: label before submitting a plan/build PR/MR.`,
+      `Source issue #${issueNumber} needs exactly one size:: label before publishing a plan or submitting a build PR/MR.`,
       'Choose size::XS, size::S, size::M, size::L, or size::XL based on the issue title, body, comments, and repository context.',
       'If you are unsure, use size::M and leave a low-confidence note, then re-run:',
       command,
@@ -560,19 +961,28 @@ async function main(argv = process.argv.slice(2)) {
   const provider = resolveSubmitProvider(options);
   const repo = provider.resolveRepo({}, { ...options, repo: resolveRepoHint(options) });
   options.provider = provider.name;
-  const label = options.label || kindConfig.label;
-  validateLabel(label);
-  validateBodyFile(options.bodyFile);
-  assertBodyFileNotTracked(options.bodyFile);
-
   const headBranch = resolveHeadBranch(options);
   const baseBranch = resolveBaseBranch(options);
-  const title = normalizePrTitle(kindConfig, issueNumber, options.title);
 
   assertCleanWorktree(options);
   assertPublishBranch(headBranch, baseBranch, options);
   const sourceIssue = await loadSourceIssueForSubmit(provider, repo, issueNumber, options);
   validateSourceIssueSize(sourceIssue, issueNumber);
+  const visualPlanMode = kind === 'plan' ? resolveVisualPlanFeatureMode(sourceIssue) : 'off';
+  if (kind === 'plan') {
+    if (visualPlanMode === 'off' && options.artifact) {
+      throw new Error(`Source issue must have ${VISUAL_PLAN_FEATURE_ON} before publishing a Visual Plan artifact.`);
+    }
+    await publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options });
+    return 0;
+  }
+
+  const label = options.label || kindConfig.label;
+  validateLabel(label);
+  validateBodyFile(options.bodyFile);
+  assertBodyFileNotTracked(options.bodyFile);
+
+  const title = normalizePrTitle(kindConfig, issueNumber, options.title);
   await ensureMergeRequestLabel(provider, repo, label, options);
   pushCurrentBranch(headBranch, options);
 
@@ -599,7 +1009,9 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   assertBodyFileNotTracked,
-  buildAgentrixTaskMarker,
+  assertDecisionArtifactsRemoved,
+  assertVisualArtifactData,
+  assertVisualBriefNotInIssueArtifacts,
   buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,
@@ -614,7 +1026,21 @@ module.exports = {
   main,
   normalizeOptionalUrl,
   normalizePrTitle,
+  planSubmissionIssueState,
   parseArgs,
+  buildVisualArtifactComment,
+  buildVisualArtifactPublishedComment,
+  buildVisualArtifactMarker,
+  findIssueArtifactPath,
+  findMarkdownPlanPath,
+  resolveIssueFlowBaseUrl,
+  resolveIssueFlowRepositoryId,
+  resolveVisualRouteRepository,
+  resolveVisualArtifactType,
+  resolveVisualPlanFeatureMode,
+  publishVisualArtifactComment,
+  pullRequestNumberFromUrl,
+  visualArtifactUrl,
   resolveAgentrixTaskId,
   resolveAgentrixWorkerBaseBranch,
   resolveBaseBranch,

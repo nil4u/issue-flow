@@ -9,6 +9,7 @@ const {
   AGENTRIX_PROJECT_DIRS,
   AGENTRIX_PROJECT_FILES,
   LEGACY_AGENTRIX_PROJECT_ROOT,
+  MANAGED_SYMLINKS,
   installGithub,
   installGitlab,
   parseArgs,
@@ -18,6 +19,19 @@ const {
 
 function makeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-bootstrap-test-'));
+}
+
+function managedSymlinkPaths() {
+  return MANAGED_SYMLINKS.map(([target]) => target);
+}
+
+function assertManagedSymlinks(root) {
+  for (const [target, linkTarget] of MANAGED_SYMLINKS) {
+    const absoluteTarget = path.join(root, target);
+    assert.equal(fs.lstatSync(absoluteTarget).isSymbolicLink(), true, `${target} must be a symlink`);
+    assert.equal(fs.readlinkSync(absoluteTarget), linkTarget);
+    assert.equal(fs.existsSync(absoluteTarget), true, `${target} must resolve`);
+  }
 }
 
 test('bootstrap parser accepts runtime, force, and dry-run behavior options', () => {
@@ -62,9 +76,11 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
       ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
       ...AGENTRIX_PROJECT_FILES.map(([, target]) => target),
       ...AGENTRIX_PROJECT_DIRS.map(([, target]) => target),
+      ...managedSymlinkPaths(),
       '.github/workflows/issue-flow-labels.yml',
       '.github/workflows/issue-flow-auto.yml',
       '.github/workflows/issue-flow-comment.yml',
+      '.github/workflows/issue-flow-milestones.yml',
       '.github/workflows/issue-flow-pr-merged.yml',
       '.github/workflows/issue-flow-pr-review-comment.yml',
       '.github/workflows/issue-flow-pr-review.yml',
@@ -72,11 +88,13 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     ].sort());
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-milestones.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-failure-intake.yml')), false);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-pr-review-comment.yml')), true);
     const labelsWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-labels.yml'), 'utf8');
     const autoWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-auto.yml'), 'utf8');
+    const milestoneWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-milestones.yml'), 'utf8');
     const reviewWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml'), 'utf8');
     const reviewCommentWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review-comment.yml'), 'utf8');
     assert.match(labelsWorkflow, /Issue Flow Labels/);
@@ -92,6 +110,8 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(autoWorkflow, /queue: max/);
     assert.doesNotMatch(autoWorkflow, /- edited/);
     assert.doesNotMatch(autoWorkflow, /- reopened/);
+    assert.match(milestoneWorkflow, /issue-flow\/cli\.cjs milestone sync/);
+    assert.doesNotMatch(milestoneWorkflow, /milestone-changed/);
     assert.match(reviewWorkflow, /Issue Flow PR Review/);
     assert.match(reviewWorkflow, /ready_for_review/);
     assert.match(reviewWorkflow, /pull-requests: write/);
@@ -111,7 +131,10 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/config.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
-    assert.equal(manifest.version, 1);
+    assert.equal(manifest.version, 2);
+    assert.deepEqual(Object.keys(manifest.links).sort(), managedSymlinkPaths().sort());
+    assert.equal(manifest.links['.agents/skills/issue-flow'].target, '../../.agentrix/plugins/issue-flow/skills/issue-flow');
+    assert.equal(manifest.links['.issue-flow/cli.cjs'].target, '../.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs');
 	    assert.equal(manifest.files['.github/workflows/issue-flow-auto.yml'].mode, 'managed');
 	    assert.equal(manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].mode, 'customizable');
 	    assert.equal(
@@ -127,22 +150,171 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-ci-failure.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-bug.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/review.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);
-	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/references/engine-json-contract.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css')), false);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), false);
 	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/CLAUDE.md')), false);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap-links.cjs')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/bootstrap/workflows/github/issue-flow-auto.yml')), false);
     assert.doesNotMatch(autoWorkflow, /\.github\/agentrix/);
+    assertManagedSymlinks(root);
     const mergedWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-merged.yml'), 'utf8');
     assert.match(mergedWorkflow, /ref: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap keeps managed symlinks idempotent and upgrades a v1 manifest', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const manifestPath = path.join(root, '.issue-flow/install-manifest.json');
+    const legacyManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    legacyManifest.version = 1;
+    delete legacyManifest.links;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`);
+
+    const results = installGithub({ cwd: root });
+    for (const [target] of MANAGED_SYMLINKS) {
+      const result = results.find((item) => path.relative(root, item.target) === target);
+      assert.equal(result.action, 'skipped');
+      assert.equal(result.reason, 'current');
+    }
+    assertManagedSymlinks(root);
+
+    const upgraded = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(upgraded.version, 2);
+    assert.deepEqual(Object.keys(upgraded.links).sort(), managedSymlinkPaths().sort());
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap reports an existing skill directory as a symlink conflict and persists keep', () => {
+  const root = makeTempRoot();
+  try {
+    const skillPath = path.join(root, '.agents/skills/issue-flow');
+    fs.mkdirSync(skillPath, { recursive: true });
+    fs.writeFileSync(path.join(skillPath, 'SKILL.md'), 'custom skill');
+
+    const plan = createInstallPlan('github', { cwd: root });
+    const conflict = plan.conflicts.find((item) => item.path === '.agents/skills/issue-flow');
+    assert.equal(conflict.entryType, 'symlink');
+    assert.equal(conflict.targetKind, 'directory');
+    assert.equal(conflict.defaultAction, 'overwrite');
+    assert.equal(conflict.proposedTarget, '../../.agentrix/plugins/issue-flow/skills/issue-flow');
+
+    assert.throws(() => installGithub({ cwd: root }), /Install conflicts require an interactive terminal/);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), false);
+
+    runBootstrap('github', {
+      cwd: root,
+      decisions: { actions: { '.agents/skills/issue-flow': 'keep' } },
+    });
+    assert.equal(fs.lstatSync(skillPath).isDirectory(), true);
+    assert.equal(fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf8'), 'custom skill');
+
+    const nextPlan = createInstallPlan('github', { cwd: root });
+    assert.equal(nextPlan.conflicts.some((item) => item.path === '.agents/skills/issue-flow'), false);
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
+    assert.equal(manifest.links['.agents/skills/issue-flow'].acknowledged, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap reports and overwrites a symlink with the wrong target', () => {
+  const root = makeTempRoot();
+  try {
+    const skillPath = path.join(root, '.agents/skills/vision-plan');
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.symlinkSync('../wrong-vision-plan', skillPath);
+
+    const plan = createInstallPlan('github', { cwd: root });
+    const conflict = plan.conflicts.find((item) => item.path === '.agents/skills/vision-plan');
+    assert.equal(conflict.entryType, 'symlink');
+    assert.equal(conflict.targetKind, 'symlink');
+    assert.equal(conflict.currentTarget, '../wrong-vision-plan');
+
+    runBootstrap('github', {
+      cwd: root,
+      decisions: { actions: { '.agents/skills/vision-plan': 'overwrite' } },
+    });
+    assert.equal(fs.readlinkSync(skillPath), '../../.agentrix/plugins/issue-flow/skills/vision-plan');
+    assert.equal(fs.existsSync(path.join(skillPath, 'SKILL.md')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap force replaces a conflicting path without touching the symlink target', () => {
+  const root = makeTempRoot();
+  try {
+    const skillPath = path.join(root, '.claude/skills/issue-flow');
+    fs.mkdirSync(skillPath, { recursive: true });
+    fs.writeFileSync(path.join(skillPath, 'SKILL.md'), 'custom skill');
+
+    installGithub({ cwd: root, force: true });
+    assert.equal(fs.lstatSync(skillPath).isSymbolicLink(), true);
+    assert.equal(fs.readlinkSync(skillPath), '../../.agentrix/plugins/issue-flow/skills/issue-flow');
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap accepts a correct dangling symlink and restores its target', () => {
+  const root = makeTempRoot();
+  try {
+    const skillPath = path.join(root, '.agents/skills/issue-flow');
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.symlinkSync('../../.agentrix/plugins/issue-flow/skills/issue-flow', skillPath);
+    assert.equal(fs.existsSync(skillPath), false);
+
+    installGithub({ cwd: root });
+    assert.equal(fs.lstatSync(skillPath).isSymbolicLink(), true);
+    assert.equal(fs.existsSync(path.join(skillPath, 'SKILL.md')), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap removes only a stale managed symlink', () => {
+  const root = makeTempRoot();
+  try {
+    installGithub({ cwd: root });
+    const stalePath = path.join(root, '.agents/skills/stale-issue-flow');
+    fs.symlinkSync('../../.agentrix/plugins/issue-flow/skills/issue-flow', stalePath);
+
+    const manifestPath = path.join(root, '.issue-flow/install-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.links['.agents/skills/stale-issue-flow'] = {
+      target: '../../.agentrix/plugins/issue-flow/skills/issue-flow',
+      mode: 'managed',
+    };
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const removed = installGithub({ cwd: root }).find((result) => result.target === stalePath);
+    assert.equal(removed.action, 'removed');
+    assert.equal(fs.lstatSync(path.join(root, '.agents/skills/issue-flow')).isSymbolicLink(), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md')), true);
+    assert.throws(() => fs.lstatSync(stalePath), /ENOENT/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -384,6 +556,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
       ...AGENTRIX_PLUGIN_SPECS.map(([, target]) => target),
       ...AGENTRIX_PROJECT_FILES.map(([, target]) => target),
       ...AGENTRIX_PROJECT_DIRS.map(([, target]) => target),
+      ...managedSymlinkPaths(),
       '.gitlab-ci.yml',
       '.gitlab/issue-flow.gitlab-ci.yml',
       '.issue-flow/install-manifest.json',
@@ -392,6 +565,8 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
     assert.match(gitlabWorkflow, /\.issue-flow-runner:\n  tags:\n    - issue-flow/);
     for (const job of [
+      'issue-flow-labels',
+      'issue-flow-milestones',
       'issue-flow-auto',
       'issue-flow-comment',
       'issue-flow-merged',
@@ -400,27 +575,34 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ]) {
       assert.match(gitlabWorkflow, new RegExp(`${job}:\\n  extends: \\.issue-flow-runner\\n  stage: build`));
     }
-    assert.doesNotMatch(gitlabWorkflow, /issue-flow-labels:/);
-    assert.doesNotMatch(gitlabWorkflow, /sync-labels\.cjs/);
+    assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
+    assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issues"/);
+    assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "create" \|\| \$GITLAB_BRIDGE_EVENT_NAME == "delete"/);
+    assert.doesNotMatch(gitlabWorkflow, /issue-flow-milestone-guard/);
+    assert.doesNotMatch(gitlabWorkflow, /AGENTRIX_EVENT_NAME == "create"/);
+    assert.doesNotMatch(gitlabWorkflow, /CI_COMMIT_BEFORE_SHA/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_LABELS_JSON =~ \/failure::ci\//);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_ISSUE_TITLE =~ \/\^Fix CI failure:\//);
-    assert.match(gitlabWorkflow, /AGENTRIX_TRIGGER_SOURCE == "agentrix_daemon_webhook"/);
+    assert.match(
+      gitlabWorkflow,
+      /resource_group: "issue-flow-auto-\$\{CI_PROJECT_ID\}-\$\{GITLAB_BRIDGE_ISSUE_NUMBER\}"/
+    );
+    assert.doesNotMatch(gitlabWorkflow, /AGENTRIX_TRIGGER_SOURCE|AGENTRIX_ISSUE_NUMBER|AGENTRIX_PR_NUMBER/);
     assert.ok(
       gitlabWorkflow.indexOf('GITLAB_BRIDGE_LABELS_JSON =~ /failure::ci/') <
         gitlabWorkflow.indexOf('GITLAB_BRIDGE_EVENT_ACTION == "opened"'),
       'GitLab failure::ci skip rule should run before issue opened auto routing'
     );
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "pull_request"/);
-    assert.match(gitlabWorkflow, /bridge_event_action="\$\{GITLAB_BRIDGE_EVENT_ACTION:-\$\{AGENTRIX_EVENT_ACTION:-\}\}"/);
-    assert.match(gitlabWorkflow, /intake\.cjs --issue-number "\$bridge_issue_number"/);
+    assert.match(gitlabWorkflow, /intake\.cjs --issue-number "\$GITLAB_BRIDGE_ISSUE_NUMBER"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs auto/);
     assert.match(gitlabWorkflow, /issue-flow-review:/);
     assert.match(gitlabWorkflow, /ISSUE_FLOW_REVIEW_ENABLED =~ \/\^\(true\|1\)\$\//);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_ACTION == "ready_for_review"/);
     assert.match(gitlabWorkflow, /git fetch origin "\$\{CI_DEFAULT_BRANCH:-main\}" --depth 1/);
     assert.match(gitlabWorkflow, /git checkout FETCH_HEAD -- \.agentrix\/plugins\/issue-flow \.issue-flow/);
-    assert.match(gitlabWorkflow, /--pr-number "\$bridge_pr_number"/);
+    assert.match(gitlabWorkflow, /--pr-number "\$GITLAB_BRIDGE_PR_NUMBER"/);
     assert.match(gitlabWorkflow, /dispatch\.cjs review/);
     assert.match(gitlabWorkflow, /issue-flow-review-comment:/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "pull_request_review_comment"/);

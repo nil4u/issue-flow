@@ -4,6 +4,7 @@ export const installCheckProgressSteps: InstallCheckProgress["steps"] = [
   { id: "permissions", label: "Permissions", status: "pending" },
   { id: "webhook", label: "Webhook", status: "pending" },
   { id: "variables", label: "Variables", status: "pending" },
+  { id: "labels", label: "Labels", status: "pending" },
   { id: "runners", label: "GitLab Runner", status: "pending" },
   { id: "plugins", label: "Plugins", status: "pending" },
 ]

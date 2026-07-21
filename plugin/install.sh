@@ -8,7 +8,7 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [github|gitlab|auto] [--force] [--dry-run] [--plan-json] [--decision-file <path>]
 
-Installs issue-flow into the current project.
+Installs issue-flow into the current project, including Codex and Claude Code skill links.
 After you commit and push the installed workflow files, CI automatically synchronizes issue-flow provider labels.
 
 Options:

@@ -176,7 +176,7 @@ function githubReviewCommentPayload(overrides = {}) {
     comment: {
       id: overrides.commentId || 101,
       body: overrides.commentBody || 'Please handle this edge case.',
-      html_url: 'https://github.com/example/platform/pull/9#discussion_r101',
+      html_url: `https://github.com/example/platform/pull/9#discussion_r${overrides.commentId || 101}`,
       in_reply_to_id: overrides.inReplyToId,
       path: 'src/app.js',
       line: 42,
@@ -331,6 +331,41 @@ test('dispatch review-comment resumes GitHub PR ordinary issue comments', async 
   assert.equal(result.reviewComment, '101');
 });
 
+test('dispatch Plan PR comment uses the standard PR review reply instruction', async () => {
+  const originalReviewInstruction = agentrix.buildReviewCommentResumeInstruction;
+  let reviewInstructionInput;
+  agentrix.buildReviewCommentResumeInstruction = (pullRequest, comment, data) => {
+    reviewInstructionInput = { pullRequest, comment, data };
+    return 'standard review reply instruction';
+  };
+
+  try {
+    const result = await runReviewComment(
+      { dryRun: true },
+      {
+        payload: githubReviewCommentPayload({
+          issueComment: true,
+          commentBody: '## Visual Plan Review\n\n请修改。',
+          body: [
+            '<!-- issue-flow:source-issue=42 -->',
+            '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
+            '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+          ].join('\n'),
+          labels: [{ name: 'mr-by::plan' }],
+        }),
+      }
+    );
+
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.taskId, 'task-plan-42');
+    assert.equal(reviewInstructionInput.data.sourceIssueNumber, 42);
+    assert.equal(reviewInstructionInput.comment.body, '## Visual Plan Review\n\n请修改。');
+    assert.match(reviewInstructionInput.pullRequest.body, /format=json/);
+  } finally {
+    agentrix.buildReviewCommentResumeInstruction = originalReviewInstruction;
+  }
+});
+
 test('dispatch review-comment skips issue-flow sourced comments', async () => {
   const result = await runReviewComment(
     { dryRun: true },
@@ -383,13 +418,15 @@ test('dispatch review-comment skips missing PR task marker and closed PRs', asyn
   assert.equal(closed.reason, 'pull_request_not_open');
 });
 
-test('dispatch review-comment acknowledges with reaction only', async () => {
+test('dispatch review-comment acknowledges without posting another task message', async () => {
   const originalCreate = providers.github.createPullRequestComment;
   const originalUpdate = providers.github.updatePullRequestComment;
   const originalReaction = providers.github.addReviewCommentReaction;
   const reactions = [];
-  providers.github.createPullRequestComment = async () => {
-    throw new Error('review-comment resume should not create a PR task comment');
+  const comments = [];
+  providers.github.createPullRequestComment = async (pr, body) => {
+    comments.push({ pr: pr.number, body });
+    return { id: 104, body };
   };
   providers.github.updatePullRequestComment = async () => {
     throw new Error('review-comment resume should not update a PR task comment');
@@ -407,6 +444,7 @@ test('dispatch review-comment acknowledges with reaction only', async () => {
     assert.equal(result.action, 'task_resume');
     assert.equal(result.reviewComment, '103');
     assert.deepEqual(reactions, [{ pr: 9, comment: '103', content: 'eyes' }]);
+    assert.deepEqual(comments, []);
   } finally {
     providers.github.createPullRequestComment = originalCreate;
     providers.github.updatePullRequestComment = originalUpdate;
@@ -565,6 +603,48 @@ test('dispatch auto skips non-routing labeled events', async () => {
   });
 });
 
+test('dispatch auto does not create a second Plan task after Decision approval', async () => {
+  const originalList = providers.github.listIssueComments;
+  providers.github.listIssueComments = async () => [{
+    id: 300,
+    body: agentrix.buildTaskComment('plan', {
+      status: 'queued',
+      runId: 'task-plan-42',
+      detailUrl: 'https://agentrix.example/tasks/task-plan-42',
+    }),
+  }];
+
+  try {
+    const result = await runAuto(
+      { dryRun: true, autoDefault: 'plan' },
+      {
+        payload: {
+          action: 'labeled',
+          label: { name: 'flow::plan' },
+          issue: {
+            number: 42,
+            state: 'open',
+            labels: [
+              { name: 'status::active' },
+              { name: 'flow::plan' },
+              { name: 'feature:visual-plan:on' },
+              { name: 'automation::plan' },
+              { name: 'size::M' },
+            ],
+          },
+          repository: { full_name: 'example/platform' },
+        },
+      }
+    );
+
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'decision_review_resumes_original_task');
+    assert.equal(result.taskId, 'task-plan-42');
+  } finally {
+    providers.github.listIssueComments = originalList;
+  }
+});
+
 test('dispatch auto blocks conflicting size labels before runtime starts', async () => {
   const result = await runAuto(
     {
@@ -689,6 +769,46 @@ test('dispatch pr-merged auto-resumes plan merges into build action', async () =
   }
 });
 
+test('dispatch Decision merge resumes the original Plan task', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-dispatch-decision-merged-test-'));
+  const eventPath = path.join(root, 'event.json');
+  fs.writeFileSync(
+    eventPath,
+    JSON.stringify({
+      pull_request: {
+        number: 9,
+        html_url: 'https://github.com/example/platform/pull/9',
+        merged: true,
+        labels: [{ name: 'mr-by::plan' }],
+        body: [
+          '<!-- issue-flow:source-issue=42 -->',
+          '<!-- issue-flow:agentrix:task=task-plan-42 -->',
+          '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision-data.json -->',
+        ].join('\n'),
+        title: 'Decision #42: Add widget support',
+        head: { ref: '42-add-widget-support/plan' },
+      },
+      repository: { full_name: 'example/platform' },
+    })
+  );
+
+  try {
+    const result = await runPrMerged({
+      event: eventPath,
+      dryRun: true,
+      autoDefault: 'build',
+    });
+
+    assert.equal(result.transition.kind, 'decision');
+    assert.equal(result.transition.flow, 'flow::plan');
+    assert.equal(result.transition.taskId, 'task-plan-42');
+    assert.equal(result.autoResume.action, 'task_resume');
+    assert.equal(result.autoResume.result.status, 'dry-run');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('dispatch pipeline-failed directly auto-resumes created failure issue', async () => {
   const original = pipelineFailed.runFailureIntake;
   pipelineFailed.runFailureIntake = async () => ({
@@ -746,42 +866,6 @@ test('dispatch pipeline-failed does not auto-resume skipped intake', async () =>
   } finally {
     pipelineFailed.runFailureIntake = original;
   }
-});
-
-test('dispatch pr-merged accepts Agentrix GitLab bridge MR labels and body', async () => {
-  await withEnv({
-    AGENTRIX_TRIGGER_SOURCE: 'agentrix_daemon_webhook',
-    AGENTRIX_PROVIDER: 'gitlab',
-    AGENTRIX_EVENT_NAME: 'pull_request',
-    AGENTRIX_EVENT_ACTION: 'closed',
-    AGENTRIX_PULL_REQUEST_MERGED: 'true',
-    AGENTRIX_PR_NUMBER: '7',
-    AGENTRIX_HEAD_REF: '42-add-widget-support/plan',
-    AGENTRIX_BASE_REF: 'main',
-    AGENTRIX_MR_TITLE: 'Plan #42: Add widget support',
-    AGENTRIX_PR_BODY: '<!-- issue-flow:source-issue=42 -->\nSource issue: #42',
-    AGENTRIX_MR_DESCRIPTION: '<!-- issue-flow:source-issue=42 -->\nSource issue: #42',
-    AGENTRIX_MR_URL: 'https://gitlab.example/example/platform/-/merge_requests/7',
-    AGENTRIX_LABELS: 'mr-by::plan',
-    AGENTRIX_LABELS_JSON: '["mr-by::plan"]',
-    CI_PROJECT_ID: '99',
-    CI_PROJECT_PATH: 'example/platform',
-    GITHUB_EVENT_PATH: undefined,
-    GITLAB_EVENT_PATH: undefined,
-  }, async () => {
-    const result = await runPrMerged({
-      provider: 'gitlab',
-      dryRun: true,
-      autoDefault: 'build',
-    });
-
-    assert.equal(result.transition.provider, 'gitlab');
-    assert.equal(result.transition.action, 'applied');
-    assert.equal(result.transition.issueNumber, 42);
-    assert.equal(result.transition.flow, 'flow::build');
-    assert.equal(result.autoResume.action, 'build');
-    assert.equal(result.autoResume.result.status, 'dry-run');
-  });
 });
 
 test('dispatch pr-merged accepts current GitLab bridge MR labels and body', async () => {

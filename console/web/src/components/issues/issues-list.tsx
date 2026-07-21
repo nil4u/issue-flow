@@ -1,9 +1,9 @@
 import type { ReactNode } from "react"
-import { ExternalLink, Search, X } from "lucide-react"
+import { ExternalLink, Eye, Search, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { IssueRow } from "@/issue-flow-model"
+import type { IssueRow, ReviewablePlanArtifact } from "@/issue-flow-model"
 import { formatWhen } from "@/issue-flow-model"
 
 import { emptyIssueFilters, issueLane, issueLanes, type IssueFilters } from "./issue-view-model"
@@ -16,6 +16,8 @@ export function IssuesList({
   activeFilterCount,
   onFilters,
   issueHref,
+  reviewArtifacts,
+  reviewHref,
 }: {
   issues: IssueRow[]
   filters: IssueFilters
@@ -23,6 +25,8 @@ export function IssuesList({
   activeFilterCount: number
   onFilters: (filters: IssueFilters) => void
   issueHref: (issueNumber: number) => string
+  reviewArtifacts: ReviewablePlanArtifact[]
+  reviewHref: (issueNumber: number) => string
 }) {
   return (
     <>
@@ -32,7 +36,7 @@ export function IssuesList({
         activeFilterCount={activeFilterCount}
         onFilters={onFilters}
       />
-      <IssueListTable issues={issues} issueHref={issueHref} />
+      <IssueListTable issues={issues} issueHref={issueHref} reviewArtifacts={reviewArtifacts} reviewHref={reviewHref} />
     </>
   )
 }
@@ -104,7 +108,7 @@ function IssueSelect({
   )
 }
 
-function IssueListTable({ issues, issueHref }: { issues: IssueRow[]; issueHref: (issueNumber: number) => string }) {
+function IssueListTable({ issues, issueHref, reviewArtifacts, reviewHref }: { issues: IssueRow[]; issueHref: (issueNumber: number) => string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   if (issues.length === 0) {
     return <div className="issue-list-empty">没有匹配的 issue</div>
   }
@@ -126,14 +130,14 @@ function IssueListTable({ issues, issueHref }: { issues: IssueRow[]; issueHref: 
           </tr>
         </thead>
         <tbody>
-          {issues.map((issue) => <IssueListRow key={issue.id} issue={issue} href={issueHref(issue.issueNumber)} />)}
+          {issues.map((issue) => <IssueListRow key={issue.id} issue={issue} href={issueHref(issue.issueNumber)} reviewArtifacts={reviewArtifacts.filter((artifact) => artifact.issueNumber === issue.issueNumber)} reviewHref={reviewHref} />)}
         </tbody>
       </table>
     </div>
   )
 }
 
-function IssueListRow({ issue, href }: { issue: IssueRow; href: string }) {
+function IssueListRow({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueRow; href: string; reviewArtifacts: ReviewablePlanArtifact[]; reviewHref: (issueNumber: number) => string }) {
   const lane = issueLane(issue)
 
   return (
@@ -152,6 +156,12 @@ function IssueListRow({ issue, href }: { issue: IssueRow; href: string }) {
       <td className="issue-metric-cell"><IssueMetric issue={issue} kind="agentTime" plain /></td>
       <td>{formatWhen(issue.updatedAt || issue.openedAt || "") || "-"}</td>
       <td className="issue-link-cell">
+        {reviewArtifacts.map((artifact) => (
+          <a key={artifact.type} className="issue-review-link" href={reviewHref(issue.issueNumber)} title={artifact.type === "decision" ? "查看决策" : "查看方案"}>
+            <Eye className="size-4" />
+            <span>{artifact.type === "decision" ? "Decision" : "Plan"}</span>
+          </a>
+        ))}
         <a
           className="issue-external-link"
           href={href}

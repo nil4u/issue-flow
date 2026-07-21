@@ -1,7 +1,12 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
+  applyIssueMilestone,
+  collectClearKeys,
   collectDesiredLabels,
   computeLabelChanges,
   shouldSkipIssueBodyUpdate,
@@ -13,6 +18,34 @@ const {
   labelsForScope,
   resolveIssueSizeLabel,
 } = require('../skills/issue-flow/scripts/labels.cjs');
+
+test('triage can apply an explicit milestone without running-task guards', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-apply-milestone-'));
+  const config = path.join(dir, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({ milestone: { enabled: true } }), 'utf8');
+  const applied = [];
+  const provider = {
+    getMilestoneByTitle: async (_repo, title) => ({ id: 7, title, state: 'open' }),
+    branchExists: async () => true,
+    setIssueMilestone: async (_target, milestone) => applied.push(milestone),
+  };
+  try {
+    assert.deepEqual(
+      await applyIssueMilestone({ number: 42 }, provider, {}, { config, milestone: 'release/0721' }),
+      { changed: true, milestone: 'release/0721' },
+    );
+    assert.deepEqual(
+      await applyIssueMilestone({ number: 42 }, provider, {}, { config, milestone: 'none' }),
+      { changed: true, milestone: null },
+    );
+    assert.deepEqual(applied, [
+      { id: 7, title: 'release/0721', state: 'open' },
+      null,
+    ]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('catalog covers issue and PR/MR managed labels with stable metadata', () => {
   assert.deepEqual(
@@ -31,6 +64,7 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'flow::build',
       'flow::clarify',
       'flow::approve',
+      'feature:visual-plan:on',
       'automation::off',
       'automation::plan',
       'automation::build',
@@ -59,12 +93,28 @@ test('catalog exposes lookup by label name', () => {
   assert.equal(labelDefinitionFor('missing'), undefined);
 });
 
-test('apply script accepts explicit automation opt-out plus plan and build issue labels', () => {
+test('apply script accepts explicit automation opt-out', () => {
   assert.throws(
     () => collectDesiredLabels({ automation: 'automation::triage' }),
     /automation must be one of: automation::off, automation::plan, automation::build/
   );
   assert.deepEqual(collectDesiredLabels({ automation: 'automation::off' }), { automation: 'automation::off' });
+});
+
+test('apply script accepts the visual plan feature switch without touching review status', () => {
+  assert.deepEqual(collectDesiredLabels({ visualPlanFeature: 'feature:visual-plan:on' }), { visualPlanFeature: 'feature:visual-plan:on' });
+  assert.deepEqual(
+    computeLabelChanges(
+      [],
+      { visualPlanFeature: 'feature:visual-plan:on' }
+    ),
+    { labelsToAdd: ['feature:visual-plan:on'], labelsToRemove: [] }
+  );
+  assert.deepEqual(collectClearKeys({ clearVisualPlanFeature: true }), ['visualPlanFeature']);
+  assert.deepEqual(
+    computeLabelChanges(['feature:visual-plan:on'], {}, ['visualPlanFeature']),
+    { labelsToAdd: [], labelsToRemove: ['feature:visual-plan:on'] }
+  );
 });
 
 test('apply script accepts and validates size labels', () => {

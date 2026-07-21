@@ -8,6 +8,7 @@ const { Pool } = require('pg');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const packageVersion = require('../../../plugin/package.json').version;
+const { labelsForScope } = require('../../../plugin/skills/issue-flow/scripts/labels.cjs');
 
 function loadDatabaseUrl() {
   if (process.env.DATABASE_URL) {
@@ -44,6 +45,7 @@ const {
   getGitlabProjectRole,
   listGitlabProjectsWithInstallStatus,
   setGitlabProjectInstallPermission,
+  setGitlabProjectInstallLabels,
   setGitlabProjectInstallRunner,
   setGitlabProjectInstallVariable,
   setGitlabProjectInstallWebhook,
@@ -1047,6 +1049,21 @@ test('GitLab webhook bridge normalizes supported event classes', () => {
   }, 'webhook-secret');
   assert.equal(pipeline.events[0].eventName, 'workflow_run');
   assert.equal(pipeline.events[0].workflowRun.conclusion, 'failure');
+
+  const branch = normalizeGitLabWebhook({
+    headers,
+    body: {
+      object_kind: 'push',
+      ref: 'refs/heads/release/0721',
+      before: '0000000000000000000000000000000000000000',
+      after: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      project: { id: 42, path_with_namespace: 'team/app', default_branch: 'main' },
+    },
+  }, 'webhook-secret');
+  assert.equal(branch.events[0].eventName, 'create');
+  assert.equal(branch.events[0].eventAction, 'created');
+  assert.equal(branch.events[0].refType, 'branch');
+  assert.equal(branch.events[0].ref, 'release/0721');
 });
 
 test('git events project issue snapshots and flow spans', async () => {
@@ -1610,7 +1627,10 @@ test('GitLab merge request close webhook clears pending plugin MR', async () => 
     const repo = await store.getRepository(created.repo.id);
     const plugin = repo.settings.plugins.items.find((item) => item.key === 'issue-flow');
     assert.equal(plugin.pendingMergeRequest, undefined);
+    assert.equal(plugin.latestVersion, packageVersion);
     assert.equal(plugin.needsUpgrade, true);
+    assert.equal(plugin.status, 'needs_action');
+    assert.equal(plugin.detail, `0.1.0 -> ${packageVersion}`);
   } finally {
     await close(gitlab);
     await store.close();
@@ -2557,6 +2577,7 @@ function createInstallVariableGitlabServer({ variables = new Map(), writes = [],
 test('GitLab settings checks variables independently and caches safe metadata', async () => {
   const { dir, store } = tempStore();
   const variables = new Map([
+    ['ISSUE_FLOW_BASE_URL', { key: 'ISSUE_FLOW_BASE_URL', value: 'https://issue-flow.internal', environment_scope: '*', variable_type: 'env_var' }],
     ['AGENTRIX_BASE_URL', { key: 'AGENTRIX_BASE_URL', value: 'https://agentrix.xmz.ai', environment_scope: '*', variable_type: 'env_var' }],
     ['AGENTRIX_API_KEY', { key: 'AGENTRIX_API_KEY', environment_scope: '*', variable_type: 'env_var', masked: true }],
     ['AGENTRIX_ISSUE_FLOW_AGENT', { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: 'codex', environment_scope: '*', variable_type: 'env_var' }],
@@ -2733,6 +2754,9 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(apiKey.detail, '已设置');
     assert.equal(apiKey.value, '*****');
     assert.equal(apiKey.scope, '*');
+    const issueFlowBaseUrl = checked.body.steps[0].variables.find((item) => item.key === 'ISSUE_FLOW_BASE_URL');
+    assert.equal(issueFlowBaseUrl.status, 'passed');
+    assert.equal(issueFlowBaseUrl.value, 'https://issue-flow.internal');
     const token = checked.body.steps[0].variables.find((item) => item.key === 'ISSUE_FLOW_GITLAB_TOKEN');
     assert.equal(token.status, 'pending_auto');
     assert.equal(token.autoWritable, true);
@@ -2752,7 +2776,7 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     assert.equal(cachedApiKey.value, '*****');
     assert.equal(cachedApiKey.status, undefined);
     assert.equal(cachedApiKey.detail, undefined);
-    assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'variable' } }), 5);
+    assert.equal(await store.db.repoSettingItem.count({ where: { repoId: repo.id, kind: 'variable' } }), 6);
 
     const tokenCreated = await setGitlabProjectInstallVariable({
       store,
@@ -2836,6 +2860,7 @@ test('GitLab install variables auto-configures writable rows before manual block
 
     const result = await setGitlabProjectInstallVariable({
       store,
+      basePublicUrl: 'https://issue-flow.internal/',
       session: await store.getSession(session.id),
       env: { ...process.env, ISSUE_FLOW_AGENTRIX_BASE_URL: agentrixBase },
       input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
@@ -2851,6 +2876,7 @@ test('GitLab install variables auto-configures writable rows before manual block
     assert.equal(result.body.installable, false);
     for (const key of [
       'ISSUE_FLOW_GITLAB_TOKEN',
+      'ISSUE_FLOW_BASE_URL',
       'AGENTRIX_BASE_URL',
       'AGENTRIX_API_KEY',
       'AGENTRIX_ISSUE_FLOW_AGENT',
@@ -2861,6 +2887,7 @@ test('GitLab install variables auto-configures writable rows before manual block
       assert.equal(byKey.get(key).blocker, false, key);
     }
     assert.equal(byKey.get('AGENTRIX_API_KEY').value, '*****');
+    assert.equal(byKey.get('ISSUE_FLOW_BASE_URL').value, 'https://issue-flow.internal');
     assert.equal(byKey.get('ISSUE_FLOW_AUTO_DEFAULT').value, 'triage');
     assert.equal(byKey.get('ISSUE_FLOW_REVIEW_ENABLED').value, 'false');
     assert.equal(byKey.get('AGENTRIX_RUNNER_ID').status, 'manual_required');
@@ -2870,6 +2897,7 @@ test('GitLab install variables auto-configures writable rows before manual block
       'AGENTRIX_BASE_URL',
       'AGENTRIX_ISSUE_FLOW_AGENT',
       'ISSUE_FLOW_AUTO_DEFAULT',
+      'ISSUE_FLOW_BASE_URL',
       'ISSUE_FLOW_GITLAB_TOKEN',
       'ISSUE_FLOW_REVIEW_ENABLED',
     ].sort());
@@ -2917,6 +2945,7 @@ test('GitLab install variable write failure marks only that row failed', async (
 
     const result = await setGitlabProjectInstallVariable({
       store,
+      basePublicUrl: 'https://issue-flow.internal',
       session: await store.getSession(session.id),
       env: { ...process.env, ISSUE_FLOW_AGENTRIX_BASE_URL: agentrixBase },
       input: {
@@ -2940,6 +2969,7 @@ test('GitLab install variable write failure marks only that row failed', async (
     assert.match(byKey.get('AGENTRIX_BASE_URL').detail, /HTTP_500/);
     for (const key of [
       'ISSUE_FLOW_GITLAB_TOKEN',
+      'ISSUE_FLOW_BASE_URL',
       'AGENTRIX_API_KEY',
       'AGENTRIX_RUNNER_ID',
       'AGENTRIX_ISSUE_FLOW_AGENT',
@@ -2952,6 +2982,88 @@ test('GitLab install variable write failure marks only that row failed', async (
   } finally {
     await close(gitlab);
     await close(agentrix);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab install check automatically synchronizes missing Issue Flow labels', async () => {
+  const { dir, store } = tempStore();
+  const definitions = labelsForScope('all');
+  const missingNames = new Set(['feature:visual-plan:on']);
+  const labels = new Map(definitions
+    .filter((definition) => !missingNames.has(definition.name))
+    .map((definition) => [definition.name, {
+      name: definition.name,
+      color: `#${definition.color}`,
+      description: definition.description,
+    }]));
+  const created = [];
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/user') {
+      assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', name: 'Alice' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 42, name: 'App', path_with_namespace: 'team/app', default_branch: 'main' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/members/all/100' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 100, username: 'alice', access_level: 50 }));
+      return;
+    }
+    if (req.url.startsWith('/api/v4/projects/42/labels?') && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'x-next-page': '' });
+      res.end(JSON.stringify(Array.from(labels.values())));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/labels' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        const label = JSON.parse(raw);
+        created.push(label.name);
+        labels.set(label.name, label);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(label));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      projectPath: 'team/app',
+      defaultBranch: 'main',
+      webUrl: `${gitlabBase}/team/app`,
+    });
+    const checked = await checkGitlabProjectInstall({
+      store,
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'labels' },
+    });
+    assert.equal(checked.status, 200);
+    assert.equal(checked.body.steps[0].id, 'labels');
+    assert.equal(checked.body.steps[0].status, 'needs_action');
+    assert.deepEqual(checked.body.steps[0].missing, Array.from(missingNames));
+
+    const synchronized = await setGitlabProjectInstallLabels({
+      store,
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42' },
+    });
+    assert.equal(synchronized.status, 200);
+    assert.equal(synchronized.body.steps[0].status, 'passed');
+    assert.deepEqual(created, Array.from(missingNames));
+  } finally {
+    await close(gitlab);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -3366,6 +3478,7 @@ test('GitLab webhook check only caches hooks matched from GitLab', async () => {
     hooks = [{
       id: 9001,
       url: expectedWebhookUrl,
+      push_events: true,
       issues_events: true,
       note_events: true,
       merge_requests_events: true,
@@ -3387,6 +3500,17 @@ test('GitLab webhook check only caches hooks matched from GitLab', async () => {
     });
     assert.equal(cached.data.url, expectedWebhookUrl);
     assert.equal(cached.data.hookId, '9001');
+    assert.equal(cached.data.pushEvents, true);
+
+    hooks[0].push_events = false;
+    const missingPush = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'webhook' },
+    });
+    assert.equal(missingPush.status, 200);
+    assert.equal(missingPush.body.steps[0].status, 'needs_action');
+    assert.match(missingPush.body.steps[0].detail, /Push events/);
 
     hooks = [];
     const missing = await checkGitlabProjectInstall({
@@ -3449,6 +3573,7 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
         assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
         assert.equal(body.url, expectedWebhookUrl);
         assert.equal(body.token, 'backend-webhook-secret');
+        assert.equal(body.push_events, true);
         assert.equal(body.issues_events, true);
         assert.equal(body.note_events, true);
         assert.equal(body.merge_requests_events, true);
@@ -3456,6 +3581,7 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
         res.end(JSON.stringify({
           id: 9101,
           url: body.url,
+          push_events: true,
           issues_events: true,
           note_events: true,
           merge_requests_events: true,
@@ -3504,6 +3630,7 @@ test('GitLab webhook auto configure creates hook and caches returned GitLab fact
     });
     assert.equal(cached.data.url, expectedWebhookUrl);
     assert.equal(cached.data.hookId, '9101');
+    assert.equal(cached.data.pushEvents, true);
     assert.equal(cached.data.issuesEvents, true);
     assert.deepEqual(calls, [
       'GET /api/v4/user',
@@ -3713,6 +3840,7 @@ test('GitLab webhook upsert updates an existing hook by URL when hook id is unkn
         assert.equal(req.headers.authorization, 'Bearer gl-oauth-user-token');
         assert.equal(body.url, 'https://issue-flow.internal/webhooks/gitlab/repo_existing');
         assert.equal(body.token, 'backend-webhook-secret');
+        assert.equal(body.push_events, true);
         assert.equal(body.issues_events, true);
         assert.equal(body.note_events, true);
         res.writeHead(200, { 'Content-Type': 'application/json' });
