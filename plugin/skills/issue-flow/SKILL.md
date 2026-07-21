@@ -16,7 +16,7 @@ Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态�
 在 issue-flow 下工作时，agent-facing provider 操作必须使用统一入口：
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs <resource> <action> [options]
+node .issue-flow/cli.cjs <resource> <action> [options]
 ```
 
 如果环境已安装 bin，也可以使用：
@@ -25,7 +25,7 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs <resource> <action> [options]
 issue-flow <resource> <action> [options]
 ```
 
-`${CLAUDE_SKILL_DIR}` 由 Claude 运行时注入；未定义时，用本 SKILL.md 所在目录替代（`cli.cjs` 与 SKILL.md 同目录）。
+所有命令都从仓库根目录执行。`.issue-flow/cli.cjs` 是安装器创建的稳定入口，Agentrix、Codex 与 Claude Code 共用同一路径。
 
 不要为 issue-flow 已覆盖的动作直接调用 `gh`、`glab`、`gh api`、`glab api`，也不要手写 GitHub/GitLab REST/GraphQL 请求。provider 内部可以使用 token API 或 CLI fallback，但这个选择由 issue-flow 封装。
 
@@ -55,15 +55,15 @@ issue-flow <resource> <action> [options]
 ### Issue
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue get --issue 123
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue create --title "<normalized title>" --body-file <tmp-issue-body-file> \
+node .issue-flow/cli.cjs issue get --issue 123
+node .issue-flow/cli.cjs issue create --title "<normalized title>" --body-file <tmp-issue-body-file> \
   --type type::feature --status status::active --flow flow::plan --priority priority::p2 --size size::M [--milestone <title|none>]
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build --size size::M [--milestone <title|none>]
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --type type::bug --normalized-body-file <tmp-normalized-body-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue intake --issue 123
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments list --issue 123
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue comments create --issue 123 --body-file <tmp-comment-body-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
+node .issue-flow/cli.cjs issue apply --issue 123 --flow flow::build --automation automation::build --size size::M [--milestone <title|none>]
+node .issue-flow/cli.cjs issue apply --issue 123 --type type::bug --normalized-body-file <tmp-normalized-body-file>
+node .issue-flow/cli.cjs issue intake --issue 123
+node .issue-flow/cli.cjs issue comments list --issue 123
+node .issue-flow/cli.cjs issue comments create --issue 123 --body-file <tmp-comment-body-file>
+node .issue-flow/cli.cjs issue acknowledge --issue 123
 ```
 
 - `issue apply` 只移除指定 prefix 的旧 label，不动其他 prefix。
@@ -81,16 +81,16 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue acknowledge --issue 123
 ### PR/MR
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr get --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --artifact decision
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan --issue 123 --artifact plan
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build --issue 123 --title "Build #123: Add auth" --body-file <tmp-pr-body-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments list --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review-comments list --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
+node .issue-flow/cli.cjs pr get --pr 45
+node .issue-flow/cli.cjs pr submit plan --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
+node .issue-flow/cli.cjs pr submit plan --issue 123 --artifact decision
+node .issue-flow/cli.cjs pr submit plan --issue 123 --artifact plan
+node .issue-flow/cli.cjs pr submit build --issue 123 --title "Build #123: Add auth" --body-file <tmp-pr-body-file>
+node .issue-flow/cli.cjs pr comments list --pr 45
+node .issue-flow/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
+node .issue-flow/cli.cjs pr review-comments list --pr 45
+node .issue-flow/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]
+node .issue-flow/cli.cjs pr merged --event <event-json-file>
 ```
 
 `pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
@@ -98,15 +98,15 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs pr merged --event <event-json-file>
 ### Milestone、Labels 和 Dispatch
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs labels sync
-node ${CLAUDE_SKILL_DIR}/cli.cjs labels check
-node ${CLAUDE_SKILL_DIR}/cli.cjs milestone list
-node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch auto --event <event-json-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch comment --event <event-json-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch review --pr 45
-node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch review-comment --event <event-json-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch resume --event <event-json-file>
-node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-file>
+node .issue-flow/cli.cjs labels sync
+node .issue-flow/cli.cjs labels check
+node .issue-flow/cli.cjs milestone list
+node .issue-flow/cli.cjs dispatch auto --event <event-json-file>
+node .issue-flow/cli.cjs dispatch comment --event <event-json-file>
+node .issue-flow/cli.cjs dispatch review --pr 45
+node .issue-flow/cli.cjs dispatch review-comment --event <event-json-file>
+node .issue-flow/cli.cjs dispatch resume --event <event-json-file>
+node .issue-flow/cli.cjs dispatch pipeline-failed --event <event-json-file>
 ```
 
 所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
@@ -123,18 +123,18 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs dispatch pipeline-failed --event <event-json-fi
 
 ```bash
 # 实现路径已确定的简单改动，直接进入 build：
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+node .issue-flow/cli.cjs issue apply --issue 123 \
   --type type::feature --priority priority::p1 --flow flow::build --automation automation::build
 # 需要先规划；默认使用 Markdown Plan：
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+node .issue-flow/cli.cjs issue apply --issue 123 \
   --type type::feature --priority priority::p1 --flow flow::plan --automation automation::build
 
 # 为单个 issue 开启 Visual Plan：
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+node .issue-flow/cli.cjs issue apply --issue 123 \
   --visual-plan-feature feature:visual-plan:on
 
 # 切回默认 Markdown Plan：
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
+node .issue-flow/cli.cjs issue apply --issue 123 \
   --clear-visual-plan-feature
 ```
 
@@ -142,15 +142,15 @@ node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 \
 
 ```bash
 # 默认（无 feature:visual-plan:on）：提交 Markdown Plan：
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
+node .issue-flow/cli.cjs pr submit plan \
   --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
 
 # feature:visual-plan:on 且有阻塞选择时只发布 Decision：
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
+node .issue-flow/cli.cjs pr submit plan \
   --issue 123 --artifact decision
 
 # feature:visual-plan:on 且无阻塞选择或 Decision 已批准时发布 Plan：
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit plan \
+node .issue-flow/cli.cjs pr submit plan \
   --issue 123 --artifact plan
 ```
 
@@ -161,20 +161,20 @@ Markdown Plan 与 Visual Plan 的等待审批与已批准状态分别由 open/me
 ```bash
 # 1. 按 plan 实现代码
 # 2. 提交 PR/MR
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr submit build \
+node .issue-flow/cli.cjs pr submit build \
   --issue 123 --title "Build #123: Add auth" --body-file <tmp-body-file>
 ```
 
 ### Review
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs pr review --pr <num> --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]
+node .issue-flow/cli.cjs pr review --pr <num> --body-file <tmp-review-body-file> [--comments-file <tmp-inline-comments-json>] [--as-comment]
 ```
 
 ### 信息不足
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/cli.cjs issue apply --issue 123 --flow flow::clarify
+node .issue-flow/cli.cjs issue apply --issue 123 --flow flow::clarify
 # 然后按照具体 agent runtime 的说明在指定的位置进行问题澄清
 ```
 

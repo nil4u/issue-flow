@@ -3,8 +3,10 @@
 Agent-facing provider 操作统一通过 `issue-flow <resource> <action> [options]` 完成。安装前或目标仓库内可直接使用：
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs <resource> <action> [options]
+node .issue-flow/cli.cjs <resource> <action> [options]
 ```
+
+命令必须从目标仓库根目录执行。`.issue-flow/cli.cjs` 由安装器管理，并指向实体 skill 中的统一 CLI。
 
 本仓库 checkout 中可使用：
 

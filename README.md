@@ -8,7 +8,7 @@ This repository is an npm-workspaces monorepo with two independently versioned p
 
 - `plugin/` - the issue-flow plugin/CLI: installer, skill, deterministic scripts, docs, and tests. Zero runtime dependencies beyond Node.js built-ins.
 - `console/` - the management console: `console/api` (Fastify + Prisma API service) and `console/web` (Vite/React web console).
-- Root-level `.agentrix/`, `.issue-flow/`, and `.github/workflows/issue-flow-*.yml` are this repository's own installed copy of the plugin (dogfooding), managed by the installer rather than edited by hand.
+- Root-level `.agentrix/`, `.agents/skills/`, `.claude/skills/`, `.issue-flow/`, and `.github/workflows/issue-flow-*.yml` are this repository's own installed copy of the plugin (dogfooding), managed by the installer rather than edited by hand.
 
 ## Install
 
@@ -38,7 +38,7 @@ Overwrite generated files:
 curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/install.sh -o /tmp/issue-flow-install.sh && bash /tmp/issue-flow-install.sh github --force
 ```
 
-The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project.
+The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project. It also links the installed skills into the project-level Codex (`.agents/skills/`) and Claude Code (`.claude/skills/`) discovery directories.
 After you commit and push the installed files, the installed CI workflow automatically synchronizes the built-in provider labels.
 That job creates missing labels and updates label colors/descriptions when they drift. If the workflow token cannot manage repository/project labels, the label sync job fails and the rest of the installed files remain unchanged.
 
@@ -47,7 +47,7 @@ That job creates missing labels and updates label colors/descriptions when they 
 After an AI discussion clarifies a self-initiated requirement, the installed skill can create a standardized provider issue through the unified CLI:
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs issue create \
+node .issue-flow/cli.cjs issue create \
   --title "Add export support" \
   --body-file /tmp/issue-body.md \
   --type type::feature \
@@ -74,7 +74,7 @@ Matching branch create/delete events open or close a same-name Milestone. Before
 
 Size labels also define Weighted Throughput: for completed issues in a time window, sum the weight of each issue's unique `size::` label (`XS=0.5`, `S=1`, `M=2`, `L=3`, `XL=5`). Issues without a size or with conflicting sizes should be excluded from the statistic.
 
-Use `node .agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs --help` to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
+Use `node .issue-flow/cli.cjs --help` from the repository root to discover issue, PR/MR, label, comment, review, and dispatch commands. Agent-facing provider actions covered by issue-flow should go through this CLI rather than direct `gh`, `glab`, or handwritten provider API calls.
 
 ## Visual Decision and Plan
 
@@ -112,7 +112,7 @@ ISSUE_FLOW_REF=v0.1.1 \
 
 ## Reinstall and Upgrade
 
-The installer writes `.issue-flow/install-manifest.json` with the source path, mode, and sha256 for installed files. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, and removes stale files that were installed before and have not been edited.
+The installer writes `.issue-flow/install-manifest.json` with tracked files and managed symlink targets. On reinstall, issue-flow automatically writes new files, updates files that still match the previous manifest, repairs managed links, and removes stale entries that have not been edited.
 
 If an installed file was edited locally, reinstall prompts in an interactive terminal:
 
@@ -125,6 +125,8 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 ## What It Installs
 
 - `.agentrix/plugins/issue-flow/` - plugin manifest, Issue Flow and Vision Plan skills, scripts, and default prompts/templates
+- `.agents/skills/{issue-flow,vision-plan}` - Codex project skill links
+- `.claude/skills/{issue-flow,vision-plan}` - Claude Code project skill links
 - `.github/workflows/issue-flow-labels.yml` - automatic provider label synchronization after install or upgrade pushes
 - `.github/workflows/issue-flow-auto.yml` - automatic issue routing
 - `.github/workflows/issue-flow-comment.yml` - `@agentrix` issue comment routing
@@ -133,6 +135,7 @@ In non-interactive environments, conflicts fail without changing files. Re-run t
 - `.github/workflows/issue-flow-pr-review-comment.yml` - resumes the PR/MR Agentrix task when a new review comment is added
 - `.github/workflows/issue-flow-pr-merged.yml` - plan/build PR merge transitions
 - `.issue-flow/config.json` - issue-flow runtime path config
+- `.issue-flow/cli.cjs` - stable repository-local CLI link shared by all agents
 - `.issue-flow/install-manifest.json` - reinstall tracking metadata
 - `.issue-flow/prompts/` - default prompt files you can edit
 - `.issue-flow/templates/` - default plan templates you can edit

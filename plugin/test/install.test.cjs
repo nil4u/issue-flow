@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const repoRoot = path.resolve(__dirname, '..');
 const installScript = path.join(repoRoot, 'install.sh');
+const { MANAGED_SYMLINKS } = require('../skills/issue-flow/scripts/bootstrap.cjs');
 
 function makeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-install-test-'));
@@ -21,6 +22,14 @@ function runInstall(args, options = {}) {
       ...options.env,
     },
   });
+}
+
+function assertInstalledSymlinks(root) {
+  for (const [target, linkTarget] of MANAGED_SYMLINKS) {
+    const absoluteTarget = path.join(root, target);
+    assert.equal(fs.lstatSync(absoluteTarget).isSymbolicLink(), true);
+    assert.equal(fs.readlinkSync(absoluteTarget), linkTarget);
+  }
 }
 
 test('vision-plan skill links a manual covering every supported Engine section type', () => {
@@ -69,8 +78,16 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), false);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-impl.prompt.md'), 'utf8'), /提交方案(?:的)? PR\/MR/);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md'), 'utf8'), /Decision 或 Visual Plan/);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap-links.cjs')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap.cjs')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
+    assertInstalledSymlinks(root);
+    const cli = spawnSync(process.execPath, ['.issue-flow/cli.cjs', '--help'], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    assert.equal(cli.status, 0, cli.stderr || cli.stdout);
+    assert.match(cli.stdout, /Usage: issue-flow/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -84,6 +101,8 @@ test('install script dry-run does not write target files', () => {
     assert.match(result.stdout, /would_write \.agentrix\/plugins\/issue-flow\/\.claude-plugin\/plugin\.json/);
     assert.match(result.stdout, /would_write \.agentrix\/plugins\/issue-flow\/skills\/issue-flow/);
     assert.equal(fs.existsSync(path.join(root, '.agentrix')), false);
+    assert.equal(fs.existsSync(path.join(root, '.agents')), false);
+    assert.equal(fs.existsSync(path.join(root, '.claude')), false);
     assert.equal(fs.existsSync(path.join(root, '.github')), false);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow')), false);
   } finally {
@@ -123,6 +142,7 @@ test('install script installs GitLab root include from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
+    assertInstalledSymlinks(root);
     assert.match(
       fs.readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8'),
       /local: \.gitlab\/issue-flow\.gitlab-ci\.yml/

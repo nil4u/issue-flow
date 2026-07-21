@@ -8,7 +8,7 @@ npm-workspaces monorepo(Node 22),两个独立版本管理的产品加根级 dogf
 
 - `plugin/` — issue-flow 插件/CLI 产品(标签驱动的 issue 状态机与确定性 provider 操作)
 - `console/` — 管理控制台产品(`console/api` Fastify + Prisma API 服务,`console/web` Vite/React 前端)
-- 根级 `.agentrix/`、`.issue-flow/`、`.github/agentrix/`、`.github/workflows/issue-flow-*.yml` — 本仓库给自己安装的插件运行时(dogfooding),由安装器生成,不手工编辑;安装的插件副本在 `.agentrix/plugins/issue-flow/`,`.issue-flow/install-manifest.json` 记录来源与校验和
+- 根级 `.agentrix/`、`.agents/skills/`、`.claude/skills/`、`.issue-flow/`、`.github/agentrix/`、`.github/workflows/issue-flow-*.yml` — 本仓库给自己安装的插件运行时(dogfooding),由安装器生成,不手工编辑;安装的插件副本在 `.agentrix/plugins/issue-flow/`,Codex/Claude Code skill 与统一 CLI 通过相对 symlink 指向该副本,`.issue-flow/install-manifest.json` 记录文件与链接状态
 
 ## Structure
 
@@ -61,7 +61,7 @@ npm run test:integration              # plugin 真实远端集成测试(需要 G
 - `dispatch.cjs` — auto/comment/review/review-comment/resume/pipeline-failed 各事件入口
 - `apply.cjs`、`intake.cjs`、`create-issue.cjs`、`submit.cjs`、`review.cjs`、`pr-merged.cjs`、`pipeline-failed.cjs`、`sync-labels.cjs` — 具体状态机操作
 - `runtimes/agentrix.cjs` — Agentrix 运行时适配(组装 prompt/run/resume 参数)
-- `bootstrap.cjs` — 安装/初始化
+- `bootstrap.cjs`、`bootstrap-links.cjs` — 安装/初始化编排与 managed symlink 状态机
 
 状态机(详见 `plugin/docs/state-machine.md`):标签前缀 `type::`、`status::`、`flow::`(triage/plan/build/clarify/approve)、`automation::`、`priority::`、`size::`,同前缀互斥;`flow::clarify` 与 `flow::approve` 是人工闸门,绝不自动执行。PR 合并转换:`mr-by::plan` → `flow::build`,`mr-by::build` → `status::done`。plan/build 前必须恰好一个 `size::` 标签。
 
