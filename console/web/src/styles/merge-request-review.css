@@ -140,6 +140,8 @@
   .gh-inline-comment header span { color: var(--muted-foreground); }
   .gh-inline-comment > button { border: 0; background: transparent; color: var(--muted-foreground); }
   .gh-empty-diff { padding: 2rem; color: var(--muted-foreground); text-align: center; }
+  .gh-empty-diff.is-collapsed { display: flex; min-height: 7rem; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; }
+  .gh-empty-diff.is-collapsed p { margin: 0; font-size: .82rem; }
 
   .gh-markdown { min-width: 0; color: var(--foreground); font-size: .86rem; line-height: 1.65; overflow-wrap: anywhere; }
   .gh-markdown > :first-child { margin-top: 0; }

@@ -199,6 +199,17 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     finally { setCommentSubmitting(false) }
   }
 
+  async function expandFileDiff(path: string) {
+    setError("")
+    try {
+      const result = await api<{ file: MergeRequestFile }>(`${baseApi}/files/diff?path=${encodeURIComponent(path)}`)
+      setDetail((current) => current ? { ...current, files: current.files.map((file) => file.path === path ? result.file : file) } : current)
+    } catch (expandError) {
+      setError(expandError instanceof Error ? expandError.message : "加载文件 Diff 失败")
+      throw expandError
+    }
+  }
+
   async function approveMergeRequest() {
     if (!isOpen || !canApprove || hasApproved || approving) return
     setApproving(true); setError("")
@@ -274,7 +285,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
               <label><Search className="size-4" /><input value={fileFilter} onChange={(event) => setFileFilter(event.target.value)} placeholder="Filter files…" />{fileFilter ? <button type="button" onClick={() => setFileFilter("")} aria-label="清除文件筛选"><X className="size-3" /></button> : null}</label>
               <nav>{visibleFiles.map((file, index) => <a key={file.path} href={`#changed-file-${index}`}><Files className="size-4" /><code>{file.path}</code><span>{commentsByLine.size ? "" : file.status}</span></a>)}</nav>
             </aside>
-            <div className="gh-file-diffs">{visibleFiles.map((file, fileIndex) => <FileDiff key={file.path} file={file} fileIndex={fileIndex} isOpen={isOpen} commentsByLine={commentsByLine} draftComments={draftComments} onComment={openLineComment} onRemoveDraft={(id) => setDraftComments((current) => current.filter((item) => item.id !== id))} />)}</div>
+            <div className="gh-file-diffs">{visibleFiles.map((file, fileIndex) => <FileDiff key={file.path} file={file} fileIndex={fileIndex} isOpen={isOpen} commentsByLine={commentsByLine} draftComments={draftComments} onComment={openLineComment} onExpand={expandFileDiff} onRemoveDraft={(id) => setDraftComments((current) => current.filter((item) => item.id !== id))} />)}</div>
           </div>
         </section>
       )}
@@ -382,13 +393,22 @@ function TimelineCard({ author, createdAt, label, children }: { author?: MergeRe
 
 function MetaSection({ title, children }: { title: string; children: ReactNode }) { return <section><strong>{title}</strong>{children}</section> }
 
-function FileDiff({ file, fileIndex, isOpen, commentsByLine, draftComments, onComment, onRemoveDraft }: { file: MergeRequestFile; fileIndex: number; isOpen: boolean; commentsByLine: Map<string, MergeRequestComment[]>; draftComments: DraftComment[]; onComment: (file: MergeRequestFile, line: DiffLine) => void; onRemoveDraft: (id: string) => void }) {
+function FileDiff({ file, fileIndex, isOpen, commentsByLine, draftComments, onComment, onExpand, onRemoveDraft }: { file: MergeRequestFile; fileIndex: number; isOpen: boolean; commentsByLine: Map<string, MergeRequestComment[]>; draftComments: DraftComment[]; onComment: (file: MergeRequestFile, line: DiffLine) => void; onExpand: (path: string) => Promise<void>; onRemoveDraft: (id: string) => void }) {
+  const [expanding, setExpanding] = useState(false)
+
+  async function expand() {
+    if (expanding) return
+    setExpanding(true)
+    try { await onExpand(file.path) }
+    finally { setExpanding(false) }
+  }
+
   return <article id={`changed-file-${fileIndex}`} className="gh-file-diff"><header><FileCode2 className="size-4" /><code>{file.path}</code><div><b>+{file.additions}</b><span>-{file.deletions}</span><em>{file.status}</em></div></header>{file.patch ? <div className="gh-diff-table">{parsePatch(file.patch).map((line) => {
     const side = line.kind === "deletion" ? "LEFT" : "RIGHT"
     const lineNumber = side === "LEFT" ? line.oldLine : line.newLine
     const key = lineNumber ? commentKey(file.path, side, lineNumber) : ""
     return <div key={line.key} className={`gh-diff-line is-${line.kind}`}><span>{line.oldLine || ""}</span><span>{line.newLine || ""}</span><span className="gh-line-comment">{isOpen && lineNumber && !["header", "meta"].includes(line.kind) ? <button type="button" onClick={() => onComment(file, line)} aria-label={`在 ${file.path} 第 ${lineNumber} 行添加评论`}><Plus className="size-3" /></button> : null}</span><code>{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : line.kind === "context" ? " " : ""}{line.content}</code>{key ? commentsByLine.get(key)?.map((comment) => <InlineComment key={comment.id} comment={comment} />) : null}{key ? draftComments.filter((comment) => commentKey(comment.file.path, comment.side, comment.line) === key).map((comment) => <div key={comment.id} className="gh-inline-comment is-draft"><MessageCircle className="size-4" /><div><strong>Pending</strong><p>{comment.body}</p></div><button type="button" onClick={() => onRemoveDraft(comment.id)}><Trash2 className="size-4" /></button></div>) : null}</div>
-  })}</div> : <div className="gh-empty-diff">{file.truncated ? "Diff is too large to display." : "No diff available."}</div>}</article>
+  })}</div> : file.collapsed ? <div className="gh-empty-diff is-collapsed"><p>This file is collapsed by GitLab.</p><Button variant="secondary" onClick={() => void expand()} disabled={expanding}>{expanding ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}{expanding ? "Loading diff…" : "Load diff"}</Button></div> : <div className="gh-empty-diff">{file.truncated ? "Diff is too large to display." : "No diff available."}</div>}</article>
 }
 
 function InlineComment({ comment }: { comment: MergeRequestComment }) { return <div className="gh-inline-comment"><Avatar user={comment.author} /><div><header><strong>{comment.author.name || comment.author.username || "Unknown"}</strong><span>{formatWhen(comment.createdAt)}</span></header><MarkdownContent html={comment.bodyHtml} fallback={comment.body} /></div></div> }

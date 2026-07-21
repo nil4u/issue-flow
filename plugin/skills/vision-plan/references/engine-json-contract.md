@@ -23,7 +23,7 @@ Global rules:
 2. Set `artifact` to `decision` or `plan`.
 3. Give every independently reviewable object a stable `id`.
 4. Keep IDs unique inside their collection.
-5. Never include keys named `html`, `css`, `js`, `script`, or `style`.
+5. Never include keys named `html`, `css`, `js`, `script`, or `style`. A `custom-html` section references a separate file through `file`; it never embeds code in JSON.
 6. Never provide SVG, coordinates, dimensions, colors, classes, selectors, or layout instructions.
 7. Use only the canonical fields below. Unknown fields may not be rendered.
 
@@ -134,6 +134,7 @@ type PlanSection =
   | TreeSection
   | ErdSection
   | WireframeSection
+  | CustomHtmlSection
   | ChartSection
   | CardsSection
 ```
@@ -160,6 +161,7 @@ Rules:
 | Tree | `tree` |
 | Data model | `erd` |
 | Interface structure | `wireframe` |
+| Interactive frontend Demo | `custom-html` |
 | Numeric comparison | `chart` |
 | Structured cards | `option-comparison`, `risk-control`, `traceability`, `state-action`, `failure-handling`, `change-set`, `contract`, `risk-register`, `validation`, `evidence`, `cards` |
 
@@ -441,6 +443,35 @@ type WireframeRegion = {
 
 Describe hierarchy, information, state, and behavior—not visual styling or pixel geometry.
 
+## Custom HTML Demo
+
+Type: `custom-html`.
+
+```ts
+type CustomHtmlSection = SectionBase & {
+  type: "custom-html"
+  file: Text
+}
+```
+
+Use this section when reviewers need to judge a proposed frontend as a real, operable page. When the product is page-centric and includes multiple user interactions or responsive requirements, the Plan should include a `custom-html` Demo. Use `wireframe` alone when static structure is sufficient or the page is only a small supporting detail.
+
+Rules:
+
+- `file` is a file name such as `demo.html`, not a path. It must match `^[A-Za-z0-9][A-Za-z0-9._-]*\.html$`.
+- Put the HTML file in the same directory as `plan-data.json` and commit both files.
+- The HTML page must be self-contained. Put its CSS and JavaScript inside the page; do not reference sibling files or repository build output.
+- The JSON remains the semantic Plan source. Use the Demo only for frontend appearance and interaction; keep implementation facts, boundaries, contracts, risks, and validation in normal sections.
+- The Engine renders the page in a sandboxed iframe and provides the section shell and expand control. The page cannot access Issue Flow credentials or its parent document.
+- Review comments target the `custom-html` section as a whole through `sections.<section-id>`.
+- Typical uses include interaction-heavy dashboards, forms, onboarding flows, responsive product pages, and other page-centric work with several user actions or states to review.
+
+Minimal reference:
+
+```json
+{ "id": "frontend-demo", "type": "custom-html", "title": "交互 Demo", "file": "demo.html" }
+```
+
 ## Chart
 
 Type: `chart`.
@@ -533,7 +564,8 @@ The checker and submit script enforce:
 - Required summary and validation sections.
 - Valid graph and sequence endpoints.
 - Required matrix columns and rows.
-- No presentation-code fields.
+- No presentation-code fields in JSON.
+- Valid, existing same-directory HTML files for `custom-html` sections.
 - Required temporary reflection brief for Plan validation.
 
 Run:

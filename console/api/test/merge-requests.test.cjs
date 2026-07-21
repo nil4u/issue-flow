@@ -4,7 +4,7 @@ const test = require("node:test")
 process.env.DATABASE_URL ||= "postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test"
 require("tsx/cjs")
 
-const { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
+const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
 const { getMergeRequest } = require("../src/core/merge-requests.ts")
 
 test("only Plan MR with a source issue can open the Plan preview", () => {
@@ -105,7 +105,7 @@ test("GitLab detail uses the compatible merge request changes API", async (t) =>
     if (path.endsWith("/merge_requests/54")) return new Response(JSON.stringify({ id: 54, iid: 54, title: "Plan", state: "opened", source_branch: "plan", target_branch: "main", author: { id: 8 }, user: { can_merge: true } }), { status: 200 })
     if (path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 30 } } }), { status: 200 })
     if (path.endsWith("/user")) return new Response(JSON.stringify({ id: 9 }), { status: 200 })
-    if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ diff_refs: { base_sha: "base", start_sha: "start", head_sha: "head" }, changes: [{ old_path: "a.ts", new_path: "a.ts", diff: "@@ -1 +1 @@\n-old\n+new" }] }), { status: 200 })
+    if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ diff_refs: { base_sha: "base", start_sha: "start", head_sha: "head" }, changes: [{ old_path: "a.ts", new_path: "a.ts", diff: "@@ -1 +1 @@\n-old\n+new" }, { old_path: "demo.html", new_path: "demo.html", new_file: true, diff: "" }] }), { status: 200 })
     if (path.includes("/discussions?")) return new Response(JSON.stringify([]), { status: 200 })
     if (path.endsWith("/approvals")) return new Response(JSON.stringify({ approved_by: [] }), { status: 200 })
     throw new Error(`Unexpected request: ${path}`)
@@ -114,9 +114,34 @@ test("GitLab detail uses the compatible merge request changes API", async (t) =>
   assert.equal(detail.files[0].path, "a.ts")
   assert.equal(detail.files[0].additions, 1)
   assert.equal(detail.files[0].deletions, 1)
+  assert.equal(detail.files[1].collapsed, true)
+  assert.equal(detail.files[1].truncated, false)
   assert.deepEqual(detail.mergeRequest.diffRefs, { baseSha: "base", startSha: "start", headSha: "head" })
   assert.deepEqual(detail.mergeRequest.permissions, { canMerge: true, canClose: true, canApprove: true, hasApproved: false })
   assert.equal(requests.some((request) => request.includes("/diffs")), false)
+})
+
+test("GitLab collapsed diff loads raw content on demand", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  let request
+  global.fetch = async (url) => {
+    request = String(url)
+    return new Response(JSON.stringify({ changes: [{ old_path: "demo.html", new_path: "demo.html", new_file: true, diff: "@@ -0,0 +1 @@\n+<main>Demo</main>" }] }), { status: 200 })
+  }
+
+  const file = await getProviderMergeRequestFileDiff(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "token" },
+    { serverRepoId: "43326" },
+    54,
+    "demo.html",
+  )
+
+  assert.match(request, /\/merge_requests\/54\/changes\?access_raw_diffs=true$/)
+  assert.equal(file.path, "demo.html")
+  assert.equal(file.patch, "@@ -0,0 +1 @@\n+<main>Demo</main>")
+  assert.equal(file.collapsed, false)
+  assert.equal(file.truncated, false)
 })
 
 test("GitLab detail hydrates missing conversation avatars from user profiles", async (t) => {

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
+import { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 
 function requestError(message, status = 400, code = "merge_request_error") {
@@ -62,6 +62,13 @@ async function getMergeRequestMentionUsers({ store, gitServerId, projectId, merg
   return { users: await listProviderMentionUsers(server, repo, normalizeMergeRequestNumber(mergeRequestNumber)) }
 }
 
+async function getMergeRequestFileDiff({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  const path = String(input.path || "").trim()
+  if (!path) throw requestError("merge request file path is required")
+  return { file: await getProviderMergeRequestFileDiff(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), path) }
+}
+
 async function submitMergeRequestReview({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
   const detail = await getProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber))
@@ -100,4 +107,4 @@ async function updateMergeRequestState({ store, gitServerId, projectId, mergeReq
   return { mergeRequest: await updateProviderMergeRequestState(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), action) }
 }
 
-export { getMergeRequest, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestState }
+export { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestState }

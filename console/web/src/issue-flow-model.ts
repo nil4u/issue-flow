@@ -175,6 +175,7 @@ export type MergeRequestFile = {
   additions: number
   deletions: number
   patch: string
+  collapsed: boolean
   truncated: boolean
 }
 

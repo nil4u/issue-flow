@@ -22,13 +22,13 @@ Before writing artifact JSON, read [references/engine-json-contract.md](referenc
    - For a plan, write `visual-brief.md` to the absolute temporary path injected by the runtime before writing Plan JSON. Never put it in the repository.
    - For a decision gate, write `decision/data/decision-data.json`.
    - Treat it as the information architecture contract for the artifact.
-   - Do not create presentation code.
+   - Do not create presentation code except for an interactive Demo selected under the guidance below.
 
 2. Separate source of truth from presentation.
    - Put plan entities, edges, states, constraints, invariants, risks, and validation scenarios in `plan/data/plan-data.json`.
    - Put unresolved questions, options, recommendations, criteria, and consequences in `decision/data/decision-data.json`.
-   - The agent owns facts and component selection. Issue Flow Engine owns HTML, CSS, JavaScript, SVG, coordinates, layout, review anchors, and interaction behavior.
-   - Never create `decision.html`, `plan/index.html`, artifact CSS, artifact JavaScript, SVG, or copied rendering assets.
+   - The agent owns facts and component selection. Issue Flow Engine owns HTML, CSS, JavaScript, SVG, coordinates, layout, review anchors, and interaction behavior for every built-in component.
+   - Never create `decision.html`, `plan/index.html`, artifact CSS, artifact JavaScript, SVG, or copied rendering assets. The only exception is one or more self-contained Demo HTML files explicitly referenced by `custom-html` Plan sections.
    - Encode every important review fact using the structures defined by the Engine manual.
 
 3. Keep the decision gate and implementation plan as separate lifecycle stages.
@@ -54,6 +54,18 @@ Before writing artifact JSON, read [references/engine-json-contract.md](referenc
    - Name things by business action, responsibility, state, data, and user-visible behavior.
    - Label the plan for a normal reviewer: "系统边界", "请求路径", "谁写状态", "失败后怎么走", "如何验证".
    - Each section should answer one concrete question. If a sentence needs rereading, rewrite it.
+
+## Interactive Demo
+
+Use a `custom-html` Plan section when reviewers need to understand the proposed frontend as a real, operable page rather than a structural sketch. When the product is page-centric and includes multiple user interactions or responsive requirements, the Plan should include an interactive Demo.
+
+- Create a standalone, self-contained `.html` file in the same directory as `plan-data.json`.
+- Reference only its file name from the section's `file` field; never place HTML, CSS, or JavaScript inside JSON.
+- Keep Demo CSS and JavaScript inside that HTML file. Do not add sibling assets or depend on repository build tooling.
+- Treat the Demo as a review prototype, not production implementation code. Keep architecture, contracts, risks, and validation in the normal Engine sections.
+- The Engine reads the file through the Provider API and renders it in an isolated iframe with a standard container and expand control.
+- Use `wireframe` when static information architecture is sufficient or the page is only a small supporting part of the task.
+- Use `custom-html` when the page itself is the product surface and reviewers need to exercise several actions, state changes, feedback paths, or responsive layouts before implementation.
 
 ## Brief Contract
 
@@ -130,7 +142,7 @@ After selecting the review models, use the Engine manual to encode them as artif
 - Represent branching, merging, loops, ownership, state, and validation as structure rather than prose.
 - Select only the components that improve understanding or review confidence.
 - Follow the manual exactly for artifact roots, component types, fields, aliases, identities, references, validation, and publication commands.
-- Do not invent Engine capabilities or generate presentation code.
+- Do not invent Engine capabilities or generate presentation code outside the documented `custom-html` Demo exception.
 
 ## Validation
 

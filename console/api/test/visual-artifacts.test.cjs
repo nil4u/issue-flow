@@ -4,7 +4,7 @@ const test = require('node:test')
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test'
 require('tsx/cjs')
 
-const { buildReviewComment, decisionRequirementsFromData, listReviewablePlanArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, submitVisualReview } = require('../src/core/visual-artifacts.ts')
+const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, submitVisualReview } = require('../src/core/visual-artifacts.ts')
 const { renderVisualArtifactDocument } = require('../src/core/visual-renderer.ts')
 const {
   applyVisualIssueLabels,
@@ -228,6 +228,67 @@ test('Engine renders Plan JSON with fixed layout and stable review anchors', () 
   assert.match(html, /data-comment-scope="node"/)
   assert.match(html, /读取 JSON/)
   assert.doesNotMatch(html, /<link[^>]+stylesheet/)
+})
+
+test('Engine loads a same-directory custom HTML Demo through the provider and renders it in a sandbox', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  const planData = {
+    schemaVersion: 1,
+    artifact: 'plan',
+    meta: { title: 'Frontend Plan' },
+    core: { outcome: 'Review the interaction before implementation' },
+    sections: [
+      { id: 'summary', type: 'summary', title: 'Summary' },
+      { id: 'frontend-demo', type: 'custom-html', title: 'Checkout Demo', file: 'checkout-demo.html' },
+      { id: 'validation', type: 'validation', title: 'Validation', items: [{ id: 'demo-check', title: 'Exercise the Demo' }] },
+    ],
+  }
+  global.fetch = async (url) => {
+    const requestUrl = String(url)
+    requests.push(requestUrl)
+    if (requestUrl.includes('/merge_requests?')) {
+      return new Response(JSON.stringify([{
+        id: 91,
+        iid: 17,
+        description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
+        state: 'opened',
+        source_branch: '42-checkout/plan',
+        target_branch: 'main',
+        sha: 'abc123',
+      }]), { status: 200 })
+    }
+    if (decodeURIComponent(requestUrl).includes('plan-data.json')) {
+      return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(planData)).toString('base64'), encoding: 'base64' }), { status: 200 })
+    }
+    if (decodeURIComponent(requestUrl).includes('checkout-demo.html')) {
+      return new Response(JSON.stringify({ content: Buffer.from('<!doctype html><button id="demo-action">Pay now</button><script>document.body.dataset.ready="yes"</script>').toString('base64'), encoding: 'base64' }), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`)
+  }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget', defaultBranch: 'main' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+  }
+
+  const result = await getVisualArtifact({
+    store,
+    gitServerId: 'gitlab-main',
+    projectId: '43326',
+    issueNumber: 42,
+    userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+  })
+
+  assert.equal(requests.some((request) => decodeURIComponent(request).includes('/plan/data/checkout-demo.html?ref=abc123')), true)
+  assert.match(result.html, /class="vp-demo-frame"/)
+  assert.match(result.html, /sandbox="allow-scripts allow-forms allow-modals"/)
+  assert.match(result.html, /&lt;button id=&quot;demo-action&quot;&gt;Pay now&lt;\/button&gt;/)
+  assert.match(result.html, /data-ref="sections\.frontend-demo"/)
+  assert.doesNotMatch(result.html, /allow-same-origin/)
 })
 
 test('Engine renders boundaries, state refs, path filters, sequence fragments, and matrix cells', () => {

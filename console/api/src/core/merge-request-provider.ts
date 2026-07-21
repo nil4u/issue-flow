@@ -140,7 +140,7 @@ async function listProviderMentionUsers(server, repo, mergeRequestNumber) {
 }
 
 function normalizeGithubFile(file = {}) {
-  return { path: file.filename || "", oldPath: file.previous_filename || file.filename || "", status: file.status || "modified", additions: Number(file.additions || 0), deletions: Number(file.deletions || 0), patch: file.patch || "", truncated: !file.patch }
+  return { path: file.filename || "", oldPath: file.previous_filename || file.filename || "", status: file.status || "modified", additions: Number(file.additions || 0), deletions: Number(file.deletions || 0), patch: file.patch || "", collapsed: false, truncated: !file.patch }
 }
 
 function countPatchChanges(patch = "") {
@@ -153,9 +153,18 @@ function countPatchChanges(patch = "") {
   return { additions, deletions }
 }
 
-function normalizeGitlabFile(file = {}) {
+function normalizeGitlabFile(file = {}, options = {}) {
   const patch = file.diff || ""
-  return { path: file.new_path || "", oldPath: file.old_path || file.new_path || "", status: file.new_file ? "added" : file.deleted_file ? "removed" : file.renamed_file ? "renamed" : "modified", ...countPatchChanges(patch), patch, truncated: file.too_large === true || file.collapsed === true }
+  return { path: file.new_path || "", oldPath: file.old_path || file.new_path || "", status: file.new_file ? "added" : file.deleted_file ? "removed" : file.renamed_file ? "renamed" : "modified", ...countPatchChanges(patch), patch, collapsed: options.raw !== true && file.too_large !== true && (file.collapsed === true || !patch), truncated: file.too_large === true }
+}
+
+async function getProviderMergeRequestFileDiff(server, repo, mergeRequestNumber, path) {
+  if (server.type !== "gitlab") throw providerApiError("expanded diffs are only supported for GitLab", 400)
+  const root = `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`
+  const changes = await providerFetch(server, "GET", `${root}/changes?access_raw_diffs=true`)
+  const file = (Array.isArray(changes && changes.changes) ? changes.changes : []).find((candidate) => candidate && (candidate.new_path === path || candidate.old_path === path))
+  if (!file) throw providerApiError("merge request file not found", 404)
+  return normalizeGitlabFile(file, { raw: true })
 }
 
 function normalizeGithubComment(comment = {}, type = "comment") {
@@ -310,4 +319,4 @@ async function updateProviderMergeRequestState(server, repo, mergeRequestNumber,
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { getProviderMergeRequest, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }
+export { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }

@@ -299,6 +299,47 @@ test('Visual artifacts contain renderable JSON without presentation code', () =>
   }
 });
 
+test('Visual Plan custom HTML sections reference an existing same-directory Demo file', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-custom-html-'));
+  try {
+    const planPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan-data.json');
+    const demoPath = path.join(path.dirname(planPath), 'demo.html');
+    fs.mkdirSync(path.dirname(planPath), { recursive: true });
+    const writePlan = (file) => fs.writeFileSync(planPath, JSON.stringify({
+      schemaVersion: 1,
+      artifact: 'plan',
+      meta: { title: 'Frontend Plan' },
+      core: { outcome: 'Review the Demo' },
+      sections: [
+        { id: 'summary', type: 'summary' },
+        { id: 'frontend-demo', type: 'custom-html', file },
+        { id: 'validation', type: 'validation', items: [{ id: 'demo-check' }] },
+      ],
+    }), 'utf8');
+    process.chdir(root);
+
+    fs.writeFileSync(demoPath, '<!doctype html><button>Demo</button>', 'utf8');
+    writePlan('demo.html');
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'));
+
+    fs.rmSync(demoPath);
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      /file does not exist/,
+    );
+
+    writePlan('../demo.html');
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      /same-directory \.html file name/,
+    );
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Visual artifact submission rejects invalid graph relationships and Decision choices', () => {
   const previousCwd = process.cwd();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-invalid-json-'));

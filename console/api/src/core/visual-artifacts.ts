@@ -119,6 +119,25 @@ function parseVisualArtifactJson(body) {
   }
 }
 
+function customHtmlFiles(data) {
+  const files = (Array.isArray(data && data.sections) ? data.sections : [])
+    .filter((section) => section && section.type === "custom-html")
+    .map((section) => String(section.file || "").trim())
+  for (const file of files) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/i.test(file)) throw requestError(`invalid custom HTML file: ${file || "(empty)"}`, 422)
+  }
+  return [...new Set(files)]
+}
+
+async function readCustomHtmlResources(server, repo, artifact, data) {
+  const directory = path.posix.dirname(artifact.entryPath)
+  const entries = await Promise.all(customHtmlFiles(data).map(async (file) => {
+    const body = await readVisualRepositoryFile(server, repo, artifact.commitSha, path.posix.join(directory, file))
+    return [file, body.toString("utf8")]
+  }))
+  return { customHtml: Object.fromEntries(entries) }
+}
+
 async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, userId, session }) {
   const issueNumber = normalizeIssueNumber(rawIssueNumber)
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
@@ -130,7 +149,10 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
   const format = artifact.data && artifact.data.format || "json"
   let html
   if (format === "markdown") html = markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
-  else html = renderVisualArtifactDocument(parseVisualArtifactJson(entry.body), artifact.type)
+  else {
+    const data = parseVisualArtifactJson(entry.body)
+    html = renderVisualArtifactDocument(data, artifact.type, await readCustomHtmlResources(server, repo, artifact, data))
+  }
   return {
     artifact: { ...artifact, status }, format,
     mergeRequest: {

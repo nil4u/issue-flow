@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 
 const SECTION_TYPES = new Set([
   "summary", "solution-summary", "architecture", "dependency-graph", "deployment",
@@ -10,7 +10,7 @@ const SECTION_TYPES = new Set([
   "compatibility-matrix", "option-comparison", "risk-control", "validation-matrix",
   "traceability", "responsibility-matrix", "state-action", "failure-handling", "timeline",
   "implementation-steps", "implementation-dag", "rollout", "screen-flow", "wireframe",
-  "chart", "change-set", "contract", "risk-register", "validation", "evidence", "cards", "diagram",
+  "chart", "custom-html", "change-set", "contract", "risk-register", "validation", "evidence", "cards", "diagram",
 ])
 const GRAPH_TYPES = new Set([
   "architecture", "dependency-graph", "deployment", "runtime-flow", "state-machine",
@@ -18,6 +18,7 @@ const GRAPH_TYPES = new Set([
 ])
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/
 const CHART_VARIANTS = new Set(["bar", "horizontal-bar", "column", "line", "area", "donut", "pie"])
+const CUSTOM_HTML_FILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/i
 const args = process.argv.slice(2)
 const artifactInput = args[0]
 const briefIndex = args.indexOf("--brief")
@@ -177,6 +178,14 @@ function validatePlan() {
       items.forEach((item, index) => {
         if (!Number.isFinite(Number(item && item.value))) failures.push(`sections.${id}.items[${index}] needs a numeric value`)
       })
+    }
+    if (type === "custom-html") {
+      const file = text(section.file)
+      if (!CUSTOM_HTML_FILE_PATTERN.test(file)) failures.push(`Custom HTML section ${id} needs a same-directory .html file name`)
+      else {
+        const demoPath = resolve(dirname(artifactPath), file)
+        if (!existsSync(demoPath) || !statSync(demoPath).isFile()) failures.push(`Custom HTML section ${id} file does not exist: ${demoPath}`)
+      }
     }
   }
   if (!hasSummary) failures.push("Plan must include a summary or solution-summary section")
