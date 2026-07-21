@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0](https://github.com/nil4u/issue-flow/compare/v0.5.0...v0.6.0) (2026-07-21)
+
+
+### Features
+
+* **console:** add merge request review workspace ([#81](https://github.com/nil4u/issue-flow/issues/81)) ([e37878a](https://github.com/nil4u/issue-flow/commit/e37878a9a7c730fbc54aff6d4e7fed766fc2979a))
+* enhance visual plan demos and merge request diffs ([2670442](https://github.com/nil4u/issue-flow/commit/2670442afc7e50287870a9c1ce87669f0708b934))
+* **plugin:** add codex and claude skill links ([924629d](https://github.com/nil4u/issue-flow/commit/924629dcc96b856936a2a8b15e867d6bc1f18fd0))
+* support milestone target branches ([4ed90d3](https://github.com/nil4u/issue-flow/commit/4ed90d35fd1577ee0babb0d5bfce5267e706fcc9))
+* **vision-plan:** add provider-backed review workflow ([#71](https://github.com/nil4u/issue-flow/issues/71)) ([12723a9](https://github.com/nil4u/issue-flow/commit/12723a9448dc35ffd426474d20ca790d4f3c2944))
+
+
+### Bug Fixes
+
+* **agentrix:** prevent env base ref overrides ([79b8f20](https://github.com/nil4u/issue-flow/commit/79b8f2042e6407798e10cab642ee32dc65ab30b5))
+* **gitlab:** serialize issue automation ([6e30640](https://github.com/nil4u/issue-flow/commit/6e306400f54839a30fe0b91c367ad535cccadef2))
+
 ## [0.5.0](https://github.com/nil4u/issue-flow/compare/v0.4.1...v0.5.0) (2026-07-17)
 
 

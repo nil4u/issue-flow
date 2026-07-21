@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.0](https://github.com/nil4u/issue-flow/compare/console-v0.11.1...console-v0.12.0) (2026-07-21)
+
+
+### Features
+
+* **console:** add merge request review workspace ([#81](https://github.com/nil4u/issue-flow/issues/81)) ([e37878a](https://github.com/nil4u/issue-flow/commit/e37878a9a7c730fbc54aff6d4e7fed766fc2979a))
+* enhance visual plan demos and merge request diffs ([2670442](https://github.com/nil4u/issue-flow/commit/2670442afc7e50287870a9c1ce87669f0708b934))
+* support milestone target branches ([4ed90d3](https://github.com/nil4u/issue-flow/commit/4ed90d35fd1577ee0babb0d5bfce5267e706fcc9))
+* **vision-plan:** add provider-backed review workflow ([#71](https://github.com/nil4u/issue-flow/issues/71)) ([12723a9](https://github.com/nil4u/issue-flow/commit/12723a9448dc35ffd426474d20ca790d4f3c2944))
+
+
+### Bug Fixes
+
+* **settings:** derive latest plugin version locally ([449f824](https://github.com/nil4u/issue-flow/commit/449f824d772de144568139370458e9cc772c6c98))
+
 ## [0.11.1](https://github.com/nil4u/issue-flow/compare/console-v0.11.0...console-v0.11.1) (2026-07-17)
 
 
