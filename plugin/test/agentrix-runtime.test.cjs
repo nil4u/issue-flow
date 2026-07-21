@@ -164,8 +164,8 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   assert.match(prompt.trimEnd(), /skills\/vision-plan\/SKILL\.md`$/);
 });
 
-test('agentrix build prompt injects build context without plan output section', () => {
-  withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
+test('agentrix build prompt injects explicit task base context without plan output section', () => {
+  withTemporaryEnv({ AGENTRIX_BASE_REF: 'ignored-main' }, () => {
     const prompt = agentrix.buildPrompt(
       'build',
       {
@@ -175,7 +175,7 @@ test('agentrix build prompt injects build context without plan output section', 
         title: 'Add export button',
         body: 'Add CSV export.',
       },
-      {},
+      { baseRef: 'main' },
       { planRootDir: '.work/items' }
     );
 
@@ -227,7 +227,7 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
   }
 });
 
-test('agentrix build prompt accepts current GitLab bridge base ref', () => {
+test('agentrix build prompt ignores GitLab bridge base ref when task base is explicit', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: undefined, GITLAB_BRIDGE_BASE_REF: 'main' }, () => {
     const prompt = agentrix.buildPrompt(
       'build',
@@ -238,12 +238,12 @@ test('agentrix build prompt accepts current GitLab bridge base ref', () => {
         title: 'Add export button',
         body: 'Add CSV export.',
       },
-      {},
+      { baseRef: 'release/2026' },
       { planRootDir: '.work/items' }
     );
 
-    assert.match(prompt, /Base branch: `main`/);
-    assert.match(prompt, /pass `--base main` explicitly/);
+    assert.match(prompt, /Base branch: `release\/2026`/);
+    assert.match(prompt, /pass `--base release\/2026` explicitly/);
   });
 });
 
@@ -289,7 +289,7 @@ test('agentrix build prompt uses CI failure template when only the body marker r
   assert.match(prompt, /^Labels: type::ops, size::M$/m);
 });
 
-test('agentrix run args forward target base ref from Agentrix runtime env', () => {
+test('agentrix run args ignore dispatch env and forward explicit task base ref', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: 'main' }, () => {
     const args = agentrix.buildRunArgs(
       'build',
@@ -300,12 +300,12 @@ test('agentrix run args forward target base ref from Agentrix runtime env', () =
         title: 'Add export button',
       },
       {},
-      {},
+      { baseRef: 'release/2026' },
       'prompt',
       '/tmp/result.json'
     );
 
-    assert.equal(args[args.indexOf('--base-ref') + 1], 'main');
+    assert.equal(args[args.indexOf('--base-ref') + 1], 'release/2026');
   });
 });
 
@@ -714,24 +714,22 @@ test('agentrix run args prefer parsed repo owner and name when available', () =>
   assert.equal(repo.name, 'test1');
 });
 
-test('agentrix-run child env does not forward provider tokens', () => {
-  const env = agentrix.buildAgentrixRunEnv(
-    { envEventName: 'GITHUB_EVENT_NAME' },
-    'review',
-    {
-      GITHUB_TOKEN: 'actions-token',
-      GH_TOKEN: 'user-token',
-      ISSUE_FLOW_GITLAB_TOKEN: 'issue-flow-gitlab-token',
-      GITLAB_TOKEN: 'gitlab-token',
-      GL_TOKEN: 'gl-token',
-      GITLAB_PRIVATE_TOKEN: 'private-token',
-      CI_JOB_TOKEN: 'ci-job-token',
-      ISSUE_FLOW_GIT_TOKEN: 'git-token',
-      GITHUB_EVENT_NAME: 'pull_request',
-      AGENTRIX_API_KEY: 'agentrix-key',
-      AGENTRIX_RUNNER_ID: 'runner-1',
-    }
-  );
+test('agentrix-run child env strips provider tokens without rewriting connector context', () => {
+  const source = {
+    GITHUB_TOKEN: 'actions-token',
+    GH_TOKEN: 'user-token',
+    ISSUE_FLOW_GITLAB_TOKEN: 'issue-flow-gitlab-token',
+    GITLAB_TOKEN: 'gitlab-token',
+    GL_TOKEN: 'gl-token',
+    GITLAB_PRIVATE_TOKEN: 'private-token',
+    CI_JOB_TOKEN: 'ci-job-token',
+    ISSUE_FLOW_GIT_TOKEN: 'git-token',
+    GITLAB_BRIDGE_EVENT_NAME: 'pull_request',
+    GITLAB_BRIDGE_HEAD_REF: 'feature/auth',
+    AGENTRIX_API_KEY: 'agentrix-key',
+    AGENTRIX_RUNNER_ID: 'runner-1',
+  };
+  const env = agentrix.sanitizeAgentrixRunEnv(source);
 
   assert.equal(env.GITHUB_TOKEN, undefined);
   assert.equal(env.GH_TOKEN, undefined);
@@ -743,80 +741,11 @@ test('agentrix-run child env does not forward provider tokens', () => {
   assert.equal(env.ISSUE_FLOW_GIT_TOKEN, undefined);
   assert.equal(env.AGENTRIX_API_KEY, 'agentrix-key');
   assert.equal(env.AGENTRIX_RUNNER_ID, 'runner-1');
-  assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
-  assert.equal(env.AGENTRIX_EVENT_ACTION, 'review');
-});
-
-test('agentrix-run child env forwards git server id without provider tokens', () => {
-  const env = agentrix.buildAgentrixRunEnv(
-    { envEventName: 'GITLAB_EVENT_NAME' },
-    'build',
-    {
-      ISSUE_FLOW_GITLAB_TOKEN: 'issue-flow-gitlab-token',
-      GITLAB_TOKEN: 'gitlab-token',
-      GITLAB_EVENT_NAME: 'issue',
-    },
-    {
-      gitServerId: 'gitlab-main',
-    }
-  );
-
-  assert.equal(env.ISSUE_FLOW_GITLAB_TOKEN, undefined);
-  assert.equal(env.GITLAB_TOKEN, undefined);
-  assert.equal(env.AGENTRIX_GIT_SERVER_ID, 'gitlab-main');
-});
-
-test('agentrix-run child env carries resumed task id only for task resume', () => {
-  const env = agentrix.buildAgentrixRunEnv(
-    { envEventName: 'GITLAB_EVENT_NAME' },
-    'task_resume',
-    {
-      AGENTRIX_TASK_ID: 'stale-task',
-      GITLAB_EVENT_NAME: 'note',
-    },
-    {
-      agentrixTaskId: 'task-123',
-    }
-  );
-
-  assert.equal(env.AGENTRIX_TASK_ID, 'task-123');
-
-  const buildEnv = agentrix.buildAgentrixRunEnv(
-    { envEventName: 'GITLAB_EVENT_NAME' },
-    'build',
-    {
-      GITLAB_EVENT_NAME: 'issue',
-    },
-    {
-      agentrixTaskId: 'task-123',
-    }
-  );
-
-  assert.equal(buildEnv.AGENTRIX_TASK_ID, undefined);
-});
-
-test('agentrix-run child env maps GitLab bridge variables to Agentrix runtime names', () => {
-  const env = agentrix.buildAgentrixRunEnv(
-    { envEventName: 'GITLAB_EVENT_NAME' },
-    'build',
-    {
-      GITLAB_BRIDGE_EVENT_NAME: 'pull_request',
-      GITLAB_BRIDGE_EVENT_ACTION: 'opened',
-      GITLAB_BRIDGE_BASE_REF: 'main',
-      GITLAB_BRIDGE_HEAD_REF: 'feature/auth',
-      GITLAB_BRIDGE_HEAD_SHA: 'abc123',
-      GITLAB_BRIDGE_PR_NUMBER: '7',
-      GITLAB_BRIDGE_LABELS_JSON: '["mr-by::build"]',
-    }
-  );
-
-  assert.equal(env.AGENTRIX_EVENT_NAME, 'pull_request');
-  assert.equal(env.AGENTRIX_EVENT_ACTION, 'opened');
-  assert.equal(env.AGENTRIX_BASE_REF, 'main');
-  assert.equal(env.AGENTRIX_HEAD_REF, 'feature/auth');
-  assert.equal(env.AGENTRIX_HEAD_SHA, 'abc123');
-  assert.equal(env.AGENTRIX_PR_NUMBER, '7');
-  assert.equal(env.AGENTRIX_LABELS_JSON, '["mr-by::build"]');
+  assert.equal(env.GITLAB_BRIDGE_EVENT_NAME, 'pull_request');
+  assert.equal(env.GITLAB_BRIDGE_HEAD_REF, 'feature/auth');
+  assert.equal(env.AGENTRIX_EVENT_NAME, undefined);
+  assert.equal(env.AGENTRIX_HEAD_REF, undefined);
+  assert.equal(source.GITHUB_TOKEN, 'actions-token');
 });
 
 test('agentrix review comment resume instruction stays minimal', () => {

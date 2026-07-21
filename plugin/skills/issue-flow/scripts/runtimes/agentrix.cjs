@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 providers.cjs 的 provider 解析、provenance.cjs 的 source marker 能力
- * [OUTPUT]: 对外提供 Agentrix prompt、agentrix-run package、run/resume args、task comment 的构造与执行函数
+ * [INPUT]: 依赖 provenance.cjs 的 source marker 能力与 Node.js 子进程环境
+ * [OUTPUT]: 对外提供 Agentrix prompt、agentrix-run package、run/resume args、环境清洗与 task comment 的构造执行函数
  * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -9,7 +9,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveProvider } = require('../providers.cjs');
 const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
 const DEFAULT_AGENT = 'codex';
@@ -358,9 +357,6 @@ function normalizeBranchName(value) {
 function resolvePromptBaseBranch(data = {}, options = {}) {
   const payload = data.payload || {};
   return normalizeBranchName(
-    process.env.AGENTRIX_BASE_REF ||
-    process.env.GITLAB_BRIDGE_BASE_REF ||
-    process.env.GITLAB_BRIDGE_REF_NAME ||
     options.base ||
     data.baseRef ||
     data.pullRequest?.baseRef ||
@@ -784,50 +780,12 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
-function buildAgentrixRunEnv(provider, action, env = process.env, data = {}) {
+function sanitizeAgentrixRunEnv(env = process.env) {
   const childEnv = { ...env };
   for (const key of PROVIDER_TOKEN_ENV_KEYS) {
     delete childEnv[key];
   }
-  const taskId = String(data.agentrixTaskId || data.taskId || '').trim();
-  if (action === 'task_resume' && taskId) {
-    childEnv.AGENTRIX_TASK_ID = taskId;
-  }
-  const gitServerId = String(data.gitServerId || env.AGENTRIX_GIT_SERVER_ID || '').trim();
-  if (gitServerId) {
-    childEnv.AGENTRIX_GIT_SERVER_ID = gitServerId;
-  }
-  childEnv.AGENTRIX_EVENT_NAME =
-    env.AGENTRIX_EVENT_NAME ||
-    env.GITLAB_BRIDGE_EVENT_NAME ||
-    env[provider.envEventName] ||
-    env.GITHUB_EVENT_NAME ||
-    env.GITLAB_EVENT_NAME ||
-    'issue_flow';
-  childEnv.AGENTRIX_EVENT_ACTION = env.AGENTRIX_EVENT_ACTION || env.GITLAB_BRIDGE_EVENT_ACTION || action;
-  copyBridgeEnv(childEnv, 'AGENTRIX_BASE_REF', ['GITLAB_BRIDGE_BASE_REF', 'GITLAB_BRIDGE_REF_NAME']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_REF', ['GITLAB_BRIDGE_HEAD_REF']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_HEAD_SHA', ['GITLAB_BRIDGE_HEAD_SHA']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_PR_NUMBER', ['GITLAB_BRIDGE_PR_NUMBER']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_ISSUE_NUMBER', ['GITLAB_BRIDGE_ISSUE_NUMBER']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS', ['GITLAB_BRIDGE_LABELS']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_LABELS_JSON', ['GITLAB_BRIDGE_LABELS_JSON']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_PR_BODY', ['GITLAB_BRIDGE_PR_BODY']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_REF', ['GITLAB_BRIDGE_WORKFLOW_RUN_REF', 'GITLAB_BRIDGE_REF_NAME']);
-  copyBridgeEnv(childEnv, 'AGENTRIX_SHA', ['GITLAB_BRIDGE_WORKFLOW_RUN_SHA', 'GITLAB_BRIDGE_HEAD_SHA']);
   return childEnv;
-}
-
-function copyBridgeEnv(env, target, sources) {
-  if (env[target]) {
-    return;
-  }
-  for (const source of sources) {
-    if (env[source]) {
-      env[target] = env[source];
-      return;
-    }
-  }
 }
 
 function run(action, issue, options = {}, data = {}) {
@@ -845,15 +803,12 @@ function run(action, issue, options = {}, data = {}) {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-'));
   const resultFile = path.join(tempDir, 'result.json');
-  const provider = resolveProvider(options, data.payload || {});
   const args = buildRunArgs(action, issue, options, data, prompt, resultFile);
   logAgentrixRunCommand(args);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: buildAgentrixRunEnv(provider, action, process.env, {
-      gitServerId: options.gitServerId,
-    }),
+    env: sanitizeAgentrixRunEnv(),
   });
 
   try {
@@ -881,17 +836,12 @@ function resumeTask(taskId, instruction, options = {}, data = {}) {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-'));
   const resultFile = path.join(tempDir, 'result.json');
-  const provider = resolveProvider(options, data.payload || {});
   const args = buildResumeTaskArgs(taskId, instruction, options, data, resultFile);
   logAgentrixRunCommand(args);
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: buildAgentrixRunEnv(provider, 'task_resume', process.env, {
-      ...data,
-      agentrixTaskId: taskId,
-      gitServerId: options.gitServerId,
-    }),
+    env: sanitizeAgentrixRunEnv(),
   });
 
   try {
@@ -1071,7 +1021,7 @@ module.exports = {
   buildClientTaskId,
   buildResumeTaskArgs,
   buildRunArgs,
-  buildAgentrixRunEnv,
+  sanitizeAgentrixRunEnv,
   buildReviewCommentResumeInstruction,
   buildReviewResumeInstruction,
   buildReviewCommentResumeKey,
