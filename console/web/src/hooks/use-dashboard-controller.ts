@@ -224,12 +224,12 @@ export function useDashboardController() {
         method: "POST",
         body: JSON.stringify(input),
       })
-      const servers = await loadGitServers()
+      await loadGitServers()
       if (!selectedGitServerId && body.gitServer?.id) {
         setSelectedGitServerId(body.gitServer.id)
       }
       toast.success("Git server 已保存")
-      return servers
+      return body.gitServer
     } catch (error) {
       notifyError(error, "保存 Git server 失败")
       throw error

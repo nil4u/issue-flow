@@ -1717,6 +1717,29 @@ test('API service exposes health and repository list over HTTP', async () => {
 
     await store.createUser({ id: 'admin-user', role: 'admin', displayName: 'Admin' });
     const adminCookie = await consoleSidCookie(store, 'admin-user');
+    const incompleteGitServer = await fetch(`${baseUrl}/api/git-servers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        baseUrl: 'https://incomplete.gitlab.example.com',
+        oauth: { clientId: '   ', clientSecret: '' },
+      }),
+    });
+    assert.equal(incompleteGitServer.status, 400);
+    assert.deepEqual(await incompleteGitServer.json(), {
+      error: 'git_server_incomplete',
+      missing: [
+        'oauth.clientId',
+        'oauth.clientSecret',
+        'agentrixGitServerId',
+        'adminPat',
+      ],
+    });
+    assert.equal(
+      await store.getGitServer('gitlab-incomplete-gitlab-example-com'),
+      undefined,
+    );
+
     const createGitServer = await fetch(`${baseUrl}/api/git-servers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
@@ -1735,6 +1758,25 @@ test('API service exposes health and repository list over HTTP', async () => {
     const createBody = await createGitServer.json();
     assert.equal(createBody.gitServer.id, 'gitlab-post');
     assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat/);
+
+    const createFromSetupFields = await fetch(`${baseUrl}/api/git-servers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        baseUrl: 'https://quick.gitlab.example.com',
+        oauth: { clientId: 'quick-client', clientSecret: 'quick-oauth-secret' },
+        agentrixGitServerId: 'agentrix-quick',
+        adminPat: 'quick-admin-pat',
+        commitAuthor: { name: 'issue-flow', email: 'issue-flow@example.com' },
+      }),
+    });
+    assert.equal(createFromSetupFields.status, 200);
+    const setupFieldsBody = await createFromSetupFields.json();
+    assert.equal(setupFieldsBody.gitServer.id, 'gitlab-quick-gitlab-example-com');
+    assert.equal(setupFieldsBody.gitServer.apiUrl, 'https://quick.gitlab.example.com/api/v4');
+    assert.doesNotMatch(JSON.stringify(setupFieldsBody), /quick-oauth-secret|quick-admin-pat/);
+    const setupFieldsServer = await store.getGitServer('gitlab-quick-gitlab-example-com', { includeSecret: true });
+    assert.match(setupFieldsServer.webhook.secret, /^[a-f0-9]{64}$/);
 
     const updateGitServer = await fetch(`${baseUrl}/api/git-servers`, {
       method: 'POST',

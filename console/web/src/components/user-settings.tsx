@@ -3,6 +3,7 @@ import { Check, ExternalLink, GitBranch, KeyRound, Link2, Loader2, Plus, Save, S
 import { toast } from "sonner"
 
 import { AgentrixPanel } from "@/components/agentrix-panel"
+import { GitServerSetupFields } from "@/components/git-server-setup-fields"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -65,8 +66,8 @@ export function UserSettings({
   deletingGitServerId: string
   onSelectSection: (section: SettingsSection) => void
   onConnectGitServer: (gitServerId: string) => void
-  onSaveGitServer: (input: GitServer) => Promise<unknown>
-  onDeleteGitServer: (gitServerId: string) => Promise<unknown>
+  onSaveGitServer: (input: GitServer) => Promise<GitServer>
+  onDeleteGitServer: (gitServerId: string) => Promise<GitServer[]>
 }) {
   const isAdmin = userSession.user && !("username" in userSession.user) && userSession.user.role === "admin"
   const section = !isAdmin && activeSection === "git-servers" ? "account" : activeSection
@@ -485,24 +486,15 @@ function GitServerAdmin({
   gitServers: GitServer[]
   savingGitServerId: string
   deletingGitServerId: string
-  onSaveGitServer: (input: GitServer) => Promise<unknown>
-  onDeleteGitServer: (gitServerId: string) => Promise<unknown>
+  onSaveGitServer: (input: GitServer) => Promise<GitServer>
+  onDeleteGitServer: (gitServerId: string) => Promise<GitServer[]>
 }) {
   const [selectedId, setSelectedId] = useState(gitServers[0]?.id || "")
-  const selectedServer = useMemo(() => gitServers.find((server) => server.id === selectedId), [gitServers, selectedId])
+  const [creating, setCreating] = useState(gitServers.length === 0)
+  const selectedServer = useMemo(() => creating ? undefined : gitServers.find((server) => server.id === selectedId), [creating, gitServers, selectedId])
   const [form, setForm] = useState<GitServerForm>(() => formFromGitServer(selectedServer))
-  const isNew = !selectedServer
   const busy = Boolean(savingGitServerId || deletingGitServerId)
   const saving = savingGitServerId === (form.id || "new")
-
-  useEffect(() => {
-    if (selectedId && gitServers.some((server) => server.id === selectedId)) return
-    setSelectedId(gitServers[0]?.id || "")
-  }, [gitServers, selectedId])
-
-  useEffect(() => {
-    setForm(formFromGitServer(selectedServer))
-  }, [selectedServer?.id])
 
   function update<K extends keyof GitServerForm>(key: K, value: GitServerForm[K]) {
     setForm((current) => ({
@@ -514,15 +506,33 @@ function GitServerAdmin({
   }
 
   async function submit() {
-    await onSaveGitServer(payloadFromForm(form))
-    setSelectedId(form.id)
+    const saved = await onSaveGitServer(payloadFromForm(form))
+    setCreating(false)
+    setSelectedId(saved.id)
+    setForm(formFromGitServer(saved))
   }
 
   async function remove() {
     if (!selectedServer) return
     const confirmed = window.confirm(`删除 Git server "${selectedServer.name || selectedServer.id}"？`)
     if (!confirmed) return
-    await onDeleteGitServer(selectedServer.id)
+    const servers = await onDeleteGitServer(selectedServer.id)
+    const next = servers[0]
+    setCreating(!next)
+    setSelectedId(next?.id || "")
+    setForm(formFromGitServer(next))
+  }
+
+  function selectServer(server: GitServer) {
+    setCreating(false)
+    setSelectedId(server.id)
+    setForm(formFromGitServer(server))
+  }
+
+  function startCreating() {
+    setCreating(true)
+    setSelectedId("")
+    setForm(emptyGitServerForm)
   }
 
   return (
@@ -531,14 +541,14 @@ function GitServerAdmin({
         <aside className="git-server-list" aria-label="Git servers">
           <header>
             <strong>Git servers</strong>
-            <Button size="sm" variant="outline" onClick={() => setSelectedId("")}>
+            <Button size="sm" variant="outline" onClick={startCreating}>
               <Plus className="size-3.5" />
               添加
             </Button>
           </header>
           <div className="git-server-items">
             {gitServers.map((server) => (
-              <button type="button" key={server.id} className={`git-server-item ${server.id === selectedId ? "active" : ""}`} onClick={() => setSelectedId(server.id)}>
+              <button type="button" key={server.id} className={`git-server-item ${!creating && server.id === selectedId ? "active" : ""}`} onClick={() => selectServer(server)}>
                 <span className="account-provider-icon">
                   <Server className="size-4" />
                 </span>
@@ -561,17 +571,21 @@ function GitServerAdmin({
         >
           <header>
             <span>
-              <strong>{isNew ? "添加 Git server" : "修改 Git server"}</strong>
-              <small>敏感字段留空时会保留已有值。</small>
+              <strong>{creating ? "添加 Git server" : "修改 Git server"}</strong>
+              <small>{creating ? "填写与初始 Setup 相同的配置，无需 Setup Code。" : "敏感字段留空时会保留已有值。"}</small>
             </span>
             <div className="git-server-form-actions">
-              {!isNew && (
+              {!creating && selectedServer && (
                 <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => void remove()}>
                   {deletingGitServerId === selectedServer.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
                   删除
                 </Button>
               )}
-              <Button type="submit" size="sm" disabled={busy || !form.id || !form.baseUrl || !form.commitAuthorName || !form.commitAuthorEmail}>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={busy || !form.baseUrl || !form.oauthClientId || (creating && !form.oauthClientSecret) || !form.agentrixGitServerId || (creating && !form.adminPat) || !form.commitAuthorName || !form.commitAuthorEmail}
+              >
                 {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                 保存
               </Button>
@@ -579,8 +593,12 @@ function GitServerAdmin({
           </header>
 
           <div className="git-server-fields">
+            {creating ? (
+              <GitServerSetupFields value={form} onChange={update} />
+            ) : (
+              <>
             <Field label="ID">
-              <Input value={form.id} disabled={!isNew} onChange={(event) => update("id", event.currentTarget.value)} placeholder="gitlab-main" />
+              <Input value={form.id} disabled onChange={(event) => update("id", event.currentTarget.value)} placeholder="gitlab-main" />
             </Field>
             <Field label="类型">
               <select value={form.type} onChange={(event) => update("type", event.currentTarget.value)}>
@@ -627,6 +645,8 @@ function GitServerAdmin({
             <Field label={`Admin PAT${fingerprintLabel(selectedServer?.adminPatFingerprint)}`} wide>
               <Input type="password" value={form.adminPat} onChange={(event) => update("adminPat", event.currentTarget.value)} placeholder="留空保留现值" />
             </Field>
+              </>
+            )}
           </div>
         </form>
       </div>

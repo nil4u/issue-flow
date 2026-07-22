@@ -47,20 +47,24 @@ function timingSafeEqualString(a = "", b = "") {
   return left.length === right.length && crypto.timingSafeEqual(left, right)
 }
 
+function hasText(value) {
+  return Boolean(String(value ?? "").trim())
+}
+
 function gitServerMissingFields(server = {}) {
   const missing = []
-  if (!server.id) missing.push("id")
-  if (!server.type) missing.push("type")
-  if (!server.baseUrl) missing.push("baseUrl")
-  if (!server.apiUrl) missing.push("apiUrl")
+  if (!hasText(server.id)) missing.push("id")
+  if (!hasText(server.type)) missing.push("type")
+  if (!hasText(server.baseUrl)) missing.push("baseUrl")
+  if (!hasText(server.apiUrl)) missing.push("apiUrl")
   if (server.type === "gitlab") {
-    if (!server.oauth?.clientId) missing.push("oauth.clientId")
-    if (!server.oauth?.clientSecret) missing.push("oauth.clientSecret")
-    if (!server.webhook?.secret) missing.push("webhook.secret")
-    if (!server.agentrixGitServerId) missing.push("agentrixGitServerId")
-    if (!server.adminPat) missing.push("adminPat")
-    if (!server.commitAuthor?.name) missing.push("commitAuthor.name")
-    if (!server.commitAuthor?.email) missing.push("commitAuthor.email")
+    if (!hasText(server.oauth?.clientId)) missing.push("oauth.clientId")
+    if (!hasText(server.oauth?.clientSecret)) missing.push("oauth.clientSecret")
+    if (!hasText(server.webhook?.secret)) missing.push("webhook.secret")
+    if (!hasText(server.agentrixGitServerId)) missing.push("agentrixGitServerId")
+    if (!hasText(server.adminPat)) missing.push("adminPat")
+    if (!hasText(server.commitAuthor?.name)) missing.push("commitAuthor.name")
+    if (!hasText(server.commitAuthor?.email)) missing.push("commitAuthor.email")
   }
   return missing
 }
@@ -93,6 +97,33 @@ function defaultCommitAuthorEmail(baseUrl = "") {
   return domain ? `issue-flow@${domain}` : ""
 }
 
+function gitServerInputFromSetup(input = {}) {
+  const baseUrl = normalizedUrl(input.baseUrl)
+  const host = gitlabHost(baseUrl)
+  return {
+    id: input.id || defaultGitlabId(baseUrl),
+    type: input.type || "gitlab",
+    name: input.name || host,
+    baseUrl,
+    apiUrl: normalizedUrl(input.apiUrl) || defaultGitlabApiUrl(baseUrl),
+    tokenAuth: input.tokenAuth || "bearer",
+    oauth: {
+      clientId: input.oauth?.clientId || input.oauthClientId,
+      clientSecret: input.oauth?.clientSecret || input.oauthClientSecret,
+      scopes: input.oauth?.scopes || input.oauthScopes || DEFAULT_GITLAB_OAUTH_SCOPES,
+    },
+    webhook: {
+      secret: input.webhook?.secret || input.webhookSecret || crypto.randomBytes(32).toString("hex"),
+    },
+    agentrixGitServerId: input.agentrixGitServerId,
+    adminPat: input.adminPat,
+    commitAuthor: {
+      name: input.commitAuthor?.name || input.commitAuthorName || "issue-flow",
+      email: input.commitAuthor?.email || input.commitAuthorEmail || defaultCommitAuthorEmail(baseUrl),
+    },
+  }
+}
+
 async function getSetupStatus({ store, env = process.env }) {
   const gitServers = await store.listGitServers({ includeSecret: true })
   const serverStates = gitServers.map((server) => ({ server, missing: gitServerMissingFields(server) }))
@@ -121,32 +152,8 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
   if (current.body.initialized) {
     return { status: 409, body: { error: "setup_already_initialized" } }
   }
-  const baseUrl = normalizedUrl(input.baseUrl)
-  const host = gitlabHost(baseUrl)
-  const gitServer = await store.ensureGitServer({
-    id: input.id || defaultGitlabId(baseUrl),
-    type: input.type || "gitlab",
-    name: input.name || host,
-    baseUrl,
-    apiUrl: normalizedUrl(input.apiUrl) || defaultGitlabApiUrl(baseUrl),
-    tokenAuth: input.tokenAuth || "bearer",
-    oauth: {
-      clientId: input.oauth?.clientId || input.oauthClientId,
-      clientSecret: input.oauth?.clientSecret || input.oauthClientSecret,
-      scopes: input.oauth?.scopes || input.oauthScopes || DEFAULT_GITLAB_OAUTH_SCOPES,
-    },
-    webhook: {
-      secret: input.webhook?.secret || input.webhookSecret || crypto.randomBytes(32).toString("hex"),
-    },
-    agentrixGitServerId: input.agentrixGitServerId,
-    adminPat: input.adminPat,
-    commitAuthor: {
-      name: input.commitAuthor?.name || input.commitAuthorName || "issue-flow",
-      email: input.commitAuthor?.email || input.commitAuthorEmail || defaultCommitAuthorEmail(baseUrl),
-    },
-  })
-
-  const missing = gitServerMissingFields(gitServer)
+  const gitServerInput = gitServerInputFromSetup(input)
+  const missing = gitServerMissingFields(gitServerInput)
   if (missing.length) {
     return {
       status: 400,
@@ -156,6 +163,7 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
       },
     }
   }
+  const gitServer = await store.ensureGitServer(gitServerInput)
 
   const authorize = await createGitlabOAuthAuthorize({
     store,
@@ -181,5 +189,7 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
 export {
   ensureSetupCode,
   getSetupStatus,
+  gitServerInputFromSetup,
+  gitServerMissingFields,
   initializeSetup,
 }
