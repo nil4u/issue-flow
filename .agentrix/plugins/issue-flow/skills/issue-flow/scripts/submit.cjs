@@ -43,10 +43,11 @@ const VISUAL_SECTION_TYPES = new Set([
   'traceability', 'responsibility-matrix', 'state-action', 'failure-handling',
   'timeline', 'implementation-steps', 'implementation-dag', 'rollout', 'screen-flow',
   'wireframe', 'chart', 'change-set', 'contract', 'risk-register', 'validation',
-  'evidence', 'cards', 'diagram',
+  'evidence', 'cards', 'diagram', 'custom-html',
 ]);
 const VISUAL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/;
 const VISUAL_CHART_VARIANTS = new Set(['bar', 'horizontal-bar', 'column', 'line', 'area', 'donut', 'pie']);
+const CUSTOM_HTML_FILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/i;
 
 function usage() {
   return [
@@ -415,6 +416,12 @@ function assertVisualArtifactData(artifactPath, artifact) {
       for (const [itemIndex, item] of section.items.entries()) {
         if (!Number.isFinite(Number(item && item.value))) throw new Error(`sections.${id}.items[${itemIndex}] must contain a numeric value`);
       }
+    }
+    if (type === 'custom-html') {
+      const file = String(section.file || '').trim();
+      if (!CUSTOM_HTML_FILE_PATTERN.test(file)) throw new Error(`Custom HTML section ${id} must reference a same-directory .html file name`);
+      const demoPath = path.resolve(path.dirname(path.resolve(process.cwd(), artifactPath)), file);
+      if (!fs.existsSync(demoPath) || !fs.statSync(demoPath).isFile()) throw new Error(`Custom HTML section ${id} file does not exist: ${demoPath}`);
     }
   }
   if (!hasSummary) throw new Error('Plan JSON must include a summary or solution-summary section');
@@ -823,9 +830,15 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   const artifactPath = visual
     ? findIssueArtifactPath(issueNumber, artifact, options)
     : findMarkdownPlanPath(issueNumber, options);
-  if (visual) assertVisualArtifactData(artifactPath, artifact);
-  if (!isGitTrackedFile(artifactPath) && !options.dryRun) {
-    throw new Error(`Plan artifact must be committed before publishing: ${artifactPath}`);
+  const visualData = visual ? assertVisualArtifactData(artifactPath, artifact) : undefined;
+  const visualArtifactPaths = visualData
+    ? [artifactPath, ...(visualData.sections || [])
+      .filter((section) => section && section.type === 'custom-html')
+      .map((section) => path.join(path.dirname(artifactPath), section.file).replace(/\\/g, '/'))]
+    : [artifactPath];
+  const untrackedArtifactPath = visualArtifactPaths.find((filePath) => !isGitTrackedFile(filePath));
+  if (untrackedArtifactPath && !options.dryRun) {
+    throw new Error(`Plan artifact file must be committed before publishing: ${untrackedArtifactPath}`);
   }
   if (!visual) {
     validateBodyFile(options.bodyFile);

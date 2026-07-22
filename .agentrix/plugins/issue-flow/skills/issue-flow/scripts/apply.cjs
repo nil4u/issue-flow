@@ -4,7 +4,12 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
 const { labelGroupsForScope, requireSingleIssueSize } = require('./labels.cjs');
-const { resolveMilestoneConfig, resolveMilestoneSelection } = require('./milestones.cjs');
+const {
+  listMilestoneCandidates,
+  milestoneTitle,
+  resolveMilestoneConfig,
+  resolveMilestoneSelection,
+} = require('./milestones.cjs');
 
 const MANAGED_LABELS = labelGroupsForScope('issue');
 
@@ -163,12 +168,12 @@ function computeNextLabels(currentLabels, labelsToAdd, labelsToRemove) {
   return [...new Set([...currentLabels.filter((label) => !remove.has(label)), ...labelsToAdd])];
 }
 
-function requiresSizeForDesiredFlow(desiredByKey) {
+function isPlanOrBuildFlow(desiredByKey) {
   return desiredByKey.flow === 'flow::plan' || desiredByKey.flow === 'flow::build';
 }
 
 function validateFlowSizeGate(currentLabels, desiredByKey, clearKeys = [], context = {}) {
-  if (!requiresSizeForDesiredFlow(desiredByKey)) {
+  if (!isPlanOrBuildFlow(desiredByKey)) {
     return undefined;
   }
   const { labelsToAdd, labelsToRemove } = computeLabelChanges(currentLabels, desiredByKey, clearKeys);
@@ -239,9 +244,20 @@ async function applyIssueBody(target, issue, desiredByKey, options) {
   await provider.updateIssueBody(target, body, options);
 }
 
-async function applyIssueMilestone(target, provider, repo, options) {
-  if (options.milestone === undefined) return { changed: false };
-  if (!resolveMilestoneConfig(options).enabled) {
+async function applyIssueMilestone(target, provider, repo, options, issue = {}, desiredByKey = {}) {
+  const config = resolveMilestoneConfig(options);
+  if (options.milestone === undefined) {
+    if (!config.enabled || milestoneTitle(issue) || !isPlanOrBuildFlow(desiredByKey)) {
+      return { changed: false };
+    }
+    const candidates = await listMilestoneCandidates(provider, repo, options);
+    if (candidates.length === 0) return { changed: false };
+    const titles = candidates.map((candidate) => candidate.title).join(', ');
+    throw new Error(
+      `Milestone selection is required. Ask the user to choose one of: ${titles}, none; then pass --milestone <title|none>.`
+    );
+  }
+  if (!config.enabled) {
     throw new Error('Enable milestone.enabled in .issue-flow/config.json before using --milestone.');
   }
   const selection = await resolveMilestoneSelection(options.milestone, provider, repo, options);
@@ -281,7 +297,7 @@ async function main(argv = process.argv.slice(2)) {
   const currentLabels = Array.isArray(issue.labels) ? issue.labels.map(normalizeLabelName).filter(Boolean) : [];
 
   validateFlowSizeGate(currentLabels, desiredByKey, clearKeys, { issueNumber });
-  await applyIssueMilestone(target, provider, repo, options);
+  await applyIssueMilestone(target, provider, repo, options, issue, desiredByKey);
   await applyLabels(target, currentLabels, desiredByKey, clearKeys, options);
   await applyIssueBody(target, issue, desiredByKey, options);
 }
@@ -292,8 +308,8 @@ module.exports = {
   computeLabelChanges,
   computeNextLabels,
   applyIssueMilestone,
+  isPlanOrBuildFlow,
   readNormalizedBody,
-  requiresSizeForDesiredFlow,
   shouldSkipIssueBodyUpdate,
   main,
   parseArgs,
