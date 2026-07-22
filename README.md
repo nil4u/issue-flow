@@ -147,6 +147,8 @@ For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` in
 
 Treat the agent like a person. A prompt should be minimal and complete: give the agent the goal, the hard constraints, and the expected output, then let it inspect the issue, comments, PR/MR, and repository context itself.
 
+- Action prompt files are user-editable, complete behavior templates. The runtime does not parse them or replace placeholders; it appends dynamic context in flat XML-like blocks such as `<task_input>` and `<repository_context>`.
+- Dynamic task input is minimal and mutually exclusive: actions without approved plan files receive the full issue, while actions with plan files receive those paths plus a compact source issue reference.
 - Do not duplicate context the runtime already provides, such as issue bodies, comment text, task ids, URLs, labels, or event metadata.
 - Put durable workflow rules in the action prompts and skill docs; keep event-specific resume prompts short.
 - Resume prompts should only state the new signal and the expected continuation. For example, "Issue has a new comment; review it and continue."

@@ -19,10 +19,10 @@ const REQUIRED_SKILL_PATH = path
   .relative(process.cwd(), path.resolve(__dirname, '..', 'skills', 'issue-flow', 'SKILL.md'))
   .replace(/\\/g, '/')
   .replace(/^\.?\//, '');
-const REQUIRED_SKILL_BLOCK = `## Required Skill\n\nRead this project-level skill file before acting: \`${REQUIRED_SKILL_PATH}\`\n${PROVIDER_CLI_RULE}`;
+const REQUIRED_SKILL_BLOCK = `<required_skills>\nRead this project-level skill file before acting: \`${REQUIRED_SKILL_PATH}\`\n${PROVIDER_CLI_RULE}\n</required_skills>`;
 
-function assertRequiredSkillAtEnd(prompt) {
-  assert.equal(prompt.trimEnd().endsWith(REQUIRED_SKILL_BLOCK), true);
+function assertRequiredSkill(prompt) {
+  assert.equal(prompt.includes(REQUIRED_SKILL_BLOCK), true);
   assert.equal(
     prompt.indexOf(PROVIDER_CLI_RULE),
     prompt.lastIndexOf(PROVIDER_CLI_RULE),
@@ -94,6 +94,33 @@ test('agentrix config only customizes prompt, template, and plan root paths', ()
   }
 });
 
+test('agentrix appends context without parsing a custom action prompt', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-prompt-'));
+  try {
+    const promptsDir = path.join(root, 'prompts');
+    fs.mkdirSync(promptsDir, { recursive: true });
+    const template = 'CUSTOM TEMPLATE\n\nExecution and Deliverable stay user-owned.';
+    fs.writeFileSync(path.join(promptsDir, 'build.prompt.md'), template);
+
+    const prompt = agentrix.composeActionPrompt('build', {
+      number: 42,
+      labels: ['type::feature'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }, {}, {
+      promptsDir,
+      planRootDir: path.join(root, 'issues'),
+    });
+
+    assert.equal(prompt.startsWith(`${template}\n\n<required_skills>`), true);
+    assert.equal(prompt.indexOf(template), prompt.lastIndexOf(template));
+    assert.match(prompt, /<task_input>/);
+    assert.match(prompt, /<repository_context>/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agentrix command logging shell-quotes args and redacts api key', () => {
   const command = agentrix.redactedCommand('npx', [
     '--yes',
@@ -114,7 +141,7 @@ test('agentrix command logging shell-quotes args and redacts api key', () => {
 });
 
 test('agentrix prompt falls back to built-in defaults and injects fixed plan conventions', () => {
-  const prompt = agentrix.buildPrompt(
+  const prompt = agentrix.composeActionPrompt(
     'plan',
     {
       number: 42,
@@ -124,17 +151,22 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
       body: 'Cannot log in.',
     },
     {},
-    { planRootDir: '.work/items' }
+    {
+      planRootDir: '.work/items',
+      promptsDir: path.join(os.tmpdir(), `issue-flow-missing-prompts-${process.pid}`),
+    }
   );
 
   assert.match(prompt, /针对当前 issue 产出可审阅的根因与修复方案/);
-  assert.match(prompt, /## Plan Output/);
+  assert.match(prompt, /<output_context>/);
   assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
-  assert.match(prompt, /Plan branch: `42-broken-login\/plan`/);
-  assert.match(prompt, /PR body: write it to a repo-external temp file/);
+  assert.match(prompt, /Working branch: `42-broken-login\/plan`/);
+  assert.match(prompt, /PR body 写入仓库外临时文件/);
   assert.match(prompt, /issue-flow pr submit/);
-  assert.match(prompt, /do not put it in git/);
-  assertRequiredSkillAtEnd(prompt);
+  assert.match(prompt, /不要加入 git/);
+  assertRequiredSkill(prompt);
+  assert.match(prompt, /<task_input>/);
+  assert.match(prompt, /<repository_context>/);
   assert.match(prompt, /^Labels: type::bug, priority::p2$/m);
   assert.doesNotMatch(prompt, /^State: open$/m);
   assert.doesNotMatch(prompt, /^Labels: .*status::active/m);
@@ -147,7 +179,7 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
 });
 
 test('agentrix plan prompt enables visual artifacts only with the issue feature label', () => {
-  const prompt = agentrix.buildPrompt('plan', {
+  const prompt = agentrix.composeActionPrompt('plan', {
     number: 42,
     labels: ['type::bug', 'size::M', 'feature:visual-plan:on'],
     title: 'Broken login',
@@ -159,14 +191,17 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   const visualBriefPath = path.join(os.tmpdir(), 'issue-flow', 'visual-plan', '42-broken-login', 'visual-brief.md').replace(/\\/g, '/');
   assert.equal(prompt.includes(`Temporary visual brief (do not commit): \`${visualBriefPath}\``), true);
   assert.doesNotMatch(prompt, /plan\/data\/visual-brief\.md/);
-  assert.match(prompt, /--artifact <decision\|plan>/);
+  assert.match(prompt, /--artifact decision/);
+  assert.match(prompt, /--artifact plan/);
   assert.doesNotMatch(prompt, /PR body:/);
-  assert.match(prompt.trimEnd(), /skills\/vision-plan\/SKILL\.md`$/);
+  assert.match(prompt, /skills\/vision-plan\/SKILL\.md`/);
+  assert.match(prompt, /<output_context>/);
+  assert.match(prompt, /Working branch: `42-broken-login\/plan`/);
 });
 
-test('agentrix build prompt injects explicit task base context without plan output section', () => {
+test('agentrix action prompt uses full issue input when no plan files exist', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: 'ignored-main' }, () => {
-    const prompt = agentrix.buildPrompt(
+    const prompt = agentrix.composeActionPrompt(
       'build',
       {
         number: 42,
@@ -179,17 +214,18 @@ test('agentrix build prompt injects explicit task base context without plan outp
       { planRootDir: '.work/items' }
     );
 
-    assert.match(prompt, /## Branch/);
-    assert.match(prompt, /Create or switch to this non-base branch before committing: `42-add-export-button\/build`/);
-    assert.match(prompt, /## Plan Files/);
-    assert.match(prompt, /PR body: write it to a repo-external temp file/);
+    assert.match(prompt, /<task_input>/);
+    assert.match(prompt, /Body:\nAdd CSV export\./);
+    assert.doesNotMatch(prompt, /Input files:/);
+    assert.doesNotMatch(prompt, /No plan files matched/);
+    assert.doesNotMatch(prompt, /Search rule:/);
+    assert.match(prompt, /<repository_context>/);
+    assert.match(prompt, /Working branch: `42-add-export-button\/build`/);
     assert.match(prompt, /Base branch: `main`/);
-    assert.match(prompt, /If that env var is absent, pass `--base main` explicitly/);
-    assert.match(prompt, /issue-flow pr submit/);
-    assert.match(prompt, /do not put it in git/);
-    assertRequiredSkillAtEnd(prompt);
+    assert.doesNotMatch(prompt, /AGENTRIX_BASE_REF/);
+    assertRequiredSkill(prompt);
     assert.doesNotMatch(prompt, /先判断根因类别/);
-    assert.doesNotMatch(prompt, /## Plan Output/);
+    assert.doesNotMatch(prompt, /<output_context>/);
     assert.doesNotMatch(prompt, /Agentrix Issue-Flow Paths/);
   });
 });
@@ -202,7 +238,7 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
     fs.writeFileSync(path.join(planDir, 'data', 'plan-data.json'), '{not parsed by runtime');
     fs.writeFileSync(path.join(planDir, '001-implementation.md'), '# Markdown plan\n');
 
-    const visualPrompt = agentrix.buildPrompt('build', {
+    const visualPrompt = agentrix.composeActionPrompt('build', {
       number: 42,
       labels: ['type::feature', 'flow::build', 'feature:visual-plan:on'],
       title: 'Add export button',
@@ -213,8 +249,10 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
     assert.doesNotMatch(visualPrompt, /visual-brief\.md/);
     assert.doesNotMatch(visualPrompt, /not parsed by runtime/);
     assert.doesNotMatch(visualPrompt, /001-implementation\.md/);
+    assert.doesNotMatch(visualPrompt, /Body:\nAdd CSV export\./);
+    assert.match(visualPrompt, /Source issue: #42 — Add export button/);
 
-    const markdownPrompt = agentrix.buildPrompt('build', {
+    const markdownPrompt = agentrix.composeActionPrompt('build', {
       number: 42,
       labels: ['type::feature', 'flow::build'],
       title: 'Add export button',
@@ -222,14 +260,15 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
     }, {}, { planRootDir: root });
     assert.match(markdownPrompt, /001-implementation\.md/);
     assert.doesNotMatch(markdownPrompt, /plan-data\.json/);
+    assert.doesNotMatch(markdownPrompt, /Body:\nAdd CSV export\./);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('agentrix build prompt ignores GitLab bridge base ref when task base is explicit', () => {
+test('agentrix repository context ignores GitLab bridge base ref when task base is explicit', () => {
   withTemporaryEnv({ AGENTRIX_BASE_REF: undefined, GITLAB_BRIDGE_BASE_REF: 'main' }, () => {
-    const prompt = agentrix.buildPrompt(
+    const prompt = agentrix.composeActionPrompt(
       'build',
       {
         number: 42,
@@ -243,12 +282,12 @@ test('agentrix build prompt ignores GitLab bridge base ref when task base is exp
     );
 
     assert.match(prompt, /Base branch: `release\/2026`/);
-    assert.match(prompt, /pass `--base release\/2026` explicitly/);
+    assert.doesNotMatch(prompt, /pass `--base release\/2026` explicitly/);
   });
 });
 
 test('agentrix build prompt uses CI failure template for failure intake issues', () => {
-  const prompt = agentrix.buildPrompt(
+  const prompt = agentrix.composeActionPrompt(
     'build',
     {
       number: 563,
@@ -267,12 +306,12 @@ test('agentrix build prompt uses CI failure template for failure intake issues',
   assert.match(prompt, /只有确认是仓库代码回归时，才把 `type::ops` 改成 `type::bug`/);
   assert.match(prompt, /不要硬改业务代码/);
   assert.match(prompt, /PR body 写清 Source issue、Root cause、Fix、Validation/);
-  assert.match(prompt, /Create or switch to this non-base branch before committing: `563-fix-ci-failure-ci-test\/build`/);
+  assert.match(prompt, /Working branch: `563-fix-ci-failure-ci-test\/build`/);
   assert.match(prompt, /^Labels: type::ops, failure::ci, size::M$/m);
 });
 
 test('agentrix build prompt uses CI failure template when only the body marker remains', () => {
-  const prompt = agentrix.buildPrompt(
+  const prompt = agentrix.composeActionPrompt(
     'build',
     {
       number: 564,
@@ -310,7 +349,7 @@ test('agentrix run args ignore dispatch env and forward explicit task base ref',
 });
 
 test('agentrix prompt context keeps size labels visible without extra prompt guidance', () => {
-  const triagePrompt = agentrix.buildPrompt(
+  const triagePrompt = agentrix.composeActionPrompt(
     'triage',
     {
       number: 42,
@@ -325,7 +364,7 @@ test('agentrix prompt context keeps size labels visible without extra prompt gui
 });
 
 test('agentrix review prompt uses target URL and review submission script', () => {
-  const prompt = agentrix.buildPullRequestPrompt({
+  const prompt = agentrix.composeReviewPrompt({
     provider: 'github',
     repoFullName: 'example/platform',
     number: 9,
@@ -342,17 +381,17 @@ test('agentrix review prompt uses target URL and review submission script', () =
     body: '<!-- issue-flow:source-issue=42 -->\nAdds export support.',
   });
 
-  assert.match(prompt, /## Review Target/);
+  assert.match(prompt, /<review_target>/);
   assert.match(prompt, /^Number: #9$/m);
   assert.match(prompt, /^Source issue: #42$/m);
   assert.match(prompt, /URL: https:\/\/github\.com\/example\/platform\/pull\/9/);
-  assert.match(prompt, /## Review Submission/);
-  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file <tmp-review-body-file> \[--comments-file <tmp-inline-comments-json>\] \[--as-comment\]/);
+  assert.match(prompt, /<review_submission>/);
+  assert.match(prompt, /cli\.cjs pr review --pr 9 --body-file TMP_REVIEW_BODY_FILE \[--comments-file TMP_INLINE_COMMENTS_JSON\] \[--as-comment\]/);
   assert.doesNotMatch(prompt, /--expected-head/);
   assert.match(prompt, /inline review comments/);
-  assertRequiredSkillAtEnd(prompt);
+  assertRequiredSkill(prompt);
   assert.match(prompt, /没有明确问题时加 `--as-comment`/);
-  assert.doesNotMatch(prompt, /## Issue/);
+  assert.doesNotMatch(prompt, /<task_input>/);
   assert.doesNotMatch(prompt, /Possible source issue/);
   assert.doesNotMatch(prompt, /flow::triage/);
   assert.doesNotMatch(prompt, /automation::build/);
@@ -392,11 +431,21 @@ test('agentrix default prompts delegate script details to the issue-flow skill',
     const body = fs.readFileSync(path.join(promptsDir, entry.name), 'utf8');
     assert.doesNotMatch(body, /\$\{CLAUDE_SKILL_DIR\}/, entry.name);
     assert.doesNotMatch(body, /scripts\/[a-z-]+\.cjs/, entry.name);
+    assert.doesNotMatch(
+      body,
+      /<(?:task_input|repository_context|output_context|review_target)>/,
+      `${entry.name} must describe injected context semantically instead of depending on runtime tags`,
+    );
   }
+
+  const defaultBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build.prompt.md'), 'utf8');
+  assert.match(defaultBuildPrompt, /读取运行时附加的任务输入/);
+  assert.match(defaultBuildPrompt, /按运行时提供的仓库上下文/);
+  assert.match(defaultBuildPrompt, /PR body 写入仓库外临时文件/);
 });
 
 test('agentrix default general prompt delegates create issue guidance to the required skill', () => {
-  const prompt = agentrix.buildPrompt(
+  const prompt = agentrix.composeActionPrompt(
     'general',
     {
       number: 42,
@@ -408,7 +457,8 @@ test('agentrix default general prompt delegates create issue guidance to the req
     { instruction: 'create an issue for this' }
   );
 
-  assertRequiredSkillAtEnd(prompt);
+  assertRequiredSkill(prompt);
+  assert.match(prompt.trimEnd(), /<\/additional_instruction>$/);
 
   const defaultPrompt = fs.readFileSync(
     path.resolve(__dirname, '..', 'skills', 'issue-flow', 'assets', 'agentrix', 'runtime', 'prompts', 'general.prompt.md'),
