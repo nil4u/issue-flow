@@ -917,30 +917,30 @@ function buildTaskComment(action, result, data = {}) {
     lines.push('Agentrix task queued.');
   }
   lines.push('');
-  lines.push(`Action: \`${displayedAction}\``);
+  lines.push(`- Action: \`${displayedAction}\``);
   if (result.runId) {
-    lines.push(`Run: \`${result.runId}\``);
+    lines.push(`- Run: \`${result.runId}\``);
   }
   if (action === 'review' && pr && pr.headSha) {
-    lines.push(`Head: \`${pr.headSha}\``);
+    lines.push(`- Head: \`${pr.headSha}\``);
   }
   if (data.comment && data.comment.htmlUrl) {
-    lines.push(`Trigger: ${data.comment.htmlUrl}`);
+    lines.push(`- Trigger: ${data.comment.htmlUrl}`);
   } else if (data.reviewComment && data.reviewComment.htmlUrl) {
-    lines.push(`Trigger: ${data.reviewComment.htmlUrl}`);
+    lines.push(`- Trigger: ${data.reviewComment.htmlUrl}`);
   } else if (data.pullRequest) {
-    lines.push('Trigger: PR/MR review check.');
+    lines.push('- Trigger: PR/MR review check.');
   } else if (data.auto) {
-    lines.push('Trigger: automatic issue-flow.');
+    lines.push('- Trigger: automatic issue-flow.');
   }
   if (data.reviewComment && data.reviewComment.id) {
-    lines.push(`Review comment: \`${data.reviewComment.id}\``);
+    lines.push(`- Review comment: \`${data.reviewComment.id}\``);
   }
   if (data.reviewComment && data.reviewComment.reviewId) {
-    lines.push(`Review batch: \`${data.reviewComment.reviewId}\``);
+    lines.push(`- Review batch: \`${data.reviewComment.reviewId}\``);
   }
   if (data.agentrixTaskId && action !== 'task_resume') {
-    lines.push(`Agentrix task: \`${data.agentrixTaskId}\``);
+    lines.push(`- Agentrix task: \`${data.agentrixTaskId}\``);
   }
   return lines.join('\n');
 }

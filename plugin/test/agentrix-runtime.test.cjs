@@ -522,11 +522,32 @@ test('agentrix task marker uses issue-flow namespace', () => {
       comment: { htmlUrl: 'https://github.com/example/platform/issues/42#issuecomment-501' },
     }
   );
-  assert.match(visualResumeComment, /^Action: `plan`$/m);
-  assert.match(visualResumeComment, /^Run: `task-plan`$/m);
-  assert.match(visualResumeComment, /Trigger: https:\/\/github\.com\/example\/platform\/issues\/42#issuecomment-501/);
-  assert.doesNotMatch(visualResumeComment, /^Agentrix task:/m);
+  assert.match(visualResumeComment, /^- Action: `plan`$/m);
+  assert.match(visualResumeComment, /^- Run: `task-plan`$/m);
+  assert.match(visualResumeComment, /^- Trigger: https:\/\/github\.com\/example\/platform\/issues\/42#issuecomment-501$/m);
+  assert.doesNotMatch(visualResumeComment, /^- Agentrix task:/m);
   assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /issue-flow:task:agentrix/);
+});
+
+test('agentrix formats issue task metadata as a Markdown list', () => {
+  const comment = agentrix.buildTaskComment(
+    'build',
+    {
+      status: 'queued',
+      runId: 'task-build',
+      detailUrl: 'https://agentrix.example/tasks/task-build',
+    },
+    {
+      auto: true,
+      agentrixTaskId: 'task-plan',
+    }
+  );
+
+  assert.match(comment, /Agentrix task queued: \[open task\]\(https:\/\/agentrix\.example\/tasks\/task-build\)\./);
+  assert.match(
+    comment,
+    /\n\n- Action: `build`\n- Run: `task-build`\n- Trigger: automatic issue-flow\.\n- Agentrix task: `task-plan`$/
+  );
 });
 
 test('agentrix extracts task run and reviewed head from task comments', () => {

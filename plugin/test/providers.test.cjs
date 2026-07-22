@@ -907,6 +907,7 @@ test('gitlab base URL defaults from the git remote host', () => {
 
 test('gitlab glab fallback serializes API params as fields instead of raw input', () => {
   const args = gitlabApiBodyArgs({
+    body: 'Agentrix task queued.\n\n- Action: `build`\n- Run: `task-build`',
     add_labels: 'flow::clarify,priority::p2',
     remove_labels: 'flow::triage',
     description: '@literal\nhello',
@@ -917,6 +918,8 @@ test('gitlab glab fallback serializes API params as fields instead of raw input'
   });
 
   assert.deepEqual(args, [
+    '--raw-field',
+    'body=Agentrix task queued.\n\n- Action: `build`\n- Run: `task-build`',
     '--raw-field',
     'add_labels=flow::clarify,priority::p2',
     '--raw-field',
@@ -931,6 +934,59 @@ test('gitlab glab fallback serializes API params as fields instead of raw input'
     'milestone_id=null',
   ]);
   assert.equal(args.includes('--input'), false);
+});
+
+test('gitlab issue comments preserve task metadata line breaks', async () => {
+  const port = resolveProviderPort({ provider: 'gitlab', repo: 'group/sub/project', issueNumber: '42' }, {});
+  const previousFetch = global.fetch;
+  const calls = [];
+  const body = 'Agentrix task queued.\n\n- Action: `build`\n- Run: `task-build`\n- Trigger: automatic issue-flow.';
+
+  try {
+    await withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+      },
+      async () => {
+        global.fetch = async (url, init = {}) => {
+          calls.push({
+            url: String(url),
+            method: init.method,
+            body: init.body ? JSON.parse(init.body) : undefined,
+          });
+          return {
+            ok: true,
+            status: init.method === 'POST' ? 201 : 200,
+            text: async () => JSON.stringify({ id: 17, body }),
+          };
+        };
+
+        await port.issues.createComment({ body });
+        await port.issues.updateComment({ commentId: '17' }, { body });
+      }
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+
+  assert.deepEqual(
+    calls.map((call) => ({ method: call.method, pathname: new URL(call.url).pathname, body: call.body })),
+    [
+      {
+        method: 'POST',
+        pathname: '/api/v4/projects/group%2Fsub%2Fproject/issues/42/notes',
+        body: { body },
+      },
+      {
+        method: 'PUT',
+        pathname: '/api/v4/projects/group%2Fsub%2Fproject/issues/42/notes/17',
+        body: { body },
+      },
+    ]
+  );
 });
 
 test('gitlab pr review-comments list uses merge request discussions API', async () => {
