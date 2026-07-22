@@ -135,6 +135,46 @@ export type MergeRequestUser = {
   url: string
 }
 
+export type ProviderIssueLabel = {
+  name: string
+  color: string
+  description: string
+}
+
+export type ProviderIssueSummary = {
+  id: string
+  number: number
+  title: string
+  body: string
+  bodyHtml?: string
+  state: "open" | "closed" | string
+  author: MergeRequestUser
+  assignees: MergeRequestUser[]
+  labels: ProviderIssueLabel[]
+  commentsCount: number
+  webUrl: string
+  createdAt: string
+  updatedAt: string
+  closedAt: string
+  permissions?: { canCreate: boolean; canEdit: boolean; canClose: boolean; canLabel: boolean; canComment: boolean }
+}
+
+export type ProviderIssueComment = {
+  id: string
+  body: string
+  bodyHtml?: string
+  author: MergeRequestUser
+  createdAt: string
+  updatedAt: string
+}
+
+export type ProviderIssueDetail = {
+  issue: ProviderIssueSummary
+  comments: ProviderIssueComment[]
+  availableLabels: ProviderIssueLabel[]
+  repository: { id: string; fullName: string; provider: string; webUrl: string }
+}
+
 export type MergeRequestSummary = {
   id: string
   number: number
@@ -683,10 +723,7 @@ export type RepoWorkspaceProps = {
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
   loadingRepositoryDetails?: boolean
-  issues: IssueRow[]
-  loadingIssues?: boolean
   onLogin: () => void
-  onSyncIssues: () => Promise<void>
   onCheck: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onCloseCheckProgress: () => void
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>

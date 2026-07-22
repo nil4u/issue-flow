@@ -20,6 +20,12 @@ export type MergeRequestRoute = {
   mergeRequestNumber: number
 }
 
+export type IssueRoute = {
+  gitServerId: string
+  projectId: string
+  issueNumber: number
+}
+
 const tabs = new Set<WorkspaceTab>(["overview", "issues", "merge-requests", "tasks", "settings"])
 
 export function parseMergeRequestRoute(pathname = window.location.pathname): MergeRequestRoute | undefined {
@@ -29,6 +35,15 @@ export function parseMergeRequestRoute(pathname = window.location.pathname): Mer
   const mergeRequestNumber = Number.parseInt(parts[4] || "", 10)
   if (parts[0] !== "repos" || parts[3] !== "merge-requests" || parts.length !== 5 || !parts[1] || !parts[2] || !Number.isFinite(mergeRequestNumber) || mergeRequestNumber <= 0) return undefined
   return { gitServerId: parts[1], projectId: parts[2], mergeRequestNumber }
+}
+
+export function parseIssueRoute(pathname = window.location.pathname): IssueRoute | undefined {
+  const parts = pathname.split("/").filter(Boolean).map((part) => {
+    try { return decodeURIComponent(part) } catch { return part }
+  })
+  const issueNumber = Number.parseInt(parts[4] || "", 10)
+  if (parts[0] !== "repos" || parts[3] !== "issues" || parts.length !== 5 || !parts[1] || !parts[2] || !Number.isFinite(issueNumber) || issueNumber <= 0) return undefined
+  return { gitServerId: parts[1], projectId: parts[2], issueNumber }
 }
 
 export function parseVisualArtifactRoute(pathname = window.location.pathname): VisualArtifactRoute | undefined {

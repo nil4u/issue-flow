@@ -50,6 +50,28 @@ function gitlabProjectPath(repo) {
   return `/projects/${encodeURIComponent(repo.serverRepoId || repo.fullName)}`
 }
 
+function normalizeMentionUser(user = {}) {
+  const username = user.username || user.login || ""
+  return {
+    id: String(user.id || user.node_id || ""),
+    username,
+    name: user.name || user.display_name || username,
+    avatarUrl: user.avatar_url || "",
+    url: user.web_url || user.html_url || "",
+    bot: Boolean(user.bot || user.type === "Bot" || user.user_type === "project_bot" || /(?:^|[-_])bot$/i.test(username)),
+  }
+}
+
+function uniqueMentionUsers(users = []) {
+  const result = new Map()
+  for (const user of users.map(normalizeMentionUser)) {
+    if (!user.username) continue
+    const key = user.username.toLowerCase()
+    result.set(key, result.has(key) ? { ...result.get(key), ...user, bot: result.get(key).bot || user.bot } : user)
+  }
+  return [...result.values()].sort((left, right) => Number(right.bot) - Number(left.bot) || left.username.localeCompare(right.username))
+}
+
 async function renderProviderMarkdown(server, repo, markdown) {
   if (!markdown) return ""
   if (server.type === "github") {
@@ -62,4 +84,4 @@ async function renderProviderMarkdown(server, repo, markdown) {
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { githubRepoPath, gitlabProjectPath, providerApiError, providerFetch, renderProviderMarkdown }
+export { githubRepoPath, gitlabProjectPath, providerApiError, providerFetch, renderProviderMarkdown, uniqueMentionUsers }

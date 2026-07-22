@@ -3,10 +3,15 @@ const test = require("node:test")
 
 require("tsx/cjs")
 
-const { parseMergeRequestRoute, parseVisualArtifactRoute } = require("../src/app-route.ts")
+const { parseIssueRoute, parseMergeRequestRoute, parseVisualArtifactRoute } = require("../src/app-route.ts")
 
 test("merge request review route is independent from Plan preview", () => {
   assert.deepEqual(parseMergeRequestRoute("/repos/gitlab-main/43326/merge-requests/17"), { gitServerId: "gitlab-main", projectId: "43326", mergeRequestNumber: 17 })
+})
+
+test("issue management route opens a provider issue", () => {
+  assert.deepEqual(parseIssueRoute("/repos/gitlab-main/43326/issues/15"), { gitServerId: "gitlab-main", projectId: "43326", issueNumber: 15 })
+  assert.equal(parseIssueRoute("/repos/gitlab-main/43326/issues"), undefined)
 })
 
 test("visual artifact route is shared by Decision and Plan for one issue", () => {
