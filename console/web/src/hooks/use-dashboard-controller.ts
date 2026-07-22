@@ -108,6 +108,7 @@ export function useDashboardController() {
   const projectAccessKey = useRef("")
   const projectAccessRequestKey = useRef("")
   const autoCheckedSettingsVisit = useRef("")
+  const installCheckController = useRef<AbortController | undefined>(undefined)
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
   const [pendingGitServerId, setPendingGitServerId] = useState("")
@@ -478,25 +479,28 @@ export function useDashboardController() {
     setInstallCheck(undefined)
     setCheckProgress(startProgress)
     setChecking(true)
+    installCheckController.current?.abort()
+    const controller = new AbortController()
+    installCheckController.current = controller
     let nextCheck: InstallCheck | undefined
     let interrupted = false
     try {
       for (const checkType of ["permissions", "webhook", "variables", "labels", "runners", "plugins"]) {
         setCheckProgressStep(checkType, "running", "正在检查")
-        let body = await checkInstallStep(checkType, input)
+        let body = await checkInstallStep(checkType, input, controller.signal)
         let checkedStep = body.steps.find((step) => step.id === checkType)
         if (checkType === "variables") {
           if (hasPendingAutoVariables(checkedStep)) {
             setCheckProgressStep(checkType, "running", "正在自动写入")
             nextCheck = applyInstallCheck(nextCheck, body)
-            const fixed = await autoConfigureInstallStep(checkType, input)
+            const fixed = await autoConfigureInstallStep(checkType, input, controller.signal)
             nextCheck = applyInstallCheck(nextCheck, fixed)
             const fixedStep = fixed.steps.find((step) => step.id === checkType)
             if (hasFailedVariables(fixedStep)) {
               body = fixed
               checkedStep = fixedStep
             } else {
-              body = await checkInstallStep(checkType, input)
+              body = await checkInstallStep(checkType, input, controller.signal)
               checkedStep = body.steps.find((step) => step.id === checkType)
             }
           }
@@ -521,9 +525,9 @@ export function useDashboardController() {
         nextCheck = applyInstallCheck(nextCheck, body)
         if (checkedStep && checkedStep.status !== "passed" && canAutoConfigureStep(checkType)) {
           setCheckProgressStep(checkType, "running", "自动配置")
-          const fixed = await autoConfigureInstallStep(checkType, input)
+          const fixed = await autoConfigureInstallStep(checkType, input, controller.signal)
           nextCheck = applyInstallCheck(nextCheck, fixed)
-          body = await checkInstallStep(checkType, input)
+          body = await checkInstallStep(checkType, input, controller.signal)
           nextCheck = applyInstallCheck(nextCheck, body)
           checkedStep = body.steps.find((step) => step.id === checkType)
         }
@@ -541,7 +545,9 @@ export function useDashboardController() {
           break
         }
       }
+      if (controller.signal.aborted) return
       await loadRepositories(selectedGitServerId, { includeSelectedProject: true })
+      if (controller.signal.aborted) return
       setCheckProgress((current) => ({
         ...current,
         open: true,
@@ -550,6 +556,7 @@ export function useDashboardController() {
       }))
       return nextCheck
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return
       setCheckProgress((current) => ({
         ...current,
         open: true,
@@ -562,11 +569,14 @@ export function useDashboardController() {
       }))
       notifyError(error, "检查失败")
     } finally {
-      setChecking(false)
+      if (installCheckController.current === controller) {
+        installCheckController.current = undefined
+        setChecking(false)
+      }
     }
   }
 
-  async function checkInstallStep(checkType: string, input: Record<string, unknown> = {}) {
+  async function checkInstallStep(checkType: string, input: Record<string, unknown> = {}, signal?: AbortSignal) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
     return api<InstallCheck>("/api/gitlab/install-check", {
       method: "POST",
@@ -576,6 +586,7 @@ export function useDashboardController() {
         checkType,
         ...input,
       }),
+      signal,
     })
   }
 
@@ -583,7 +594,7 @@ export function useDashboardController() {
     return ["permissions", "webhook", "variables", "labels", "runners"].includes(checkType)
   }
 
-  async function autoConfigureInstallStep(checkType: string, input: Record<string, unknown> = {}) {
+  async function autoConfigureInstallStep(checkType: string, input: Record<string, unknown> = {}, signal?: AbortSignal) {
     if (!selectedProject || !selectedGitServerId) throw new Error("project_required")
     const paths: Record<string, string> = {
       permissions: "/api/gitlab/install-permission",
@@ -601,6 +612,7 @@ export function useDashboardController() {
         projectId: selectedProject.id,
         ...input,
       }),
+      signal,
     })
   }
 
@@ -618,7 +630,8 @@ export function useDashboardController() {
   }
 
   function closeCheckProgress() {
-    if (!checking) setCheckProgress((current) => ({ ...current, open: false }))
+    setCheckProgress((current) => ({ ...current, open: false }))
+    installCheckController.current?.abort()
   }
 
   async function setInstallVariable(key: string, input: Record<string, unknown>) {
