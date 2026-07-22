@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/nil4u/issue-flow/compare/console-v0.12.0...console-v0.13.0) (2026-07-22)
+
+
+### Features
+
+* **console:** add provider-backed issue management ([8af552c](https://github.com/nil4u/issue-flow/commit/8af552cd0e41f102c31ea84848b8e68a98911e26))
+
 ## [0.12.0](https://github.com/nil4u/issue-flow/compare/console-v0.11.1...console-v0.12.0) (2026-07-21)
 
 

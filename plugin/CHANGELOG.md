@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/nil4u/issue-flow/compare/v0.6.0...v0.6.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **agentrix:** format task metadata as markdown list ([afb1d6b](https://github.com/nil4u/issue-flow/commit/afb1d6bd37c1339e84c23e62fa22722fe24e5034))
+* **milestone:** require target selection before delivery ([57cfa59](https://github.com/nil4u/issue-flow/commit/57cfa59b51807c64b016ccbc446870e863dbf26c))
+
 ## [0.6.0](https://github.com/nil4u/issue-flow/compare/v0.5.0...v0.6.0) (2026-07-21)
 
 
