@@ -1521,12 +1521,14 @@
     margin-inline: auto;
   }
   .workspace-tabs [data-slot="tabs-content"]:has(.issue-board),
+  .workspace-tabs [data-slot="tabs-content"]:has(.provider-issues-board),
   .workspace-tabs [data-slot="tabs-content"]:has(.merge-requests-board),
   .workspace-tabs [data-slot="tabs-content"]:has(.tasks-board) {
     padding-inline: clamp(0.65rem, 1.2vw, 1.35rem);
     overflow: hidden;
   }
   .workspace-tabs [data-slot="tabs-content"] > .issue-board,
+  .workspace-tabs [data-slot="tabs-content"] > .provider-issues-board,
   .workspace-tabs [data-slot="tabs-content"] > .merge-requests-board,
   .workspace-tabs [data-slot="tabs-content"] > .tasks-board {
     width: 100%;

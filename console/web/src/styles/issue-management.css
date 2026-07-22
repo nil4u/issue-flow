@@ -7,17 +7,20 @@
   .provider-issues-actions { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
   .provider-issues-error { min-height: 2.4rem; display: flex; align-items: center; gap: .5rem; padding: .55rem .75rem; border: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); border-radius: 7px; color: var(--destructive); font-size: .8rem; }
   .provider-issues-empty { min-height: 12rem; flex: 1; display: flex; align-items: center; justify-content: center; gap: .55rem; color: var(--muted-foreground); }
-  .provider-issue-list { min-height: 0; flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+  .provider-issue-list { min-height: 0; flex: 1; overflow: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+  .provider-issue-list::-webkit-scrollbar { width: 6px; height: 6px; }
+  .provider-issue-list::-webkit-scrollbar-track { background: transparent; }
+  .provider-issue-list::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--muted-foreground) 28%, transparent); }
   .provider-issue-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; border-bottom: 1px solid var(--border); }
   .provider-issue-row:last-child { border-bottom: 0; }
   .provider-issue-row:hover { background: color-mix(in srgb, var(--muted) 48%, var(--card)); }
   .provider-issue-row-main { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .75rem; padding: .85rem 1rem; color: inherit; text-decoration: none; }
   .provider-issue-row-main > div { min-width: 0; display: grid; gap: .35rem; }
-  .provider-issue-row-main strong { font-size: .88rem; line-height: 1.35; }
-  .provider-issue-row-main p { margin: 0; color: var(--muted-foreground); font-size: .74rem; }
-  .provider-issue-state { min-height: 1.55rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0 .5rem; border-radius: 999px; background: color-mix(in srgb, #1a7f37 12%, var(--card)); color: #1a7f37; font-size: .69rem; font-weight: 650; }
+  .provider-issue-row-main strong { font-size: .84rem; line-height: 1.4; }
+  .provider-issue-row-main p { margin: 0; color: var(--muted-foreground); font-size: .78rem; }
+  .provider-issue-state { min-height: 1.55rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0 .5rem; border-radius: 999px; background: color-mix(in srgb, #1a7f37 12%, var(--card)); color: #1a7f37; font-size: .7rem; font-weight: 650; }
   .provider-issue-state.state-closed { background: color-mix(in srgb, #8250df 12%, var(--card)); color: #8250df; }
-  .provider-issue-comments { min-width: 2rem; display: flex; align-items: center; justify-content: end; gap: .25rem; color: var(--muted-foreground); font-size: .74rem; }
+  .provider-issue-comments { min-width: 2rem; display: flex; align-items: center; justify-content: end; gap: .25rem; color: var(--muted-foreground); font-size: .78rem; }
   .provider-issue-row-actions { display: flex; align-items: center; gap: .35rem; padding-right: .65rem; }
   .provider-issue-labels { display: flex; flex-wrap: wrap; gap: .3rem; }
   .provider-issue-label { min-height: 1.35rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0 .45rem; border-radius: 999px; background: var(--muted); color: var(--foreground); font-size: .68rem; font-weight: 600; }
