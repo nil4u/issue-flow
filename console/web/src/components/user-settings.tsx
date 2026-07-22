@@ -72,23 +72,26 @@ export function UserSettings({
 }) {
   const isAdmin = userSession.user && !("username" in userSession.user) && userSession.user.role === "admin"
   const section = !isAdmin && activeSection === "git-servers" ? "account" : activeSection
+  const adminSection = section === "git-servers"
 
   return (
     <div className="settings-panel">
       <header className="settings-titlebar">
-        <div className="settings-tabs" role="tablist" aria-label="用户设置">
-          <button type="button" className={`settings-tab ${section === "account" ? "active" : ""}`} onClick={() => onSelectSection("account")}>
-            账户
-          </button>
-          <button type="button" className={`settings-tab ${section === "agentrix" ? "active" : ""}`} onClick={() => onSelectSection("agentrix")}>
-            Agentrix
-          </button>
-          {isAdmin && (
-            <button type="button" className={`settings-tab ${section === "git-servers" ? "active" : ""}`} onClick={() => onSelectSection("git-servers")}>
-              Git servers
+        {adminSection ? (
+          <div className="settings-page-title">
+            <Server className="size-4" />
+            <strong>Git servers</strong>
+          </div>
+        ) : (
+          <div className="settings-tabs" role="tablist" aria-label="用户设置">
+            <button type="button" className={`settings-tab ${section === "account" ? "active" : ""}`} onClick={() => onSelectSection("account")}>
+              账户
             </button>
-          )}
-        </div>
+            <button type="button" className={`settings-tab ${section === "agentrix" ? "active" : ""}`} onClick={() => onSelectSection("agentrix")}>
+              Agentrix
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="settings-body">

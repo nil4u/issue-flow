@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { insightsRoute, parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
+import { gitServerAdminRoute, insightsRoute, parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
 import {
   api,
   ownerOf,
@@ -130,6 +130,7 @@ export function useDashboardController() {
   const selectedProject = selectedRepoSummary ? repositoryToProject(selectedRepoSummary) : undefined
   const selectedRepo = selectedRepoSummary ? repositoryDetails[selectedRepoSummary.id] || selectedRepoSummary : undefined
   const pendingPluginMergeRequestHref = selectedRepo?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")?.pendingMergeRequest?.webUrl || ""
+  const isAdmin = Boolean(userSession.user && !("username" in userSession.user) && userSession.user.role === "admin")
   const filteredProjects = projects
 
   function mergeRepositories(current: Repository[], next: Repository[]) {
@@ -1071,6 +1072,8 @@ export function useDashboardController() {
     sidebar: {
       collapsed: sidebarCollapsed,
       insightsActive: route.view === "insights",
+      gitServersAdminActive: route.view === "admin" && route.settingsSection === "git-servers",
+      showAdmin: isAdmin,
       gitServers,
       selectedGitServerId,
       selectedGitServer,
@@ -1095,6 +1098,7 @@ export function useDashboardController() {
       onLogout: logoutAll,
       onOpenUserSettings: openUserSettings,
       onOpenInsights: navigateInsights,
+      onOpenGitServersAdmin: () => applyRoute(gitServerAdminRoute),
       onCollapsedChange: updateSidebarCollapsed,
     },
     insights: {
