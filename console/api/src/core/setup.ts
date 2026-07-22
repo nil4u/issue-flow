@@ -65,14 +65,6 @@ function gitServerMissingFields(server = {}) {
   return missing
 }
 
-function setupInputMissingFields(input = {}) {
-  const missing = []
-  if ((input.type || "gitlab") === "gitlab" && !String(input.botPat || input.bot_pat || "").trim()) {
-    missing.push("botPat")
-  }
-  return missing
-}
-
 function normalizedUrl(value = "") {
   return String(value || "").trim().replace(/\/+$/, "")
 }
@@ -129,17 +121,6 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
   if (current.body.initialized) {
     return { status: 409, body: { error: "setup_already_initialized" } }
   }
-  const missingInput = setupInputMissingFields(input)
-  if (missingInput.length) {
-    return {
-      status: 400,
-      body: {
-        error: "git_server_incomplete",
-        missing: missingInput,
-      },
-    }
-  }
-
   const baseUrl = normalizedUrl(input.baseUrl)
   const host = gitlabHost(baseUrl)
   const gitServer = await store.ensureGitServer({
@@ -159,7 +140,6 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
     },
     agentrixGitServerId: input.agentrixGitServerId,
     adminPat: input.adminPat,
-    botPat: input.botPat,
     commitAuthor: {
       name: input.commitAuthor?.name || input.commitAuthorName || "issue-flow",
       email: input.commitAuthor?.email || input.commitAuthorEmail || defaultCommitAuthorEmail(baseUrl),

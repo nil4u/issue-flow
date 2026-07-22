@@ -100,7 +100,6 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     },
     agentrixGitServerId,
     adminPatFingerprint: fingerprints.adminPatFingerprint || "",
-    botPatFingerprint: fingerprints.botPatFingerprint || "",
     commitAuthor: {
       name: commitAuthorName,
       email: commitAuthorEmail,

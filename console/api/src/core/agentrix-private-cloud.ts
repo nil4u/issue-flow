@@ -66,7 +66,6 @@ function publicGitServer(server = {}) {
       name: server.commitAuthor && server.commitAuthor.name || 'issue-flow',
       email: server.commitAuthor && server.commitAuthor.email || '',
     },
-    botPatFingerprint: server.botPatFingerprint || '',
   }
 }
 

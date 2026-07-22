@@ -7,7 +7,6 @@ export type SetupInitializeInput = {
   oauthClientSecret: string
   agentrixGitServerId: string
   adminPat: string
-  botPat: string
   commitAuthorName: string
   commitAuthorEmail: string
 }
@@ -30,7 +29,6 @@ export async function initializeIssueFlowSetup(input: SetupInitializeInput) {
       },
       agentrixGitServerId: input.agentrixGitServerId,
       adminPat: input.adminPat,
-      botPat: input.botPat,
       commitAuthor: {
         name: input.commitAuthorName,
         email: input.commitAuthorEmail,

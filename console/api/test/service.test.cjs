@@ -170,7 +170,6 @@ async function seedGitlabServer(store, baseUrl, options = {}) {
     },
     agentrixGitServerId: options.agentrixGitServerId || 'agentrix-gitlab-main',
     adminPat: options.adminPat || 'gl-admin-pat',
-    botPat: options.botPat || 'gl-bot-pat',
     ...(options.commitAuthor ? { commitAuthor: options.commitAuthor } : {}),
   });
 }
@@ -454,7 +453,6 @@ test('service store keeps Git server config in columns and public reads hide sec
       },
       agentrixGitServerId: 'agentrix-main',
       adminPat: 'admin-pat-secret',
-      botPat: 'bot-pat-secret',
       commitAuthor: {
         name: 'Issue Flow',
         email: 'issue-flow@company.test',
@@ -466,7 +464,6 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(server.webhook.secret, 'webhook-secret');
     assert.equal(server.agentrixGitServerId, 'agentrix-main');
     assert.equal(server.adminPat, 'admin-pat-secret');
-    assert.equal(server.botPat, 'bot-pat-secret');
 
     const row = await store.db.gitServer.findUnique({ where: { id: 'gitlab-main' } });
     const raw = JSON.stringify(row);
@@ -476,19 +473,16 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(row.oauthScopes, 'api read_repository write_repository openid profile email');
     assert.equal(row.agentrixGitServerId, 'agentrix-main');
     assert.equal(row.adminPat, 'admin-pat-secret');
-    assert.equal(row.botPat, 'bot-pat-secret');
     assert.equal(row.commitAuthorName, 'Issue Flow');
     assert.equal(row.commitAuthorEmail, 'issue-flow@company.test');
     assert.match(raw, /oauth-secret/);
     assert.match(raw, /webhook-secret/);
     assert.match(raw, /admin-pat-secret/);
-    assert.match(raw, /bot-pat-secret/);
 
     const publicServer = await store.getGitServer('gitlab-main');
     assert.equal(publicServer.oauth.clientSecret, undefined);
     assert.equal(publicServer.webhook.secret, undefined);
     assert.equal(publicServer.adminPat, undefined);
-    assert.equal(publicServer.botPat, undefined);
     assert.deepEqual(publicServer.commitAuthor, {
       name: 'Issue Flow',
       email: 'issue-flow@company.test',
@@ -496,7 +490,6 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(publicServer.oauth.clientSecretFingerprint.length, 12);
     assert.equal(publicServer.webhook.secretFingerprint.length, 12);
     assert.equal(publicServer.adminPatFingerprint.length, 12);
-    assert.equal(publicServer.botPatFingerprint.length, 12);
 
     await store.ensureGitServer({
       id: 'gitlab-main',
@@ -514,7 +507,6 @@ test('service store keeps Git server config in columns and public reads hide sec
         secret: 'webhook-secret-2',
       },
       adminPat: 'admin-pat-secret-2',
-      botPat: 'bot-pat-secret-2',
       commitAuthor: {
         name: 'Issue Flow Bot',
         email: 'issue-flow-bot@company.test',
@@ -525,7 +517,6 @@ test('service store keeps Git server config in columns and public reads hide sec
     assert.equal(updated.webhook.secret, 'webhook-secret-2');
     assert.equal(updated.agentrixGitServerId, 'agentrix-main');
     assert.equal(updated.adminPat, 'admin-pat-secret-2');
-    assert.equal(updated.botPat, 'bot-pat-secret-2');
     assert.deepEqual(updated.commitAuthor, {
       name: 'Issue Flow Bot',
       email: 'issue-flow-bot@company.test',
@@ -818,27 +809,6 @@ test('setup initialize configures first git server and returns OAuth authorize U
     });
     assert.equal(rejected.status, 401);
 
-    const incomplete = await fetch(`${baseUrl}/api/setup/initialize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        setupCode: 'test-setup-code',
-        type: 'gitlab',
-        baseUrl: 'https://gitlab.example.com',
-        oauth: {
-          clientId: 'oauth-client',
-          clientSecret: 'oauth-secret',
-        },
-        agentrixGitServerId: 'agentrix-main',
-        adminPat: 'admin-pat',
-      }),
-    });
-    assert.equal(incomplete.status, 400);
-    const incompleteBody = await incomplete.json();
-    assert.equal(incompleteBody.error, 'git_server_incomplete');
-    assert.deepEqual(incompleteBody.missing, ['botPat']);
-    assert.equal(await store.getGitServer('gitlab-gitlab-example-com'), undefined);
-
     const initialized = await fetch(`${baseUrl}/api/setup/initialize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -852,7 +822,6 @@ test('setup initialize configures first git server and returns OAuth authorize U
         },
         agentrixGitServerId: 'agentrix-main',
         adminPat: 'admin-pat',
-        botPat: 'bot-pat',
       }),
     });
     assert.equal(initialized.status, 201);
@@ -866,13 +835,12 @@ test('setup initialize configures first git server and returns OAuth authorize U
       name: 'issue-flow',
       email: 'issue-flow@example.com',
     });
-    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat|bot-pat/);
+    assert.doesNotMatch(JSON.stringify(body), /oauth-secret|admin-pat/);
 
     const savedServer = await store.getGitServer('gitlab-gitlab-example-com', { includeSecret: true });
     assert.equal(Object.hasOwn(savedServer.oauth, 'redirectUri'), false);
     assert.equal(savedServer.oauth.scopes, 'api read_repository write_repository openid profile email');
     assert.match(savedServer.webhook.secret, /^[a-f0-9]{64}$/);
-    assert.equal(savedServer.botPat, 'bot-pat');
     assert.deepEqual(savedServer.commitAuthor, {
       name: 'issue-flow',
       email: 'issue-flow@example.com',
@@ -896,45 +864,6 @@ test('setup initialize configures first git server and returns OAuth authorize U
     } else {
       process.env.ISSUE_FLOW_APP_URL = previousAppUrl;
     }
-    await app.close();
-    await store.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('setup status does not force setup when an existing Git server lacks Bot PAT', async () => {
-  const { dir, store } = tempStore();
-  const { app, baseUrl } = await listenApp(store);
-  try {
-    await store.ensureGitServer({
-      id: 'gitlab-main',
-      type: 'gitlab',
-      name: 'GitLab Main',
-      baseUrl: 'https://gitlab.example.com',
-      apiUrl: 'https://gitlab.example.com/api/v4',
-      oauth: {
-        clientId: 'oauth-client',
-        clientSecret: 'oauth-secret',
-      },
-      webhook: {
-        secret: 'webhook-secret',
-      },
-      agentrixGitServerId: 'agentrix-main',
-      adminPat: 'admin-pat',
-      commitAuthor: {
-        name: 'issue-flow',
-        email: 'issue-flow@example.com',
-      },
-    });
-
-    const status = await fetch(`${baseUrl}/api/setup/status`);
-    assert.equal(status.status, 200);
-    const body = await status.json();
-    assert.equal(body.initialized, true);
-    assert.equal(body.needsSetup, false);
-    assert.equal(body.state, 'configured');
-    assert.deepEqual(body.missing, []);
-  } finally {
     await app.close();
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1800,13 +1729,12 @@ test('API service exposes health and repository list over HTTP', async () => {
         webhook: { secret: 'post-webhook-secret' },
         agentrixGitServerId: 'agentrix-post',
         adminPat: 'post-admin-pat',
-        botPat: 'post-bot-pat',
       }),
     });
     assert.equal(createGitServer.status, 200);
     const createBody = await createGitServer.json();
     assert.equal(createBody.gitServer.id, 'gitlab-post');
-    assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat|post-bot-pat/);
+    assert.doesNotMatch(JSON.stringify(createBody), /post-oauth-secret|post-webhook-secret|post-admin-pat/);
 
     const updateGitServer = await fetch(`${baseUrl}/api/git-servers`, {
       method: 'POST',
@@ -1826,7 +1754,6 @@ test('API service exposes health and repository list over HTTP', async () => {
     assert.equal(saved.oauth.clientSecret, 'post-oauth-secret');
     assert.equal(saved.webhook.secret, 'post-webhook-secret');
     assert.equal(saved.adminPat, 'post-admin-pat');
-    assert.equal(saved.botPat, 'post-bot-pat');
 
     const deleteGitServer = await fetch(`${baseUrl}/api/git-servers/gitlab-post`, {
       method: 'DELETE',

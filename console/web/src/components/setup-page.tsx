@@ -13,7 +13,6 @@ type SetupForm = {
   oauthClientSecret: string
   agentrixGitServerId: string
   adminPat: string
-  botPat: string
   commitAuthorName: string
   commitAuthorEmail: string
 }
@@ -25,7 +24,6 @@ const defaultForm: SetupForm = {
   oauthClientSecret: "",
   agentrixGitServerId: "",
   adminPat: "",
-  botPat: "",
   commitAuthorName: "issue-flow",
   commitAuthorEmail: "",
 }
@@ -115,15 +113,6 @@ export function SetupPage({
               type="password"
               value={form.adminPat}
               onChange={(event) => update("adminPat", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>Bot PAT</span>
-            <Input
-              type="password"
-              value={form.botPat}
-              onChange={(event) => update("botPat", event.target.value)}
               required
             />
           </label>
