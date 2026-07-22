@@ -47,6 +47,63 @@ test('triage can apply an explicit milestone without running-task guards', async
   }
 });
 
+test('issue apply requires an explicit milestone only when entering plan or build with candidates', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-apply-milestone-guard-'));
+  const config = path.join(dir, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({ milestone: { enabled: true } }), 'utf8');
+  const provider = {
+    listMilestones: async () => [
+      { id: 7, title: 'release/0721', state: 'open' },
+      { id: 8, title: 'integration/search', state: 'open' },
+    ],
+    branchExists: async () => true,
+  };
+  try {
+    assert.deepEqual(
+      await applyIssueMilestone(
+        { number: 42 },
+        provider,
+        {},
+        { config },
+        { milestone: { title: 'release/current' } },
+        { flow: 'flow::build' },
+      ),
+      { changed: false },
+    );
+    assert.deepEqual(
+      await applyIssueMilestone(
+        { number: 42 },
+        provider,
+        {},
+        { config },
+        {},
+        { flow: 'flow::clarify' },
+      ),
+      { changed: false },
+    );
+    for (const flow of ['flow::plan', 'flow::build']) {
+      await assert.rejects(
+        applyIssueMilestone({ number: 42 }, provider, {}, { config }, {}, { flow }),
+        /Ask the user to choose one of: release\/0721, integration\/search, none/,
+      );
+    }
+    provider.listMilestones = async () => [];
+    assert.deepEqual(
+      await applyIssueMilestone(
+        { number: 42 },
+        provider,
+        {},
+        { config },
+        {},
+        { flow: 'flow::build' },
+      ),
+      { changed: false },
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('catalog covers issue and PR/MR managed labels with stable metadata', () => {
   assert.deepEqual(
     labelsForScope('issue').map((label) => label.name),
