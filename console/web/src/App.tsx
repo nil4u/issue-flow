@@ -1,5 +1,6 @@
 import { LoginPage } from "@/components/login-page"
 import { InstalledAutomationsPage } from "@/components/installed-automations-page"
+import { IssuePage } from "@/components/issue-page"
 import { RepoSidebar } from "@/components/repo-sidebar"
 import { RepoWorkspace } from "@/components/repo-workspace"
 import { MergeRequestPage } from "@/components/merge-request-page"
@@ -8,7 +9,7 @@ import { UserSettings } from "@/components/user-settings"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDashboardController } from "@/hooks/use-dashboard-controller"
-import { parseMergeRequestRoute, parseVisualArtifactRoute } from "@/app-route"
+import { parseIssueRoute, parseMergeRequestRoute, parseVisualArtifactRoute } from "@/app-route"
 import { VisionPlanPage } from "@/vision-plan/VisionPlanPage"
 
 function AppShell() {
@@ -23,6 +24,7 @@ function AppShell() {
 function Dashboard() {
   const dashboard = useDashboardController()
   const visualRoute = parseVisualArtifactRoute()
+  const issueRoute = parseIssueRoute()
   const mergeRequestRoute = parseMergeRequestRoute()
 
   if (dashboard.booting) {
@@ -52,6 +54,10 @@ function Dashboard() {
 
   if (visualRoute) {
     return <VisionPlanPage {...visualRoute} />
+  }
+
+  if (issueRoute) {
+    return <IssuePage {...issueRoute} />
   }
 
   if (mergeRequestRoute) {

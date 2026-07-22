@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { issueFlowMarkers } from "./provenance-marker.js"
-import { githubRepoPath, gitlabProjectPath, providerApiError, providerFetch } from "./provider-api.js"
+import { githubRepoPath, gitlabProjectPath, providerApiError, providerFetch, uniqueMentionUsers } from "./provider-api.js"
 
 function normalizeUser(user = {}) {
   return {
@@ -14,21 +14,6 @@ function normalizeUser(user = {}) {
 
 function normalizeLabels(labels = []) {
   return (Array.isArray(labels) ? labels : []).map((label) => typeof label === "string" ? label : label && label.name).filter(Boolean)
-}
-
-function normalizeMentionUser(user = {}) {
-  const normalized = normalizeUser(user)
-  return { ...normalized, bot: Boolean(user.bot || user.type === "Bot" || user.user_type === "project_bot" || /(?:^|[-_])bot$/i.test(normalized.username)) }
-}
-
-function uniqueMentionUsers(users = []) {
-  const result = new Map()
-  for (const user of users.map(normalizeMentionUser)) {
-    if (!user.username) continue
-    const key = user.username.toLowerCase()
-    result.set(key, result.has(key) ? { ...result.get(key), ...user, bot: result.get(key).bot || user.bot } : user)
-  }
-  return [...result.values()].sort((left, right) => Number(right.bot) - Number(left.bot) || left.username.localeCompare(right.username))
 }
 
 function planPreview(body, labels) {

@@ -6,6 +6,7 @@
 @import "./styles/install-console.css";
 @import "./styles/metrics.css";
 @import "./styles/merge-request-review.css";
+@import "./styles/issue-management.css";
 @custom-variant dark (&:is(.dark *));
 @theme inline {
   --font-sans: Geist, sans-serif;

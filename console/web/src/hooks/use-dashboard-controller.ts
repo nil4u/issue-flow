@@ -22,7 +22,6 @@ import {
   type UserSession,
   type WorkspaceTab,
 } from "@/issue-flow-model"
-import { useIssuesState } from "@/hooks/use-issues-state"
 import { notifyError } from "@/lib/errors"
 import {
   findSelectedRepository,
@@ -111,14 +110,6 @@ export function useDashboardController() {
   const autoCheckedSettingsVisit = useRef("")
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
   const [checking, setChecking] = useState(false)
-  const {
-    issues,
-    loadingIssues,
-    loadIssues,
-    syncIssues: syncRepoIssues,
-    hasAutoSynced,
-    markAutoSynced,
-  } = useIssuesState()
   const [pendingGitServerId, setPendingGitServerId] = useState("")
   const [savingGitServerId, setSavingGitServerId] = useState("")
   const [deletingGitServerId, setDeletingGitServerId] = useState("")
@@ -434,10 +425,6 @@ export function useDashboardController() {
       setLoadingProjects(false)
       setProjectLoadingLabel("")
     }
-  }
-
-  async function syncIssues() {
-    await syncRepoIssues(selectedRepo?.id)
   }
 
   async function loadProjectAccess(project = selectedProject, gitServerId = selectedGitServerId) {
@@ -1046,17 +1033,6 @@ export function useDashboardController() {
     })().catch((error) => notifyError(error, "刷新 MR 状态失败"))
   }, [activeTab, selectedGitServerId, selectedProject?.id, pendingPluginMergeRequestHref])
 
-  useEffect(() => {
-    const repoId = selectedRepo?.id
-    void loadIssues(repoId).then((nextIssues) => {
-      if (!repoId || activeTab !== "issues" || nextIssues.length > 0 || hasAutoSynced(repoId)) return
-      markAutoSynced(repoId)
-      return syncRepoIssues(repoId)
-    }).catch((error) => {
-      notifyError(error, "加载 issues 失败")
-    })
-  }, [activeTab, selectedRepo?.id, loadIssues, syncRepoIssues, hasAutoSynced, markAutoSynced])
-
   async function reloadLoginState() {
     try {
       const status = await loadSetupStatus()
@@ -1138,10 +1114,7 @@ export function useDashboardController() {
       projectAccess,
       loadingProjectAccess,
       loadingRepositoryDetails,
-      issues,
-      loadingIssues,
       onLogin: () => loginGitLab(selectedGitServerId),
-      onSyncIssues: syncIssues,
       onCheck: runInstallCheck,
       onCloseCheckProgress: closeCheckProgress,
       onSetVariable: setInstallVariable,

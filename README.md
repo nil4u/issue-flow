@@ -39,8 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/nil4u/issue-flow/main/plugin/instal
 ```
 
 The installer clones `issue-flow` into a temporary directory, then writes the runtime files into the current project. It also links the installed skills into the project-level Codex (`.agents/skills/`) and Claude Code (`.claude/skills/`) discovery directories.
-After you commit and push the installed files, the installed CI workflow automatically synchronizes the built-in provider labels.
-That job creates missing labels and updates label colors/descriptions when they drift. If the workflow token cannot manage repository/project labels, the label sync job fails and the rest of the installed files remain unchanged.
+For GitHub, committing and pushing the installed files runs a workflow that synchronizes the built-in provider labels.
+For GitLab, the management console installs and updates the labels directly. Manual GitLab installs can run `issue-flow labels sync` with project label management permission.
 
 ## Create Normalized Issues
 
@@ -147,6 +147,8 @@ For GitLab, it writes `.gitlab-ci.yml` and `.gitlab/issue-flow.gitlab-ci.yml` in
 
 Treat the agent like a person. A prompt should be minimal and complete: give the agent the goal, the hard constraints, and the expected output, then let it inspect the issue, comments, PR/MR, and repository context itself.
 
+- Action prompt files are user-editable, complete behavior templates. The runtime does not parse them or replace placeholders; it appends dynamic context in flat XML-like blocks such as `<task_input>` and `<repository_context>`.
+- Dynamic task input is minimal and mutually exclusive: actions without approved plan files receive the full issue, while actions with plan files receive those paths plus a compact source issue reference.
 - Do not duplicate context the runtime already provides, such as issue bodies, comment text, task ids, URLs, labels, or event metadata.
 - Put durable workflow rules in the action prompts and skill docs; keep event-specific resume prompts short.
 - Resume prompts should only state the new signal and the expected continuation. For example, "Issue has a new comment; review it and continue."

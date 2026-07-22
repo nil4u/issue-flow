@@ -11,7 +11,7 @@
 - Decision 只呈现无法从 issue、仓库和现有约定中确定的真实阻塞选择，以及选项、推荐、判断标准和后果；每个可见区块都必须直接帮助用户作出选择。
 - Decision 和 Plan JSON 是语义源；内置组件的 HTML、CSS、JavaScript、布局、图形和评论锚点全部由 Issue Flow Engine 根据 JSON 渲染。
 - 当 Vision Plan Skill 判断需要可交互 Demo 时，可以在 `plan-data.json` 同目录额外生成自包含 HTML，并通过 `custom-html` section 的 `file` 字段引用；除此之外，不生成产物 HTML、CSS、JavaScript 或渲染资源。
-- 使用注入的 Plan branch，提交全部产物后，通过统一 CLI 的 `pr submit plan --artifact decision|plan` 完成发布。
+- 使用运行时提供的工作分支，提交运行时指定的全部产物后，通过统一 CLI 的 `pr submit plan --artifact decision|plan` 完成发布。
 - 不直接调用 `gh`、`glab` 或 provider API。
 
 回复：

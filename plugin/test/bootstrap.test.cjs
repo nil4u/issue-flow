@@ -565,7 +565,6 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     const gitlabWorkflow = fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8');
     assert.match(gitlabWorkflow, /\.issue-flow-runner:\n  tags:\n    - issue-flow/);
     for (const job of [
-      'issue-flow-labels',
       'issue-flow-milestones',
       'issue-flow-auto',
       'issue-flow-comment',
@@ -575,8 +574,8 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     ]) {
       assert.match(gitlabWorkflow, new RegExp(`${job}:\\n  extends: \\.issue-flow-runner\\n  stage: build`));
     }
-    assert.match(gitlabWorkflow, /CI_PIPELINE_SOURCE == "push"/);
-    assert.match(gitlabWorkflow, /sync-labels\.cjs "\$@"/);
+    assert.doesNotMatch(gitlabWorkflow, /issue-flow-labels:/);
+    assert.doesNotMatch(gitlabWorkflow, /sync-labels\.cjs/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issues"/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "create" \|\| \$GITLAB_BRIDGE_EVENT_NAME == "delete"/);
     assert.doesNotMatch(gitlabWorkflow, /issue-flow-milestone-guard/);
