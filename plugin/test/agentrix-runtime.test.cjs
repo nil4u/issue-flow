@@ -12,22 +12,17 @@ const path = require('node:path');
 const test = require('node:test');
 
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
-const PROVIDER_CLI_RULE = 'Provider actions covered by issue-flow must go through its unified CLI; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-write provider API requests for those actions.';
 // Prompt 中的 SKILL.md 路径相对 process.cwd() 生成，期望值按同一规则计算，
 // 使测试从仓库根或 plugin/ 目录运行都成立。
 const REQUIRED_SKILL_PATH = path
   .relative(process.cwd(), path.resolve(__dirname, '..', 'skills', 'issue-flow', 'SKILL.md'))
   .replace(/\\/g, '/')
   .replace(/^\.?\//, '');
-const REQUIRED_SKILL_BLOCK = `<required_skills>\nRead this project-level skill file before acting: \`${REQUIRED_SKILL_PATH}\`\n${PROVIDER_CLI_RULE}\n</required_skills>`;
+const REQUIRED_SKILL_BLOCK = `<required_skills>\nRead this project-level skill file before acting: \`${REQUIRED_SKILL_PATH}\`\n</required_skills>`;
 
 function assertRequiredSkill(prompt) {
   assert.equal(prompt.includes(REQUIRED_SKILL_BLOCK), true);
-  assert.equal(
-    prompt.indexOf(PROVIDER_CLI_RULE),
-    prompt.lastIndexOf(PROVIDER_CLI_RULE),
-    'provider CLI rule must only be injected once, not duplicated in prompt bodies'
-  );
+  assert.doesNotMatch(prompt, /Provider actions covered by issue-flow/);
   assert.doesNotMatch(prompt, /不得直接调用/);
 }
 

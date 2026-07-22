@@ -300,7 +300,7 @@ function formatContextBlock(name, lines) {
 
 function formatIssueInput(issue) {
   return [
-    `Number: #${issue.number}`,
+    `Issue number: #${issue.number}`,
     `Labels: ${formatIssueLabelsForPrompt(issue)}`,
     `Title: ${issue.title || '(untitled)'}`,
     '',
@@ -341,7 +341,6 @@ function formatReviewTarget(pr, data = {}) {
 function formatRequiredSkills(action = '') {
   const lines = [
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
-    'Provider actions covered by issue-flow must go through its unified CLI; do not call `gh`, `glab`, `gh api`, `glab api`, or hand-write provider API requests for those actions.',
   ];
   if (action === 'plan') {
     lines.push('', `Read and follow the visual plan skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'vision-plan', 'SKILL.md'))}\``);
