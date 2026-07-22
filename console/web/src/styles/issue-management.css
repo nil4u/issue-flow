@@ -23,7 +23,7 @@
   .provider-issue-comments { min-width: 2rem; display: flex; align-items: center; justify-content: end; gap: .25rem; color: var(--muted-foreground); font-size: .78rem; }
   .provider-issue-row-actions { display: flex; align-items: center; gap: .35rem; padding-right: .65rem; }
   .provider-issue-labels { display: flex; flex-wrap: wrap; gap: .3rem; }
-  .provider-issue-label { min-height: 1.35rem; display: inline-flex; align-items: center; padding: 0 .45rem; border-radius: 999px; background: var(--muted); color: var(--foreground); font-size: .68rem; font-weight: 600; }
+  .provider-issue-label { min-height: 1.35rem; display: inline-flex; align-items: center; padding: 0 .45rem; border-radius: 999px; background: var(--muted); color: var(--foreground); font-size: .68rem; }
   .provider-issue-card-link { color: var(--foreground); font-size: .84rem; font-weight: 600; line-height: 1.4; text-decoration: none; }
   .issue-board-shell { min-height: 0; flex: 1; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: .65rem; overflow: hidden; }
   .issue-board-collapsed-lanes { min-height: 2.25rem; display: flex; align-items: center; gap: .4rem; overflow-x: auto; }
