@@ -10,7 +10,7 @@ function labelColor(label: ProviderIssueLabel) {
 }
 
 export function ProviderLabel({ label }: { label: ProviderIssueLabel }) {
-  return <span className="provider-issue-label"><i style={{ background: labelColor(label) }} />{label.name}</span>
+  return <span className="provider-issue-label">{label.name}</span>
 }
 
 export function ProviderLabelPicker({ labels, selected, disabled = false, onChange }: { labels: ProviderIssueLabel[]; selected: string[]; disabled?: boolean; onChange: (labels: string[]) => void }) {
