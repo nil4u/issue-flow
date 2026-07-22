@@ -10,7 +10,7 @@ function labelColor(label: ProviderIssueLabel) {
 }
 
 export function ProviderLabel({ label }: { label: ProviderIssueLabel }) {
-  return <span className="provider-issue-label"><i style={{ background: labelColor(label) }} />{label.name}</span>
+  return <span className="provider-issue-label">{label.name}</span>
 }
 
 export function ProviderLabelPicker({ labels, selected, disabled = false, onChange }: { labels: ProviderIssueLabel[]; selected: string[]; disabled?: boolean; onChange: (labels: string[]) => void }) {
@@ -25,5 +25,5 @@ export function ProviderLabelPicker({ labels, selected, disabled = false, onChan
     onChange(checked ? [...selectedSet, name] : selected.filter((label) => label !== name))
   }
 
-  return <div className="provider-label-picker"><label><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Filter labels…" /></label><div>{filtered.length ? filtered.map((label) => <label key={label.name} className="provider-label-option"><Checkbox checked={selectedSet.has(label.name)} disabled={disabled} onCheckedChange={(checked) => toggle(label.name, checked === true)} /><i style={{ background: labelColor(label) }} /><span><strong>{label.name}</strong>{label.description ? <small>{label.description}</small> : null}</span></label>) : <p>No matching labels</p>}</div></div>
+  return <div className="provider-label-picker"><label><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Filter labels…" /></label><div>{filtered.length ? filtered.map((label) => <label key={label.name} className="provider-label-option"><Checkbox checked={selectedSet.has(label.name)} disabled={disabled} onCheckedChange={(checked) => toggle(label.name, checked === true)} /><i style={{ background: labelColor(label) }} /><span><span>{label.name}</span>{label.description ? <small>{label.description}</small> : null}</span></label>) : <p>No matching labels</p>}</div></div>
 }
