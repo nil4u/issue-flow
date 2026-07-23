@@ -1,6 +1,6 @@
 {
   "name": "issue-flow",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Label-based issue state machine and deterministic git provider operations for development automation.",
   "license": "MIT",
   "keywords": [

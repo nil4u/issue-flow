@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.1](https://github.com/nil4u/issue-flow/compare/console-v0.13.0...console-v0.13.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **console:** remove obsolete bot PAT ([b4950c9](https://github.com/nil4u/issue-flow/commit/b4950c9ec2efdcd0dfdddef69500cb2ab1936aa5))
+* **console:** repair git server creation flow ([91513ec](https://github.com/nil4u/issue-flow/commit/91513ec3462839fadbbd8e2f0af2a79240404656))
+
 ## [0.13.0](https://github.com/nil4u/issue-flow/compare/console-v0.12.0...console-v0.13.0) (2026-07-22)
 
 
