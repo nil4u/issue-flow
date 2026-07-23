@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { gitServerInputFromSetup, gitServerMissingFields } from "./setup.js"
+
 async function requireAdmin({ store, userId }) {
   const user = await store.getUser(userId)
   if (user?.role === "admin") return user
@@ -18,7 +20,15 @@ async function saveGitServer({ store, userId, input = {} }) {
   if (!await requireAdmin({ store, userId })) {
     return { status: 403, body: { error: "admin_required" } }
   }
-  const gitServer = await store.ensureGitServer(input)
+  const setupStyle = !String(input.id || "").trim()
+  const gitServerInput = setupStyle ? gitServerInputFromSetup(input) : input
+  if (setupStyle) {
+    const missing = gitServerMissingFields(gitServerInput)
+    if (missing.length) {
+      return { status: 400, body: { error: "git_server_incomplete", missing } }
+    }
+  }
+  const gitServer = await store.ensureGitServer(gitServerInput)
   return {
     status: 200,
     body: {

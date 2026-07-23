@@ -22,6 +22,16 @@ function createBodyFile(content = 'Issue body') {
   };
 }
 
+function createConfigFile(config = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-create-config-'));
+  const configFile = path.join(dir, 'config.json');
+  fs.writeFileSync(configFile, JSON.stringify(config), 'utf8');
+  return {
+    path: configFile,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
 async function captureConsole(callback) {
   const originalLog = console.log;
   const lines = [];
@@ -129,6 +139,7 @@ test('create issue source marker records task and runtime in one hidden marker',
 
 test('create issue dry-run outputs stable JSON without calling provider APIs', async () => {
   const bodyFile = createBodyFile('## Goal\n\nCreate a thing.');
+  const configFile = createConfigFile();
   const previousFetch = global.fetch;
   try {
     global.fetch = async () => {
@@ -140,6 +151,8 @@ test('create issue dry-run outputs stable JSON without calling provider APIs', a
         'github',
         '--repo',
         'acme/webapp',
+        '--config',
+        configFile.path,
         '--title',
         'Create a thing',
         '--body-file',
@@ -162,16 +175,15 @@ test('create issue dry-run outputs stable JSON without calling provider APIs', a
   } finally {
     global.fetch = previousFetch;
     bodyFile.cleanup();
+    configFile.cleanup();
   }
 });
 
 test('create issue requires an explicit milestone decision only when enabled', async () => {
   const bodyFile = createBodyFile('Targeted issue.');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-create-config-'));
-  const config = path.join(dir, 'config.json');
-  fs.writeFileSync(config, JSON.stringify({ milestone: { enabled: true } }), 'utf8');
+  const configFile = createConfigFile({ milestone: { enabled: true } });
   const args = [
-    '--provider', 'github', '--repo', 'acme/webapp', '--config', config,
+    '--provider', 'github', '--repo', 'acme/webapp', '--config', configFile.path,
     '--title', 'Targeted issue', '--body-file', bodyFile.path, '--dry-run',
   ];
   try {
@@ -180,6 +192,6 @@ test('create issue requires an explicit milestone decision only when enabled', a
     assert.equal(JSON.parse(output).milestone, 'release/0721');
   } finally {
     bodyFile.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    configFile.cleanup();
   }
 });

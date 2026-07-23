@@ -7,8 +7,8 @@
    - debt：边界、重构步骤、兼容性、迁移风险、回归面。
    - ops：环境、权限、CI/CD、发布或生产操作路径、失败回滚。
 - 若仍缺少仓库无法推断的关键事实，使用统一 CLI 的 `issue apply` 将 issue 转到 `flow::clarify`，然后直接提问。
-- 按下方注入的 Plan template 结构，把方案写入注入的 Plan output file。
-- 提交前按下方注入的 Plan branch 创建或切换到非 base 分支。
+- 按运行时提供的 Plan template 结构，把方案写入 Plan output file。
+- 提交前按运行时提供的仓库上下文创建或切换到工作分支，不要直接在基准分支提交。
 - 提交方案文件，写 PR body，然后使用统一 CLI 提交 plan PR/MR。
 
 澄清提问：
@@ -18,6 +18,7 @@
 PR 要求：
 - title 必须关联 issue 号，推荐 `Plan #<number>: <short title>`。
 - PR body 必须包含 Source issue、Plan file、Summary、Review focus。
+- PR body 写入仓库外临时文件（例如 `mktemp`），通过 `issue-flow pr submit ... --body-file` 提交，不要加入 git。
 
 回复：
 - 成功：只说明方案文件路径、PR/MR URL、issue 已进入审批。

@@ -1,6 +1,6 @@
 ---
 name: issue-flow
-version: 0.5.0 # x-release-please-version
+version: 0.6.1 # x-release-please-version
 description: "标签驱动的 issue 状态机与 provider 操作工具。通过统一 issue-flow CLI 操作 GitHub/GitLab 的 issue、label、comment、PR/MR 与 review。在含 `.issue-flow/` 目录或使用 issue-flow managed label（type::/status::/flow:: 等）的仓库中处理 issue/PR、提交 Plan/Build PR/MR 或进行 review 时使用。"
 metadata:
   requires:
@@ -95,25 +95,13 @@ node .issue-flow/cli.cjs pr merged --event <event-json-file>
 
 `pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
-### Milestone、Labels 和 Dispatch
+### Milestone、Labels
 
 ```bash
 node .issue-flow/cli.cjs labels sync
 node .issue-flow/cli.cjs labels check
 node .issue-flow/cli.cjs milestone list
-node .issue-flow/cli.cjs dispatch auto --event <event-json-file>
-node .issue-flow/cli.cjs dispatch comment --event <event-json-file>
-node .issue-flow/cli.cjs dispatch review --pr 45
-node .issue-flow/cli.cjs dispatch review-comment --event <event-json-file>
-node .issue-flow/cli.cjs dispatch resume --event <event-json-file>
-node .issue-flow/cli.cjs dispatch pipeline-failed --event <event-json-file>
 ```
-
-所有新统一入口成功时 stdout 输出单个 JSON 文档，便于 agent 和 CI 消费。
-
-项目可在 `.issue-flow/config.json` 中用 `milestone.enabled` 开启 target branch 选择，并用 `milestone.branchPatterns` 配置自动同步规则；缺省规则为 `release/*` 和 `integration/*`。匹配分支创建/删除时 CI 自动创建、重开/关闭同名 Milestone，`none` 使用仓库默认分支。Triage 确认用户倾向后可用 `issue apply --milestone <title|none>` 补选；暂不处理 Plan 或 Build 运行期间的 Milestone 变更。
-
-`dispatch review-comment` 用于带 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->` PR/MR body marker 的新 review comment 事件；它会 resume 该 task，不替代 `dispatch review`。该入口不按评论作者类型过滤，带 review batch id 的 inline comment 通过 PR/MR scoped review-batch lock 去重；普通 PR/MR comment 或缺少 batch id 的 payload 回退到 comment id lock。
 
 ## 典型 Agent 工作流
 
@@ -177,7 +165,3 @@ node .issue-flow/cli.cjs pr review --pr <num> --body-file <tmp-review-body-file>
 node .issue-flow/cli.cjs issue apply --issue 123 --flow flow::clarify
 # 然后按照具体 agent runtime 的说明在指定的位置进行问题澄清
 ```
-
-## 兼容入口
-
-旧脚本（`apply.cjs`、`create-issue.cjs`、`submit.cjs`、`review.cjs`、`sync-labels.cjs`、`dispatch.cjs`、`pr-merged.cjs`）保留为兼容入口和内部实现。新的 agent-facing 使用说明应优先使用 `cli.cjs` / `issue-flow` 总入口。

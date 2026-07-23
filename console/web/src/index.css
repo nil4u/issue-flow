@@ -261,11 +261,15 @@
     border-radius: 10px;
     background: var(--if-color-transparent);
     color: var(--if-color-text-secondary);
+    transition: background-color 160ms ease, color 160ms ease, transform 120ms ease;
   }
   .sidebar-rail-button:hover,
   .sidebar-rail-button.active {
     background: var(--row-active);
     color: var(--if-color-selected-text);
+  }
+  .sidebar-rail-button:active {
+    transform: scale(0.95);
   }
   .avatar-dot,
   .brand-mark,
@@ -833,6 +837,17 @@
     display: inline-flex;
     align-items: end;
     gap: 1rem;
+  }
+  .settings-page-title {
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--if-color-text);
+    font-size: 0.875rem;
+  }
+  .settings-page-title svg {
+    color: var(--if-color-text-secondary);
   }
   .settings-tab {
     height: 2.25rem;
@@ -1521,12 +1536,14 @@
     margin-inline: auto;
   }
   .workspace-tabs [data-slot="tabs-content"]:has(.issue-board),
+  .workspace-tabs [data-slot="tabs-content"]:has(.provider-issues-board),
   .workspace-tabs [data-slot="tabs-content"]:has(.merge-requests-board),
   .workspace-tabs [data-slot="tabs-content"]:has(.tasks-board) {
     padding-inline: clamp(0.65rem, 1.2vw, 1.35rem);
     overflow: hidden;
   }
   .workspace-tabs [data-slot="tabs-content"] > .issue-board,
+  .workspace-tabs [data-slot="tabs-content"] > .provider-issues-board,
   .workspace-tabs [data-slot="tabs-content"] > .merge-requests-board,
   .workspace-tabs [data-slot="tabs-content"] > .tasks-board {
     width: 100%;

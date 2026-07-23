@@ -1,7 +1,7 @@
 import type { WorkspaceTab } from "@/issue-flow-model"
 
 export type WorkspaceRoute = {
-  view: "repos" | "insights" | "settings" | "setup"
+  view: "repos" | "insights" | "settings" | "admin" | "setup"
   gitServerId: string
   projectId: string
   tab: WorkspaceTab
@@ -83,8 +83,11 @@ export const insightsRoute: WorkspaceRoute = {
   settingsSection: "account",
 }
 
-export const gitServerSettingsRoute: WorkspaceRoute = {
-  ...userSettingsRoute,
+export const gitServerAdminRoute: WorkspaceRoute = {
+  view: "admin",
+  gitServerId: "",
+  projectId: "",
+  tab: "overview",
   settingsSection: "git-servers",
 }
 
@@ -104,9 +107,11 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
       ? queryTab as WorkspaceTab
       : "overview"
   if (parts[0] === "settings") {
-    if (parts[1] === "git-servers") return gitServerSettingsRoute
     if (parts[1] === "agentrix" || parts[1] === "agentrix-cloud") return { ...userSettingsRoute, settingsSection: "agentrix" }
     return userSettingsRoute
+  }
+  if (parts[0] === "admin" && parts[1] === "git-servers") {
+    return gitServerAdminRoute
   }
   if (parts[0] === "setup") {
     return setupRoute
@@ -135,8 +140,8 @@ export function parseWorkspaceRoute(pathname = window.location.pathname, search 
 export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
   if (route.view === "setup") return "/setup"
   if (route.view === "insights") return "/insights/installations"
+  if (route.view === "admin") return "/admin/git-servers"
   if (route.view === "settings") {
-    if (route.settingsSection === "git-servers") return "/settings/git-servers"
     if (route.settingsSection === "agentrix") return "/settings/agentrix"
     return "/settings/account"
   }

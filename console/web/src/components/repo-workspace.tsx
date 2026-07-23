@@ -784,19 +784,23 @@ function CheckProgressDialog({
             ))}
           </div>
         </div>
-        {!checking && (
-          <div className="check-progress-actions">
-            {progress?.actionHref && (
-              <Button asChild>
-                <a href={progress.actionHref} target="_blank" rel="noreferrer">
-                  <ExternalLink className="size-4" />
-                  {progress.actionLabel || "打开"}
-                </a>
-              </Button>
-            )}
-            <Button type="button" variant="secondary" onClick={onClose}>完成</Button>
-          </div>
-        )}
+        <div className="check-progress-actions">
+          {checking ? (
+            <Button type="button" variant="secondary" onClick={onClose}>停止检查</Button>
+          ) : (
+            <>
+              {progress?.actionHref && (
+                <Button asChild>
+                  <a href={progress.actionHref} target="_blank" rel="noreferrer">
+                    <ExternalLink className="size-4" />
+                    {progress.actionLabel || "打开"}
+                  </a>
+                </Button>
+              )}
+              <Button type="button" variant="secondary" onClick={onClose}>完成</Button>
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )

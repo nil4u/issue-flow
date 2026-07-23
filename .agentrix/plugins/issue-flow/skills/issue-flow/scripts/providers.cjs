@@ -1488,7 +1488,7 @@ function isGitlabReviewCommentCreatedEvent(payload = {}) {
       reason: 'not_pull_request_review_comment',
     };
   }
-  const action = String(note.action || payload.action || process.env.GITLAB_BRIDGE_EVENT_ACTION || process.env.AGENTRIX_EVENT_ACTION || 'create').toLowerCase();
+  const action = String(note.action || payload.action || process.env.GITLAB_BRIDGE_EVENT_ACTION || 'create').toLowerCase();
   if (action && action !== 'create' && action !== 'created') {
     return {
       ok: false,

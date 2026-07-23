@@ -12,7 +12,7 @@ function trimSlash(value = "") {
 }
 
 function providerToken(server = {}) {
-  return server.userToken || server.accessToken || server.botPat || server.adminPat || ""
+  return server.userToken || server.accessToken || server.adminPat || ""
 }
 
 function providerAuthHeaders(server = {}) {

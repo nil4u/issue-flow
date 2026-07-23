@@ -49,12 +49,7 @@ const AGENTRIX_PROJECT_DIRS = [
 ];
 const AGENTRIX_PLUGIN_ROOT = '.agentrix/plugins/issue-flow';
 const LEGACY_AGENTRIX_PROJECT_ROOT = '.agentrix/issue-flow';
-const AGENTRIX_PLUGIN_MANIFEST = [
-  '.claude-plugin/plugin.json',
-  `${AGENTRIX_PLUGIN_ROOT}/.claude-plugin/plugin.json`,
-  { mode: MODE_MANAGED },
-];
-const AGENTRIX_PLUGIN_DIRS = [
+const AGENTRIX_PLUGIN_SPECS = [
   [
     'skills/issue-flow',
     `${AGENTRIX_PLUGIN_ROOT}/skills/issue-flow`,
@@ -72,10 +67,6 @@ const AGENTRIX_PLUGIN_DIRS = [
     `${AGENTRIX_PLUGIN_ROOT}/skills/vision-plan`,
     { mode: MODE_MANAGED },
   ],
-];
-const AGENTRIX_PLUGIN_SPECS = [
-  AGENTRIX_PLUGIN_MANIFEST,
-  ...AGENTRIX_PLUGIN_DIRS,
 ];
 const VALUE_OPTIONS = new Set(['--runtime', '--decision-file']);
 
@@ -1394,8 +1385,6 @@ module.exports = {
   AGENTRIX_GITLAB_FILES,
   AGENTRIX_PROJECT_DIRS,
   AGENTRIX_PROJECT_FILES,
-  AGENTRIX_PLUGIN_DIRS,
-  AGENTRIX_PLUGIN_MANIFEST,
   AGENTRIX_PLUGIN_ROOT,
   AGENTRIX_PLUGIN_SPECS,
   LEGACY_AGENTRIX_PROJECT_ROOT,

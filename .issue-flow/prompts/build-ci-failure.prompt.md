@@ -12,7 +12,8 @@
 - 如果确认已恢复（例如 rerun 通过），设置 `status::done` 并评论说明验证依据。
 - 只有确认需要代码或配置修改时才改文件并提交 build PR/MR。
 - 如果根因是 provider 权限、secret/variable、runner/environment、瞬时基础设施或误报，不要硬改业务代码；改合适标签、留下说明 comment，或只做最小必要配置修复。
-- 提交前先创建或切换到下面指定的非 base 分支。
+- 提交前按运行时提供的仓库上下文创建或切换到工作分支，不要直接在基准分支提交。
 - 按仓库规则修改、验证、提交，然后使用统一 CLI 提交 build PR/MR。
 
 PR body 写清 Source issue、Root cause、Fix、Validation。
+PR body 写入仓库外临时文件（例如 `mktemp`），通过 `issue-flow pr submit ... --body-file` 提交，不要加入 git。

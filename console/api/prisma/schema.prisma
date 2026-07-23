@@ -19,7 +19,6 @@ model GitServer {
   webhookSecret     String   @default("") @map("webhook_secret")
   agentrixGitServerId String   @default("") @map("agentrix_git_server_id")
   adminPat            String   @default("") @map("admin_pat")
-  botPat              String   @default("") @map("bot_pat")
   commitAuthorName    String   @default("issue-flow") @map("commit_author_name")
   commitAuthorEmail   String   @default("") @map("commit_author_email")
   createdAt           DateTime @default(now()) @map("created_at")

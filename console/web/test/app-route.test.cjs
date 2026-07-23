@@ -3,7 +3,7 @@ const test = require("node:test")
 
 require("tsx/cjs")
 
-const { parseIssueRoute, parseMergeRequestRoute, parseVisualArtifactRoute } = require("../src/app-route.ts")
+const { parseIssueRoute, parseMergeRequestRoute, parseVisualArtifactRoute, parseWorkspaceRoute, workspaceRoutePath } = require("../src/app-route.ts")
 
 test("merge request review route is independent from Plan preview", () => {
   assert.deepEqual(parseMergeRequestRoute("/repos/gitlab-main/43326/merge-requests/17"), { gitServerId: "gitlab-main", projectId: "43326", mergeRequestNumber: 17 })
@@ -25,4 +25,12 @@ test("visual artifact route rejects artifact-specific and invalid paths", () => 
   assert.equal(parseVisualArtifactRoute("/repos/gitlab-main/43326/plan/42/decision"), undefined)
   assert.equal(parseVisualArtifactRoute("/repos/gitlab-main/43326/plan/42/plan"), undefined)
   assert.equal(parseVisualArtifactRoute("/repos/gitlab-main/43326/plan/not-a-number"), undefined)
+})
+
+test("Git server administration uses its dedicated admin route", () => {
+  const route = parseWorkspaceRoute("/admin/git-servers", "")
+  assert.equal(route.view, "admin")
+  assert.equal(route.settingsSection, "git-servers")
+  assert.equal(workspaceRoutePath(route), "/admin/git-servers")
+  assert.equal(parseWorkspaceRoute("/settings/git-servers", "").settingsSection, "account")
 })

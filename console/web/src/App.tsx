@@ -71,7 +71,7 @@ function Dashboard() {
       <section className="workspace-surface">
         {dashboard.route.view === "insights" ? (
           <InstalledAutomationsPage {...dashboard.insights} />
-        ) : dashboard.route.view === "settings" ? (
+        ) : dashboard.route.view === "settings" || dashboard.route.view === "admin" ? (
           <UserSettings {...dashboard.userSettings} />
         ) : (
           <RepoWorkspace {...dashboard.workspace} />

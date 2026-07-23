@@ -154,7 +154,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-bug.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/review.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
-    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);
@@ -520,7 +520,7 @@ test('bootstrap force removes stale plugin files when installing from source', (
 
     installGithub({ cwd: root, force: true });
     assert.equal(fs.existsSync(stalePackage), false);
-    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin/plugin.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

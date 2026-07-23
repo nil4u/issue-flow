@@ -14,6 +14,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
+  Server,
   Settings,
 } from "lucide-react"
 
@@ -30,11 +31,13 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ownerOf, type GitLabProject, type GitLabUser, type GitServer, type IssueFlowUser } from "@/issue-flow-model"
 
-type SidebarGroupId = "repositories" | "insights"
+type SidebarGroupId = "repositories" | "insights" | "admin"
 
 export function RepoSidebar(props: {
   collapsed: boolean
   insightsActive: boolean
+  gitServersAdminActive: boolean
+  showAdmin: boolean
   gitServers: GitServer[]
   selectedGitServerId: string
   selectedGitServer?: GitServer
@@ -59,11 +62,14 @@ export function RepoSidebar(props: {
   onLogout: () => void
   onOpenUserSettings: () => void
   onOpenInsights: () => void
+  onOpenGitServersAdmin: () => void
   onCollapsedChange: (collapsed: boolean) => void
 }) {
   const {
     collapsed,
     insightsActive,
+    gitServersAdminActive,
+    showAdmin,
     gitServers,
     selectedGitServerId,
     selectedGitServer,
@@ -88,12 +94,14 @@ export function RepoSidebar(props: {
     onLogout,
     onOpenUserSettings,
     onOpenInsights,
+    onOpenGitServersAdmin,
     onCollapsedChange,
   } = props
   const [pickerOpen, setPickerOpen] = useState<"server" | "owner" | null>(null)
   const [openGroups, setOpenGroups] = useState(() => ({
     repositories: sidebarGroupOpen("repositories"),
     insights: sidebarGroupOpen("insights"),
+    admin: sidebarGroupOpen("admin"),
   }))
   const selectedProjectRef = useRef<HTMLButtonElement>(null)
   const searching = Boolean(filter.trim())
@@ -138,7 +146,7 @@ export function RepoSidebar(props: {
         <div className="sidebar-titlebar compact">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => onCollapsedChange(false)}>
+              <Button variant="ghost" size="icon" aria-label="展开 sidebar" onClick={() => onCollapsedChange(false)}>
                 <PanelLeftOpen className="size-4" />
               </Button>
             </TooltipTrigger>
@@ -149,7 +157,7 @@ export function RepoSidebar(props: {
         <div className="sidebar-rail">
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" className="sidebar-rail-button" onClick={() => onCollapsedChange(false)}>
+              <button type="button" className="sidebar-rail-button" aria-label="Repositories" onClick={() => onCollapsedChange(false)}>
                 <FolderGit2 className="size-4" />
               </button>
             </TooltipTrigger>
@@ -157,12 +165,22 @@ export function RepoSidebar(props: {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" className={`sidebar-rail-button ${insightsActive ? "active" : ""}`} onClick={onOpenInsights}>
+              <button type="button" className={`sidebar-rail-button ${insightsActive ? "active" : ""}`} aria-label="Insights" onClick={onOpenInsights}>
                 <BarChart3 className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">Insights</TooltipContent>
           </Tooltip>
+          {showAdmin && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className={`sidebar-rail-button ${gitServersAdminActive ? "active" : ""}`} aria-label="Git servers" onClick={onOpenGitServersAdmin}>
+                  <Server className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Git servers</TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         <ScrollArea className="repo-list-scroll collapsed">
@@ -200,7 +218,7 @@ export function RepoSidebar(props: {
       <div className="sidebar-titlebar">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={() => onCollapsedChange(true)}>
+            <Button variant="ghost" size="icon" aria-label="收起 sidebar" onClick={() => onCollapsedChange(true)}>
               <PanelLeftClose className="size-4" />
             </Button>
           </TooltipTrigger>
@@ -352,6 +370,17 @@ export function RepoSidebar(props: {
             </button>
           </div>
         </SidebarGroup>
+
+        {showAdmin && (
+          <SidebarGroup id="admin" title="Admin" open={openGroups.admin} onToggle={() => toggleGroup("admin")}>
+            <div className="sidebar-nav-list">
+              <button type="button" className={`sidebar-nav-row ${gitServersAdminActive ? "active" : ""}`} onClick={onOpenGitServersAdmin}>
+                <Server className="size-4" />
+                <span>Git servers</span>
+              </button>
+            </div>
+          </SidebarGroup>
+        )}
       </div>
 
       <UserMenu

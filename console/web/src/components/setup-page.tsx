@@ -2,20 +2,13 @@ import { GitBranch, KeyRound } from "lucide-react"
 import { useState } from "react"
 import type { FormEvent } from "react"
 
+import { GitServerSetupFields, type GitServerSetupFieldsValue } from "@/components/git-server-setup-fields"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { SetupStatus } from "@/issue-flow-model"
 
-type SetupForm = {
+type SetupForm = GitServerSetupFieldsValue & {
   setupCode: string
-  baseUrl: string
-  oauthClientId: string
-  oauthClientSecret: string
-  agentrixGitServerId: string
-  adminPat: string
-  botPat: string
-  commitAuthorName: string
-  commitAuthorEmail: string
 }
 
 const defaultForm: SetupForm = {
@@ -25,7 +18,6 @@ const defaultForm: SetupForm = {
   oauthClientSecret: "",
   agentrixGitServerId: "",
   adminPat: "",
-  botPat: "",
   commitAuthorName: "issue-flow",
   commitAuthorEmail: "",
 }
@@ -77,73 +69,7 @@ export function SetupPage({
             />
           </label>
 
-          <label className="setup-field">
-            <span>Base URL</span>
-            <Input
-              placeholder="https://gitlab.example.com"
-              value={form.baseUrl}
-              onChange={(event) => update("baseUrl", event.target.value)}
-              required
-            />
-          </label>
-          <div className="setup-divider" />
-
-          <label className="setup-field">
-            <span>OAuth Client ID</span>
-            <Input value={form.oauthClientId} onChange={(event) => update("oauthClientId", event.target.value)} required />
-          </label>
-          <label className="setup-field">
-            <span>OAuth Client Secret</span>
-            <Input
-              type="password"
-              value={form.oauthClientSecret}
-              onChange={(event) => update("oauthClientSecret", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>Agentrix Git Server ID</span>
-            <Input
-              value={form.agentrixGitServerId}
-              onChange={(event) => update("agentrixGitServerId", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>Admin PAT</span>
-            <Input
-              type="password"
-              value={form.adminPat}
-              onChange={(event) => update("adminPat", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>Bot PAT</span>
-            <Input
-              type="password"
-              value={form.botPat}
-              onChange={(event) => update("botPat", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>Commit Author Name</span>
-            <Input
-              value={form.commitAuthorName}
-              onChange={(event) => update("commitAuthorName", event.target.value)}
-              required
-            />
-          </label>
-          <label className="setup-field">
-            <span>Commit Author Email</span>
-            <Input
-              type="email"
-              value={form.commitAuthorEmail}
-              onChange={(event) => update("commitAuthorEmail", event.target.value)}
-              required
-            />
-          </label>
+          <GitServerSetupFields value={form} onChange={update} showDivider />
 
           {status && !status.setupCodeConfigured ? (
             <div className="setup-note">
