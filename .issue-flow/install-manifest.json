@@ -4,11 +4,6 @@
   "provider": "github",
   "runtime": "agentrix",
   "files": {
-    ".agentrix/plugins/issue-flow/.claude-plugin/plugin.json": {
-      "source": ".claude-plugin/plugin.json",
-      "mode": "managed",
-      "sha256": "8180edf30fa919cc0b60022fbec959b1c0e4b8cf3f94eb343b3a6c703557fb43"
-    },
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
