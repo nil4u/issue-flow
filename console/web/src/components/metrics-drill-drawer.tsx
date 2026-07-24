@@ -1,10 +1,10 @@
-import { Loader2 } from "lucide-react"
+import { Check, Loader2, Sparkles } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import { issueWebUrl } from "@/components/issues/issue-view-model"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
   api,
+  type AutomationOptimizationItem,
   type DashboardPanel,
   type MetricsQueryResult,
   type Repository,
@@ -20,6 +20,7 @@ type DrillState = {
   loading: boolean
   error: string
   result?: MetricsQueryResult
+  optimizations: Record<number, AutomationOptimizationItem>
 }
 
 type DrillKind = "issues" | "issue_type" | "issue_turns"
@@ -36,22 +37,64 @@ export function MetricsDrillDrawer({
   selection: MetricsDrillSelection
   onClose: () => void
 }) {
-  const [state, setState] = useState<DrillState>({ loading: true, error: "" })
+  const [state, setState] = useState<DrillState>({ loading: true, error: "", optimizations: {} })
+  const [creatingIssueNumber, setCreatingIssueNumber] = useState(0)
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`
 
   useEffect(() => {
     const controller = new AbortController()
     const path = `/api/repositories/${encodeURIComponent(repository.id)}/dashboards/${encodeURIComponent(slug)}/panels/${encodeURIComponent(selection.panel.id)}/drill`
-    void api<{ result: MetricsQueryResult }>(path, {
-      method: "POST",
-      body: JSON.stringify({ params: selection.params }),
-      signal: controller.signal,
-    })
-      .then((body) => setState({ loading: false, error: "", result: body.result }))
-      .catch((error: Error) => {
-        if (!controller.signal.aborted) setState({ loading: false, error: error.message || "加载下钻数据失败" })
-      })
+    void (async () => {
+      try {
+        const body = await api<{ result: MetricsQueryResult }>(path, {
+          method: "POST",
+          body: JSON.stringify({ params: selection.params }),
+          signal: controller.signal,
+        })
+        const issueNumbers = body.result.rows.map((row) => Number(row.issue_number || 0)).filter((value) => value > 0)
+        let optimizations: Record<number, AutomationOptimizationItem> = {}
+        if (repository.gitServerId && repository.serverRepoId && issueNumbers.length) {
+          const optimizationBody = await api<{ items: AutomationOptimizationItem[] }>(
+            `/api/issues/${encodeURIComponent(repository.gitServerId)}/${encodeURIComponent(repository.serverRepoId)}/automation-optimizations`,
+            { method: "POST", body: JSON.stringify({ issueNumbers }), signal: controller.signal },
+          )
+          optimizations = Object.fromEntries(optimizationBody.items.map((item) => [item.sourceIssueNumber, item]))
+        }
+        setState({ loading: false, error: "", result: body.result, optimizations })
+      } catch (error) {
+        if (!controller.signal.aborted) setState({ loading: false, error: error instanceof Error ? error.message : "加载下钻数据失败", optimizations: {} })
+      }
+    })()
     return () => controller.abort()
-  }, [repository.id, selection, slug])
+  }, [repository.gitServerId, repository.id, repository.serverRepoId, selection, slug])
+
+  async function createOptimization(sourceIssueNumber: number) {
+    if (!repository.gitServerId || !repository.serverRepoId || creatingIssueNumber) return
+    setCreatingIssueNumber(sourceIssueNumber)
+    try {
+      const result = await api<{ issue: { number: number; webUrl?: string } }>(
+        `/api/issues/${encodeURIComponent(repository.gitServerId)}/${encodeURIComponent(repository.serverRepoId)}/${sourceIssueNumber}/automation-optimization`,
+        { method: "POST", body: "{}" },
+      )
+      setState((current) => ({
+        ...current,
+        optimizations: {
+          ...current.optimizations,
+          [sourceIssueNumber]: {
+            ...current.optimizations[sourceIssueNumber],
+            sourceIssueNumber,
+            status: "analyzing",
+            optimizationIssueNumber: result.issue.number,
+            optimizationIssueUrl: result.issue.webUrl || "",
+          },
+        },
+      }))
+    } catch (error) {
+      setState((current) => ({ ...current, error: error instanceof Error ? error.message : "创建优化 Issue 失败" }))
+    } finally {
+      setCreatingIssueNumber(0)
+    }
+  }
 
   const rows = state.result?.rows || []
   const bucket = selection.params.bucket || ""
@@ -88,7 +131,7 @@ export function MetricsDrillDrawer({
           {state.error && <DrillState text={state.error} tone="error" />}
           {!state.loading && !state.error && rows.length === 0 && <DrillState text="这个区间没有 issue" />}
           {!state.loading && !state.error && rows.length > 0 && (
-            <IssueEvidenceList repository={repository} rows={rows} kind={kind} />
+            <IssueEvidenceList repository={repository} rows={rows} kind={kind} optimizations={state.optimizations} creatingIssueNumber={creatingIssueNumber} returnTo={returnTo} onCreateOptimization={createOptimization} />
           )}
         </div>
       </SheetContent>
@@ -113,13 +156,19 @@ function IssueEvidenceList({
   repository,
   rows,
   kind,
+  optimizations,
+  creatingIssueNumber,
+  returnTo,
+  onCreateOptimization,
 }: {
   repository: Repository
   rows: MetricsQueryResult["rows"]
   kind: DrillKind
+  optimizations: Record<number, AutomationOptimizationItem>
+  creatingIssueNumber: number
+  returnTo: string
+  onCreateOptimization: (issueNumber: number) => Promise<void>
 }) {
-  const projectWebUrl = repository.webUrl || repository.url || ""
-  const provider = repository.provider || "gitlab"
   const columns = drillColumns(kind)
   return (
     <section className="metrics-drill-evidence" aria-label="构成 issue">
@@ -129,7 +178,7 @@ function IssueEvidenceList({
       <ol className="metrics-drill-list">
         {rows.map((row) => {
           const issueNumber = Number(row.issue_number || 0)
-          const href = issueWebUrl(projectWebUrl, provider, issueNumber)
+          const href = issueFlowIssueHref(repository, issueNumber, returnTo)
           const title = String(row.title || "-")
           return (
             <li key={String(row.issue_row_id || issueNumber)} className="metrics-drill-item" data-kind={kind}>
@@ -140,8 +189,6 @@ function IssueEvidenceList({
                     <a
                       className="metrics-drill-issue-link"
                       href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
                       aria-label={`打开 issue #${issueNumber}：${title}`}
                       title={title}
                     >
@@ -154,6 +201,11 @@ function IssueEvidenceList({
                   <EvidenceTag value={row.priority} prefix="priority" />
                   <EvidenceTag value={row.size} prefix="size" fallback="未标注" />
                 </div>
+                <AutomationOptimizationAction
+                  item={optimizations[issueNumber]}
+                  creating={creatingIssueNumber === issueNumber}
+                  onCreate={() => onCreateOptimization(issueNumber)}
+                />
               </div>
               <IssueSecondaryFacts row={row} kind={kind} />
               {kind === "issue_type"
@@ -165,6 +217,24 @@ function IssueEvidenceList({
       </ol>
     </section>
   )
+}
+
+function AutomationOptimizationAction({ item, creating, onCreate }: { item?: AutomationOptimizationItem; creating: boolean; onCreate: () => Promise<void> }) {
+  if (!item || item.status === "unavailable") return null
+  const phases = item.phases.map((phase) => `${phase.phase} ${phase.turns}`).join(" · ")
+  if (item.status === "available") {
+    return <button type="button" className="metrics-optimization-action" title={phases} disabled={creating} onClick={() => void onCreate()}>{creating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}{creating ? "正在创建" : "分析优化"}</button>
+  }
+  const content = item.status === "analyzing"
+    ? <><Loader2 className="size-3.5 animate-spin" />正在分析优化</>
+    : <><Check className="size-3.5" />已分析优化</>
+  return <span className={`metrics-optimization-status is-${item.status}`} title={phases}>{content}</span>
+}
+
+function issueFlowIssueHref(repository: Repository, issueNumber: number, returnTo: string) {
+  if (!repository.gitServerId || !repository.serverRepoId || !issueNumber) return ""
+  const params = new URLSearchParams({ returnTo })
+  return `/repos/${encodeURIComponent(repository.gitServerId)}/${encodeURIComponent(repository.serverRepoId)}/issues/${issueNumber}?${params}`
 }
 
 function IssueSecondaryFacts({ row, kind }: { row: Record<string, unknown>; kind: DrillKind }) {

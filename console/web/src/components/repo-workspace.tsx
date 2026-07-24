@@ -8,6 +8,7 @@ import {
   ExternalLink,
   GitBranch,
   GitMerge,
+  Lightbulb,
   Loader2,
   ListChecks,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AgentrixHelpDialog } from "@/components/agentrix-help-dialog"
+import { AutomationInsights } from "@/components/automation-insights"
 import { EmptyPanel } from "@/components/empty-panel"
 import { GitRunnerValue } from "@/components/git-runner-value"
 import { InstallConflictWizard } from "@/components/install-conflict-wizard"
@@ -45,6 +47,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         <div className="workspace-tabbar">
           <TabsList variant="line">
             <TabsTrigger value="overview"><ShieldCheck className="size-4" />Overview</TabsTrigger>
+            <TabsTrigger value="insights" disabled={!props.project}><Lightbulb className="size-4" />Insights</TabsTrigger>
             <TabsTrigger value="issues" disabled={!props.project}><CircleDot className="size-4" />Issues</TabsTrigger>
             <TabsTrigger value="merge-requests" disabled={!props.project}><GitMerge className="size-4" />Merge Requests</TabsTrigger>
             <TabsTrigger value="tasks" disabled={!props.project}><ListChecks className="size-4" />Tasks</TabsTrigger>
@@ -53,6 +56,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         </div>
         <TabsContent value="overview">
           <OverviewTab {...props} onOpenSettings={() => props.onTab("settings")} />
+        </TabsContent>
+        <TabsContent value="insights">
+          <AutomationInsights {...props} />
         </TabsContent>
         <TabsContent value="issues">
           <IssuesBoard {...props} />

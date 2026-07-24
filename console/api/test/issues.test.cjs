@@ -8,11 +8,168 @@ const {
   createProviderIssue,
   createProviderIssueComment,
   getProviderIssue,
+  listProviderIssueLabels,
   listProviderIssueMentionUsers,
   listProviderIssues,
   updateProviderIssue,
   updateProviderIssueState,
 } = require("../src/core/issue-provider.ts")
+const {
+  automationOptimizationIssueBody,
+  automationOptimizationPhases,
+  createAutomationOptimizationIssue,
+  listAutomationOptimizations,
+} = require("../src/core/issues.ts")
+
+test("issue label picker receives every provider label page", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url) => {
+    const requestUrl = String(url)
+    requests.push(requestUrl)
+    if (requestUrl.endsWith("/projects/43326/labels?per_page=100")) {
+      return new Response(JSON.stringify(Array.from({ length: 100 }, (_, index) => ({ name: `label-${String(index).padStart(3, "0")}` }))), { status: 200 })
+    }
+    if (requestUrl.endsWith("/projects/43326/labels?per_page=100&page=2")) {
+      return new Response(JSON.stringify([{ name: "target-label", description: "Only available on page two" }]), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`)
+  }
+
+  const labels = await listProviderIssueLabels(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+  )
+
+  assert.equal(labels.length, 101)
+  assert.equal(labels.some((label) => label.name === "target-label"), true)
+  assert.deepEqual(requests, [
+    "https://gitlab.test/api/v4/projects/43326/labels?per_page=100",
+    "https://gitlab.test/api/v4/projects/43326/labels?per_page=100&page=2",
+  ])
+})
+
+test("automation optimization phases only include repeated supported stages", () => {
+  const phases = automationOptimizationPhases(
+    { type: "feature" },
+    { triageTaskTurns: 1, planTaskTurns: 3, buildTaskTurns: 2, reviewTaskTurns: 0, generalTaskTurns: 9 },
+  )
+
+  assert.deepEqual(phases, [
+    { phase: "plan", turns: 3 },
+    { phase: "build", turns: 2 },
+  ])
+  assert.deepEqual(automationOptimizationPhases({ type: "optimization" }, { planTaskTurns: 3 }), [])
+})
+
+test("automation optimization issue template includes the source stage contract", () => {
+  const body = automationOptimizationIssueBody({
+    sourceIssue: { issueNumber: 17, title: "Add checkout" },
+    phases: [{ phase: "plan", turns: 3 }, { phase: "build", turns: 2 }],
+  })
+
+  assert.match(body, /source-issue=17/)
+  assert.match(body, /来源 Issue：#17 Add checkout/)
+  assert.match(body, /`plan`：3 Turns/)
+  assert.match(body, /`build`：2 Turns/)
+})
+
+test("automation optimization creation is blocked while the source has an optimization state", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  let createdIssue
+  let nextIssueNumber = 81
+  const sourceIssue = {
+    id: 17,
+    iid: 17,
+    title: "Add checkout",
+    description: "",
+    state: "closed",
+    labels: ["type::feature", "status::done"],
+    author: { username: "alice" },
+  }
+  global.fetch = async (url, options = {}) => {
+    const request = { url: String(url), method: options.method || "GET", body: options.body ? JSON.parse(options.body) : undefined }
+    requests.push(request)
+    if (request.method === "GET" && request.url.includes("/issues?")) {
+      return new Response(JSON.stringify(createdIssue ? [sourceIssue, createdIssue] : [sourceIssue]), { status: 200 })
+    }
+    if (request.method === "POST" && request.url.endsWith("/issues")) {
+      createdIssue = {
+        id: nextIssueNumber,
+        iid: nextIssueNumber,
+        title: request.body.title,
+        description: request.body.description,
+        state: "opened",
+        labels: request.body.labels.split(","),
+        author: { username: "alice" },
+      }
+      nextIssueNumber += 1
+      return new Response(JSON.stringify(createdIssue), { status: 201 })
+    }
+    if (request.method === "PUT" && request.url.endsWith("/issues/17")) {
+      sourceIssue.labels = request.body.labels.split(",")
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${request.method} ${request.url}`)
+  }
+  const store = {
+    findRepositoryByProject: async () => ({ id: "repo-1", gitServerId: "gitlab-1", serverRepoId: "43326", fullName: "acme/widget" }),
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }),
+    db: {
+      issue: {
+        findUnique: async () => ({ id: "issue-row-17", issueNumber: 17, title: "Add checkout", type: "feature" }),
+        findMany: async () => [{ id: "issue-row-17", issueNumber: 17, title: "Add checkout", type: "feature" }],
+      },
+      issueStat: {
+        findMany: async () => [{ id: "issue-row-17", planTaskTurns: 3, buildTaskTurns: 2 }],
+      },
+    },
+    getIssueStats: async () => ({ planTaskTurns: 3, buildTaskTurns: 2 }),
+  }
+  const input = {
+    store,
+    gitServerId: "gitlab-1",
+    projectId: "43326",
+    issueNumber: 17,
+    userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: {},
+  }
+
+  const created = await createAutomationOptimizationIssue(input)
+  await assert.rejects(createAutomationOptimizationIssue(input), (error) => error.code === "automation_optimization_already_started")
+
+  assert.equal(created.created, true)
+  assert.equal(requests.filter((request) => request.method === "POST").length, 1)
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "status::done", "optimization::analyzing"])
+  assert.match(created.issue.body, /`plan`：3 Turns/)
+  assert.match(created.issue.body, /`build`：2 Turns/)
+  assert.deepEqual(created.issue.labels.map((label) => label.name), [
+    "type::optimization",
+    "status::active",
+    "flow::plan",
+    "automation::build",
+    "priority::p2",
+    "size::M",
+  ])
+
+  let status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
+  assert.deepEqual(status.items[0], {
+    sourceIssueNumber: 17,
+    phases: [{ phase: "plan", turns: 3 }, { phase: "build", turns: 2 }],
+    status: "analyzing",
+    optimizationIssueNumber: 81,
+    optimizationIssueUrl: "",
+  })
+
+  sourceIssue.labels = sourceIssue.labels.map((label) => label === "optimization::analyzing" ? "optimization::analyzed" : label)
+  status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
+  assert.equal(status.items[0].status, "analyzed")
+})
 
 test("GitLab issue mentions combine repository members and issue participants", async (t) => {
   const originalFetch = global.fetch

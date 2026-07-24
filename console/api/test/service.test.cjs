@@ -433,6 +433,152 @@ test('repository task API paginates tasks and preserves repo access boundaries',
   }
 });
 
+test('task context returns the ordered task lifecycle with optional phase filtering', async () => {
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const owner = await store.createUser({ id: 'task-context-owner', displayName: 'Task Context Owner' });
+    const primary = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: owner.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+    await store.upsertIssueSnapshot({
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      repositoryFullName: 'team/app',
+      issueId: '7',
+      issueNumber: 7,
+      title: 'Improve task context',
+      state: 'closed',
+      status: 'done',
+      openedAt: new Date(Date.UTC(2026, 6, 1)),
+      closedAt: new Date(Date.UTC(2026, 6, 2)),
+      updatedAt: new Date(Date.UTC(2026, 6, 2)),
+    });
+    await store.db.task.createMany({
+      data: [
+        {
+          id: 'task-context-plan-row',
+          taskId: 'task-context-plan',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          action: 'plan',
+          status: 'succeeded',
+          queuedAt: new Date(Date.UTC(2026, 6, 1, 1)),
+          updatedAt: new Date(Date.UTC(2026, 6, 1, 2)),
+        },
+        {
+          id: 'task-context-build-row',
+          taskId: 'task-context-build',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          action: 'build',
+          status: 'succeeded',
+          updatedAt: new Date(Date.UTC(2026, 6, 1, 3)),
+        },
+      ],
+    });
+    await store.db.taskEvent.createMany({
+      data: [
+        {
+          id: 'task-context-event-2',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-plan',
+          chatId: 'chat-plan',
+          eventId: 'task-context-event-2',
+          sequence: 2,
+          eventType: 'agent_message',
+          eventData: { message: { type: 'assistant', content: 'first answer' } },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 1, 2)),
+        },
+        {
+          id: 'task-context-event-1',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-plan',
+          chatId: 'chat-plan',
+          eventId: 'task-context-event-1',
+          sequence: 1,
+          eventType: 'human_input',
+          eventData: { senderType: 'human', message: { type: 'user', content: 'initial request' } },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 1, 1)),
+        },
+        {
+          id: 'task-context-worker-event',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-plan',
+          chatId: 'chat-plan',
+          eventId: 'task-context-worker-event',
+          sequence: 3,
+          eventType: 'worker_state',
+          eventData: { state: 'ready' },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 1, 3)),
+        },
+        {
+          id: 'task-context-build-event',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-build',
+          chatId: 'chat-build',
+          eventId: 'task-context-build-event',
+          sequence: 1,
+          eventType: 'human_input',
+          eventData: { senderType: 'human', message: { type: 'user', content: 'build request' } },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 3, 1)),
+        },
+      ],
+    });
+
+    const response = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.repositoryId, primary.repo.id);
+    assert.equal(body.issueNumber, 7);
+    assert.deepEqual(body.phases.map((phase) => phase.phase), ['triage', 'plan', 'build', 'review']);
+    const planPhase = body.phases.find((phase) => phase.phase === 'plan');
+    const buildPhase = body.phases.find((phase) => phase.phase === 'build');
+    assert.deepEqual(planPhase.tasks.map((task) => task.taskId), ['task-context-plan']);
+    assert.deepEqual(planPhase.tasks[0].events.map((event) => event.sequence), [1, 2, 3]);
+    assert.deepEqual(planPhase.tasks[0].events.map((event) => event.eventType), ['human_input', 'agent_message', 'worker_state']);
+    assert.deepEqual(buildPhase.tasks.map((task) => task.taskId), ['task-context-build']);
+
+    const phaseResponse = await fetch(
+      `${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context?phase=plan`,
+    );
+    assert.equal(phaseResponse.status, 200);
+    const phaseBody = await phaseResponse.json();
+    assert.equal(phaseBody.phase, 'plan');
+    assert.deepEqual(phaseBody.tasks.map((task) => task.taskId), ['task-context-plan']);
+
+    const invalid = await fetch(
+      `${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context?phase=clarify`,
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error, 'invalid_task_context_phase');
+  } finally {
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('service store keeps Git server config in columns and public reads hide secrets', async () => {
   const { dir, store } = tempStore();
   try {

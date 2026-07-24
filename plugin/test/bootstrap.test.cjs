@@ -137,6 +137,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.equal(manifest.links['.issue-flow/cli.cjs'].target, '../.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs');
 	    assert.equal(manifest.files['.github/workflows/issue-flow-auto.yml'].mode, 'managed');
 	    assert.equal(manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].mode, 'customizable');
+	    assert.equal(manifest.files['.issue-flow/instructions.md'].mode, 'customizable');
 	    assert.equal(
 	      manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].source,
 	      'skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md'
@@ -148,6 +149,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     );
     assert.match(manifest.files['.issue-flow/templates/plan-impl.md'].sha256, /^[a-f0-9]{64}$/);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/instructions.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-ci-failure.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md')), true);

@@ -228,7 +228,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 3. push 当前 `{issue-number}-{slug}/plan` 分支
 4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision-data.json`、`plan/data/plan-data.json` 或 Markdown Plan 文件
 5. Decision/Visual Plan 只提交 JSON；HTML、CSS、JavaScript、布局、图形和审阅锚点由 Issue Flow Engine 内置生成；`visual-brief.md` 只写入 Plan prompt 注入的系统临时路径；Visual Plan 发布前必须删除同一 Issue 的 `decision/`
-6. 使用 `.issue-flow/config.json` 的 `visionPlan.gitServerId`、`visionPlan.projectId`、`visionPlan.repositoryId` 和 `ISSUE_FLOW_BASE_URL` 生成统一 Engine URL
+6. 使用 `.issue-flow/config.json` 的 `gitServerId`、`projectId`、`repositoryId` 和 `baseUrl` 生成统一 Engine URL
 7. 创建或更新带 `mr-by::plan` label 的 PR/MR；body 写入 source/task marker、Engine URL 和 `issue-flow:plan-artifact` marker，随后在同一 PR/MR 下回复本次发布的统一 Engine URL
 8. Decision 设置 `flow::clarify`；Visual Plan 和 Markdown Plan 设置 `flow::approve`
 

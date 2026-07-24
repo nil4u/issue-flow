@@ -4,7 +4,7 @@ const test = require('node:test')
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test'
 require('tsx/cjs')
 
-const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, submitVisualReview } = require('../src/core/visual-artifacts.ts')
+const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, structureMarkdownSections, submitVisualReview } = require('../src/core/visual-artifacts.ts')
 const { renderVisualArtifactDocument } = require('../src/core/visual-renderer.ts')
 const {
   applyVisualIssueLabels,
@@ -577,6 +577,31 @@ test('Markdown plans are rendered through the provider API', async (t) => {
   ), '<h1>GitLab plan</h1>')
   assert.deepEqual(JSON.parse(requests[0].options.body), { text: '# Plan', mode: 'gfm', context: 'acme/widget' })
   assert.deepEqual(JSON.parse(requests[1].options.body), { text: '# Plan', gfm: true, project: 'acme/widget' })
+})
+
+test('Markdown plans expose stable review anchors for every heading section', () => {
+  const structured = structureMarkdownSections([
+    '<h1>Automation optimization</h1>',
+    '<p>Summary</p>',
+    '<h2>Task Facet</h2>',
+    '<p>Evidence</p>',
+    '<h2>Task Facet</h2>',
+    '<p>More evidence</p>',
+    '<h3>验证 &amp; 回归</h3>',
+  ].join(''), { type: 'plan' })
+
+  assert.equal(structured.sectionCount, 4)
+  assert.match(structured.body, /data-comment-label="Automation optimization" data-section-level="1" data-ref="markdown\.plan\.sections\.automation-optimization"/)
+  assert.match(structured.body, /data-comment-label="Task Facet" data-section-level="2" data-ref="markdown\.plan\.sections\.task-facet"/)
+  assert.match(structured.body, /data-ref="markdown\.plan\.sections\.task-facet-2"/)
+  assert.match(structured.body, /data-comment-label="验证 &amp; 回归" data-section-level="3" data-ref="markdown\.plan\.sections\.验证-回归"/)
+  assert.equal((structured.body.match(/data-comment-scope="section"/g) || []).length, 4)
+})
+
+test('Markdown document falls back to one review scope when it has no headings', () => {
+  const html = markdownDocument('<p>Plan without headings.</p>', { type: 'plan' })
+  assert.match(html, /<article data-comment-scope="section" data-comment-label="Markdown Plan" data-ref="markdown\.plan">/)
+  assert.equal((html.match(/data-comment-scope="section"/g) || []).length, 1)
 })
 
 test('visual label updates preserve unrelated labels', async (t) => {

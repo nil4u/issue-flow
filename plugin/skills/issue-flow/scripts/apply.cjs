@@ -26,6 +26,7 @@ function usage() {
     '  --clear-visual-plan-feature  Remove the Visual Plan opt-in label.',
     '  --automation <automation::...>',
     '  --clear-automation   Remove any existing automation:: label without adding a new one.',
+    '  --optimization-state <optimization::...>',
     '  --priority <priority::...>',
     '  --size <size::...>',
     '',

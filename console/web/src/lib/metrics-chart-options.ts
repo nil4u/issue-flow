@@ -18,6 +18,7 @@ const ISSUE_TYPE_COLORS: Record<string, string> = {
   "type::bug": "#dc2626",
   "type::debt": "#9333ea",
   "type::ops": "#0f766e",
+  "type::optimization": "#57606a",
   "未分类": "#64748b",
 }
 

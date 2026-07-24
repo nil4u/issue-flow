@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   buildSourceIssueContext,
   normalizeMergeRequestPayload,
+  parseAutomationOptimizationSourceIssue,
   parseAgentrixTaskId,
   parsePlanArtifact,
   parseArgs: parsePrMergedArgs,
@@ -11,6 +12,13 @@ const {
   pullRequestLabels,
   resolveMergedPrTransition,
 } = require('../skills/issue-flow/scripts/pr-merged.cjs');
+
+test('automation optimization issue links back to its source issue', () => {
+  assert.equal(
+    parseAutomationOptimizationSourceIssue('<!-- issue-flow:automation-optimization source-issue=17 -->'),
+    17,
+  );
+});
 
 test('merged PR parser prefers source issue marker over visible text', () => {
   assert.equal(

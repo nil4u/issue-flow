@@ -26,7 +26,7 @@ export type IssueRoute = {
   issueNumber: number
 }
 
-const tabs = new Set<WorkspaceTab>(["overview", "issues", "merge-requests", "tasks", "settings"])
+const tabs = new Set<WorkspaceTab>(["overview", "insights", "issues", "merge-requests", "tasks", "settings"])
 
 export function parseMergeRequestRoute(pathname = window.location.pathname): MergeRequestRoute | undefined {
   const parts = pathname.split("/").filter(Boolean).map((part) => {
@@ -149,6 +149,7 @@ export function workspaceRoutePath(route: Partial<WorkspaceRoute>) {
   const server = encodeURIComponent(route.gitServerId)
   if (!route.projectId) return `/repos/${server}`
   const project = encodeURIComponent(route.projectId)
+  if (route.tab === "insights") return `/repos/${server}/${project}/insights`
   if (route.tab === "settings") return `/repos/${server}/${project}/settings`
   if (route.tab === "issues") return `/repos/${server}/${project}/issues`
   if (route.tab === "merge-requests") return `/repos/${server}/${project}/merge-requests`

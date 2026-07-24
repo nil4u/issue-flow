@@ -15,6 +15,7 @@ import { mergeRequestRoutes } from "./routes/merge-requests.js"
 import { repositoryRoutes } from "./routes/repositories.js"
 import { sessionRoutes } from "./routes/session.js"
 import { setupRoutes } from "./routes/setup.js"
+import { taskContextRoutes } from "./routes/task-context.js"
 import { userAgentrixConfigRoutes } from "./routes/user/agentrix-config.js"
 import { userGitPatRoutes } from "./routes/user/git-pats.js"
 import { visualArtifactRoutes } from "./routes/visual-artifacts.js"
@@ -151,6 +152,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(userAgentrixConfigRoutes)
   await app.register(userGitPatRoutes)
   await app.register(repositoryRoutes)
+  await app.register(taskContextRoutes)
   await app.register(insightsRoutes)
   await app.register(issueRoutes)
   await app.register(mergeRequestRoutes)

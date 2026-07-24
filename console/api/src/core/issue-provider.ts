@@ -85,8 +85,14 @@ async function listProviderIssues(server, repo, input = {}) {
 
 async function listProviderIssueLabels(server, repo) {
   const root = server.type === "github" ? githubRepoPath(repo) : gitlabProjectPath(repo)
-  const result = await providerFetch(server, "GET", `${root}/labels?per_page=100`)
-  return normalizeLabels(result).sort((left, right) => left.name.localeCompare(right.name))
+  const labels = []
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await providerFetch(server, "GET", `${root}/labels?per_page=100${page > 1 ? `&page=${page}` : ""}`)
+    const entries = Array.isArray(result) ? result : []
+    labels.push(...entries)
+    if (entries.length < 100) break
+  }
+  return normalizeLabels(labels).sort((left, right) => left.name.localeCompare(right.name))
 }
 
 async function getProviderIssue(server, repo, issueNumber) {

@@ -173,6 +173,14 @@ export type ProviderIssueDetail = {
   repository: { id: string; fullName: string; provider: string; webUrl: string }
 }
 
+export type AutomationOptimizationItem = {
+  sourceIssueNumber: number
+  phases: Array<{ phase: "triage" | "plan" | "build" | "review"; turns: number }>
+  status: "available" | "analyzing" | "analyzed" | "unavailable"
+  optimizationIssueNumber: number
+  optimizationIssueUrl: string
+}
+
 export type MergeRequestSummary = {
   id: string
   number: number
@@ -704,7 +712,7 @@ export type InstalledAutomationPage = {
   hasMore: boolean
 }
 
-export type WorkspaceTab = "overview" | "issues" | "merge-requests" | "tasks" | "settings"
+export type WorkspaceTab = "overview" | "insights" | "issues" | "merge-requests" | "tasks" | "settings"
 
 export type RepoWorkspaceProps = {
   tab: WorkspaceTab

@@ -105,10 +105,49 @@ async function readArtifactFile(server, repo, artifact) {
   return { body: bytes }
 }
 
+function escapeHtmlAttribute(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
+function markdownSectionSlug(label, index) {
+  const slug = String(label || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72)
+  return slug || `section-${index + 1}`
+}
+
+function structureMarkdownSections(renderedHtml, artifact) {
+  const sections = new Map()
+  let sectionIndex = 0
+  const body = String(renderedHtml || "").replace(/<h([1-3])(?:\s[^>]*)?>([\s\S]*?)<\/h\1>/gi, (heading, level, content) => {
+    const label = elementTextFromHtml(content) || `章节 ${sectionIndex + 1}`
+    const slug = markdownSectionSlug(label, sectionIndex)
+    const occurrence = (sections.get(slug) || 0) + 1
+    sections.set(slug, occurrence)
+    const uniqueSlug = occurrence === 1 ? slug : `${slug}-${occurrence}`
+    const ref = `markdown.${artifact.type}.sections.${uniqueSlug}`
+    sectionIndex += 1
+    return `<section class="markdown-review-section" data-comment-scope="section" data-comment-label="${escapeHtmlAttribute(label)}" data-section-level="${level}" data-ref="${escapeHtmlAttribute(ref)}">${heading}</section>`
+  })
+  if (sectionIndex > 0) return { body, sectionCount: sectionIndex }
+  return { body: String(renderedHtml || ""), sectionCount: 0 }
+}
+
 function markdownDocument(renderedHtml, artifact) {
+  const structured = structureMarkdownSections(renderedHtml, artifact)
+  const fallbackAttributes = structured.sectionCount === 0
+    ? ` data-comment-scope="section" data-comment-label="Markdown Plan" data-ref="markdown.${artifact.type}"`
+    : ` data-ref="markdown.${artifact.type}"`
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-    :root{color:#18181b;background:#fff;font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}body{margin:0;padding:32px}article{max-width:920px;margin:0 auto}h1,h2,h3{line-height:1.3;margin:1.6em 0 .6em}h1{font-size:30px;border-bottom:1px solid #e4e4e7;padding-bottom:12px}h2{font-size:23px}h3{font-size:18px}p,ul,ol,pre,table,blockquote{margin:1em 0}pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}code{background:#f4f4f5;border-radius:4px;padding:.15em .35em}pre{overflow:auto;background:#18181b;color:#fafafa;border-radius:8px;padding:16px}pre code{background:none;padding:0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e4e4e7;padding:8px 10px;text-align:left}blockquote{margin-left:0;border-left:4px solid #d4d4d8;padding-left:16px;color:#52525b}a{color:#2563eb}img{max-width:100%}
-  </style></head><body><article data-comment-scope="section" data-comment-label="Markdown Plan" data-ref="markdown.${artifact.type}">${renderedHtml}</article></body></html>`
+    :root{color:#18181b;background:#fff;font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}body{margin:0;padding:32px}article{max-width:920px;margin:0 auto}h1,h2,h3{line-height:1.3;margin:1.6em 0 .6em}.markdown-review-section{position:relative;margin:1.6em -14px .6em;padding:10px 14px;border:1px solid transparent;border-radius:10px;scroll-margin-top:24px;transition:background-color .12s ease,border-color .12s ease}.markdown-review-section:hover{border-color:#e4e4e7;background:#fafafa}.markdown-review-section h1,.markdown-review-section h2,.markdown-review-section h3{margin:0}h1{font-size:30px;border-bottom:1px solid #e4e4e7;padding-bottom:12px}h2{font-size:23px}h3{font-size:18px}p,ul,ol,pre,table,blockquote{margin:1em 0}pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}code{background:#f4f4f5;border-radius:4px;padding:.15em .35em}pre{overflow:auto;background:#18181b;color:#fafafa;border-radius:8px;padding:16px}pre code{background:none;padding:0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e4e4e7;padding:8px 10px;text-align:left}blockquote{margin-left:0;border-left:4px solid #d4d4d8;padding-left:16px;color:#52525b}a{color:#2563eb}img{max-width:100%}
+  </style></head><body><article${fallbackAttributes}>${structured.body}</article></body></html>`
 }
 
 function parseVisualArtifactJson(body) {
@@ -336,4 +375,4 @@ async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, u
   return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
 }
 
-export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, submitVisualReview }
+export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, structureMarkdownSections, submitVisualReview }

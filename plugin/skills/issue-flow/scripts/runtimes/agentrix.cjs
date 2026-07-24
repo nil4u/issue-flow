@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 provenance.cjs 的 source marker 能力与 Node.js 子进程环境
- * [OUTPUT]: 对外提供 Agentrix prompt 组合、agentrix-run package、run/resume args、环境清洗与 task comment 的构造执行函数
+ * [INPUT]: 依赖 provenance.cjs 的 source marker 能力、项目级 instructions 与 Node.js 子进程环境
+ * [OUTPUT]: 对外提供含项目说明的 Agentrix prompt 组合、agentrix-run package、run/resume args、环境清洗与 task comment 的构造执行函数
  * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -18,6 +18,7 @@ const DEFAULT_MENTION = '@agentrix';
 const MENTION_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/i;
 const MENTION_REPLACE_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/gi;
 const DEFAULT_PROJECT_CONFIG_PATH = '.issue-flow/config.json';
+const DEFAULT_PROJECT_INSTRUCTIONS_PATH = '.issue-flow/instructions.md';
 const DEFAULT_PROMPTS_DIR = '.issue-flow/prompts';
 const DEFAULT_TEMPLATES_DIR = '.issue-flow/templates';
 const DEFAULT_PLAN_ROOT_DIR = '.issue-flow/issues';
@@ -129,6 +130,7 @@ function resolveAgentrixConfig(options = {}) {
   return {
     mention: DEFAULT_MENTION,
     projectConfigPath,
+    projectInstructionsPath: resolveRepoPath(options.projectInstructionsPath || DEFAULT_PROJECT_INSTRUCTIONS_PATH),
     projectPromptsDir: resolveRepoPath(promptsDir),
     projectTemplatesDir: resolveRepoPath(templatesDir),
     planRootDir: resolveRepoPath(planRootDir),
@@ -180,6 +182,7 @@ function templateNameForIssue(issue) {
 }
 
 function visualPlanFeatureMode(issue) {
+  if (hasLabel(issue, 'type::optimization')) return 'off';
   return hasLabel(issue, VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
@@ -338,14 +341,34 @@ function formatReviewTarget(pr, data = {}) {
   return formatContextBlock('review_target', lines);
 }
 
-function formatRequiredSkills(action = '') {
+function formatRequiredSkills(action = '', issue = {}) {
   const lines = [
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
   ];
-  if (action === 'plan') {
+  if (action === 'plan' && isVisualPlanEnabled(issue)) {
     lines.push('', `Read and follow the visual plan skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'vision-plan', 'SKILL.md'))}\``);
   }
+  if (action === 'plan' && hasLabel(issue, 'type::optimization')) {
+    lines.push('', `Read and follow the automation optimizer skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'automation-optimizer', 'SKILL.md'))}\``);
+  }
   return formatContextBlock('required_skills', lines);
+}
+
+function formatProjectInstructions(options = {}) {
+  const { projectInstructionsPath } = resolveAgentrixConfig(options);
+  if (!fs.existsSync(projectInstructionsPath)) {
+    return '';
+  }
+  const body = fs.readFileSync(projectInstructionsPath, 'utf8').trim();
+  if (!body) {
+    return '';
+  }
+  return formatContextBlock('project_instructions', [
+    '以下内容由 Issue Flow 从 `.issue-flow/instructions.md` 直接注入，适用于当前仓库。',
+    '若与默认阶段 Prompt、公共 Skill 或其他项目执行说明冲突，优先遵循本项目说明。',
+    '',
+    body,
+  ]);
 }
 
 function normalizeBranchName(value) {
@@ -432,7 +455,8 @@ function composeActionPrompt(action, issue, data = {}, options = {}) {
   const inputFiles = policy.input === 'plan-or-issue' ? listPlanInputFiles(issue, options) : [];
   const blocks = [
     prompt.body,
-    formatRequiredSkills(action === 'plan' && isVisualPlanEnabled(issue) ? 'plan' : ''),
+    formatRequiredSkills(action, issue),
+    formatProjectInstructions(options),
     formatTaskInput(issue, inputFiles),
   ];
   if (policy.repository) {
@@ -507,6 +531,7 @@ function composeReviewPrompt(pr, data = {}, options = {}) {
   return [
     prompt.body,
     formatRequiredSkills(),
+    formatProjectInstructions(options),
     formatReviewTarget(pr, data),
     formatReviewSubmission(pr),
     formatAdditionalInstruction(data.instruction),

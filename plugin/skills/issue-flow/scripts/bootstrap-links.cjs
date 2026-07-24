@@ -4,8 +4,10 @@ const path = require('node:path');
 
 const MODE_MANAGED = 'managed';
 const MANAGED_SYMLINKS = [
+  ['.agents/skills/automation-optimizer', '../../.agentrix/plugins/issue-flow/skills/automation-optimizer'],
   ['.agents/skills/issue-flow', '../../.agentrix/plugins/issue-flow/skills/issue-flow'],
   ['.agents/skills/vision-plan', '../../.agentrix/plugins/issue-flow/skills/vision-plan'],
+  ['.claude/skills/automation-optimizer', '../../.agentrix/plugins/issue-flow/skills/automation-optimizer'],
   ['.claude/skills/issue-flow', '../../.agentrix/plugins/issue-flow/skills/issue-flow'],
   ['.claude/skills/vision-plan', '../../.agentrix/plugins/issue-flow/skills/vision-plan'],
   ['.issue-flow/cli.cjs', '../.agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs'],

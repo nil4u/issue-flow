@@ -35,11 +35,12 @@ issue-flow <resource> <action> [options]
 
 | Prefix | Scope | 作用 | Values |
 |--------|-------|------|--------|
-| `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops` |
+| `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops`, `optimization` |
 | `status::` | Issue | 生命周期状态 | `active`, `done`, `drop`, `suspend` |
 | `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `clarify`, `approve` |
 | `feature:visual-plan:` | Issue | Visual Plan opt-in；未设置时使用 Markdown | `on` |
 | `automation::` | Issue | 允许自动化推进到的级别，或显式关闭 | `off`, `plan`, `build` |
+| `optimization::` | Issue | 来源 Issue 的自动化优化处理状态 | `analyzing`, `analyzed` |
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
 | `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
 | `mr-by::` | PR/MR | 标记 Decision、Visual/Markdown Plan 或 Build PR/MR 的来源动作 | `plan`, `build` |

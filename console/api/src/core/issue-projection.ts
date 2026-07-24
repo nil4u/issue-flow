@@ -3,7 +3,7 @@
 import { issueFlowMarkers } from "./provenance-marker.js"
 
 const FLOW_VALUES = new Set(["triage", "plan", "build", "clarify", "approve", "suspend"])
-const TYPE_VALUES = new Set(["feature", "bug", "debt", "ops"])
+const TYPE_VALUES = new Set(["feature", "bug", "debt", "ops", "optimization"])
 const AUTOMATION_VALUES = new Set(["off", "triage", "plan", "build"])
 const STATUS_VALUES = new Set(["active", "done", "drop", "suspend"])
 const SIZE_VALUES = new Set(["XS", "S", "M", "L", "XL"])

@@ -116,6 +116,56 @@ test('agentrix appends context without parsing a custom action prompt', () => {
   }
 });
 
+test('agentrix injects project instructions into action prompts with explicit precedence', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-instructions-'));
+  try {
+    const instructionsPath = path.join(root, 'instructions.md');
+    fs.writeFileSync(instructionsPath, '# 项目要求\n\n必须先运行项目检查命令。');
+
+    const prompt = agentrix.composeActionPrompt('build', {
+      number: 42,
+      labels: ['type::feature'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }, {}, {
+      projectInstructionsPath: instructionsPath,
+      planRootDir: path.join(root, 'issues'),
+    });
+
+    assert.match(prompt, /<project_instructions>/);
+    assert.match(prompt, /Issue Flow 从 `\.issue-flow\/instructions\.md` 直接注入/);
+    assert.match(prompt, /若与默认阶段 Prompt、公共 Skill 或其他项目执行说明冲突，优先遵循本项目说明/);
+    assert.match(prompt, /# 项目要求\n\n必须先运行项目检查命令。/);
+    assert.ok(prompt.indexOf('<required_skills>') < prompt.indexOf('<project_instructions>'));
+    assert.ok(prompt.indexOf('<project_instructions>') < prompt.indexOf('<task_input>'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('agentrix injects project instructions into review prompts', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-review-instructions-'));
+  try {
+    const instructionsPath = path.join(root, 'instructions.md');
+    fs.writeFileSync(instructionsPath, 'Review 必须检查项目约定。');
+
+    const prompt = agentrix.composeReviewPrompt({
+      provider: 'gitlab',
+      repoFullName: 'example/platform',
+      number: 9,
+      title: 'Build #42: Add export button',
+      body: '<!-- issue-flow:source-issue=42 -->',
+      htmlUrl: 'https://gitlab.example.test/example/platform/-/merge_requests/9',
+    }, {}, { projectInstructionsPath: instructionsPath });
+
+    assert.match(prompt, /<project_instructions>/);
+    assert.match(prompt, /Review 必须检查项目约定。/);
+    assert.ok(prompt.indexOf('<project_instructions>') < prompt.indexOf('<review_target>'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agentrix command logging shell-quotes args and redacts api key', () => {
   const command = agentrix.redactedCommand('npx', [
     '--yes',
@@ -192,6 +242,20 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   assert.match(prompt, /skills\/vision-plan\/SKILL\.md`/);
   assert.match(prompt, /<output_context>/);
   assert.match(prompt, /Working branch: `42-broken-login\/plan`/);
+});
+
+test('agentrix optimization plan always uses Markdown and loads only the optimizer skill', () => {
+  const prompt = agentrix.composeActionPrompt('plan', {
+    number: 42,
+    labels: ['type::optimization', 'size::M', 'feature:visual-plan:on'],
+    title: 'Optimize Plan automation',
+    body: 'Source issue: #17\nPhase: plan',
+  }, {}, { planRootDir: '.issue-flow/issues' });
+
+  assert.match(prompt, /skills\/automation-optimizer\/SKILL\.md`/);
+  assert.doesNotMatch(prompt, /skills\/vision-plan\/SKILL\.md`/);
+  assert.match(prompt, /Plan output file: `\.issue-flow\/issues\/42-optimize-plan-automation\/plan\/001-implementation\.md`/);
+  assert.doesNotMatch(prompt, /Plan output JSON:/);
 });
 
 test('agentrix action prompt uses full issue input when no plan files exist', () => {
