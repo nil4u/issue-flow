@@ -40,7 +40,7 @@ function issueStatus(attributes = {}, labels = []) {
   const explicit = prefixedValue(labels, "status::", (value) => value.toLowerCase(), STATUS_VALUES)
   const flow = issueFlow(labels)
   if (issueState(attributes) === "closed") {
-    return explicit === "drop" ? "drop" : "done"
+    return explicit === "done" ? "done" : "drop"
   }
   if (explicit) return explicit
   if (flow === "suspend") return "suspend"

@@ -38,7 +38,7 @@ const { normalizeGitLabWebhook } = require('@xmz-ai/gitlab-webhook-bridge');
 const { upsertGitlabWebhook, validateGitlabToken } = require('../src/core/gitlab.ts');
 const { getUserAgentrixConfig } = require('../src/core/user-agentrix-config.ts');
 const { handleGitlabWebhook } = require('../src/core/gitlab-webhook.ts');
-const { applyGitEventToIssueFacts } = require('../src/core/issue-projection.ts');
+const { applyGitEventToIssueFacts, issueSnapshot } = require('../src/core/issue-projection.ts');
 const { connectGitlabSession } = require('../src/core/gitlab-auth.ts');
 const {
   checkGitlabProjectInstall,
@@ -1114,6 +1114,9 @@ test('git events project issue snapshots and flow spans', async () => {
         },
       },
     });
+    const terminalStats = await store.getIssueStats(issueRow.id);
+    assert.equal(terminalStats.doneAt, '');
+    assert.equal(terminalStats.dropAt, '2026-07-01T03:00:00.000Z');
     await store.db.issueStat.update({
       where: { id: issueRow.id },
       data: {
@@ -1128,7 +1131,7 @@ test('git events project issue snapshots and flow spans', async () => {
     issues = await store.listIssues(createdRepo.repo.id);
     spans = await store.listIssueSpans(createdRepo.repo.id, '100');
     assert.equal(issues[0].state, 'closed');
-    assert.equal(issues[0].status, 'done');
+    assert.equal(issues[0].status, 'drop');
     assert.equal(issues[0].closedAt, '2026-07-01T03:00:00.000Z');
     assert.equal(issues[0].turnsCount, 8);
     assert.equal(issues[0].agentTimeSharePct, 25);
@@ -1160,11 +1163,42 @@ test('git events project issue snapshots and flow spans', async () => {
     issues = await store.listIssues(createdRepo.repo.id);
     const staleActive = issues.find((issue) => issue.issueId === '101');
     assert.equal(staleActive.state, 'closed');
-    assert.equal(staleActive.status, 'done');
+    assert.equal(staleActive.status, 'drop');
     assert.equal(staleActive.closedAt, '2026-07-01T04:00:00.000Z');
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('closed issues count as done only with an explicit done status', () => {
+  const cases = [
+    { label: '', expected: 'drop' },
+    { label: 'status::active', expected: 'drop' },
+    { label: 'status::suspend', expected: 'drop' },
+    { label: 'status::drop', expected: 'drop' },
+    { label: 'status::done', expected: 'done' },
+  ];
+
+  for (const { label, expected } of cases) {
+    const snapshot = issueSnapshot({
+      eventName: 'issue',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      repositoryFullName: 'team/app',
+      receivedAt: '2026-07-01T03:00:00.000Z',
+      payload: {
+        labels: label ? [{ title: label }] : [],
+        object_attributes: {
+          id: 100,
+          iid: 7,
+          state: 'closed',
+          updated_at: '2026-07-01T03:00:00.000Z',
+          closed_at: '2026-07-01T03:00:00.000Z',
+        },
+      },
+    });
+    assert.equal(snapshot.status, expected, label || 'missing status');
   }
 });
 
@@ -1235,7 +1269,7 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
     assert.equal(result.body.issues.find((issue) => issue.issueId === '103').currentFlow, 'build');
     const issues = await store.listIssues(createdRepo.repo.id);
     const spans = await store.listIssueSpans(createdRepo.repo.id);
-    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:done', '11:done']);
+    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:drop', '11:done']);
     assert.equal(issues[0].title, 'Existing issue');
     assert.equal(issues[0].state, 'opened');
     assert.equal(issues[0].type, 'feature');
