@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/nil4u/issue-flow/compare/v0.6.2...v0.7.0) (2026-07-27)
+
+
+### Features
+
+* add automation optimization insights ([704f762](https://github.com/nil4u/issue-flow/commit/704f762541330d850c4f4a6833b77f678a52a1e2))
+* add docs issue type ([0edb285](https://github.com/nil4u/issue-flow/commit/0edb28569583071c91d29b81a57f4abe8f66b783))
+
+
+### Bug Fixes
+
+* resume once per inline review batch ([96289ae](https://github.com/nil4u/issue-flow/commit/96289ae10399bebdb0d9bba32b68c473a3044617))
+
 ## [0.6.2](https://github.com/nil4u/issue-flow/compare/v0.6.1...v0.6.2) (2026-07-23)
 
 
