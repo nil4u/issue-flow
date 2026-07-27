@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/nil4u/issue-flow/compare/console-v0.13.1...console-v0.14.0) (2026-07-27)
+
+
+### Features
+
+* add automation optimization insights ([704f762](https://github.com/nil4u/issue-flow/commit/704f762541330d850c4f4a6833b77f678a52a1e2))
+* add docs issue type ([0edb285](https://github.com/nil4u/issue-flow/commit/0edb28569583071c91d29b81a57f4abe8f66b783))
+
+
+### Bug Fixes
+
+* **console:** treat implicitly closed issues as dropped ([9a94f1d](https://github.com/nil4u/issue-flow/commit/9a94f1d80413a31553fa61b49a85e88c9369c5f2))
+
 ## [0.13.1](https://github.com/nil4u/issue-flow/compare/console-v0.13.0...console-v0.13.1) (2026-07-23)
 
 
