@@ -112,6 +112,7 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'type::bug',
       'type::debt',
       'type::ops',
+      'type::docs',
       'type::optimization',
       'status::active',
       'status::done',

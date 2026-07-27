@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 provenance.cjs 的 source marker 能力、项目级 instructions 与 Node.js 子进程环境
- * [OUTPUT]: 对外提供含项目说明的 Agentrix prompt 组合、agentrix-run package、run/resume args、环境清洗与 task comment 的构造执行函数
+ * [OUTPUT]: 对外提供按 issue 语义选择且含项目说明的 Agentrix prompt、agentrix-run package、run/resume args、环境清洗与 task comment 构造执行函数
  * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -54,6 +54,7 @@ const PROMPT_FILES = {
   triage: 'triage.prompt.md',
   general: 'general.prompt.md',
   build: 'build.prompt.md',
+  buildDocs: 'build-docs.prompt.md',
   buildCiFailure: 'build-ci-failure.prompt.md',
   review: 'review.prompt.md',
   planBug: 'plan-bug.prompt.md',
@@ -168,6 +169,9 @@ function promptNameForAction(action, issue) {
   if (action === 'build' && isPipelineFailureIssue(issue)) {
     return 'buildCiFailure';
   }
+  if (action === 'build' && hasLabel(issue, 'type::docs')) {
+    return 'buildDocs';
+  }
   if (action !== 'plan') {
     return action;
   }
@@ -198,10 +202,11 @@ function readPrompt(action, issue, options = {}) {
   const config = resolveAgentrixConfig(options);
   const promptName = promptNameForAction(action, issue);
   const fileName = PROMPT_FILES[promptName];
-  return readFirstExisting(
+  const prompt = readFirstExisting(
     [path.join(config.projectPromptsDir, fileName), path.join(config.defaultPromptsDir, fileName)],
     `${promptName} prompt`
   );
+  return { ...prompt, name: promptName };
 }
 
 function resolvePlanTemplate(issue, options = {}) {
@@ -452,7 +457,9 @@ function composeActionPrompt(action, issue, data = {}, options = {}) {
   if (!policy) {
     throw new Error(`Missing prompt context policy for action: ${action}`);
   }
-  const inputFiles = policy.input === 'plan-or-issue' ? listPlanInputFiles(issue, options) : [];
+  const inputFiles = policy.input === 'plan-or-issue' && prompt.name === 'build'
+    ? listPlanInputFiles(issue, options)
+    : [];
   const blocks = [
     prompt.body,
     formatRequiredSkills(action, issue),

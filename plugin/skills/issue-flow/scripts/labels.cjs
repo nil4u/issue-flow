@@ -24,6 +24,11 @@ const MANAGED_LABEL_GROUPS = {
         description: 'Issue tracks operations or maintenance work',
       },
       {
+        name: 'type::docs',
+        color: 'D97706',
+        description: 'Issue adds, revises, migrates, or reorganizes documentation',
+      },
+      {
         name: 'type::optimization',
         color: '57606A',
         description: 'Issue analyzes and improves automation for a previous task',

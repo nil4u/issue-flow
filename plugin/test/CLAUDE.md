@@ -2,7 +2,7 @@
 > L2 | 父级: /CLAUDE.md
 
 成员清单
-agentrix-runtime.test.cjs: Agentrix runtime prompt、run args、resume 与 task comment 的行为测试。
+agentrix-runtime.test.cjs: Agentrix runtime prompt 路由、run args、resume 与 task comment 的行为测试。
 bootstrap.test.cjs: install/bootstrap 生成文件、manifest、三方冲突规则、plan/decision 与 provider workflow 的行为测试。
 cli.test.cjs: 统一 CLI help、dry-run envelope 与命令路由测试。
 create-issue.test.cjs: issue create 参数解析、managed label 与 source provenance marker 测试。

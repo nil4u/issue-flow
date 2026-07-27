@@ -69,12 +69,14 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.match(result.stdout, /written \.issue-flow\/templates/);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-docs.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/instructions.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-bug.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/type-optimization.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/type-docs.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin')), false);
@@ -152,6 +154,7 @@ test('install script installs GitLab root include from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.gitlab-ci.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml')), true);
     assert.doesNotMatch(fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8'), /issue-flow-labels:/);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-docs.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);

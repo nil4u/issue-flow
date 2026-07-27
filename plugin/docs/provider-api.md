@@ -173,7 +173,7 @@ node apply.cjs --issue-number <num> [label-options] [body-options] [common-optio
 
 | 选项 | 值 |
 |------|-----|
-| `--type` | `type::feature\|bug\|debt\|ops` |
+| `--type` | `type::feature\|bug\|debt\|ops\|docs\|optimization` |
 | `--status` | `status::active\|done\|drop\|suspend` |
 | `--flow` | `flow::triage\|plan\|build\|clarify\|approve` |
 | `--automation` | `automation::off\|automation::plan\|automation::build` |
@@ -258,7 +258,7 @@ node create-issue.cjs --title "<title>" --body-file <tmp-body-file> [label-optio
 
 | 选项 | 值 |
 |------|-----|
-| `--type` | `type::feature\|bug\|debt\|ops` |
+| `--type` | `type::feature\|bug\|debt\|ops\|docs\|optimization` |
 | `--status` | `status::active\|done\|drop\|suspend` |
 | `--flow` | `flow::triage\|plan\|build\|clarify\|approve` |
 | `--automation` | `automation::off\|automation::plan\|automation::build` |
@@ -308,6 +308,8 @@ GitLab 同步时提交 `#RRGGBB`。名称和说明在两个 provider 上保持�
 | `type::bug` | Issue | `D73A4A` | Issue reports a defect or regression |
 | `type::debt` | Issue | `5319E7` | Issue tracks technical debt or cleanup |
 | `type::ops` | Issue | `1D76DB` | Issue tracks operations or maintenance work |
+| `type::docs` | Issue | `D97706` | Issue adds, revises, migrates, or reorganizes documentation |
+| `type::optimization` | Issue | `57606A` | Issue analyzes and improves automation for a previous task |
 | `status::active` | Issue | `0052CC` | Issue is active and eligible for workflow actions |
 | `status::done` | Issue | `0E8A16` | Issue is complete |
 | `status::drop` | Issue | `6A737D` | Issue has been dropped and should not continue |
@@ -429,7 +431,7 @@ Inline comment JSON entries use:
 ### Agentrix 行为
 
 1. comment mention 固定为 `@agentrix`
-2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`、`review.prompt.md`
+2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`plan-visual-bug.prompt.md`、`plan-visual-impl.prompt.md`、`build.prompt.md`、`build-docs.prompt.md`、`build-ci-failure.prompt.md`、`review.prompt.md`；build action 对 `type::docs` 和 CI failure issue 分别选择专用 prompt
 3. template 文件名固定：`plan-bug.md`、`plan-impl.md`
 4. plan 查找固定为 `<planRootDir>/<issue-number>-<slug>/plan/*.md`
 5. branch 固定为 `<issue-number>-<slug>/plan` 和 `<issue-number>-<slug>/build`

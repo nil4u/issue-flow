@@ -18,7 +18,7 @@ function usage() {
     'Usage: apply.cjs --issue-number <number> [options]',
     '',
     'Label options:',
-    '  --type <type::...>',
+    '  --type <type::feature|bug|debt|ops|docs|optimization>',
     '  --status <status::...>',
     '  --flow <flow::...>',
     '  --clear-flow         Remove any existing flow:: label without adding a new one.',

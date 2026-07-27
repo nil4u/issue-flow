@@ -223,6 +223,62 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
   assert.doesNotMatch(prompt, /Plan root directory/);
 });
 
+test('docs prompts use a dedicated no-plan build contract with executable content validation', () => {
+  const issue = {
+    number: 42,
+    labels: ['type::docs', 'flow::triage', 'size::S'],
+    title: 'Refresh CLI documentation',
+    body: 'Update the command reference.',
+  };
+  const triagePrompt = agentrix.composeActionPrompt('triage', issue);
+  const planPrompt = agentrix.composeActionPrompt('plan', issue, {}, { planRootDir: '.issue-flow/issues' });
+  const buildPrompt = agentrix.composeActionPrompt('build', { ...issue, labels: ['type::docs', 'flow::build', 'size::S'] });
+  const docsTemplate = fs.readFileSync(
+    path.resolve(__dirname, '../skills/issue-flow/assets/agentrix/runtime/templates/type-docs.md'),
+    'utf8',
+  );
+  const promptsDir = path.resolve(__dirname, '../skills/issue-flow/assets/agentrix/runtime/prompts');
+  const genericBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build.prompt.md'), 'utf8');
+  const docsBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build-docs.prompt.md'), 'utf8');
+
+  assert.match(triagePrompt, /`type::docs` 固定选择 `flow::build`/);
+  assert.match(triagePrompt, /正文只需明确文档目标和目标读者/);
+  assert.match(triagePrompt, /模版只定义必须具备的最小结构，不是允许保留内容的白名单/);
+  assert.match(triagePrompt, /不得因模版没有对应字段而删除原文/);
+  assert.match(triagePrompt, /无法自然归入时，新增语义明确的章节/);
+  assert.match(docsTemplate, /^## 文档目标$/m);
+  assert.match(docsTemplate, /^## 目标读者$/m);
+  assert.doesNotMatch(docsTemplate, /^## (文档范围|事实来源|验收方式|非目标)$/m);
+  assert.match(planPrompt, /链接可达性与锚点、示例可运行性、命令有效性/);
+  assert.match(buildPrompt, /运行仓库已有的文档检查，并补充与改动相称的人工检查/);
+  assert.match(buildPrompt, /不要把 Markdown 格式检查当作完成验证/);
+  assert.doesNotMatch(genericBuildPrompt, /type::docs/);
+  assert.doesNotMatch(genericBuildPrompt, /链接与锚点、示例、命令和事实/);
+  assert.equal(buildPrompt.startsWith(docsBuildPrompt.trim()), true);
+});
+
+test('docs build prompt ignores stale plan artifacts and injects the full issue', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-docs-build-'));
+  try {
+    const planDir = path.join(root, '42-refresh-cli-documentation', 'plan');
+    fs.mkdirSync(planDir, { recursive: true });
+    fs.writeFileSync(path.join(planDir, '001-implementation.md'), '# Stale plan\n');
+
+    const prompt = agentrix.composeActionPrompt('build', {
+      number: 42,
+      labels: ['type::docs', 'flow::build', 'size::S'],
+      title: 'Refresh CLI documentation',
+      body: 'Document the current CLI for operators.',
+    }, {}, { planRootDir: root });
+
+    assert.match(prompt, /Body:\nDocument the current CLI for operators\./);
+    assert.doesNotMatch(prompt, /Input files:/);
+    assert.doesNotMatch(prompt, /001-implementation\.md/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agentrix plan prompt enables visual artifacts only with the issue feature label', () => {
   const prompt = agentrix.composeActionPrompt('plan', {
     number: 42,

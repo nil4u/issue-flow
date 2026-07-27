@@ -23,6 +23,16 @@ const MANAGED_LABEL_GROUPS = {
         color: '1D76DB',
         description: 'Issue tracks operations or maintenance work',
       },
+      {
+        name: 'type::docs',
+        color: 'D97706',
+        description: 'Issue adds, revises, migrates, or reorganizes documentation',
+      },
+      {
+        name: 'type::optimization',
+        color: '57606A',
+        description: 'Issue analyzes and improves automation for a previous task',
+      },
     ],
   },
   status: {
@@ -107,6 +117,22 @@ const MANAGED_LABEL_GROUPS = {
         name: 'automation::build',
         color: '006B75',
         description: 'Automation may execute the configured plan flow and create build PRs/MRs',
+      },
+    ],
+  },
+  optimizationState: {
+    prefix: 'optimization::',
+    scope: 'issue',
+    labels: [
+      {
+        name: 'optimization::analyzing',
+        color: 'D97706',
+        description: 'A linked automation optimization issue is in progress',
+      },
+      {
+        name: 'optimization::analyzed',
+        color: '1A7F37',
+        description: 'The linked automation optimization issue is complete',
       },
     ],
   },

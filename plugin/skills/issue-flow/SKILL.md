@@ -11,7 +11,7 @@ metadata:
 
 issue-flow 定义了一套基于 issue、Plan 审批和 Build PR/MR 的 agent 自动化开发流程。
 
-Issue 是需求、缺陷、运维事项和技术债的总入口，也是状态机的 source of truth。Plan 默认使用 Markdown 审阅；只有 issue 带 `feature:visual-plan:on` 时才使用 Decision/Visual Plan 页面。实际代码始终通过 Build PR/MR 审批。
+Issue 是需求、缺陷、运维事项、技术债和文档工作的总入口，也是状态机的 source of truth。Plan 默认使用 Markdown 审阅；只有 issue 带 `feature:visual-plan:on` 时才使用 Decision/Visual Plan 页面。实际代码始终通过 Build PR/MR 审批。
 
 在 issue-flow 下工作时，agent-facing provider 操作必须使用统一入口：
 
@@ -35,7 +35,7 @@ issue-flow <resource> <action> [options]
 
 | Prefix | Scope | 作用 | Values |
 |--------|-------|------|--------|
-| `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops`, `optimization` |
+| `type::` | Issue | 需求类型 | `feature`, `bug`, `debt`, `ops`, `docs`, `optimization` |
 | `status::` | Issue | 生命周期状态 | `active`, `done`, `drop`, `suspend` |
 | `flow::` | Issue | 下一步工作流动作 | `triage`, `plan`, `build`, `clarify`, `approve` |
 | `feature:visual-plan:` | Issue | Visual Plan opt-in；未设置时使用 Markdown | `on` |
@@ -68,12 +68,13 @@ node .issue-flow/cli.cjs issue acknowledge --issue 123
 ```
 
 - `issue apply` 只移除指定 prefix 的旧 label，不动其他 prefix。
-- 规范化正文：按 issue 的 `type::` 对应 `.issue-flow/templates/type-*.md` 重写正文，写到 repo 外临时文件，用 `--normalized-body-file` 随标签一起应用。
+- 规范化正文：按 issue 的 `type::` 对应 `.issue-flow/templates/type-*.md` 整理正文；模板是必须具备的最小结构，不是内容白名单。原文中无法归入模板但仍有价值的信息应融合进合适章节或新增章节，不得直接删除。正文写到 repo 外临时文件，用 `--normalized-body-file` 随标签一起应用。
 - 设置 `flow::clarify` 时不会更新 issue body（会忽略 `--normalized-body-file`）。
 - 用户明确要求创建 issue，或开放讨论已经形成清晰需求时，创建规范化 issue；目标、边界、用户故事或关键事实仍不清楚时先询问，不创建模糊 issue。
 - 创建 issue 时，body 先按 `.issue-flow/templates/type-*.md` 整理，写到 repo 外临时文件（如 `mktemp`）；不要把 body 文件提交到 git。
 - 创建 issue 前先运行 `milestone list`：返回 `enabled: true` 时必须显式传 `--milestone <title|none>`；用户未指定且有候选项时先询问，没有候选项时传 `none`，返回 `enabled: false` 时省略该参数。
 - 创建 issue 时只设置已经能判断的 managed labels：实现路径明确可用 `flow::build`，需要先规划用 `flow::plan`，仍需自动分类用 `flow::triage`，只记录且不自动推进用 `automation::off`。
+- 纯文档新增、修订、迁移或信息架构调整使用 `type::docs`。这类 issue 不经过 plan，triage 完成后直接进入 `flow::build`，Build PR/MR 提交后进入既有 `flow::approve`。
 - `type::`、`status::`、`flow::`、`priority::`、`automation::`、`size::` 必须通过对应参数传入，不能放在 `--label`。
 - 进入 `flow::plan` 或 `flow::build` 前，issue 必须有且仅有一个 `size::`。缺失时根据标题、正文、评论和仓库上下文选择一个；无法判断时用 `size::M` 并留下低置信度说明。
 - `--label` 只用于 unmanaged label；`mr-by::*` 只用于 PR/MR，不能用于 issue。

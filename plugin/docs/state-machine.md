@@ -45,6 +45,8 @@ flow::build ──(build agent)── build PR/MR → flow::approve
 merge build PR/MR → status::done + clear flow
 ```
 
+`type::docs` 复用现有生命周期，但不经过 Plan：`flow::triage -> flow::build -> flow::approve`，Build PR/MR 合并后进入 `status::done`。纯文档新增、修订、迁移和信息架构调整都走这条路径；不新增 flow、审批模型或提交入口。
+
 Decision 和 Plan 是两个独立页面，不是 tab；Markdown Plan 复用 Plan 页面并由 provider Markdown API 渲染：
 
 - `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}`

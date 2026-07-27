@@ -138,6 +138,11 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
 	    assert.equal(manifest.files['.github/workflows/issue-flow-auto.yml'].mode, 'managed');
 	    assert.equal(manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].mode, 'customizable');
 	    assert.equal(manifest.files['.issue-flow/instructions.md'].mode, 'customizable');
+	    assert.equal(manifest.files['.issue-flow/prompts/build-docs.prompt.md'].mode, 'customizable');
+	    assert.equal(
+	      manifest.files['.issue-flow/prompts/build-docs.prompt.md'].source,
+	      'skills/issue-flow/assets/agentrix/runtime/prompts/build-docs.prompt.md'
+	    );
 	    assert.equal(
 	      manifest.files['.issue-flow/prompts/build-ci-failure.prompt.md'].source,
 	      'skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md'
@@ -151,11 +156,13 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/instructions.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-ci-failure.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-docs.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-bug.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/review.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/type-docs.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs')), true);
@@ -167,7 +174,9 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css')), false);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), false);
 	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md')), true);
+	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-docs.prompt.md')), true);
 	    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build.prompt.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/templates/type-docs.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/package.json')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/CLAUDE.md')), false);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/bootstrap-links.cjs')), false);

@@ -11,6 +11,8 @@ Triage 识别 issue 类型后使用这些模版。模版同时承担两件事：
 - `type::feature` -> `type-feature.md`
 - `type::debt` -> `type-debt.md`
 - `type::ops` -> `type-ops.md`
+- `type::docs` -> `type-docs.md`
+- `type::optimization` -> `type-optimization.md`
 
 模版字段可以来自 issue，也可以来自仓库代码、文档、配置或已有约定。能从仓库确认的信息不要再问用户。
 
@@ -21,4 +23,6 @@ Triage 识别 issue 类型后使用这些模版。模版同时承担两件事：
 Plan 使用单独的方案模版：
 
 - `type::bug` -> `plan-bug.md`
-- `type::feature` / `type::debt` / `type::ops` -> `plan-impl.md`
+- `type::feature` / `type::debt` / `type::ops` / `type::docs` / `type::optimization` -> `plan-impl.md`
+
+`type::docs` 的常规路径是 `triage -> build -> approve`，不要求 Plan。`plan-impl.md` 仅用于显式启动的例外 plan action。

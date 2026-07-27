@@ -15,6 +15,44 @@ const {
   sourceIssueNumber,
 } = require('../src/core/pull-request-projection.ts');
 const { issueFlowMarkers } = require('../src/core/provenance-marker.ts');
+const {
+  issueSnapshot,
+  issueSnapshotFromGitlabIssue,
+} = require('../src/core/issue-projection.ts');
+
+test('issue projection persists docs labels as a first-class type', () => {
+  const eventSnapshot = issueSnapshot({
+    eventName: 'issues',
+    gitServerId: 'github-main',
+    repositoryId: 'repo-1',
+    repositoryFullName: 'acme/docs',
+    receivedAt: '2026-07-24T00:00:00.000Z',
+    payload: {
+      labels: [{ name: 'type::docs' }, { name: 'flow::triage' }],
+      object_attributes: {
+        id: 101,
+        number: 7,
+        title: 'Refresh docs',
+        state: 'open',
+        created_at: '2026-07-24T00:00:00.000Z',
+      },
+    },
+  });
+  const gitlabSnapshot = issueSnapshotFromGitlabIssue(
+    { gitServerId: 'gitlab-main', projectId: '42', projectPath: 'acme/docs' },
+    {
+      id: 102,
+      iid: 8,
+      title: 'Migrate docs',
+      state: 'opened',
+      labels: ['type::docs', 'flow::triage'],
+      createdAt: '2026-07-24T00:00:00.000Z',
+    },
+  );
+
+  assert.equal(eventSnapshot.type, 'docs');
+  assert.equal(gitlabSnapshot.type, 'docs');
+});
 
 const STARTED_ISSUE_DISTRIBUTION_SQL = `select
   week,
