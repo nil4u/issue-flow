@@ -62,6 +62,11 @@ test('review script submits through provider review API', async () => {
       line: 42,
       body: 'Please handle this edge case.',
     },
+    {
+      path: 'src/worker.js',
+      line: 18,
+      body: 'Please handle this second edge case.',
+    },
   ]), 'utf8');
   const originalFetch = providers.github.fetchCurrentPullRequest;
   const originalSubmit = providers.github.submitPullRequestReview;
@@ -102,10 +107,15 @@ test('review script submits through provider review API', async () => {
         line: 42,
         body: 'Please handle this edge case.',
       },
+      {
+        path: 'src/worker.js',
+        line: 18,
+        body: 'Please handle this second edge case.\n\n<!-- issue-flow:source source_task_id=task-review source_runtime=agentrix -->',
+      },
     ]);
     assert.equal(result.action, 'submitted');
     assert.equal(result.reviewUrl, 'https://github.com/example/platform/pull/5#pullrequestreview-1');
-    assert.equal(result.inlineComments, 1);
+    assert.equal(result.inlineComments, 2);
   } finally {
     providers.github.fetchCurrentPullRequest = originalFetch;
     providers.github.submitPullRequestReview = originalSubmit;
