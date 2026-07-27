@@ -34,3 +34,9 @@ test("Git server administration uses its dedicated admin route", () => {
   assert.equal(workspaceRoutePath(route), "/admin/git-servers")
   assert.equal(parseWorkspaceRoute("/settings/git-servers", "").settingsSection, "account")
 })
+
+test("repository Insights uses its own workspace tab", () => {
+  const route = parseWorkspaceRoute("/repos/gitlab-main/43326/insights", "")
+  assert.equal(route.tab, "insights")
+  assert.equal(workspaceRoutePath(route), "/repos/gitlab-main/43326/insights")
+})

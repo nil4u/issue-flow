@@ -38,7 +38,7 @@ const { normalizeGitLabWebhook } = require('@xmz-ai/gitlab-webhook-bridge');
 const { upsertGitlabWebhook, validateGitlabToken } = require('../src/core/gitlab.ts');
 const { getUserAgentrixConfig } = require('../src/core/user-agentrix-config.ts');
 const { handleGitlabWebhook } = require('../src/core/gitlab-webhook.ts');
-const { applyGitEventToIssueFacts } = require('../src/core/issue-projection.ts');
+const { applyGitEventToIssueFacts, issueSnapshot } = require('../src/core/issue-projection.ts');
 const { connectGitlabSession } = require('../src/core/gitlab-auth.ts');
 const {
   checkGitlabProjectInstall,
@@ -426,6 +426,152 @@ test('repository task API paginates tasks and preserves repo access boundaries',
       headers: { Cookie: outsiderCookie },
     });
     assert.equal(forbidden.status, 404);
+  } finally {
+    await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('task context returns the ordered task lifecycle with optional phase filtering', async () => {
+  const { dir, store } = tempStore();
+  const { app, baseUrl } = await listenApp(store);
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const owner = await store.createUser({ id: 'task-context-owner', displayName: 'Task Context Owner' });
+    const primary = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: owner.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/app',
+    }, { status: 'unchecked', projectId: '42' });
+    await store.upsertIssueSnapshot({
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      repositoryFullName: 'team/app',
+      issueId: '7',
+      issueNumber: 7,
+      title: 'Improve task context',
+      state: 'closed',
+      status: 'done',
+      openedAt: new Date(Date.UTC(2026, 6, 1)),
+      closedAt: new Date(Date.UTC(2026, 6, 2)),
+      updatedAt: new Date(Date.UTC(2026, 6, 2)),
+    });
+    await store.db.task.createMany({
+      data: [
+        {
+          id: 'task-context-plan-row',
+          taskId: 'task-context-plan',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          action: 'plan',
+          status: 'succeeded',
+          queuedAt: new Date(Date.UTC(2026, 6, 1, 1)),
+          updatedAt: new Date(Date.UTC(2026, 6, 1, 2)),
+        },
+        {
+          id: 'task-context-build-row',
+          taskId: 'task-context-build',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          action: 'build',
+          status: 'succeeded',
+          updatedAt: new Date(Date.UTC(2026, 6, 1, 3)),
+        },
+      ],
+    });
+    await store.db.taskEvent.createMany({
+      data: [
+        {
+          id: 'task-context-event-2',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-plan',
+          chatId: 'chat-plan',
+          eventId: 'task-context-event-2',
+          sequence: 2,
+          eventType: 'agent_message',
+          eventData: { message: { type: 'assistant', content: 'first answer' } },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 1, 2)),
+        },
+        {
+          id: 'task-context-event-1',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-plan',
+          chatId: 'chat-plan',
+          eventId: 'task-context-event-1',
+          sequence: 1,
+          eventType: 'human_input',
+          eventData: { senderType: 'human', message: { type: 'user', content: 'initial request' } },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 1, 1)),
+        },
+        {
+          id: 'task-context-worker-event',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-plan',
+          chatId: 'chat-plan',
+          eventId: 'task-context-worker-event',
+          sequence: 3,
+          eventType: 'worker_state',
+          eventData: { state: 'ready' },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 1, 3)),
+        },
+        {
+          id: 'task-context-build-event',
+          gitServerId: 'gitlab-main',
+          repositoryId: '42',
+          repositoryFullName: 'team/app',
+          issueNumber: 7,
+          taskId: 'task-context-build',
+          chatId: 'chat-build',
+          eventId: 'task-context-build-event',
+          sequence: 1,
+          eventType: 'human_input',
+          eventData: { senderType: 'human', message: { type: 'user', content: 'build request' } },
+          createdAt: new Date(Date.UTC(2026, 6, 1, 3, 1)),
+        },
+      ],
+    });
+
+    const response = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.repositoryId, primary.repo.id);
+    assert.equal(body.issueNumber, 7);
+    assert.deepEqual(body.phases.map((phase) => phase.phase), ['triage', 'plan', 'build', 'review']);
+    const planPhase = body.phases.find((phase) => phase.phase === 'plan');
+    const buildPhase = body.phases.find((phase) => phase.phase === 'build');
+    assert.deepEqual(planPhase.tasks.map((task) => task.taskId), ['task-context-plan']);
+    assert.deepEqual(planPhase.tasks[0].events.map((event) => event.sequence), [1, 2, 3]);
+    assert.deepEqual(planPhase.tasks[0].events.map((event) => event.eventType), ['human_input', 'agent_message', 'worker_state']);
+    assert.deepEqual(buildPhase.tasks.map((task) => task.taskId), ['task-context-build']);
+
+    const phaseResponse = await fetch(
+      `${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context?phase=plan`,
+    );
+    assert.equal(phaseResponse.status, 200);
+    const phaseBody = await phaseResponse.json();
+    assert.equal(phaseBody.phase, 'plan');
+    assert.deepEqual(phaseBody.tasks.map((task) => task.taskId), ['task-context-plan']);
+
+    const invalid = await fetch(
+      `${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context?phase=clarify`,
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error, 'invalid_task_context_phase');
   } finally {
     await app.close();
     await store.close();
@@ -1114,6 +1260,9 @@ test('git events project issue snapshots and flow spans', async () => {
         },
       },
     });
+    const terminalStats = await store.getIssueStats(issueRow.id);
+    assert.equal(terminalStats.doneAt, '');
+    assert.equal(terminalStats.dropAt, '2026-07-01T03:00:00.000Z');
     await store.db.issueStat.update({
       where: { id: issueRow.id },
       data: {
@@ -1128,7 +1277,7 @@ test('git events project issue snapshots and flow spans', async () => {
     issues = await store.listIssues(createdRepo.repo.id);
     spans = await store.listIssueSpans(createdRepo.repo.id, '100');
     assert.equal(issues[0].state, 'closed');
-    assert.equal(issues[0].status, 'done');
+    assert.equal(issues[0].status, 'drop');
     assert.equal(issues[0].closedAt, '2026-07-01T03:00:00.000Z');
     assert.equal(issues[0].turnsCount, 8);
     assert.equal(issues[0].agentTimeSharePct, 25);
@@ -1160,11 +1309,42 @@ test('git events project issue snapshots and flow spans', async () => {
     issues = await store.listIssues(createdRepo.repo.id);
     const staleActive = issues.find((issue) => issue.issueId === '101');
     assert.equal(staleActive.state, 'closed');
-    assert.equal(staleActive.status, 'done');
+    assert.equal(staleActive.status, 'drop');
     assert.equal(staleActive.closedAt, '2026-07-01T04:00:00.000Z');
   } finally {
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('closed issues count as done only with an explicit done status', () => {
+  const cases = [
+    { label: '', expected: 'drop' },
+    { label: 'status::active', expected: 'drop' },
+    { label: 'status::suspend', expected: 'drop' },
+    { label: 'status::drop', expected: 'drop' },
+    { label: 'status::done', expected: 'done' },
+  ];
+
+  for (const { label, expected } of cases) {
+    const snapshot = issueSnapshot({
+      eventName: 'issue',
+      gitServerId: 'gitlab-main',
+      repositoryId: '42',
+      repositoryFullName: 'team/app',
+      receivedAt: '2026-07-01T03:00:00.000Z',
+      payload: {
+        labels: label ? [{ title: label }] : [],
+        object_attributes: {
+          id: 100,
+          iid: 7,
+          state: 'closed',
+          updated_at: '2026-07-01T03:00:00.000Z',
+          closed_at: '2026-07-01T03:00:00.000Z',
+        },
+      },
+    });
+    assert.equal(snapshot.status, expected, label || 'missing status');
   }
 });
 
@@ -1235,7 +1415,7 @@ test('GitLab issue snapshot sync imports current issues and open flow spans', as
     assert.equal(result.body.issues.find((issue) => issue.issueId === '103').currentFlow, 'build');
     const issues = await store.listIssues(createdRepo.repo.id);
     const spans = await store.listIssueSpans(createdRepo.repo.id);
-    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:done', '11:done']);
+    assert.deepEqual(issues.map((issue) => `${issue.issueNumber}:${issue.status}`), ['9:active', '10:drop', '11:done']);
     assert.equal(issues[0].title, 'Existing issue');
     assert.equal(issues[0].state, 'opened');
     assert.equal(issues[0].type, 'feature');

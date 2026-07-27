@@ -125,6 +125,8 @@
   background: transparent;
   text-align: left;
 }
+.vision-plan-page .artifact-directory button[data-level="2"] { padding-left: 18px; }
+.vision-plan-page .artifact-directory button[data-level="3"] { padding-left: 30px; }
 .vision-plan-page .artifact-directory button::before {
   content: "";
   width: 5px;

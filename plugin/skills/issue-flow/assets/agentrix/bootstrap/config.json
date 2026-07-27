@@ -1,4 +1,8 @@
 {
+  "repositoryId": "",
+  "gitServerId": "",
+  "projectId": "",
+  "baseUrl": "",
   "agentrix": {
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
@@ -7,11 +11,5 @@
   "milestone": {
     "enabled": true,
     "branchPatterns": ["release/*", "integration/*"]
-  },
-  "visionPlan": {
-    "repositoryId": "",
-    "gitServerId": "",
-    "projectId": "",
-    "baseUrl": ""
   }
 }

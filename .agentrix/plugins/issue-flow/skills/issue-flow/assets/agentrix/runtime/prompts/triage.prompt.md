@@ -20,18 +20,24 @@
 - `size::` — 工作量规模。进入 `flow::plan` 或 `flow::build` 前必须有且仅有一个 `size::`；无法判断时用 `size::M` 并留下低置信度说明。
 - `flow::` 与 `automation::` — 判定方法见下两节。
 
+`type::docs` 只用于纯文档新增、修订、迁移和信息架构调整；只要包含产品或代码行为变更，就按主要的 feature、bug、debt 或 ops 分类。公开类型枚举是 `feature|bug|debt|ops|docs|optimization`。
+
 ## 规范化正文
 
 确定 `type::` 后，按对应模版 `.issue-flow/templates/type-<type>.md` 重写 issue 正文：
 
+- 模版只定义必须具备的最小结构，不是允许保留内容的白名单。先盘点原文信息，再将其融合进最合适的模版章节；无法自然归入时，新增语义明确的章节。
+- 不得因模版没有对应字段而删除原文中的背景、约束、证据、复现信息、链接、日志、示例、讨论结论或其他有价值内容。可以去重和改写；只删除明确重复、经查证错误或与 issue 无关的内容，不确定时保留。
 - 模版字段优先取自 issue 本身，其次取自仓库代码、文档、配置和已有约定。
 - 改写后的正文写到 repo 外临时文件（如 `mktemp`），随标签一起通过 `issue apply` 的 `--normalized-body-file` 应用；不要把正文文件提交到 git。
 - 标 `flow::clarify` 时不需要提供规范化正文（会被忽略），把缺口写进提问即可。
+- `type::docs` 的正文只需明确文档目标和目标读者；只有这两项无法从 issue 或仓库补齐时才进入 `flow::clarify`。
 
 ## 选择下一步 flow
 
 可执行的 issue 要在 `flow::plan` 和 `flow::build` 之间做判定：
 
+- `type::docs` 固定选择 `flow::build`，沿用 `triage -> build -> approve`，不创建 Plan。
 - 选 `flow::build`：triage 调查后实现路径已确定（改哪些文件、怎么改、验收点都清楚），单一方案无需取舍，改动局部、不涉及架构或公共接口决策。
 - 选 `flow::plan`：存在多个可行方案需先定方向；跨模块 / 架构 / 公共接口改动；改动面大需拆解；或调查之后实现路径仍不确定。
 

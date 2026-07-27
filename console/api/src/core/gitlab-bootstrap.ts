@@ -111,19 +111,16 @@ function parseInstallerJson(output = '', fallbackError = 'issue_flow_install_jso
   }
 }
 
-export function configureVisualPlan(checkout, input = {}) {
+export function configureIssueFlow(checkout, input = {}) {
   const configPath = path.join(checkout, '.issue-flow', 'config.json')
   if (!fs.existsSync(configPath)) return
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  const visionPlan = { ...(config.visionPlan || {}) }
-  delete visionPlan.publicUrl
-  config.visionPlan = {
-    ...visionPlan,
-    repositoryId: String(input.repositoryId || config.visionPlan && config.visionPlan.repositoryId || ''),
-    gitServerId: String(input.gitServerId || config.visionPlan && config.visionPlan.gitServerId || ''),
-    projectId: String(input.projectId || config.visionPlan && config.visionPlan.projectId || ''),
-    baseUrl: String(input.issueFlowBaseUrl || config.visionPlan && config.visionPlan.baseUrl || '').replace(/\/+$/, ''),
-  }
+  delete config.visionPlan
+  delete config.visualPlan
+  config.repositoryId = String(input.repositoryId || config.repositoryId || '')
+  config.gitServerId = String(input.gitServerId || config.gitServerId || '')
+  config.projectId = String(input.projectId || config.projectId || '')
+  config.baseUrl = String(input.issueFlowBaseUrl || config.baseUrl || '').replace(/\/+$/, '')
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
 }
 
@@ -197,7 +194,7 @@ async function installGitlabPluginMergeRequest(input = {}) {
       }
       await runIssueFlowInstallScript(checkout, { provider: 'gitlab', token })
     }
-    configureVisualPlan(checkout, input)
+    configureIssueFlow(checkout, input)
     progress({ id: 'install', status: 'passed', label: '安装文件', detail: '安装文件已生成' })
 
     progress({ id: 'commit', status: 'running', label: '提交变更', detail: '正在提交并推送分支' })

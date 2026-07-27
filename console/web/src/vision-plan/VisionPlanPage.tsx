@@ -21,6 +21,8 @@ type DecisionAnchorTarget = {
 type ArtifactSection = {
   id: string;
   label: string;
+  ref?: string;
+  level?: number;
 };
 
 function artifactLabel(type: ArtifactType) {
@@ -631,7 +633,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
       return;
     }
     try {
-      const seenLabels = new Set<string>();
+      const seenSections = new Set<string>();
       const sections = Array.from(doc.querySelectorAll(SECTION_SELECTOR))
         .map((element, index) => ({ element, index }))
         .filter(({ element }) => isVisibleArtifactSection(element))
@@ -641,13 +643,15 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
           element.setAttribute("data-agentrix-section-id", id);
           return {
             id,
-            label: sectionLabel(element, index)
+            label: sectionLabel(element, index),
+            ref: findDataRef(element),
+            level: Number.parseInt(element.getAttribute("data-section-level") ?? "", 10) || undefined
           };
         })
         .filter((section) => {
-          const key = section.label.trim().toLocaleLowerCase();
-          if (seenLabels.has(key)) return false;
-          seenLabels.add(key);
+          const key = section.ref ?? section.label.trim().toLocaleLowerCase();
+          if (seenSections.has(key)) return false;
+          seenSections.add(key);
           return true;
         });
       setArtifactSections(sections);
@@ -1032,7 +1036,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
               {artifactSections.length ? (
                 <nav aria-label={`${currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}章节`}>
                   {artifactSections.map((section) => (
-                    <button key={section.id} type="button" className={section.id === activeSectionId ? "is-active" : ""} onClick={() => scrollToArtifactSection(section.id)}>
+                    <button key={section.id} type="button" data-level={section.level} className={section.id === activeSectionId ? "is-active" : ""} onClick={() => scrollToArtifactSection(section.id)}>
                       <span>{section.label}</span>
                     </button>
                   ))}
@@ -1044,7 +1048,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
 
         <section className="panel-section review-box">
           <div className="section-title"><MessageCircle size={17} /><h2>整体反馈</h2></div>
-            <p className="section-description">针对整个{currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}补充意见；{artifactFormat === "markdown" ? "Markdown Plan 支持整体或正文评论。" : "也可以在右侧内容中悬停后添加评论。"}</p>
+            <p className="section-description">针对整个{currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}补充意见；{artifactFormat === "markdown" ? "也可以在右侧章节标题上悬停后添加评论。" : "也可以在右侧内容中悬停后添加评论。"}</p>
           <div className="segmented">
             <button type="button" className={feedbackIntent === "defect" ? "is-active" : ""} onClick={() => setFeedbackIntent("defect")}>缺陷</button>
             <button type="button" className={feedbackIntent === "question" ? "is-active" : ""} onClick={() => setFeedbackIntent("question")}>疑问</button>

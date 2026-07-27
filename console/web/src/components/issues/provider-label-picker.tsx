@@ -1,23 +1,23 @@
 import { useMemo, useState } from "react"
-import { Search } from "lucide-react"
+import { Search, X } from "lucide-react"
 
 import { Checkbox } from "@/components/ui/checkbox"
 import type { ProviderIssueLabel } from "@/issue-flow-model"
+import { labelMatchesQuery } from "@/lib/label-search"
 
 function labelColor(label: ProviderIssueLabel) {
   const color = label.color.replace(/^#/, "")
   return /^[0-9a-f]{6}$/i.test(color) ? `#${color}` : "var(--muted-foreground)"
 }
 
-export function ProviderLabel({ label }: { label: ProviderIssueLabel }) {
-  return <span className="provider-issue-label">{label.name}</span>
+export function ProviderLabel({ label, onRemove, removeDisabled = false }: { label: ProviderIssueLabel; onRemove?: () => void; removeDisabled?: boolean }) {
+  return <span className={`provider-issue-label${onRemove ? " is-removable" : ""}`}><span>{label.name}</span>{onRemove ? <button type="button" aria-label={`删除标签 ${label.name}`} title={`删除 ${label.name}`} disabled={removeDisabled} onClick={onRemove}><X className="size-3" /></button> : null}</span>
 }
 
 export function ProviderLabelPicker({ labels, selected, disabled = false, onChange }: { labels: ProviderIssueLabel[]; selected: string[]; disabled?: boolean; onChange: (labels: string[]) => void }) {
   const [query, setQuery] = useState("")
   const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return needle ? labels.filter((label) => `${label.name} ${label.description}`.toLowerCase().includes(needle)) : labels
+    return labels.filter((label) => labelMatchesQuery(label, query))
   }, [labels, query])
   const selectedSet = useMemo(() => new Set(selected), [selected])
 

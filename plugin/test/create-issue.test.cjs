@@ -104,6 +104,10 @@ test('create issue label collection validates managed labels', () => {
     /size::S is a managed label\. Use --size size::S instead of --label\./
   );
   assert.throws(() => collectCreateLabels({ labels: ['mr-by::build'] }), /mr-by::\* labels are only valid/);
+  assert.deepEqual(
+    collectCreateLabels({ type: 'type::docs', flow: 'flow::build', size: 'size::S' }),
+    ['type::docs', 'flow::build', 'size::S']
+  );
 });
 
 test('create issue requires size when creating directly into plan or build', () => {

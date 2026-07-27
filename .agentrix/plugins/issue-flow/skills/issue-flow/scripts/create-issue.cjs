@@ -15,7 +15,7 @@ function usage() {
     'Usage: create-issue.cjs --title <title> --body-file <path> [options]',
     '',
     'Managed label options:',
-    '  --type <type::...>',
+    '  --type <type::feature|bug|debt|ops|docs|optimization>',
     '  --status <status::...>',
     '  --flow <flow::...>',
     '  --automation <automation::...>',

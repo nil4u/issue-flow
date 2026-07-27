@@ -173,7 +173,7 @@ node apply.cjs --issue-number <num> [label-options] [body-options] [common-optio
 
 | 选项 | 值 |
 |------|-----|
-| `--type` | `type::feature\|bug\|debt\|ops` |
+| `--type` | `type::feature\|bug\|debt\|ops\|docs\|optimization` |
 | `--status` | `status::active\|done\|drop\|suspend` |
 | `--flow` | `flow::triage\|plan\|build\|clarify\|approve` |
 | `--automation` | `automation::off\|automation::plan\|automation::build` |
@@ -228,7 +228,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 3. push 当前 `{issue-number}-{slug}/plan` 分支
 4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision-data.json`、`plan/data/plan-data.json` 或 Markdown Plan 文件
 5. Decision/Visual Plan 只提交 JSON；HTML、CSS、JavaScript、布局、图形和审阅锚点由 Issue Flow Engine 内置生成；`visual-brief.md` 只写入 Plan prompt 注入的系统临时路径；Visual Plan 发布前必须删除同一 Issue 的 `decision/`
-6. 使用 `.issue-flow/config.json` 的 `visionPlan.gitServerId`、`visionPlan.projectId`、`visionPlan.repositoryId` 和 `ISSUE_FLOW_BASE_URL` 生成统一 Engine URL
+6. 使用 `.issue-flow/config.json` 的 `gitServerId`、`projectId`、`repositoryId` 和 `baseUrl` 生成统一 Engine URL
 7. 创建或更新带 `mr-by::plan` label 的 PR/MR；body 写入 source/task marker、Engine URL 和 `issue-flow:plan-artifact` marker，随后在同一 PR/MR 下回复本次发布的统一 Engine URL
 8. Decision 设置 `flow::clarify`；Visual Plan 和 Markdown Plan 设置 `flow::approve`
 
@@ -258,7 +258,7 @@ node create-issue.cjs --title "<title>" --body-file <tmp-body-file> [label-optio
 
 | 选项 | 值 |
 |------|-----|
-| `--type` | `type::feature\|bug\|debt\|ops` |
+| `--type` | `type::feature\|bug\|debt\|ops\|docs\|optimization` |
 | `--status` | `status::active\|done\|drop\|suspend` |
 | `--flow` | `flow::triage\|plan\|build\|clarify\|approve` |
 | `--automation` | `automation::off\|automation::plan\|automation::build` |
@@ -308,6 +308,8 @@ GitLab 同步时提交 `#RRGGBB`。名称和说明在两个 provider 上保持�
 | `type::bug` | Issue | `D73A4A` | Issue reports a defect or regression |
 | `type::debt` | Issue | `5319E7` | Issue tracks technical debt or cleanup |
 | `type::ops` | Issue | `1D76DB` | Issue tracks operations or maintenance work |
+| `type::docs` | Issue | `D97706` | Issue adds, revises, migrates, or reorganizes documentation |
+| `type::optimization` | Issue | `57606A` | Issue analyzes and improves automation for a previous task |
 | `status::active` | Issue | `0052CC` | Issue is active and eligible for workflow actions |
 | `status::done` | Issue | `0E8A16` | Issue is complete |
 | `status::drop` | Issue | `6A737D` | Issue has been dropped and should not continue |
@@ -429,7 +431,7 @@ Inline comment JSON entries use:
 ### Agentrix 行为
 
 1. comment mention 固定为 `@agentrix`
-2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`build.prompt.md`、`review.prompt.md`
+2. prompt 文件名固定：`triage.prompt.md`、`general.prompt.md`、`plan-bug.prompt.md`、`plan-impl.prompt.md`、`plan-visual-bug.prompt.md`、`plan-visual-impl.prompt.md`、`build.prompt.md`、`build-docs.prompt.md`、`build-ci-failure.prompt.md`、`review.prompt.md`；build action 对 `type::docs` 和 CI failure issue 分别选择专用 prompt
 3. template 文件名固定：`plan-bug.md`、`plan-impl.md`
 4. plan 查找固定为 `<planRootDir>/<issue-number>-<slug>/plan/*.md`
 5. branch 固定为 `<issue-number>-<slug>/plan` 和 `<issue-number>-<slug>/build`

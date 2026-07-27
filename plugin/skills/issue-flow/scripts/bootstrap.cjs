@@ -41,6 +41,7 @@ const GITLAB_ISSUE_FLOW_CI = '.gitlab/issue-flow.gitlab-ci.yml';
 const AGENTRIX_CONFIG = ['config.json', '.issue-flow/config.json', { mode: MODE_CUSTOMIZABLE }];
 const AGENTRIX_PROJECT_FILES = [
   AGENTRIX_CONFIG,
+  ['issue-flow/instructions.md', '.issue-flow/instructions.md', { mode: MODE_CUSTOMIZABLE }],
   ['issue-flow/issues/README.md', '.issue-flow/issues/README.md', { mode: MODE_MANAGED }],
 ];
 const AGENTRIX_PROJECT_DIRS = [
@@ -65,6 +66,11 @@ const AGENTRIX_PLUGIN_SPECS = [
   [
     'skills/vision-plan',
     `${AGENTRIX_PLUGIN_ROOT}/skills/vision-plan`,
+    { mode: MODE_MANAGED },
+  ],
+  [
+    'skills/automation-optimizer',
+    `${AGENTRIX_PLUGIN_ROOT}/skills/automation-optimizer`,
     { mode: MODE_MANAGED },
   ],
 ];

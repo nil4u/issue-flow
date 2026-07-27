@@ -46,7 +46,7 @@ child_process.execFile = fakeExecFile;
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test';
 
 require('tsx/cjs');
-const { configureVisualPlan, installGitlabPluginMergeRequest } = require('../src/core/gitlab-bootstrap.ts');
+const { configureIssueFlow, installGitlabPluginMergeRequest } = require('../src/core/gitlab-bootstrap.ts');
 
 const realFetch = global.fetch;
 test.after(() => {
@@ -87,16 +87,17 @@ function installScriptCalls() {
   return execState.calls.filter((call) => call.file === 'sh');
 }
 
-test('visual plan install config stores repository id and Issue Flow base URL', () => {
+test('issue flow install config stores repository id and service URL at the top level', () => {
   const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'issue-flow-visual-config-'));
   try {
     const configDir = path.join(root, '.issue-flow');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
-      visionPlan: { publicUrl: 'https://old.example', extra: 'preserved' },
+      visionPlan: { publicUrl: 'https://old.example' },
+      agentrix: { promptsDir: '.issue-flow/prompts' },
     }));
 
-    configureVisualPlan(root, {
+    configureIssueFlow(root, {
       repositoryId: 'repo_123',
       gitServerId: 'gitlab-main',
       projectId: '42',
@@ -104,13 +105,12 @@ test('visual plan install config stores repository id and Issue Flow base URL', 
     });
 
     const config = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
-    assert.deepEqual(config.visionPlan, {
-      extra: 'preserved',
-      repositoryId: 'repo_123',
-      gitServerId: 'gitlab-main',
-      projectId: '42',
-      baseUrl: 'https://flow.example',
-    });
+    assert.equal(config.visionPlan, undefined);
+    assert.equal(config.repositoryId, 'repo_123');
+    assert.equal(config.gitServerId, 'gitlab-main');
+    assert.equal(config.projectId, '42');
+    assert.equal(config.baseUrl, 'https://flow.example');
+    assert.deepEqual(config.agentrix, { promptsDir: '.issue-flow/prompts' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

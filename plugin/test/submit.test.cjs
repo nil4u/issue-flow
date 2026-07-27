@@ -231,6 +231,7 @@ test('Markdown plan and build submit use their PR or MR labels', () => {
 test('visual plan mode is enabled only by the opt-in label', () => {
   assert.equal(resolveVisualPlanFeatureMode({ labels: [] }), 'off');
   assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on'] }), 'on');
+  assert.equal(resolveVisualPlanFeatureMode({ labels: ['type::optimization', 'feature:visual-plan:on'] }), 'off');
 });
 
 test('Decision and Plan publication use their distinct issue gates', () => {

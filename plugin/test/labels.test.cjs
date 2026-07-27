@@ -112,6 +112,8 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'type::bug',
       'type::debt',
       'type::ops',
+      'type::docs',
+      'type::optimization',
       'status::active',
       'status::done',
       'status::drop',
@@ -125,6 +127,8 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'automation::off',
       'automation::plan',
       'automation::build',
+      'optimization::analyzing',
+      'optimization::analyzed',
       'priority::p0',
       'priority::p1',
       'priority::p2',
@@ -156,6 +160,17 @@ test('apply script accepts explicit automation opt-out', () => {
     /automation must be one of: automation::off, automation::plan, automation::build/
   );
   assert.deepEqual(collectDesiredLabels({ automation: 'automation::off' }), { automation: 'automation::off' });
+});
+
+test('apply script replaces the source issue optimization state', () => {
+  assert.deepEqual(collectDesiredLabels({ optimizationState: 'optimization::analyzed' }), { optimizationState: 'optimization::analyzed' });
+  assert.deepEqual(
+    computeLabelChanges(
+      ['status::done', 'optimization::analyzing'],
+      { optimizationState: 'optimization::analyzed' },
+    ),
+    { labelsToAdd: ['optimization::analyzed'], labelsToRemove: ['optimization::analyzing'] },
+  );
 });
 
 test('apply script accepts the visual plan feature switch without touching review status', () => {

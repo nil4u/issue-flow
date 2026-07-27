@@ -790,7 +790,8 @@ function shouldSkipPullRequestReview(pr) {
 
 function shouldCheckForResumableVisualPlanTask(issue = {}) {
   const labels = normalizeLabels(issue.labels);
-  return labels.includes('feature:visual-plan:on')
+  return !labels.includes('type::optimization')
+    && labels.includes('feature:visual-plan:on')
     && labels.includes('flow::plan');
 }
 

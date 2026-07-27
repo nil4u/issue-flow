@@ -183,6 +183,16 @@ function appendReviewMetadata(body, options = {}) {
   return `${body.trim()}\n\n${markers.join('\n')}`;
 }
 
+function appendInlineReviewMetadata(comments = [], options = {}) {
+  const sourceMarker = buildSourceMarker({ sourceTaskId: options.taskId, sourceRuntime: 'agentrix' });
+  if (!sourceMarker) {
+    return comments;
+  }
+  return comments.map((comment, index) => index === 0
+    ? comment
+    : { ...comment, body: `${comment.body.trim()}\n\n${sourceMarker}` });
+}
+
 async function submitReview(options = {}) {
   const body = readBodyFile(options.bodyFile);
   const comments = readReviewCommentsFile(options.commentsFile);
@@ -208,7 +218,10 @@ async function submitReview(options = {}) {
       inlineComments: 0,
     };
   }
-  const review = await provider.submitPullRequestReview(pr, reviewBody, options, comments);
+  const reviewComments = appendInlineReviewMetadata(comments, {
+    taskId: resolveAgentrixTaskId(),
+  });
+  const review = await provider.submitPullRequestReview(pr, reviewBody, options, reviewComments);
   return {
     action: 'submitted',
     provider: provider.name,
@@ -230,6 +243,7 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
+  appendInlineReviewMetadata,
   appendReviewMetadata,
   buildReviewPullRequest,
   buildReviewMetadataMarker,

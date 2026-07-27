@@ -14,6 +14,10 @@ Issue 类型。一个 issue 只有一个 type。
 | `type::bug` | 已有功能的缺陷或回归 |
 | `type::debt` | 重构、可维护性、工程质量 |
 | `type::ops` | 发布、环境、权限、CI/CD、生产运维 |
+| `type::docs` | 纯文档新增、修订、迁移或信息架构调整 |
+| `type::optimization` | 分析并改善已有任务的自动化完成度 |
+
+公开类型枚举固定为 `feature|bug|debt|ops|docs|optimization`。`type::docs` 使用现有 `triage -> build -> approve` 路径，不新增 flow，也不要求 Plan；同时包含代码行为变更的工作仍按其主要产品或工程类型分类。
 
 ### status::
 
@@ -60,6 +64,15 @@ Issue 级别的自动化策略：**允许自动化推进到的上限**。与 `fl
 
 apply.cjs 和 create-issue.cjs 接受 `automation::off`、`automation::plan` 和 `automation::build`。
 `automation::triage` 不是合法 label 值。
+
+### optimization::
+
+来源 Issue 的自动化优化处理状态。Turns 阈值只用于判断是否显示“分析优化”，不写入 label。
+
+| Label | 语义 |
+|-------|------|
+| `optimization::analyzing` | 已创建关联优化 Issue，正在处理 |
+| `optimization::analyzed` | 关联优化 Issue 已完成 |
 
 ### priority::
 

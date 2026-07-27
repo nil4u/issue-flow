@@ -1003,12 +1003,12 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       closedAt: at(12 * HOUR_MS),
       updatedAt: at(12 * HOUR_MS),
     }));
-    // open issue: still in triage, size S (weight 1)
+    // 打开的 docs issue：仍在 triage，size S（权重 1）。
     const openIssue = issueSnapshot({
       issueId: '4208',
       issueNumber: 8,
       title: 'Open metrics issue',
-      type: 'bug',
+      type: 'docs',
       size: 'S',
       openedAt: at(HOUR_MS),
       updatedAt: at(HOUR_MS),
@@ -1162,7 +1162,7 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     const issueType = dashboard.panels.find((panel) => panel.id === 'dashpanel_issue_type_distribution');
     assert.equal(issueType.chartType, 'stacked_bar');
     assert.deepEqual(issueType.yFields, ['issue_count', 'weighted_count']);
-    assert.deepEqual(issueType.visualConfig.stackOrder, ['type::feature', 'type::bug', 'type::debt', 'type::ops', '未分类']);
+    assert.deepEqual(issueType.visualConfig.stackOrder, ['type::feature', 'type::bug', 'type::debt', 'type::ops', 'type::docs', 'type::optimization', '未分类']);
     assert.equal(issueType.drillConfig.kind, 'issue_type');
     const typeResult = await store.runMetricsQuery(issueType.querySql, { ...repoParams, weeks: 8 });
     assert.deepEqual(
@@ -1172,8 +1172,8 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     const typeBuckets = new Map(typeResult.rows.map((row) => [row.issue_type, row]));
     assert.equal(typeBuckets.get('type::feature').issue_count, 1);
     assert.equal(Number(typeBuckets.get('type::feature').weighted_count), 2);
-    assert.equal(typeBuckets.get('type::bug').issue_count, 1);
-    assert.equal(Number(typeBuckets.get('type::bug').weighted_count), 1);
+    assert.equal(typeBuckets.get('type::docs').issue_count, 1);
+    assert.equal(Number(typeBuckets.get('type::docs').weighted_count), 1);
     assert.equal(typeBuckets.get('未分类').issue_count, 1);
     assert.equal(Number(typeBuckets.get('未分类').weighted_count), 2);
     const typeDrill = await store.runMetricsQuery(issueType.drillQuerySql, {
@@ -1187,6 +1187,17 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     assert.equal(typeDrill.rows[0].weekly_count, 3);
     assert.equal(Number(typeDrill.rows[0].weighted_total), 2);
     assert.equal(typeDrill.rows[0].done_count, 1);
+    const docsDrill = await store.runMetricsQuery(issueType.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      bucket: 'type::docs',
+    });
+    assert.equal(docsDrill.rows.length, 1);
+    assert.equal(docsDrill.rows[0].issue_number, 8);
+    assert.equal(docsDrill.rows[0].type, 'docs');
+    assert.equal(docsDrill.rows[0].total_count, 1);
+    assert.equal(Number(docsDrill.rows[0].weighted_total), 1);
+    assert.equal(docsDrill.rows[0].done_count, 0);
 
     const otherRepoTypes = await store.runMetricsQuery(issueType.querySql, {
       ...repoParams,

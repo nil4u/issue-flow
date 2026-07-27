@@ -3,7 +3,7 @@
 import { issueFlowMarkers } from "./provenance-marker.js"
 
 const FLOW_VALUES = new Set(["triage", "plan", "build", "clarify", "approve", "suspend"])
-const TYPE_VALUES = new Set(["feature", "bug", "debt", "ops"])
+const TYPE_VALUES = new Set(["feature", "bug", "debt", "ops", "docs", "optimization"])
 const AUTOMATION_VALUES = new Set(["off", "triage", "plan", "build"])
 const STATUS_VALUES = new Set(["active", "done", "drop", "suspend"])
 const SIZE_VALUES = new Set(["XS", "S", "M", "L", "XL"])
@@ -40,7 +40,7 @@ function issueStatus(attributes = {}, labels = []) {
   const explicit = prefixedValue(labels, "status::", (value) => value.toLowerCase(), STATUS_VALUES)
   const flow = issueFlow(labels)
   if (issueState(attributes) === "closed") {
-    return explicit === "drop" ? "drop" : "done"
+    return explicit === "done" ? "done" : "drop"
   }
   if (explicit) return explicit
   if (flow === "suspend") return "suspend"

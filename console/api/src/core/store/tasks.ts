@@ -515,6 +515,53 @@ function withTaskStore(Base) {
       return rows.map((row) => this.taskEventFromRecord(row))
     }
 
+    async getIssueTaskContext(input = {}) {
+      await this.ready
+      const gitServerId = String(input.gitServerId || "").trim()
+      const repositoryId = String(input.repositoryId || "").trim()
+      const issueNumber = Number(input.issueNumber || 0)
+      const action = normalizeTaskAction(input.action)
+      const actions = [...new Set((Array.isArray(input.actions) ? input.actions : [])
+        .map((value) => normalizeTaskAction(value))
+        .filter(Boolean))]
+      if (!gitServerId || !repositoryId || !issueNumber || !action && !actions.length) return []
+
+      const tasks = await this.db.task.findMany({
+        where: {
+          gitServerId,
+          repositoryId,
+          issueNumber,
+          action: action || { in: actions },
+        },
+        orderBy: [
+          { queuedAt: "asc" },
+          { updatedAt: "asc" },
+          { id: "asc" },
+        ],
+      })
+      if (!tasks.length) return []
+
+      const events = await this.db.taskEvent.findMany({
+        where: {
+          taskId: { in: tasks.map((task) => task.taskId) },
+        },
+        orderBy: [
+          { taskId: "asc" },
+          { sequence: "asc" },
+        ],
+      })
+      const eventsByTaskId = new Map()
+      for (const event of events) {
+        const taskEvents = eventsByTaskId.get(event.taskId) || []
+        taskEvents.push(this.taskEventFromRecord(event))
+        eventsByTaskId.set(event.taskId, taskEvents)
+      }
+      return tasks.map((task) => ({
+        ...this.taskFromRecord(task),
+        events: eventsByTaskId.get(task.taskId) || [],
+      }))
+    }
+
     // Cursor routes mirror agentrix machine identity: machineId (deviceId) is
     // only unique within a cloud, so cursors key on `${cloudId}:${machineId}`.
     agentrixForwardRouteId(route = {}) {

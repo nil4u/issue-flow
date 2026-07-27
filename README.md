@@ -59,6 +59,8 @@ node .issue-flow/cli.cjs issue create \
 
 Use a repo-external temp body file, usually generated from `.issue-flow/templates/type-*.md`. Pass labels only when the discussion makes them clear. Creating or moving an issue directly into `flow::plan` or `flow::build` requires exactly one `size::` label; if the size cannot be judged, use `size::M` and leave a low-confidence note. Use `automation::off` when the issue should be recorded but not picked up by intake or automatic routing.
 
+The public issue type enum is `feature|bug|debt|ops|docs|optimization`. Use `type::docs` and `.issue-flow/templates/type-docs.md` for documentation-only additions, revisions, migrations, and information architecture changes. Docs issues keep the existing `triage -> build -> approve` lifecycle and do not require a Plan.
+
 Projects that need parallel release or integration lines can opt into Milestone target branches:
 
 ```json

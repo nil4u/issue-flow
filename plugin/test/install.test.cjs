@@ -47,6 +47,14 @@ test('vision-plan skill links a manual covering every supported Engine section t
   }
 });
 
+test('project instructions are injected by runtime instead of coupled to skills', () => {
+  const issueFlowSkill = fs.readFileSync(path.join(repoRoot, 'skills/issue-flow/SKILL.md'), 'utf8');
+  const visionPlanSkill = fs.readFileSync(path.join(repoRoot, 'skills/vision-plan/SKILL.md'), 'utf8');
+
+  assert.doesNotMatch(issueFlowSkill, /\.issue-flow\/instructions\.md/);
+  assert.doesNotMatch(visionPlanSkill, /\.issue-flow\/instructions\.md/);
+});
+
 test('install script installs GitHub runtime from checkout source', () => {
   const root = makeTempRoot();
   try {
@@ -55,15 +63,20 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.doesNotMatch(result.stdout, /\.claude-plugin/);
     assert.match(result.stdout, /written \.agentrix\/plugins\/issue-flow\/skills\/issue-flow/);
     assert.match(result.stdout, /written \.issue-flow\/config\.json/);
+    assert.match(result.stdout, /written \.issue-flow\/instructions\.md/);
     assert.match(result.stdout, /written \.issue-flow\/issues\/README\.md/);
     assert.match(result.stdout, /written \.issue-flow\/prompts/);
     assert.match(result.stdout, /written \.issue-flow\/templates/);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-labels.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.github/workflows/issue-flow-auto.yml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-docs.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/instructions.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-impl.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/plan-visual-bug.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/type-optimization.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/type-docs.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin')), false);
@@ -76,6 +89,8 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/references/engine-json-contract.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/automation-optimizer/scripts/task-context.cjs')), true);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/automation-optimizer/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/kit.css')), false);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/plan-kit/kit.css')), false);
     assert.match(fs.readFileSync(path.join(root, '.issue-flow/prompts/plan-impl.prompt.md'), 'utf8'), /提交方案(?:的)? PR\/MR/);
@@ -139,6 +154,7 @@ test('install script installs GitLab root include from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.gitlab-ci.yml')), true);
     assert.equal(fs.existsSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml')), true);
     assert.doesNotMatch(fs.readFileSync(path.join(root, '.gitlab/issue-flow.gitlab-ci.yml'), 'utf8'), /issue-flow-labels:/);
+    assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build-docs.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/prompts/build.prompt.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/templates/plan-impl.md')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/issues/README.md')), true);

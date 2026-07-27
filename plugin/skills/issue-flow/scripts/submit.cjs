@@ -190,36 +190,32 @@ function readIssueFlowProjectConfig() {
 
 function resolveIssueFlowRepositoryId(options = {}) {
   const config = readIssueFlowProjectConfig();
-  const visualPlan = config.visionPlan || config.visualPlan || {};
   const repositoryId = String(
     options.repoId
     || process.env.ISSUE_FLOW_REPOSITORY_ID
     || process.env.ISSUE_FLOW_REPO_ID
-    || visualPlan.repositoryId
-    || visualPlan.repoId
+    || config.repositoryId
     || ''
   ).trim();
   if (!repositoryId) {
-    throw new Error('Issue Flow repository id is required. Set ISSUE_FLOW_REPOSITORY_ID, pass --repo-id, or configure visionPlan.repositoryId in .issue-flow/config.json.');
+    throw new Error('Issue Flow repository id is required. Set ISSUE_FLOW_REPOSITORY_ID, pass --repo-id, or configure repositoryId in .issue-flow/config.json.');
   }
   return repositoryId;
 }
 
 function resolveIssueFlowBaseUrl() {
   const config = readIssueFlowProjectConfig();
-  const visualPlan = config.visionPlan || config.visualPlan || {};
-  const baseUrl = String(process.env.ISSUE_FLOW_BASE_URL || visualPlan.baseUrl || '').trim().replace(/\/+$/, '');
-  if (!baseUrl) throw new Error('ISSUE_FLOW_BASE_URL is required to publish a visual decision or plan. It may also be configured as visionPlan.baseUrl in .issue-flow/config.json.');
+  const baseUrl = String(process.env.ISSUE_FLOW_BASE_URL || config.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) throw new Error('ISSUE_FLOW_BASE_URL is required to publish a visual decision or plan. It may also be configured as baseUrl in .issue-flow/config.json.');
   return baseUrl;
 }
 
 function resolveVisualRouteRepository(options = {}, repo = {}) {
   const config = readIssueFlowProjectConfig();
-  const visualPlan = config.visionPlan || config.visualPlan || {};
   const gitServerId = String(
     options.gitServerId
     || process.env.ISSUE_FLOW_GIT_SERVER_ID
-    || visualPlan.gitServerId
+    || config.gitServerId
     || ''
   ).trim();
   const projectId = String(
@@ -227,15 +223,15 @@ function resolveVisualRouteRepository(options = {}, repo = {}) {
     || process.env.ISSUE_FLOW_PROJECT_ID
     || process.env.CI_PROJECT_ID
     || process.env.GITHUB_REPOSITORY_ID
-    || visualPlan.projectId
+    || config.projectId
     || repo.projectId
     || ''
   ).trim();
   if (!gitServerId) {
-    throw new Error('Issue Flow Git server id is required. Set ISSUE_FLOW_GIT_SERVER_ID, pass --git-server-id, or configure visionPlan.gitServerId in .issue-flow/config.json.');
+    throw new Error('Issue Flow Git server id is required. Set ISSUE_FLOW_GIT_SERVER_ID, pass --git-server-id, or configure gitServerId in .issue-flow/config.json.');
   }
   if (!projectId) {
-    throw new Error('Provider project id is required. Set ISSUE_FLOW_PROJECT_ID, pass --project-id, or configure visionPlan.projectId in .issue-flow/config.json.');
+    throw new Error('Provider project id is required. Set ISSUE_FLOW_PROJECT_ID, pass --project-id, or configure projectId in .issue-flow/config.json.');
   }
   return { gitServerId, projectId };
 }
@@ -247,7 +243,9 @@ function resolveVisualArtifactType(options = {}) {
 }
 
 function resolveVisualPlanFeatureMode(issue = {}) {
-  return normalizeLabels(issue.labels || []).includes(VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
+  const labels = normalizeLabels(issue.labels || []);
+  if (labels.includes('type::optimization')) return 'off';
+  return labels.includes(VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
 function findVisualIssueDirectory(issueNumber) {

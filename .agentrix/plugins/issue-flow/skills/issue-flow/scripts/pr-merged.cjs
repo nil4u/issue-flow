@@ -17,6 +17,7 @@ const MERGED_PR_TRANSITIONS = {
   },
 };
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i;
+const AUTOMATION_OPTIMIZATION_SOURCE_PATTERN = /<!--\s*issue-flow:automation-optimization\s+source-issue=(\d+)\s*-->/i;
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
 const PLAN_ARTIFACT_MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\b[^>]*-->/i;
 
@@ -112,6 +113,11 @@ function parsePlanArtifact(body = '') {
 function parseAgentrixTaskId(body = '') {
   const match = String(body || '').match(AGENTRIX_TASK_MARKER_PATTERN);
   return match ? match[1].trim() : '';
+}
+
+function parseAutomationOptimizationSourceIssue(body = '') {
+  const match = String(body || '').match(AUTOMATION_OPTIMIZATION_SOURCE_PATTERN);
+  return match ? Number.parseInt(match[1], 10) : undefined;
 }
 
 function resolveMergedPrTransition(labels, pullRequest = {}) {
@@ -258,6 +264,9 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   if (transition.status) {
     args.push('--status', transition.status);
   }
+  if (transition.optimizationState) {
+    args.push('--optimization-state', transition.optimizationState);
+  }
   if (transition.clearFlow) {
     args.push('--clear-flow');
   }
@@ -268,6 +277,22 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   runChecked('node', args, {
     inherit: true,
   });
+}
+
+async function completeAutomationOptimizationSource(provider, repo, issueNumber, transition, options) {
+  if (options.dryRun || transition.kind !== 'build' || transition.status !== 'status::done') return undefined;
+  const issue = await provider.getIssueForApply({
+    ...repo,
+    provider: provider.name,
+    issueNumber,
+    number: issueNumber,
+  }, options);
+  const labels = Array.isArray(issue.labels) ? issue.labels.map(normalizeLabelName).filter(Boolean) : [];
+  if (!labels.includes('type::optimization')) return undefined;
+  const sourceIssueNumber = parseAutomationOptimizationSourceIssue(issue.body || issue.description);
+  if (!sourceIssueNumber) return undefined;
+  applyIssueTransition(provider, repo, sourceIssueNumber, { optimizationState: 'optimization::analyzed' }, options);
+  return sourceIssueNumber;
 }
 
 function buildSourceIssueContext(provider, repo, issueNumber, transition) {
@@ -314,6 +339,7 @@ async function runPrMerged(options) {
 
   const repo = resolveRepo(payload, options);
   applyIssueTransition(provider, repo, issueNumber, transition, options);
+  const optimizationSourceIssueNumber = await completeAutomationOptimizationSource(provider, repo, issueNumber, transition, options);
   const sourceIssue = buildSourceIssueContext(provider, repo, issueNumber, transition);
 
   const result = {
@@ -332,6 +358,7 @@ async function runPrMerged(options) {
     pullRequestNumber: pullRequest.number,
     pullRequestUrl: pullRequest.url || '',
     pullRequestBody: pullRequest.body || '',
+    optimizationSourceIssueNumber,
   };
   console.log(JSON.stringify(result, null, 2));
   return result;
@@ -351,10 +378,12 @@ async function main(argv = process.argv.slice(2)) {
 module.exports = {
   applyIssueTransition,
   buildSourceIssueContext,
+  completeAutomationOptimizationSource,
   main,
   normalizeMergeRequestPayload,
   parseArgs,
   parseAgentrixTaskId,
+  parseAutomationOptimizationSourceIssue,
   parsePlanArtifact,
   parseSourceIssueNumber,
   pullRequestLabels,

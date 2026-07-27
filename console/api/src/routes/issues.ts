@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { createIssue, getIssue, getIssueMentionUsers, listIssueLabels, listIssues, renderIssueMarkdown, submitIssueComment, updateIssue, updateIssueState } from "../core/issues.js"
+import { createAutomationOptimizationIssue, createIssue, getIssue, getIssueMentionUsers, listAutomationOptimizations, listIssueLabels, listIssues, renderIssueMarkdown, submitIssueComment, updateIssue, updateIssueState } from "../core/issues.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function providerSession(request: FastifyRequest, gitServerId: string) {
@@ -30,6 +30,11 @@ export async function issueRoutes(app: FastifyInstance) {
     return renderIssueMarkdown({ ...contextFromRequest(request), gitServerId, projectId, ...await providerSession(request, gitServerId), input: request.body || {} })
   })
 
+  app.post("/api/issues/:gitServerId/:projectId/automation-optimizations", async (request) => {
+    const { gitServerId, projectId } = request.params as Record<string, string>
+    return listAutomationOptimizations({ ...contextFromRequest(request), gitServerId, projectId, ...await providerSession(request, gitServerId), input: request.body || {} })
+  })
+
   app.get("/api/issues/:gitServerId/:projectId/:issueNumber", async (request) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
     return getIssue({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId) })
@@ -49,6 +54,12 @@ export async function issueRoutes(app: FastifyInstance) {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
     const result = await submitIssueComment({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
     return reply.code(201).send(result)
+  })
+
+  app.post("/api/issues/:gitServerId/:projectId/:issueNumber/automation-optimization", async (request, reply) => {
+    const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
+    const result = await createAutomationOptimizationIssue({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
+    return reply.code(result.created ? 201 : 200).send(result)
   })
 
   app.post("/api/issues/:gitServerId/:projectId/:issueNumber/state", async (request) => {

@@ -194,6 +194,8 @@
   .metrics-drill-context i[data-bucket="type::bug"] { background: #dc2626; }
   .metrics-drill-context i[data-bucket="type::debt"] { background: #9333ea; }
   .metrics-drill-context i[data-bucket="type::ops"] { background: #0f766e; }
+  .metrics-drill-context i[data-bucket="type::docs"] { background: #d97706; }
+  .metrics-drill-context i[data-bucket="type::optimization"] { background: #57606a; }
   .metrics-drill-context i[data-bucket="未分类"] { background: #64748b; }
   .metrics-drill-context i[data-bucket="0"] { background: #94a3b8; }
   .metrics-drill-context i[data-bucket="1-3"] { background: #22c55e; }
@@ -380,6 +382,13 @@
     font-size: 0.68rem;
     line-height: 1.35;
   }
+  .metrics-optimization-action,
+  .metrics-optimization-status { width: fit-content; min-height: 1.65rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0 .55rem; border-radius: 6px; font-size: .7rem; font-weight: 650; text-decoration: none; }
+  .metrics-optimization-action { border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+  .metrics-optimization-action:hover { background: var(--if-color-surface-high); }
+  .metrics-optimization-action:disabled { opacity: .6; cursor: wait; }
+  .metrics-optimization-status.is-analyzing { background: color-mix(in srgb, #d97706 12%, var(--card)); color: #a16207; }
+  .metrics-optimization-status.is-analyzed { background: color-mix(in srgb, #1a7f37 12%, var(--card)); color: #1a7f37; }
 
   .metrics-drill-complexity,
   .metrics-drill-status-facts,
