@@ -238,7 +238,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   if (loading && !detail) return <main className="gh-pr-page"><div className="gh-pr-loading"><Loader2 className="size-5 animate-spin" />正在加载 Merge Request…</div></main>
 
   return (
-    <main className="gh-pr-page">
+    <main className={`gh-pr-page ${view === "preview" && previewHref ? "is-preview" : ""}`}>
       <header className="gh-pr-header">
         <div className="gh-pr-title-row">
           <a href={listHref} className="gh-pr-back" aria-label="返回 Merge Requests"><ArrowLeft className="size-4" /></a>

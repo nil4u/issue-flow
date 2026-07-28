@@ -188,21 +188,6 @@ function readIssueFlowProjectConfig() {
   return JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
-function resolveIssueFlowRepositoryId(options = {}) {
-  const config = readIssueFlowProjectConfig();
-  const repositoryId = String(
-    options.repoId
-    || process.env.ISSUE_FLOW_REPOSITORY_ID
-    || process.env.ISSUE_FLOW_REPO_ID
-    || config.repositoryId
-    || ''
-  ).trim();
-  if (!repositoryId) {
-    throw new Error('Issue Flow repository id is required. Set ISSUE_FLOW_REPOSITORY_ID, pass --repo-id, or configure repositoryId in .issue-flow/config.json.');
-  }
-  return repositoryId;
-}
-
 function resolveIssueFlowBaseUrl() {
   const config = readIssueFlowProjectConfig();
   const baseUrl = String(process.env.ISSUE_FLOW_BASE_URL || config.baseUrl || '').trim().replace(/\/+$/, '');
@@ -459,7 +444,7 @@ function visualArtifactUrl(baseUrl, gitServerId, projectId, issueNumber) {
 function buildVisualArtifactMarker(input = {}) {
   const format = String(input.format || 'json').trim().toLowerCase();
   if (!PLAN_ARTIFACT_FORMATS.has(format)) throw new Error(`Unsupported Plan artifact format: ${format}`);
-  return `<!-- issue-flow:plan-artifact artifact=${input.artifact} format=${format} repo=${input.repositoryId} issue=${input.issueNumber} branch=${input.branch} commit=${input.commit} path=${input.artifactPath} -->`;
+  return `<!-- issue-flow:plan-artifact artifact=${input.artifact} format=${format} issue=${input.issueNumber} branch=${input.branch} commit=${input.commit} path=${input.artifactPath} -->`;
 }
 
 function buildVisualArtifactComment(input = {}) {
@@ -825,7 +810,6 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   const visual = visualPlanMode === 'on';
   const artifact = visual ? resolveVisualArtifactType(options) : 'plan';
   const format = visual ? 'json' : 'markdown';
-  const repositoryId = resolveIssueFlowRepositoryId(options);
   const routeRepository = resolveVisualRouteRepository(options, repo);
   const baseUrl = resolveIssueFlowBaseUrl();
   if (visual) {
@@ -856,7 +840,7 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   pushCurrentBranch(headBranch, options);
   const commit = runOutput('git', ['rev-parse', 'HEAD']);
   const url = visualArtifactUrl(baseUrl, routeRepository.gitServerId, routeRepository.projectId, issueNumber);
-  const artifactInput = { artifact, format, repositoryId, issueNumber, branch: headBranch, commit, artifactPath, url };
+  const artifactInput = { artifact, format, issueNumber, branch: headBranch, commit, artifactPath, url };
   const artifactBody = buildVisualArtifactComment(artifactInput);
   const suppliedBody = visual ? '' : fs.readFileSync(options.bodyFile, 'utf8').trim();
   const markedBody = writePrBodyTextWithMarkers(
@@ -887,7 +871,7 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   const publicationState = planSubmissionIssueState(artifact);
   applyIssueFlow(provider, repo, issueNumber, publicationState.flow, options);
   const result = {
-    kind: 'plan', artifact, format, provider: provider.name, issueNumber, repositoryId,
+    kind: 'plan', artifact, format, provider: provider.name, issueNumber,
     ...routeRepository, branch: headBranch, commit, artifactPath, url, prUrl,
     issueFlow: publicationState.flow, label,
   };
@@ -1054,7 +1038,6 @@ module.exports = {
   findIssueArtifactPath,
   findMarkdownPlanPath,
   resolveIssueFlowBaseUrl,
-  resolveIssueFlowRepositoryId,
   resolveVisualRouteRepository,
   resolveVisualArtifactType,
   resolveVisualPlanFeatureMode,

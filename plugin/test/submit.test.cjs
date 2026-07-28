@@ -442,14 +442,13 @@ test('visual artifact URLs use Git server and provider project routes', () => {
   const comment = buildVisualArtifactComment({
     artifact: 'plan',
     format: 'json',
-    repositoryId: 'repo_123',
     issueNumber: 42,
     branch: '42-broken-login/plan',
     commit: 'abc123',
     artifactPath: '.issue-flow/issues/42-broken-login/plan/data/plan-data.json',
     url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
   });
-  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42/);
+  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json issue=42/);
   assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
   assert.match(comment, /Review comments and approval are recorded on this PR\/MR/);
 });
@@ -498,19 +497,17 @@ test('plan artifact marker records visual and Markdown formats in the MR body', 
     buildVisualArtifactMarker({
       artifact: 'decision',
       format: 'json',
-      repositoryId: 'repo_123',
       issueNumber: 42,
       branch: '42-issue/plan',
       commit: 'abc123',
       artifactPath: '.issue-flow/issues/42-issue/decision/data/decision-data.json',
     }),
-    '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision-data.json -->'
+    '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision-data.json -->'
   );
   assert.match(
     buildVisualArtifactComment({
       artifact: 'plan',
       format: 'markdown',
-      repositoryId: 'repo_123',
       issueNumber: 42,
       branch: '42-issue/plan',
       commit: 'def456',

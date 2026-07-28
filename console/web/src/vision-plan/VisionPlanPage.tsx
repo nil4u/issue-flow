@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Clipboard, FileText, GitPullRequest, MessageCircle, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, GitPullRequest, X } from "lucide-react";
 import { approveAllDecisions, approveVisionArtifact, loadVisualArtifact, submitReviewDraft } from "./api";
 import { anchorSelector, findDataRef, formatPlanDataSnippet, parsePlanDataIsland, PLAN_DATA_ISLAND_ID, resolvePlanDataRef } from "./anchors";
 import { decisionItemsFromDocument, interactiveDecisionRefs, type DecisionItem, type DecisionOption } from "./decision-items";
+import { ArtifactReviewPanel } from "./ArtifactReviewPanel";
 import { anchorOffsetForPoint, resolveVisualTargetPosition, visualTargetMarkerStyle, type MarkerFrameMetrics } from "./marker-position";
 import { addStoredReviewDraft, clearReviewStorage, deleteStoredReviewDraft, saveSubmittedReview, updateStoredReviewDraft } from "./review-storage";
 import type { ArtifactType, DecisionReview, DraftReviewItem, FeedbackRequest, IssueArtifact, LoadedIssue, VisionRouteContext, VisualReview, VisualTarget } from "./types";
@@ -30,40 +31,6 @@ function artifactLabel(type: ArtifactType) {
   return "方案";
 }
 
-function artifactStatusLabel(status = "pending") {
-  if (status === "approved") return "已通过";
-  return "待审阅";
-}
-
-function reviewStatusLabel(status = "changes-requested") {
-  return status === "approved" ? "已通过" : "已提交";
-}
-
-function feedbackIntentLabel(intent: FeedbackRequest["intent"]) {
-  if (intent === "defect") return "缺陷";
-  if (intent === "question") return "疑问";
-  return "优化";
-}
-
-function decisionActionLabel(action: DecisionReview["action"]) {
-  if (action === "approve") return "通过";
-  if (action === "select") return "选择";
-  return "讨论";
-}
-
-function reviewItemLocation(item: DraftReviewItem) {
-  const target = item.visualTarget;
-  const element = target?.element ?? target?.elements?.[0];
-  return target?.anchorRef
-    ?? element?.dataRef
-    ?? target?.anchorSelector
-    ?? element?.selector
-    ?? item.decision?.ref
-    ?? target?.path
-    ?? item.sourceRefs?.[0]?.path
-    ?? item.targetId;
-}
-
 function sourceRefTypeForArtifact(type: ArtifactType) {
   if (type === "decision") return "decision";
   return "plan";
@@ -75,6 +42,15 @@ function draftBelongsToArtifact(item: DraftReviewItem | null | undefined, artifa
     ref.type === artifactType ||
     ref.path === `${artifactType}/data/${artifactType}-data.json`
   ));
+}
+
+function compareDraftDocumentOrder(left: DraftReviewItem, right: DraftReviewItem) {
+  const leftTarget = left.visualTarget;
+  const rightTarget = right.visualTarget;
+  if (!leftTarget || !rightTarget) return leftTarget ? -1 : rightTarget ? 1 : left.createdAt.localeCompare(right.createdAt);
+  return leftTarget.yRatio - rightTarget.yRatio
+    || leftTarget.xRatio - rightTarget.xRatio
+    || left.createdAt.localeCompare(right.createdAt);
 }
 
 function measureFrame(frame: HTMLIFrameElement | null, overlay: HTMLDivElement): FrameMetrics {
@@ -141,6 +117,7 @@ const COMMENT_ACTION_CLASS = "agentrix-comment-action";
 const COMMENT_ACTION_STYLE_ID = "agentrix-comment-action-style";
 const COMMENTABLE_SELECTOR = "[data-comment-scope]";
 const SECTION_SELECTOR = '[data-comment-scope="section"]';
+const NAVIGATION_SELECTOR = SECTION_SELECTOR;
 
 function eventElementTarget(event: Event, document: Document): Element | null {
   const target = event.target;
@@ -204,9 +181,37 @@ function ensureDecisionActionStyle(document: Document) {
 
 function ensureCommentActionStyle(document: Document) {
   if (document.getElementById(COMMENT_ACTION_STYLE_ID)) return;
+  const trackColor = [document.documentElement, document.body]
+    .map((element) => document.defaultView?.getComputedStyle(element).backgroundColor)
+    .find((color) => color && color !== "rgba(0, 0, 0, 0)") ?? "#fff";
   const style = document.createElement("style");
   style.id = COMMENT_ACTION_STYLE_ID;
   style.textContent = `
+    :root {
+      --agentrix-scrollbar-track: ${trackColor};
+    }
+    :root, * {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(113, 113, 122, 0.28) var(--agentrix-scrollbar-track);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+      background: var(--agentrix-scrollbar-track);
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--agentrix-scrollbar-track);
+    }
+    ::-webkit-scrollbar-corner {
+      background: var(--agentrix-scrollbar-track);
+    }
+    ::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(113, 113, 122, 0.28);
+    }
+    :hover::-webkit-scrollbar-thumb {
+      background: rgba(113, 113, 122, 0.42);
+    }
     .${COMMENT_ACTION_CLASS} {
       appearance: none;
       position: fixed;
@@ -311,51 +316,102 @@ function makeElementVisualTarget(artifact: IssueArtifact, overlay: HTMLDivElemen
   };
 }
 
+function closestSelectionBlock(node: Node) {
+  const element = node.nodeType === 1 ? node as Element : node.parentElement;
+  return element?.closest("p,li,pre,blockquote,td,th,h1,h2,h3,h4") ?? element;
+}
+
+function selectionBlock(range: Range) {
+  return closestSelectionBlock(range.startContainer) ?? closestSelectionBlock(range.commonAncestorContainer);
+}
+
+function makeSelectionVisualTarget(artifact: IssueArtifact, overlay: HTMLDivElement, frame: HTMLIFrameElement | null, range: Range, element: Element): VisualTarget | null {
+  const selectionText = range.toString().replace(/\s+/g, " ").trim();
+  const rect = range.getBoundingClientRect();
+  if (!selectionText || rect.width <= 0 || rect.height <= 0) return null;
+  const metrics = measureFrame(frame, overlay);
+  const stableAnchor = element.closest("[data-ref]") ?? element;
+  const elementRect = element.getBoundingClientRect();
+  const anchorOffset = anchorOffsetForPoint(stableAnchor, rect.left, rect.top);
+  const elementArea = Math.max(1, elementRect.width * elementRect.height);
+  const selectionArea = Math.max(1, rect.width * rect.height);
+  const description = describeElement(element, {
+    coverage: "partial",
+    coveredArea: "选中文字",
+    elementCoverageRatio: Math.min(1, selectionArea / elementArea),
+    selectionCoverageRatio: 1
+  });
+  return {
+    artifact: artifact.type,
+    path: artifact.path,
+    kind: "rect",
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+    xRatio: Math.max(0, Math.min(1, (metrics.scrollX + rect.left) / metrics.documentWidth)),
+    yRatio: Math.max(0, Math.min(1, (metrics.scrollY + rect.top) / metrics.documentHeight)),
+    widthRatio: Math.max(0, Math.min(1, rect.width / metrics.documentWidth)),
+    heightRatio: Math.max(0, Math.min(1, rect.height / metrics.documentHeight)),
+    viewportWidth: metrics.viewportWidth,
+    viewportHeight: metrics.viewportHeight,
+    documentWidth: metrics.documentWidth,
+    documentHeight: metrics.documentHeight,
+    anchorRef: findDataRef(stableAnchor),
+    anchorSelector: anchorSelector(stableAnchor),
+    ...anchorOffset,
+    element: description,
+    elements: description ? [description] : undefined,
+    selectionText: selectionText.slice(0, 1200),
+    data: resolvePlanDataForElement(frame, element)
+  };
+}
+
 function makeDecisionVisualTarget(artifact: IssueArtifact, overlay: HTMLDivElement, frame: HTMLIFrameElement | null, element: Element): VisualTarget {
   return makeElementVisualTarget(artifact, overlay, frame, element, "决策项");
 }
 
 export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRouteContext) {
   const context = useMemo(() => ({ gitServerId, projectId, issueNumber }), [gitServerId, projectId, issueNumber]);
+  const embedded = typeof window !== "undefined" && window.self !== window.top;
   const [issue, setIssue] = useState<LoadedIssue | null>(null);
   const [draftItems, setDraftItems] = useState<DraftReviewItem[]>([]);
   const [reviews, setReviews] = useState<VisualReview[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [artifactSections, setArtifactSections] = useState<ArtifactSection[]>([]);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
-  const [globalFeedbackText, setGlobalFeedbackText] = useState("");
   const [visualCommentText, setVisualCommentText] = useState("");
-  const [feedbackIntent, setFeedbackIntent] = useState<FeedbackRequest["intent"]>("defect");
+  const [commentComposerOpen, setCommentComposerOpen] = useState(false);
   const [pendingTarget, setPendingTarget] = useState<VisualTarget | null>(null);
   const [pendingDecision, setPendingDecision] = useState<DecisionAnchorTarget | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
-  const [modal, setModal] = useState<"approve" | "submit" | "comment" | "edit" | "decision-discuss" | "history" | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
-  const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [visualTick, setVisualTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [artifactHtml, setArtifactHtml] = useState<string | null>(null);
-  const [artifactFormat, setArtifactFormat] = useState<"json" | "markdown">("json");
+  const [artifactFormat, setArtifactFormat] = useState<"json" | "markdown" | null>(null);
   const [decisionItemMode, setDecisionItemMode] = useState<"approval" | "choice" | "mixed">("approval");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const frameScrollCleanupRef = useRef<(() => void) | null>(null);
   const commentActionCleanupRef = useRef<(() => void) | null>(null);
+  const commentActionEnabledRef = useRef(true);
   const sectionObserverCleanupRef = useRef<(() => void) | null>(null);
   const overlayResizeObserverRef = useRef<ResizeObserver | null>(null);
   const decisionItemsRef = useRef<DecisionItem[]>([]);
   const currentArtifact = useMemo(() => issue?.artifacts[0] ?? null, [issue]);
   const artifactContext = useMemo(() => currentArtifact ? { ...context, artifactType: currentArtifact.type } : null, [context, currentArtifact]);
+  commentActionEnabledRef.current = !commentComposerOpen && !editingDraftId;
 
   useEffect(() => {
     setBusy(true);
+    setArtifactFormat(null);
     setError(null);
-    setStatus(null);
     setAgentPrompt(null);
     setSelectedDraftId(null);
+    setCommentComposerOpen(false);
     setPendingDecision(null);
     decisionItemsRef.current = [];
     setDecisionItemMode("approval");
@@ -379,6 +435,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   useEffect(() => {
     if (!issue) return;
     setSelectedDraftId(null);
+    setCommentComposerOpen(false);
     setPendingTarget(null);
     setPendingDecision(null);
     setVisualCommentText("");
@@ -390,7 +447,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   function syncActiveSection() {
     const doc = frameRef.current?.contentDocument;
     if (!doc) return;
-    const visible = Array.from(doc.querySelectorAll(SECTION_SELECTOR)).filter(isVisibleArtifactSection);
+    const visible = Array.from(doc.querySelectorAll(NAVIGATION_SELECTOR)).filter(isVisibleArtifactSection);
     if (!visible.length) {
       setActiveSectionId(null);
       return;
@@ -489,6 +546,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
 
       const button = doc.createElement("button");
       let activeElement: Element | null = null;
+      let activeRange: Range | null = null;
+      let activeTarget: VisualTarget | null = null;
       button.type = "button";
       button.className = COMMENT_ACTION_CLASS;
       button.textContent = "评论";
@@ -496,17 +555,21 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (!activeElement) return;
-        const target = commentTargetFromElement(activeElement);
-        if (target) openElementComment(target);
+        const target = activeTarget ?? (activeElement ? commentTargetFromElement(activeElement) : null);
+        if (target) {
+          commentActionEnabledRef.current = false;
+          hide();
+          openElementComment(target);
+        }
       });
 
       const hide = () => {
         activeElement = null;
+        activeRange = null;
+        activeTarget = null;
         button.removeAttribute("data-agentrix-visible");
       };
-      const positionFor = (element: Element) => {
-        const rect = element.getBoundingClientRect();
+      const positionForRect = (rect: DOMRect) => {
         if (rect.width <= 0 || rect.height <= 0) {
           hide();
           return;
@@ -515,30 +578,62 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         button.style.top = `${Math.max(8, rect.top + 8)}px`;
         button.setAttribute("data-agentrix-visible", "true");
       };
+      const positionFor = (element: Element) => positionForRect(element.getBoundingClientRect());
+      const captureSelection = () => {
+        if (!commentActionEnabledRef.current) return false;
+        if (artifactFormat !== "markdown" || !overlayRef.current || !currentArtifact) return false;
+        const selection = doc.getSelection();
+        if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
+        const range = selection.getRangeAt(0).cloneRange();
+        const element = selectionBlock(range);
+        if (!element) return false;
+        const target = makeSelectionVisualTarget(currentArtifact, overlayRef.current, frameRef.current, range, element);
+        if (!target) return false;
+        activeElement = element;
+        activeRange = range;
+        activeTarget = target;
+        positionForRect(range.getBoundingClientRect());
+        return true;
+      };
       const activateFromEvent = (event: Event) => {
+        if (!commentActionEnabledRef.current) {
+          hide();
+          return;
+        }
         const target = eventElementTarget(event, doc);
         if (!target || button.contains(target)) return;
+        if (activeRange && !doc.getSelection()?.isCollapsed) return;
         const element = findCommentableElement(target);
         if (!element) {
           if (!activeElement || !target.closest(COMMENTABLE_SELECTOR)) hide();
           return;
         }
         activeElement = element;
+        activeRange = null;
+        activeTarget = null;
         positionFor(element);
       };
       const refreshPosition = () => {
-        if (activeElement) positionFor(activeElement);
+        if (activeRange) positionForRect(activeRange.getBoundingClientRect());
+        else if (activeElement) positionFor(activeElement);
       };
+      const captureSelectionAfterInput = () => frameRef.current?.contentWindow?.setTimeout(() => {
+        if (!captureSelection() && activeRange) hide();
+      }, 0);
 
       const frameWindow = frameRef.current?.contentWindow;
       doc.addEventListener("pointerover", activateFromEvent);
       doc.addEventListener("focusin", activateFromEvent);
+      doc.addEventListener("pointerup", captureSelectionAfterInput);
+      doc.addEventListener("keyup", captureSelectionAfterInput);
       doc.addEventListener("scroll", refreshPosition, true);
       frameWindow?.addEventListener("resize", refreshPosition);
       doc.body?.appendChild(button);
       commentActionCleanupRef.current = () => {
         doc.removeEventListener("pointerover", activateFromEvent);
         doc.removeEventListener("focusin", activateFromEvent);
+        doc.removeEventListener("pointerup", captureSelectionAfterInput);
+        doc.removeEventListener("keyup", captureSelectionAfterInput);
         doc.removeEventListener("scroll", refreshPosition, true);
         frameWindow?.removeEventListener("resize", refreshPosition);
         button.remove();
@@ -634,7 +729,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
     }
     try {
       const seenSections = new Set<string>();
-      const sections = Array.from(doc.querySelectorAll(SECTION_SELECTOR))
+      const sections = Array.from(doc.querySelectorAll(NAVIGATION_SELECTOR))
         .map((element, index) => ({ element, index }))
         .filter(({ element }) => isVisibleArtifactSection(element))
         .filter(({ element }) => !findDataRef(element)?.startsWith("decisions."))
@@ -724,17 +819,35 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   }, [currentArtifact?.path, refreshVisualPositions]);
 
   const scopedDraftItems = useMemo(() => currentArtifact ? draftItems.filter((item) => draftBelongsToArtifact(item, currentArtifact.type)) : [], [currentArtifact, draftItems]);
-  const selectedDraft = scopedDraftItems.find((item) => item.id === selectedDraftId) ?? scopedDraftItems[0] ?? null;
+  const orderedDraftItems = useMemo(() => [...scopedDraftItems].sort(compareDraftDocumentOrder), [scopedDraftItems]);
+  const submittedReviewItems = useMemo(() => currentArtifact
+    ? reviews.flatMap((review) => review.payload?.items ?? []).filter((item) => draftBelongsToArtifact(item, currentArtifact.type))
+    : [], [currentArtifact, reviews]);
+  const reviewMarkerItems = useMemo(() => [...orderedDraftItems, ...submittedReviewItems].sort(compareDraftDocumentOrder), [orderedDraftItems, submittedReviewItems]);
   const editingDraft = scopedDraftItems.find((item) => item.id === editingDraftId) ?? null;
-  const selectedReview = reviews.find((review) => review.id === selectedReviewId) ?? null;
   const hasDecisionDiscussion = scopedDraftItems.some((item) => item.decision?.action === "discuss");
+  const decisionApprovalState = [
+    currentArtifact?.status === "approved" && "approved",
+    submittingReview && "submitting",
+    hasDecisionDiscussion && "discussion",
+    decisionItemMode
+  ].find(Boolean) as "approved" | "submitting" | "discussion" | typeof decisionItemMode;
+  const approvalLabel = currentArtifact?.type === "decision"
+    ? {
+      approved: "决策已完成",
+      submitting: "正在提交…",
+      discussion: "通过其他决策",
+      choice: "采用全部推荐",
+      mixed: "完成全部推荐",
+      approval: "全部通过"
+    }[decisionApprovalState]
+    : currentArtifact?.status === "approved" ? "方案已通过" : "通过方案";
   void visualTick;
 
-  async function addFeedbackToDraft(input: Partial<FeedbackRequest> = {}, options: { resetGlobal?: boolean; resetVisual?: boolean } = {}) {
-    if (!issue || !currentArtifact || !artifactContext) return;
+  async function addFeedbackToDraft(input: Partial<FeedbackRequest> = {}, options: { resetVisual?: boolean } = {}) {
+    if (!issue || !currentArtifact || !artifactContext) return false;
     const comment = input.comment?.trim();
-    if (!comment) return;
-    setStatus(null);
+    if (!comment) return false;
     setAgentPrompt(null);
     setError(null);
     try {
@@ -745,35 +858,41 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         visualTarget: input.visualTarget,
         decision: input.decision,
         comment,
-        severity: input.severity ?? (feedbackIntent === "defect" ? "major" : "note"),
-        intent: input.intent ?? feedbackIntent
+        severity: input.severity ?? "note",
+        intent: input.intent ?? "refinement"
       });
       setDraftItems((items) => [...items.filter(Boolean), item]);
       setSelectedDraftId(item.id);
-      if (options.resetGlobal) setGlobalFeedbackText("");
       if (options.resetVisual) setVisualCommentText("");
+      setCommentComposerOpen(false);
       setPendingTarget(null);
-      setModal(null);
-      setStatus("已添加到当前审阅");
+      setPendingDecision(null);
+      return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "添加审阅意见失败");
+      return false;
     }
   }
 
-  function addGlobalFeedbackToDraft() {
-    void addFeedbackToDraft({ comment: globalFeedbackText }, { resetGlobal: true });
-  }
-
   function openElementComment(target: VisualTarget) {
+    setCommentComposerOpen(true);
     setPendingTarget(target);
+    setPendingDecision(null);
     setVisualCommentText("");
-    setModal("comment");
-    setStatus("已选择页面内容，请填写评论后保存到当前审阅");
+    setEditingDraftId(null);
   }
 
   function saveVisualComment() {
-    if (!pendingTarget) return;
-    void addFeedbackToDraft({ comment: visualCommentText, visualTarget: pendingTarget }, { resetVisual: true });
+    const visualTarget = pendingTarget ?? undefined;
+    void addFeedbackToDraft({ comment: visualCommentText, visualTarget }, { resetVisual: true });
+  }
+
+  function openOverallComment() {
+    setCommentComposerOpen(true);
+    setPendingTarget(null);
+    setPendingDecision(null);
+    setEditingDraftId(null);
+    setVisualCommentText("");
   }
 
   function decisionReviewPayload(decision: DecisionAnchorTarget, action: DecisionReview["action"]): DecisionReview {
@@ -799,7 +918,6 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
       severity: "note",
       intent: action === "discuss" ? "question" : "refinement"
     };
-    setStatus(null);
     setError(null);
     try {
       const existing = scopedDraftItems.find((item) => item.decision?.ref === decision.ref);
@@ -812,8 +930,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
       setSelectedDraftId(saved.id);
       setVisualCommentText("");
       setPendingDecision(null);
-      setModal(null);
-      setStatus(action === "select" ? "已选择方案" : action === "approve" ? "已通过决策项" : "已添加决策讨论");
+      setPendingTarget(null);
+      setCommentComposerOpen(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "保存决策失败");
     }
@@ -830,11 +948,11 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   }
 
   function discussDecision(decision: DecisionAnchorTarget) {
+    setCommentComposerOpen(true);
     setPendingDecision(decision);
+    setPendingTarget(decision.visualTarget);
+    setEditingDraftId(null);
     setVisualCommentText("");
-    setFeedbackIntent("question");
-    setModal("decision-discuss");
-    setStatus("已定位到决策项，请填写讨论内容后保存");
   }
 
   function saveDecisionDiscussion() {
@@ -848,25 +966,27 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
     setSelectedDraftId(item.id);
     setEditingDraftId(item.id);
     setVisualCommentText(item.comment);
-    setFeedbackIntent(item.intent);
-    setModal("edit");
-    if (item.visualTarget && overlayRef.current) {
-      const metrics = measureFrame(frameRef.current, overlayRef.current);
-      const position = resolveVisualTargetPosition(item.visualTarget, metrics, frameRef.current?.contentDocument ?? null);
-      frameRef.current?.contentWindow?.scrollTo({
-        left: position.documentX - metrics.viewportWidth / 2,
-        top: position.documentY - metrics.viewportHeight / 2,
-        behavior: "smooth"
-      });
-    }
-    refreshVisualPositions();
+    setPendingTarget(null);
+    setPendingDecision(null);
+    setCommentComposerOpen(false);
+  }
+
+  function selectDraft(item: DraftReviewItem) {
+    setSelectedDraftId(item.id);
+    if (!item.visualTarget || !overlayRef.current) return;
+    const metrics = measureFrame(frameRef.current, overlayRef.current);
+    const position = resolveVisualTargetPosition(item.visualTarget, metrics, frameRef.current?.contentDocument ?? null);
+    frameRef.current?.contentWindow?.scrollTo({
+      left: Math.max(0, position.documentX - metrics.viewportWidth / 2),
+      top: Math.max(0, position.documentY - metrics.viewportHeight / 2),
+      behavior: "smooth"
+    });
   }
 
   async function updateExistingDraft() {
     if (!issue || !editingDraft || !artifactContext) return;
     const comment = visualCommentText.trim();
     if (!comment) return;
-    setStatus(null);
     setAgentPrompt(null);
     setError(null);
     try {
@@ -877,53 +997,47 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         visualTarget: editingDraft.visualTarget,
         decision: editingDraft.decision,
         comment,
-        severity: feedbackIntent === "defect" ? "major" : "note",
-        intent: feedbackIntent
+        severity: "note",
+        intent: "refinement"
       });
       setDraftItems((items) => items.map((item) => item.id === updated.id ? updated : item));
       setSelectedDraftId(updated.id);
       setEditingDraftId(null);
+      setPendingTarget(null);
+      setCommentComposerOpen(false);
       setVisualCommentText("");
-      setModal(null);
-      setStatus("审阅意见已更新");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "更新审阅意见失败");
     }
   }
 
   function closeCommentModal() {
-    setModal(null);
     setPendingTarget(null);
     setPendingDecision(null);
+    setCommentComposerOpen(false);
     setEditingDraftId(null);
     setVisualCommentText("");
-  }
-
-  function openReviewHistory(review: VisualReview) {
-    setSelectedReviewId(review.id);
-    setModal("history");
   }
 
   async function removeReviewItem(itemId: string) {
     if (!issue || !artifactContext) return;
     setError(null);
-    setStatus(null);
     try {
       deleteStoredReviewDraft(artifactContext, itemId);
       setDraftItems((items) => items.filter((item) => item.id !== itemId));
-      setStatus("已从当前审阅中删除");
+      if (editingDraftId === itemId) closeCommentModal();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除审阅意见失败");
     }
   }
 
   async function confirmSubmitReview() {
-    if (!issue || !artifactContext || !scopedDraftItems.length) return;
+    if (!issue || !artifactContext || !orderedDraftItems.length) return;
     setSubmittingReview(true);
     setError(null);
     try {
-      const result = await submitReviewDraft(context, scopedDraftItems);
-      const submittedIds = new Set(scopedDraftItems.map((item) => item.id));
+      const result = await submitReviewDraft(context, orderedDraftItems);
+      const submittedIds = new Set(orderedDraftItems.map((item) => item.id));
       setDraftItems((items) => items.filter((item) => !submittedIds.has(item.id)));
       if (result.status === "approved") {
         clearReviewStorage(artifactContext);
@@ -933,8 +1047,6 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         setReviews((items) => [result.review, ...items]);
       }
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
-      setStatus(result.status === "approved" ? "决策已通过" : "审阅已提交，等待修改");
-      setModal(null);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "提交审阅失败");
     } finally {
@@ -944,7 +1056,6 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
 
   async function approvePlan() {
     if (!issue || !artifactContext) return;
-    setStatus(null);
     setAgentPrompt(null);
     setError(null);
     try {
@@ -953,8 +1064,6 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
       setDraftItems([]);
       setReviews([]);
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.artifact.status })) } : loaded);
-      setStatus("方案已通过并合入默认分支，可以开始实施");
-      setModal(null);
     } catch (approvalError) {
       setError(approvalError instanceof Error ? approvalError.message : "通过方案失败");
     }
@@ -963,11 +1072,10 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   async function approveEveryDecision() {
     if (!issue || !artifactContext || currentArtifact?.type !== "decision") return;
     setSubmittingReview(true);
-    setStatus(null);
     setAgentPrompt(null);
     setError(null);
     try {
-      const result = await approveAllDecisions(context, scopedDraftItems);
+      const result = await approveAllDecisions(context, orderedDraftItems);
       setDraftItems((items) => items.filter((item) => !draftBelongsToArtifact(item, "decision")));
       if (result.status === "approved") {
         clearReviewStorage(artifactContext);
@@ -977,8 +1085,6 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         setReviews((items) => [result.review, ...items]);
       }
       setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
-      setStatus(result.status === "approved" ? "决策已全部通过" : "其他决策已通过，讨论项已提交");
-      setModal(null);
     } catch (approvalError) {
       setError(approvalError instanceof Error ? approvalError.message : "全部通过失败");
     } finally {
@@ -989,49 +1095,34 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   async function copyAgentPrompt() {
     if (!agentPrompt) return;
     await navigator.clipboard?.writeText(agentPrompt);
-    setStatus("智能体消息已复制");
   }
 
   const visualTargetStyles = useMemo(() => {
     const overlay = overlayRef.current;
     const frame = frameRef.current;
-    return new Map(scopedDraftItems
+    return new Map(reviewMarkerItems
       .filter((item) => item.visualTarget)
       .map((item) => [item.id, visualTargetStyle(item.visualTarget!, overlay, frame)]));
-  }, [scopedDraftItems, visualTick]);
-
-  function bindReviewMarker(element: HTMLButtonElement | null, item: DraftReviewItem) {
-    if (!element) return;
-    element.onpointerdown = (event) => event.stopPropagation();
-    element.onpointerup = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openDraftEditor(item);
-    };
-    element.onclick = (event) => {
-      event.stopPropagation();
-      if (event.detail === 0) openDraftEditor(item);
-    };
-    element.onfocus = () => {
-      if (!element.matches(":focus-visible")) openDraftEditor(item);
-    };
-  }
+  }, [reviewMarkerItems, visualTick]);
 
   return (
-    <main className="vision-plan-page artifact-engine">
-      <aside className="workspace-panel">
-        <div className="brand-row">
-          <span className="brand-mark"><FileText size={20} /></span>
+    <main className="vision-plan-page artifact-engine is-review-workspace">
+      <header className="review-workspace-header">
+        <div className="artifact-heading">
+          {!embedded ? <a className="artifact-back-link" href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues`} aria-label="返回 Issues 看板" title="返回 Issues 看板"><ArrowLeft size={17} /></a> : null}
           <div>
-            <p className="brand-kicker">ISSUE FLOW</p>
-            <h1>{currentArtifact ? `${artifactLabel(currentArtifact.type)}审阅` : "产物审阅"}</h1>
-            <p>{issue ? issue.title : `议题 #${issueNumber}`}</p>
+            <strong>{currentArtifact ? `${artifactLabel(currentArtifact.type)}审阅` : "产物审阅"}</strong>
+            <span>{issue ? issue.title : `议题 #${issueNumber}`}</span>
           </div>
         </div>
+        <div className="toolbar-actions">
+          {!embedded && currentArtifact?.mergeRequestUrl ? <a href={currentArtifact.mergeRequestUrl} target="_blank" rel="noreferrer"><GitPullRequest size={16} />查看 MR #{currentArtifact.mergeRequestNumber}</a> : null}
+        </div>
+      </header>
 
+      <aside className="workspace-panel">
         {issue ? (
           <section className="panel-section navigation-section">
-            <div className="section-title"><FileText size={17} /><h2>内容导航</h2></div>
             <div className="artifact-directory">
               {artifactSections.length ? (
                 <nav aria-label={`${currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}章节`}>
@@ -1045,66 +1136,9 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
             </div>
           </section>
         ) : null}
-
-        <section className="panel-section review-box">
-          <div className="section-title"><MessageCircle size={17} /><h2>整体反馈</h2></div>
-            <p className="section-description">针对整个{currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}补充意见；{artifactFormat === "markdown" ? "也可以在右侧章节标题上悬停后添加评论。" : "也可以在右侧内容中悬停后添加评论。"}</p>
-          <div className="segmented">
-            <button type="button" className={feedbackIntent === "defect" ? "is-active" : ""} onClick={() => setFeedbackIntent("defect")}>缺陷</button>
-            <button type="button" className={feedbackIntent === "question" ? "is-active" : ""} onClick={() => setFeedbackIntent("question")}>疑问</button>
-            <button type="button" className={feedbackIntent === "refinement" ? "is-active" : ""} onClick={() => setFeedbackIntent("refinement")}>优化</button>
-          </div>
-          <textarea value={globalFeedbackText} onChange={(event) => setGlobalFeedbackText(event.target.value)} placeholder="填写对当前产物的整体意见…" />
-          <button type="button" className="add-review-button" onClick={addGlobalFeedbackToDraft} disabled={!currentArtifact || !globalFeedbackText.trim()}>提交</button>
-          {status ? <p className="success-box">{status}</p> : null}
-        </section>
-
-        <section className="panel-section draft-review-box">
-          <div className="section-title"><Clipboard size={17} /><h2>当前审阅</h2><span className="section-count">{scopedDraftItems.length}</span></div>
-          {scopedDraftItems.length ? (
-            <div className="draft-list">
-              {scopedDraftItems.map((item) => (
-                <article key={item.id} className={`draft-item ${selectedDraft?.id === item.id ? "is-selected" : ""}`}>
-                  <button type="button" className="draft-select" onClick={() => openDraftEditor(item)}>
-                    <span className="draft-icon" aria-hidden="true">{item.decision && item.decision.action !== "discuss" ? <CheckCircle2 size={16} /> : <MessageCircle size={16} />}</span>
-                    <span className="draft-comment">{item.decision ? `${decisionActionLabel(item.decision.action)}：${item.decision.ref} · ${item.comment}` : item.comment}</span>
-                  </button>
-                  <button type="button" className="icon-button delete-review-item" aria-label={`删除审阅意见 ${item.id}`} onClick={() => removeReviewItem(item.id)}><Trash2 size={14} /></button>
-                </article>
-              ))}
-            </div>
-          ) : <div className="panel-empty"><MessageCircle size={18} /><p>还没有审阅意见</p><span>从右侧内容添加评论，或填写整体反馈。</span></div>}
-        </section>
-
-        <section className="panel-section review-history-box">
-          <div className="section-title"><FileText size={17} /><h2>审阅记录</h2><span className="section-count">{reviews.length}</span></div>
-          {reviews.length ? reviews.map((review) => (
-            <button key={review.id} type="button" className="review-history-item" onClick={() => openReviewHistory(review)} aria-label={`查看 ${new Date(review.submittedAt || review.createdAt).toLocaleString("zh-CN")} 的审阅记录`}>
-              <strong>{reviewStatusLabel(review.status)}</strong>
-              <span>{new Date(review.submittedAt || review.createdAt).toLocaleString("zh-CN")}</span>
-              <p>{review.payload?.items?.length || 0} 条审阅意见</p>
-            </button>
-          )) : <p className="muted">暂无已提交的审阅记录</p>}
-        </section>
-
-        {error ? <pre className="error-box">{error}</pre> : null}
       </aside>
 
       <section className="artifact-stage">
-        <header className="artifact-toolbar">
-          <div className="artifact-heading">
-            <a className="artifact-back-link" href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues`} aria-label="返回 Issues 看板" title="返回 Issues 看板"><ArrowLeft size={17} /></a>
-            <div><span className="toolbar-kicker">当前产物</span><strong>{currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}</strong></div>
-            <span className={`artifact-status status-${currentArtifact?.status || "pending"}`}>{artifactStatusLabel(currentArtifact?.status)}</span>
-          </div>
-          <div className="toolbar-actions">
-            {currentArtifact?.mergeRequestUrl ? <a href={currentArtifact.mergeRequestUrl} target="_blank" rel="noreferrer"><GitPullRequest size={16} />查看 MR #{currentArtifact.mergeRequestNumber}</a> : null}
-            <button type="button" onClick={() => setModal("submit")} disabled={!issue || !scopedDraftItems.length || currentArtifact?.status === "approved"}><Send size={16} />提交审阅{scopedDraftItems.length ? ` · ${scopedDraftItems.length}` : ""}</button>
-            {currentArtifact?.type === "decision" ? <button type="button" className="approve-action" onClick={approveEveryDecision} disabled={!issue || submittingReview || currentArtifact.status === "approved"}><CheckCircle2 size={16} />{currentArtifact.status === "approved" ? "决策已完成" : submittingReview ? "正在提交…" : hasDecisionDiscussion ? "通过其他决策" : decisionItemMode === "choice" ? "采用全部推荐" : decisionItemMode === "mixed" ? "完成全部推荐" : "全部通过"}</button> : null}
-            {currentArtifact?.type === "plan" ? <button type="button" className="approve-action" onClick={approvePlan} disabled={!issue || currentArtifact.status === "approved"}><CheckCircle2 size={16} />{currentArtifact.status === "approved" ? "方案已通过" : "通过方案"}</button> : null}
-          </div>
-        </header>
-
         {agentPrompt ? (
           <div className="agent-prompt-banner">
             <strong>发送给智能体</strong>
@@ -1115,7 +1149,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         ) : null}
 
         <div className="artifact-frame-wrap">
-          {busy ? <div className="empty-state">正在加载 Plan MR 产物…</div> : currentArtifact ? (
+          {busy ? <div className="empty-state">正在加载 Plan MR 产物…</div> : !currentArtifact && error ? <div className="empty-state"><pre className="error-box">{error}</pre></div> : currentArtifact ? (
             <>
               <iframe
                 ref={frameRef}
@@ -1129,32 +1163,28 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
                 ref={overlayRef}
                 className="annotation-overlay"
               >
-                {scopedDraftItems.map((item) => item.visualTarget ? (
+                {reviewMarkerItems.map((item) => item.visualTarget ? (
                   item.visualTarget.kind === "point" ? (
-                    <button
+                    <span
                       key={item.id}
-                      ref={(element) => bindReviewMarker(element, item)}
-                      type="button"
-                      className={`marker point ${selectedDraft?.id === item.id ? "is-selected" : ""}`}
+                      className={`marker point ${selectedDraftId === item.id ? "is-selected" : ""}`}
                       style={{ left: visualTargetStyles.get(item.id)?.left, top: visualTargetStyles.get(item.id)?.top }}
-                      aria-label="编辑评论"
                       title={item.comment}
-                    ><MessageCircle size={15} /></button>
+                      aria-hidden="true"
+                    />
                   ) : (
-                    <button
+                    <span
                       key={item.id}
-                      ref={(element) => bindReviewMarker(element, item)}
-                      type="button"
-                      className={`marker region ${selectedDraft?.id === item.id ? "is-selected" : ""}`}
+                      className={`marker region ${selectedDraftId === item.id ? "is-selected" : ""}`}
                       style={{
                         left: visualTargetStyles.get(item.id)?.left,
                         top: visualTargetStyles.get(item.id)?.top,
                         width: visualTargetStyles.get(item.id)?.width,
                         height: visualTargetStyles.get(item.id)?.height
                       }}
-                      aria-label="编辑评论"
                       title={item.comment}
-                    ><span><MessageCircle size={15} /></span></button>
+                      aria-hidden="true"
+                    />
                   )
                 ) : null)}
               </div>
@@ -1165,88 +1195,33 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         </div>
       </section>
 
-      {modal ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
-            <button type="button" className="modal-close" aria-label="关闭弹窗" onClick={() => modal === "comment" || modal === "edit" || modal === "decision-discuss" ? closeCommentModal() : setModal(null)}><X size={16} /></button>
-            {modal === "comment" && pendingTarget ? (
-              <>
-                <h2 id="review-modal-title">添加评论</h2>
-                <p>已选择{artifactLabel(pendingTarget.artifact)}中的具体内容，请选择类型并填写意见。</p>
-                <div className="segmented">
-                  <button type="button" className={feedbackIntent === "defect" ? "is-active" : ""} onClick={() => setFeedbackIntent("defect")}>缺陷</button>
-                  <button type="button" className={feedbackIntent === "question" ? "is-active" : ""} onClick={() => setFeedbackIntent("question")}>疑问</button>
-                  <button type="button" className={feedbackIntent === "refinement" ? "is-active" : ""} onClick={() => setFeedbackIntent("refinement")}>优化</button>
-                </div>
-                <textarea value={visualCommentText} onChange={(event) => setVisualCommentText(event.target.value)} placeholder="填写对所选内容的审阅意见…" autoFocus />
-                <button type="button" className="add-review-button" onClick={saveVisualComment} disabled={!visualCommentText.trim()}>保存评论</button>
-              </>
-            ) : modal === "decision-discuss" && pendingDecision ? (
-              <>
-                <h2 id="review-modal-title">讨论决策</h2>
-                <p>{pendingDecision.question ?? pendingDecision.ref}</p>
-                <textarea value={visualCommentText} onChange={(event) => setVisualCommentText(event.target.value)} placeholder="填写需要讨论或澄清的内容…" autoFocus />
-                <button type="button" className="add-review-button" onClick={saveDecisionDiscussion} disabled={!visualCommentText.trim()}>保存讨论</button>
-              </>
-            ) : modal === "edit" && editingDraft ? (
-              <>
-                <h2 id="review-modal-title">编辑审阅意见</h2>
-                <p>{editingDraft.decision ? `正在编辑决策 ${editingDraft.decision.ref} 的“${decisionActionLabel(editingDraft.decision.action)}”意见。` : editingDraft.visualTarget ? `正在编辑${artifactLabel(editingDraft.visualTarget.artifact)}中的评论。` : `正在编辑针对 ${editingDraft.targetId} 的整体反馈。`}</p>
-                <div className="segmented">
-                  <button type="button" className={feedbackIntent === "defect" ? "is-active" : ""} onClick={() => setFeedbackIntent("defect")}>缺陷</button>
-                  <button type="button" className={feedbackIntent === "question" ? "is-active" : ""} onClick={() => setFeedbackIntent("question")}>疑问</button>
-                  <button type="button" className={feedbackIntent === "refinement" ? "is-active" : ""} onClick={() => setFeedbackIntent("refinement")}>优化</button>
-                </div>
-                <textarea value={visualCommentText} onChange={(event) => setVisualCommentText(event.target.value)} placeholder="修改这条审阅意见…" autoFocus />
-                <button type="button" className="add-review-button" onClick={updateExistingDraft} disabled={!visualCommentText.trim()}>保存修改</button>
-              </>
-            ) : modal === "history" && selectedReview ? (
-              <>
-                <h2 id="review-modal-title">审阅详情</h2>
-                <div className="review-history-summary">
-                  <span className={`artifact-status status-${selectedReview.status}`}>{reviewStatusLabel(selectedReview.status)}</span>
-                  <span>{new Date(selectedReview.submittedAt || selectedReview.createdAt).toLocaleString("zh-CN")}</span>
-                  {selectedReview.user?.name || selectedReview.user?.username ? <span>{selectedReview.user.name || selectedReview.user.username}</span> : null}
-                </div>
-                {selectedReview.payload?.items?.length ? (
-                  <div className="modal-draft-list history-review-items">
-                    {selectedReview.payload.items.map((item) => (
-                      <article key={item.id}>
-                        <strong>{item.decision ? `${decisionActionLabel(item.decision.action)}决策` : item.intent ? feedbackIntentLabel(item.intent) : "审阅意见"}</strong>
-                        <p>{item.comment}</p>
-                        <small>定位：{reviewItemLocation(item)}</small>
-                      </article>
-                    ))}
-                  </div>
-                ) : <div className="panel-empty"><FileText size={18} /><p>本次审阅没有文字意见</p></div>}
-              </>
-            ) : modal === "approve" ? (
-              <>
-                <h2 id="review-modal-title">产物已通过</h2>
-                <p>当前产物已经通过，请将以下消息发送给智能体：</p>
-                <pre>{agentPrompt}</pre>
-                <button type="button" onClick={copyAgentPrompt} disabled={!agentPrompt}><Clipboard size={16} />复制消息</button>
-              </>
-            ) : agentPrompt ? (
-              <>
-                <h2 id="review-modal-title">审阅已提交</h2>
-                <p>请将以下消息发送给智能体：</p>
-                <pre>{agentPrompt}</pre>
-                <button type="button" onClick={copyAgentPrompt}><Clipboard size={16} />复制消息</button>
-              </>
-            ) : scopedDraftItems.length ? (
-              <>
-                <h2 id="review-modal-title">提交审阅</h2>
-                <p>将当前草稿中的全部意见提交为一次正式审阅。提交后，这些意见会从草稿区移入审阅记录。</p>
-                <div className="modal-draft-list">
-                  {scopedDraftItems.map((item) => <article key={item.id}><strong>{item.decision ? `${decisionActionLabel(item.decision.action)}决策 · ${item.decision.ref}` : feedbackIntentLabel(item.intent)}</strong><p>{item.comment}</p></article>)}
-                </div>
-                <button type="button" className="submit-review-action" onClick={confirmSubmitReview} disabled={submittingReview}><Send size={16} />{submittingReview ? "正在提交…" : "确认提交审阅"}</button>
-              </>
-            ) : <p>当前没有可提交的审阅意见</p>}
-          </section>
-        </div>
+      {artifactFormat && currentArtifact ? (
+        <ArtifactReviewPanel
+          approved={currentArtifact.status === "approved"}
+          approvalLabel={approvalLabel}
+          approveWithDrafts={currentArtifact.type === "decision"}
+          composerOpen={commentComposerOpen && !editingDraft}
+          commentText={visualCommentText}
+          drafts={orderedDraftItems}
+          editingDraft={editingDraft}
+          error={error}
+          pendingTarget={pendingTarget}
+          reviews={reviews}
+          selectedDraftId={selectedDraftId}
+          submitting={submittingReview}
+          onApprove={currentArtifact.type === "decision" ? approveEveryDecision : approvePlan}
+          onCancelComment={closeCommentModal}
+          onChangeComment={setVisualCommentText}
+          onEditDraft={openDraftEditor}
+          onOpenOverallComment={openOverallComment}
+          onRemoveDraft={removeReviewItem}
+          onSelectDraft={selectDraft}
+          onSaveComment={pendingDecision ? saveDecisionDiscussion : saveVisualComment}
+          onSubmit={confirmSubmitReview}
+          onUpdateComment={updateExistingDraft}
+        />
       ) : null}
+
     </main>
   );
 }

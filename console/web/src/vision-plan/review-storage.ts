@@ -5,7 +5,7 @@ type StoredReviews = {
   reviews: VisualReview[]
 }
 
-const STORAGE_PREFIX = "issue-flow:plan-reviews:v1"
+const STORAGE_PREFIX = "issue-flow:plan-reviews:v2"
 
 function storageKey(context: VisionArtifactContext) {
   return [STORAGE_PREFIX, context.gitServerId, context.projectId, context.issueNumber, context.artifactType]

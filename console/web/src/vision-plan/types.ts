@@ -43,6 +43,7 @@ export type VisualTarget = {
   anchorOffsetY?: number
   element?: VisualTargetElement
   elements?: VisualTargetElement[]
+  selectionText?: string
   data?: { ref: string; json: string }
 }
 

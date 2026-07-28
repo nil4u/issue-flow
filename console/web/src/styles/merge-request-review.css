@@ -1,5 +1,7 @@
 @layer components {
   .gh-pr-page { height: 100svh; overflow-y: auto; background: var(--background); color: var(--foreground); }
+  .gh-pr-page.is-preview { display: flex; flex-direction: column; overflow: hidden; }
+  .gh-pr-page.is-preview .gh-pr-header { width: 100%; }
   .gh-pr-loading { min-height: 18rem; display: flex; align-items: center; justify-content: center; gap: .5rem; color: var(--muted-foreground); }
   .gh-pr-header { max-width: 92rem; margin: 0 auto; padding: .8rem 2rem 0; }
   .gh-pr-title-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .75rem; }
@@ -95,6 +97,7 @@
   .gh-labels span { padding: .18rem .5rem; border-radius: 999px; background: #0969da; color: #fff; font-size: .68rem; font-weight: 650; }
 
   .gh-preview-view { position: relative; height: calc(100svh - 7.5rem); min-height: 38rem; background: var(--background); }
+  .gh-pr-page.is-preview .gh-preview-view { flex: 1; min-height: 0; height: auto; }
   .gh-preview-view iframe { width: 100%; height: 100%; display: block; border: 0; background: var(--background); }
   .gh-preview-view.is-expanded { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100svh; min-height: 0; }
   .gh-preview-expand { position: absolute; z-index: 2; top: .75rem; right: 1rem; border: 1px solid var(--border); box-shadow: 0 4px 18px rgb(0 0 0 / 12%); }
