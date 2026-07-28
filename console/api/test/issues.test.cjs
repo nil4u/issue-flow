@@ -235,13 +235,37 @@ test("GitHub issue list excludes pull requests and uses the current user credent
   assert.deepEqual(issues[0].labels[0], { name: "bug", color: "d73a4a", description: "" })
 })
 
+test("GitHub issue detail normalizes milestone and non-zero comment reactions", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async (url) => {
+    const path = String(url)
+    if (path.endsWith("/repos/acme/widget/issues/7")) return new Response(JSON.stringify({ id: 7, number: 7, title: "Issue", state: "open", user: { id: 1, login: "author" }, milestone: { id: 3, title: "v1.0", description: "Release", state: "open", due_on: "2026-08-01T00:00:00Z", html_url: "https://github.test/acme/widget/milestone/3" } }), { status: 200 })
+    if (path.includes("/repos/acme/widget/issues/7/comments?")) return new Response(JSON.stringify([{ id: 11, body: "Comment", user: { id: 2, login: "alice" }, reactions: { total_count: 3, "+1": 2, "-1": 0, laugh: 1, hooray: 0, confused: 0, heart: 0, rocket: 0, eyes: 0 } }]), { status: 200 })
+    if (path.endsWith("/repos/acme/widget/labels?per_page=100")) return new Response(JSON.stringify([]), { status: 200 })
+    if (path.endsWith("/repos/acme/widget")) return new Response(JSON.stringify({ permissions: { push: true } }), { status: 200 })
+    if (path.endsWith("/user")) return new Response(JSON.stringify({ id: 2, login: "alice" }), { status: 200 })
+    throw new Error(`Unexpected request: ${path}`)
+  }
+
+  const detail = await getProviderIssue(
+    { type: "github", apiUrl: "https://api.github.test", userToken: "user-token" },
+    { fullName: "acme/widget" },
+    7,
+  )
+
+  assert.deepEqual(detail.issue.milestone, { id: "3", title: "v1.0", description: "Release", state: "open", dueAt: "2026-08-01T00:00:00Z", webUrl: "https://github.test/acme/widget/milestone/3" })
+  assert.deepEqual(detail.comments[0].reactions, [{ content: "+1", count: 2 }, { content: "laugh", count: 1 }])
+})
+
 test("GitLab issue detail includes comments, labels, and current user permissions", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
   global.fetch = async (url) => {
     const path = String(url)
-    if (path.endsWith("/projects/43326/issues/15")) return new Response(JSON.stringify({ id: 15, iid: 15, title: "Plan", state: "opened", description: "Body", author: { id: 8, username: "author" }, labels: ["feature"] }), { status: 200 })
+    if (path.endsWith("/projects/43326/issues/15")) return new Response(JSON.stringify({ id: 15, iid: 15, title: "Plan", state: "opened", description: "Body", author: { id: 8, username: "author" }, labels: ["feature"], milestone: { id: 4, title: "Sprint 8", description: "Iteration", state: "active", due_date: "2026-08-08", web_url: "https://gitlab.test/acme/widget/-/milestones/4" } }), { status: 200 })
     if (path.includes("/issues/15/notes?")) return new Response(JSON.stringify([{ id: 1, body: "Comment", author: { id: 9, username: "alice" } }, { id: 2, body: "changed title", system: true }]), { status: 200 })
+    if (path.endsWith("/issues/15/notes/1/award_emoji?per_page=100")) return new Response(JSON.stringify([{ id: 1, name: "thumbsup" }, { id: 2, name: "thumbsup" }, { id: 3, name: "tada" }]), { status: 200 })
     if (path.endsWith("/projects/43326/labels?per_page=100")) return new Response(JSON.stringify([{ name: "feature", color: "#428BCA", description: "Feature" }]), { status: 200 })
     if (path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 30 } } }), { status: 200 })
     if (path.endsWith("/user")) return new Response(JSON.stringify({ id: 9, username: "alice" }), { status: 200 })
@@ -255,8 +279,10 @@ test("GitLab issue detail includes comments, labels, and current user permission
   )
 
   assert.equal(detail.issue.number, 15)
+  assert.deepEqual(detail.issue.milestone, { id: "4", title: "Sprint 8", description: "Iteration", state: "open", dueAt: "2026-08-08", webUrl: "https://gitlab.test/acme/widget/-/milestones/4" })
   assert.deepEqual(detail.issue.permissions, { canCreate: true, canEdit: true, canClose: true, canLabel: true, canComment: true })
   assert.deepEqual(detail.comments.map((comment) => comment.body), ["Comment"])
+  assert.deepEqual(detail.comments[0].reactions, [{ content: "thumbsup", count: 2 }, { content: "tada", count: 1 }])
   assert.deepEqual(detail.availableLabels[0], { name: "feature", color: "428BCA", description: "Feature" })
 })
 
