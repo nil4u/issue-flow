@@ -21,6 +21,7 @@ const {
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 const pipelineFailed = require('../skills/issue-flow/scripts/pipeline-failed.cjs');
 const { providers } = require('../skills/issue-flow/scripts/providers.cjs');
+const { buildVisualArtifactPublishedComment } = require('../skills/issue-flow/scripts/submit.cjs');
 
 function withEnv(values, callback) {
   const previous = {};
@@ -380,6 +381,36 @@ test('dispatch review-comment skips issue-flow sourced comments', async () => {
   assert.equal(result.reason, 'source_provenance');
   assert.equal(result.sourceTaskId, 'task-123');
   assert.equal(result.sourceAgent, 'codex');
+});
+
+test('dispatch review-comment skips all Plan publication notifications', async () => {
+  const publications = [
+    { artifact: 'decision', format: 'json' },
+    { artifact: 'plan', format: 'json' },
+    { artifact: 'plan', format: 'markdown' },
+  ];
+
+  for (const publication of publications) {
+    const result = await runReviewComment(
+      { dryRun: true },
+      {
+        payload: githubReviewCommentPayload({
+          issueComment: true,
+          commentBody: buildVisualArtifactPublishedComment({
+            ...publication,
+            commit: 'abc123',
+            sourceTaskId: 'task-plan-42',
+            url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
+          }),
+        }),
+      }
+    );
+
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'source_provenance');
+    assert.equal(result.sourceTaskId, 'task-plan-42');
+    assert.equal(result.sourceAgent, 'issue-flow');
+  }
 });
 
 test('dispatch review-comment skips unsupported edited events', async () => {

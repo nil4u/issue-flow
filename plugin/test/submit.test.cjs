@@ -459,8 +459,10 @@ test('visual artifact submission replies with the shared review URL on the PR or
     artifact: 'plan',
     format: 'json',
     commit: 'abc123',
+    sourceTaskId: 'task-plan-42',
     url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
   });
+  assert.match(comment, /issue-flow:source source_task_id=task-plan-42 source_agent=issue-flow source_runtime=agentrix/);
   assert.match(comment, /issue-flow:plan-artifact-published artifact=plan commit=abc123/);
   assert.match(comment, /Visual Plan 已发布/);
   assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
@@ -486,6 +488,7 @@ test('visual artifact publication posts the URL as an MR comment', async () => {
     { dryRun: false },
   );
   assert.equal(calls[0].pullRequest.number, 23);
+  assert.match(calls[0].body, /issue-flow:source source_agent=issue-flow/);
   assert.match(calls[0].body, /Decision 已发布/);
   assert.match(calls[0].body, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
 });

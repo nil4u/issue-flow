@@ -481,10 +481,16 @@ function buildVisualArtifactComment(input = {}) {
 
 function buildVisualArtifactPublishedComment(input = {}) {
   const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  const sourceTaskId = String(input.sourceTaskId || '').trim();
   return [
+    buildSourceMarker({
+      sourceTaskId,
+      sourceAgent: 'issue-flow',
+      sourceRuntime: sourceTaskId ? 'agentrix' : '',
+    }),
     `<!-- issue-flow:plan-artifact-published artifact=${input.artifact} commit=${input.commit} -->`,
     `✅ ${title} 已发布：[在 Issue Flow 中审阅](${input.url})`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function pullRequestNumberFromUrl(value) {
@@ -498,7 +504,10 @@ async function publishVisualArtifactComment(provider, repo, prUrl, artifactInput
   if (!number) throw new Error(`Unable to resolve PR/MR number from submission URL: ${prUrl || '(empty)'}`);
   return provider.createPullRequestComment(
     { ...repo, number },
-    buildVisualArtifactPublishedComment(artifactInput),
+    buildVisualArtifactPublishedComment({
+      ...artifactInput,
+      sourceTaskId: resolveAgentrixTaskId(options),
+    }),
     options,
   );
 }
