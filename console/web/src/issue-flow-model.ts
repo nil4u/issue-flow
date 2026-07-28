@@ -734,6 +734,7 @@ export type RepoWorkspaceProps = {
   onCloseCheckProgress: () => void
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
+  onSetLabels: () => Promise<InstallCheck | undefined>
   onSetRunner: () => Promise<InstallCheck | undefined>
   onInstallPlugin: () => Promise<InstallCheck | undefined>
   onConfirmInstallConflicts: (decision: InstallConflictDecision) => Promise<InstallCheck | undefined>

@@ -137,6 +137,7 @@ function InstallConsole({
   onInstallPlugin,
   onSetVariable,
   onSetRunner,
+  onSetLabels,
   onSetWebhook,
 }: RepoWorkspaceProps) {
   const [installForm, setInstallForm] = useState(() => installFormFromDefaults(defaults))
@@ -223,6 +224,12 @@ function InstallConsole({
     try { await onSetRunner() } finally { setActionRowId("") }
   }
 
+  async function saveLabels(row: CheckRow) {
+    if (row.configItem?.type !== "labels" || row.status !== "needs_action" || !canManage) return
+    setActionRowId(row.id)
+    try { await onSetLabels() } finally { setActionRowId("") }
+  }
+
   async function installPlugin(row: CheckRow) {
     if (row.configItem?.type !== "plugin" || !canManage) return
     setActionRowId(row.id)
@@ -267,6 +274,7 @@ function InstallConsole({
                 row={row}
                 onSetVariable={() => openVariableDialog(row)}
                 onSaveWebhook={() => saveWebhook(row)}
+                onSaveLabels={() => saveLabels(row)}
                 onSaveRunner={() => saveRunner(row)}
                 onInstallPlugin={() => installPlugin(row)}
                 onOpenHelp={setHelpTopicId}
@@ -629,6 +637,7 @@ function CheckTableRow({
   row,
   onSetVariable,
   onSaveWebhook,
+  onSaveLabels,
   onSaveRunner,
   onInstallPlugin,
   onOpenHelp,
@@ -638,12 +647,14 @@ function CheckTableRow({
   row: CheckRow
   onSetVariable: () => void
   onSaveWebhook: () => Promise<void>
+  onSaveLabels: () => Promise<void>
   onSaveRunner: () => Promise<void>
   onInstallPlugin: () => Promise<void>
   onOpenHelp: (topicId: AgentrixHelpTopicId) => void
 }) {
   const canSetVariable = Boolean(row.variable) && !readOnly
   const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
+  const canSetLabels = row.configItem?.type === "labels" && !readOnly && row.status === "needs_action"
   const canSetRunner = row.configItem?.type === "git-runner" && !readOnly && row.status !== "passed"
   const canInstallPlugin = row.configItem?.type === "plugin"
     && !readOnly
@@ -675,7 +686,7 @@ function CheckTableRow({
           ? <CircleX className="size-4" />
           : <AlertCircle className="size-4" />
   return (
-    <div className={`check-table-row ${row.status}${pendingAuto ? " auto-writable" : ""}${showPluginAction ? " action-visible" : ""}`}>
+    <div className={`check-table-row ${row.status}${pendingAuto ? " auto-writable" : ""}${showPluginAction || canSetLabels ? " action-visible" : ""}`}>
       <div className="check-row-main">
         <span className="check-status-icon">{statusIcon}</span>
         <span className="check-row-copy">
@@ -722,6 +733,12 @@ function CheckTableRow({
             <Button type="button" size="sm" variant="secondary" onClick={onSaveWebhook} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <Webhook className="size-4" />}
               自动配置
+            </Button>
+          )}
+          {canSetLabels && (
+            <Button type="button" size="sm" variant="secondary" onClick={onSaveLabels} disabled={checking}>
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              更新
             </Button>
           )}
           {canSetRunner && <Button type="button" size="sm" variant="secondary" onClick={onSaveRunner} disabled={checking}>{checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />} 自动配置</Button>}

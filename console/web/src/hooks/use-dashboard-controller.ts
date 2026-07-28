@@ -691,6 +691,25 @@ export function useDashboardController() {
       setChecking(false)
     }
   }
+
+  async function setInstallLabels() {
+    if (!selectedProject || !selectedGitServerId) return
+    if (projectAccess && !projectAccess.canManage) {
+      toast.warning("权限不足", {
+        description: `当前角色 ${projectAccess.role || "-"} 仅可查看，不能更新 labels。`,
+      })
+      return
+    }
+    setChecking(true)
+    try {
+      return applyInstallCheck(installCheck, await autoConfigureInstallStep("labels"))
+    } catch (error) {
+      notifyError(error, "更新 Labels 失败")
+    } finally {
+      setChecking(false)
+    }
+  }
+
   async function setInstallRunner() {
     if (!selectedProject || !selectedGitServerId) return
     setChecking(true)
@@ -1136,6 +1155,7 @@ export function useDashboardController() {
       onCloseCheckProgress: closeCheckProgress,
       onSetVariable: setInstallVariable,
       onSetWebhook: setInstallWebhook,
+      onSetLabels: setInstallLabels,
       onSetRunner: setInstallRunner,
       onInstallPlugin: installPlugin,
       onConfirmInstallConflicts: confirmInstallConflicts,
