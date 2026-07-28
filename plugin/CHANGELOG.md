@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/nil4u/issue-flow/compare/v0.7.0...v0.7.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **optimizer:** analyze causes before prescribing rules ([a9c3352](https://github.com/nil4u/issue-flow/commit/a9c3352b558de66642a4f20802ae16992eaacf0c))
+
 ## [0.7.0](https://github.com/nil4u/issue-flow/compare/v0.6.2...v0.7.0) (2026-07-27)
 
 
