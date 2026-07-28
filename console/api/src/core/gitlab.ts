@@ -747,8 +747,11 @@ async function getGitlabGroupVariable(input = {}, groupPath = '', key = '') {
     );
     return result.parsed || {};
   } catch (error) {
-    if (error && (error.status === 403 || error.status === 404)) {
-      return undefined;
+    if (error && error.status === 404) return undefined;
+    if (error && error.status === 403) {
+      error.code = 'gitlab_group_variable_forbidden';
+      error.groupPath = groupPath;
+      error.variableKey = key;
     }
     throw error;
   }

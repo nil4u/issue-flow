@@ -2623,7 +2623,13 @@ function createAgentrixAuthServer() {
   });
 }
 
-function createInstallVariableGitlabServer({ variables = new Map(), writes = [], failKey = '' } = {}) {
+function createInstallVariableGitlabServer({
+  variables = new Map(),
+  groupVariables = new Map(),
+  groupVariableStatus = 0,
+  writes = [],
+  failKey = '',
+} = {}) {
   function variableKey(url) {
     return decodeURIComponent(String(url).split('/variables/')[1] || '');
   }
@@ -2714,14 +2720,127 @@ function createInstallVariableGitlabServer({ variables = new Map(), writes = [],
       return;
     }
     if (req.url.startsWith('/api/v4/groups/') && req.method === 'GET') {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ message: '404 Variable Not Found' }));
+      const variable = groupVariables.get(variableKey(req.url));
+      const status = groupVariableStatus || (variable ? 200 : 404);
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(variable || { message: status === 403 ? '403 Forbidden' : '404 Variable Not Found' }));
       return;
     }
     res.writeHead(404);
     res.end();
   });
 }
+
+function configuredInstallProjectVariables() {
+  return new Map([
+    ['ISSUE_FLOW_GITLAB_TOKEN', {
+      key: 'ISSUE_FLOW_GITLAB_TOKEN',
+      value: 'glpat-issue-flow-token-1234567890',
+      environment_scope: '*',
+      variable_type: 'env_var',
+      masked: true,
+    }],
+    ['ISSUE_FLOW_BASE_URL', { key: 'ISSUE_FLOW_BASE_URL', value: 'https://issue-flow.internal', environment_scope: '*', variable_type: 'env_var' }],
+    ['AGENTRIX_BASE_URL', { key: 'AGENTRIX_BASE_URL', value: 'https://agentrix.xmz.ai', environment_scope: '*', variable_type: 'env_var' }],
+    ['AGENTRIX_ISSUE_FLOW_AGENT', { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: 'codex', environment_scope: '*', variable_type: 'env_var' }],
+    ['ISSUE_FLOW_AUTO_DEFAULT', { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: 'triage', environment_scope: '*', variable_type: 'env_var' }],
+    ['ISSUE_FLOW_REVIEW_ENABLED', { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: 'false', environment_scope: '*', variable_type: 'env_var' }],
+  ]);
+}
+
+test('GitLab settings accepts readable inherited group variables', async () => {
+  const { dir, store } = tempStore();
+  const groupVariables = new Map([
+    ['AGENTRIX_API_KEY', { key: 'AGENTRIX_API_KEY', masked: true, environment_scope: '*', variable_type: 'env_var' }],
+    ['AGENTRIX_RUNNER_ID', { key: 'AGENTRIX_RUNNER_ID', value: 'cloud-main', environment_scope: '*', variable_type: 'env_var' }],
+  ]);
+  const gitlab = createInstallVariableGitlabServer({
+    variables: configuredInstallProjectVariables(),
+    groupVariables,
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      projectPath: 'team/app',
+      defaultBranch: 'main',
+      webUrl: `${gitlabBase}/team/app`,
+    });
+
+    const checked = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'variables' },
+    });
+
+    const step = checked.body.steps[0];
+    const byKey = new Map(step.variables.map((item) => [item.key, item]));
+    assert.equal(step.status, 'passed');
+    assert.equal(checked.body.installable, true);
+    assert.equal(byKey.get('AGENTRIX_API_KEY').source, 'group');
+    assert.equal(byKey.get('AGENTRIX_API_KEY').groupPath, 'team');
+    assert.equal(byKey.get('AGENTRIX_API_KEY').value, '*****');
+    assert.equal(byKey.get('AGENTRIX_RUNNER_ID').value, 'cloud-main');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab settings keeps checking when group variables cannot be verified', async () => {
+  const { dir, store } = tempStore();
+  const writes = [];
+  const gitlab = createInstallVariableGitlabServer({
+    variables: configuredInstallProjectVariables(),
+    groupVariableStatus: 403,
+    writes,
+  });
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    const repository = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      projectPath: 'team/app',
+      defaultBranch: 'main',
+      webUrl: `${gitlabBase}/team/app`,
+    });
+
+    const checked = await checkGitlabProjectInstall({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'variables' },
+    });
+
+    const step = checked.body.steps[0];
+    const byKey = new Map(step.variables.map((item) => [item.key, item]));
+    assert.equal(step.status, 'warning', JSON.stringify(step.variables));
+    assert.equal(checked.body.installable, true);
+    assert.deepEqual(step.blockers, []);
+    assert.deepEqual(step.inputRequired, []);
+    assert.deepEqual(step.missing, []);
+    for (const key of ['AGENTRIX_API_KEY', 'AGENTRIX_RUNNER_ID']) {
+      assert.equal(byKey.get(key).status, 'unverified');
+      assert.equal(byKey.get(key).blocker, false);
+      assert.equal(byKey.get(key).groupPath, 'team');
+      assert.match(byKey.get(key).detail, /Owner/);
+    }
+    assert.deepEqual(writes, []);
+
+    const repo = await store.getRepository(repository.repo.id);
+    const cachedByKey = new Map(repo.settings.variables.items.map((item) => [item.key, item]));
+    assert.equal(cachedByKey.get('AGENTRIX_API_KEY').status, 'unverified');
+    assert.equal(cachedByKey.get('AGENTRIX_API_KEY').exists, false);
+    assert.equal(cachedByKey.get('AGENTRIX_RUNNER_ID').status, 'unverified');
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('GitLab settings checks variables independently and caches safe metadata', async () => {
   const { dir, store } = tempStore();

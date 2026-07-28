@@ -568,6 +568,9 @@ function variableDetail(variable: NonNullable<CheckRow["variable"]>) {
   if (status === "failed") {
     return variable.detail || "自动写入失败"
   }
+  if (status === "unverified") {
+    return variable.detail || "当前账号无权验证 group 变量"
+  }
   if (status === "pending_auto" || status === "needs_action" && Boolean(variable.autoWritable ?? variable.writable)) {
     return "待自动写入 GitLab"
   }
@@ -798,9 +801,11 @@ function CheckProgressDialog({
                     ? <Loader2 className="size-4 animate-spin" />
                     : step.status === "passed"
                       ? <CheckCircle2 className="size-4" />
-                      : step.status === "failed"
+                      : step.status === "warning"
                         ? <AlertCircle className="size-4" />
-                        : <CircleDot className="size-4" />}
+                        : step.status === "failed"
+                          ? <AlertCircle className="size-4" />
+                          : <CircleDot className="size-4" />}
                 </span>
                 <strong>{step.label}</strong>
               </div>
@@ -837,7 +842,11 @@ function VariableValue({ variable }: { variable: NonNullable<CheckRow["variable"
     ? variable.masked || variable.hidden
       ? "*****"
       : String(variable.value || "-")
-    : status === "unknown" || status === "unchecked" ? "未检查" : "未设置"
+    : status === "unknown" || status === "unchecked"
+      ? "未检查"
+      : status === "unverified"
+        ? "无法验证"
+        : "未设置"
   return (
     <span className={`check-row-value ${variable.exists ? "" : "muted"}`}>
       <strong>{value}</strong>
