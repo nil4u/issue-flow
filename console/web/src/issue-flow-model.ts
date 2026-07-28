@@ -139,6 +139,20 @@ export type ProviderIssueLabel = {
   description: string
 }
 
+export type ProviderIssueMilestone = {
+  id: string
+  title: string
+  description: string
+  state: "open" | "closed" | string
+  dueAt: string
+  webUrl: string
+}
+
+export type ProviderIssueReaction = {
+  content: string
+  count: number
+}
+
 export type ProviderIssueSummary = {
   id: string
   number: number
@@ -150,6 +164,7 @@ export type ProviderIssueSummary = {
   assignees: MergeRequestUser[]
   labels: ProviderIssueLabel[]
   commentsCount: number
+  milestone: ProviderIssueMilestone | null
   webUrl: string
   createdAt: string
   updatedAt: string
@@ -162,6 +177,7 @@ export type ProviderIssueComment = {
   body: string
   bodyHtml?: string
   author: MergeRequestUser
+  reactions: ProviderIssueReaction[]
   createdAt: string
   updatedAt: string
 }
