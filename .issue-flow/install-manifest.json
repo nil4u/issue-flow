@@ -1,23 +1,23 @@
 {
   "version": 2,
-  "issueFlowVersion": "0.6.1",
+  "issueFlowVersion": "0.7.0",
   "provider": "github",
   "runtime": "agentrix",
   "files": {
     ".agentrix/plugins/issue-flow/skills/automation-optimizer/SKILL.md": {
       "source": "skills/automation-optimizer/SKILL.md",
       "mode": "managed",
-      "sha256": "ed9863562e57bbd2db61c2233c0a5364a0ca11acc6f2277e7eb1c0fb7f5f342f"
+      "sha256": "06923da9811f999e2e72b5c2f410aeb2afbbecd11abe8831c2f2fca1f6177e04"
     },
     ".agentrix/plugins/issue-flow/skills/automation-optimizer/scripts/task-context.cjs": {
       "source": "skills/automation-optimizer/scripts/task-context.cjs",
       "mode": "managed",
-      "sha256": "bc7d6afa8ce5023434e06fae56c3b2dd9fb9ff6f0140d467eb43e96144d5463f"
+      "sha256": "1584b6eef460bc792a2b55f55340643a7915a2aabdf78091a41e37584d96f386"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/SKILL.md": {
       "source": "skills/issue-flow/SKILL.md",
       "mode": "managed",
-      "sha256": "ca9c6d1587bd4bbfe8429b0812f0058008a59b09e979ea7cc645335bd188abb4"
+      "sha256": "a1a1371ac9d47d0839672007108e7b4e8e21e114d22b6a8f9bd4a72f3a6e1b88"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/build-ci-failure.prompt.md",
@@ -47,7 +47,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/plan-impl.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-impl.prompt.md",
       "mode": "managed",
-      "sha256": "13aec85ede4990d834c70b2d045f9031ad097b720bf63723163c037aa0cbc747"
+      "sha256": "b0ecf9972154cc9f49b2c73e430a51397035ec01e306c902d5741e331f61a01b"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-bug.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-bug.prompt.md",
@@ -112,7 +112,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/assets/agentrix/runtime/templates/type-optimization.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/templates/type-optimization.md",
       "mode": "managed",
-      "sha256": "0c0bac30867bed49d53be367e2ef83314415e37191b970e7ee408cf67b7b9c87"
+      "sha256": "f71d4da761c9e3c087be2bd8a744ab3a0d1deda35dba3ee9035b08d195612cc6"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/cli.cjs": {
       "source": "skills/issue-flow/cli.cjs",
@@ -212,7 +212,7 @@
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/submit.cjs": {
       "source": "skills/issue-flow/scripts/submit.cjs",
       "mode": "managed",
-      "sha256": "9bd0719f4f4983b426fb23b4889018f4e721743eebc5fb04633b968e4ea881d2"
+      "sha256": "555e3de72a81a0854252fa95b934fe8b85de72c4bcfabbf9551ec34a384e4ac7"
     },
     ".agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs": {
       "source": "skills/issue-flow/scripts/sync-labels.cjs",
@@ -272,7 +272,7 @@
     ".issue-flow/config.json": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/config.json",
       "mode": "customizable",
-      "sha256": "b5bf468a605f523d5741e04b6666a32bca0a26c4696c6cbb140e845da671c701"
+      "sha256": "416fb995e4f26148033a18693a9d5f131557249eac8ce1fd62bdb5ca403428f6"
     },
     ".issue-flow/instructions.md": {
       "source": "skills/issue-flow/assets/agentrix/bootstrap/issue-flow/instructions.md",
@@ -312,7 +312,7 @@
     ".issue-flow/prompts/plan-impl.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-impl.prompt.md",
       "mode": "customizable",
-      "sha256": "13aec85ede4990d834c70b2d045f9031ad097b720bf63723163c037aa0cbc747"
+      "sha256": "b0ecf9972154cc9f49b2c73e430a51397035ec01e306c902d5741e331f61a01b"
     },
     ".issue-flow/prompts/plan-visual-bug.prompt.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/prompts/plan-visual-bug.prompt.md",
@@ -377,7 +377,7 @@
     ".issue-flow/templates/type-optimization.md": {
       "source": "skills/issue-flow/assets/agentrix/runtime/templates/type-optimization.md",
       "mode": "customizable",
-      "sha256": "0c0bac30867bed49d53be367e2ef83314415e37191b970e7ee408cf67b7b9c87"
+      "sha256": "f71d4da761c9e3c087be2bd8a744ab3a0d1deda35dba3ee9035b08d195612cc6"
     }
   },
   "links": {
