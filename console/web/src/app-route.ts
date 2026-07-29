@@ -12,6 +12,8 @@ export type VisualArtifactRoute = {
   gitServerId: string
   projectId: string
   issueNumber: number
+  mergeRequestNumber?: number
+  artifactPath?: string
 }
 
 export type MergeRequestRoute = {
@@ -46,7 +48,7 @@ export function parseIssueRoute(pathname = window.location.pathname): IssueRoute
   return { gitServerId: parts[1], projectId: parts[2], issueNumber }
 }
 
-export function parseVisualArtifactRoute(pathname = window.location.pathname): VisualArtifactRoute | undefined {
+export function parseVisualArtifactRoute(pathname = window.location.pathname, search?: string): VisualArtifactRoute | undefined {
   const parts = pathname.split("/").filter(Boolean).map((part) => {
     try {
       return decodeURIComponent(part)
@@ -56,7 +58,17 @@ export function parseVisualArtifactRoute(pathname = window.location.pathname): V
   })
   const issueNumber = Number.parseInt(parts[4] || "", 10)
   if (parts[0] !== "repos" || parts[3] !== "plan" || parts.length !== 5 || !parts[1] || !parts[2] || !Number.isFinite(issueNumber) || issueNumber <= 0) return undefined
-  return { gitServerId: parts[1], projectId: parts[2], issueNumber }
+  const routeSearch = search ?? (typeof window === "undefined" ? "" : window.location.search)
+  const query = new URLSearchParams(routeSearch)
+  const mergeRequestNumber = Number.parseInt(query.get("mergeRequest") || "", 10)
+  const artifactPath = query.get("path") || ""
+  return {
+    gitServerId: parts[1],
+    projectId: parts[2],
+    issueNumber,
+    ...(Number.isFinite(mergeRequestNumber) && mergeRequestNumber > 0 ? { mergeRequestNumber } : {}),
+    ...(artifactPath ? { artifactPath } : {}),
+  }
 }
 
 export const setupRoute: WorkspaceRoute = {

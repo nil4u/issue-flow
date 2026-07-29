@@ -4,7 +4,7 @@ const test = require('node:test')
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test'
 require('tsx/cjs')
 
-const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, structureMarkdownSections, submitVisualReview } = require('../src/core/visual-artifacts.ts')
+const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview } = require('../src/core/visual-artifacts.ts')
 const { renderVisualArtifactDocument } = require('../src/core/visual-renderer.ts')
 const {
   applyVisualIssueLabels,
@@ -53,6 +53,68 @@ test('visual artifact marker carries immutable artifact coordinates without a re
   })
 })
 
+test('Plan preview resolves a legacy Markdown Plan from its MR and follows the current head', () => {
+  const body = [
+    '<!-- issue-flow:source-issue=1030 -->',
+    '<!-- issue-flow:plan-artifact artifact=plan format=markdown issue=1030 branch=1030-feat/plan commit=old-head path=.issue-flow/issues/1030-feat/plan/001-implementation.md -->',
+    '## Plan file',
+    '',
+    '.issue-flow/issues/1030-feat/plan/001-implementation.md',
+  ].join('\n')
+  assert.equal(planFilePathFromBody(body), '.issue-flow/issues/1030-feat/plan/001-implementation.md')
+  assert.deepEqual(mergeRequestArtifact({
+    id: '71', number: 1196, body, state: 'open', headBranch: '1030-feat/plan', commitSha: 'current-head',
+    labels: ['mr-by::plan'],
+    updatedAt: '2026-07-29T00:00:00.000Z',
+  }, 1030), {
+    type: 'plan', format: 'markdown', previewer: 'markdown', workflow: 'plan', issueNumber: 1030, branch: '1030-feat/plan', commitSha: 'current-head',
+    entryPath: '.issue-flow/issues/1030-feat/plan/001-implementation.md', mergeRequestId: '71', mergeRequestNumber: 1196,
+    mergeRequestUrl: '', mergeRequestState: 'open', merged: false, baseBranch: '', publishedAt: '2026-07-29T00:00:00.000Z',
+  })
+})
+
+test('Plan preview prefers current changed files over a stale marker', () => {
+  const artifact = mergeRequestArtifact({
+    id: '71', number: 1196,
+    body: '<!-- issue-flow:source-issue=1030 -->\n<!-- issue-flow:plan-artifact artifact=plan format=markdown issue=1030 branch=1030-feat/plan commit=old-head path=.issue-flow/issues/1030-feat/plan/000-old.md -->',
+    state: 'open',
+    labels: ['mr-by::plan'],
+    headBranch: '1030-feat/plan', commitSha: 'current-head',
+    files: [
+      { path: '.issue-flow/issues/1030-feat/plan/001-implementation.md', status: 'added' },
+      { path: '.issue-flow/issues/1030-feat/decision/data/decision-data.json', status: 'removed' },
+    ],
+  }, 1030)
+  assert.equal(artifact.type, 'plan')
+  assert.equal(artifact.format, 'markdown')
+  assert.equal(artifact.entryPath, '.issue-flow/issues/1030-feat/plan/001-implementation.md')
+  assert.equal(artifact.commitSha, 'current-head')
+})
+
+test('MR preview discovers supported files in any directory and uses Plan file only as the default', () => {
+  const mergeRequest = {
+    id: '81', number: 21,
+    body: '<!-- issue-flow:source-issue=42 -->\n## Plan file\n\n`docs/guide.md`',
+    labels: ['mr-by::build'],
+    state: 'open', headBranch: '42-build', commitSha: 'head-42',
+    files: [
+      { path: 'specs/plan-data.json', status: 'modified' },
+      { path: 'docs/guide.md', status: 'added' },
+      { path: 'decisions/decision-data.json', status: 'renamed' },
+      { path: 'docs/removed.md', status: 'removed' },
+      { path: 'src/main.ts', status: 'modified' },
+    ],
+  }
+  const artifacts = mergeRequestArtifacts(mergeRequest, 42)
+
+  assert.deepEqual(artifacts.map(({ entryPath, type, previewer, workflow }) => ({ entryPath, type, previewer, workflow })), [
+    { entryPath: 'docs/guide.md', type: 'markdown', previewer: 'markdown', workflow: 'preview' },
+    { entryPath: 'decisions/decision-data.json', type: 'decision', previewer: 'decision-json', workflow: 'preview' },
+    { entryPath: 'specs/plan-data.json', type: 'plan', previewer: 'plan-json', workflow: 'preview' },
+  ])
+  assert.equal(mergeRequestArtifact(mergeRequest, 42, undefined, 'specs/plan-data.json').entryPath, 'specs/plan-data.json')
+})
+
 test('approve other decisions preserves discussed and already approved decisions', () => {
   assert.deepEqual(pendingDecisionApprovalRefs(
     ['decisions.storage', 'decisions.auth', 'decisions.rollout'],
@@ -98,6 +160,20 @@ test('approved Decision comments on the open MR and advances the issue without m
         target_branch: 'main',
         sha: 'abc123',
       }]), { status: 200 })
+    }
+    if (String(url).endsWith('/merge_requests/11')) {
+      return new Response(JSON.stringify({
+        id: 71, iid: 11,
+        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+        labels: ['mr-by::plan'], state: 'opened', source_branch: '42-login/plan', target_branch: 'main', sha: 'abc123',
+      }), { status: 200 })
+    }
+    if (String(url).endsWith('/merge_requests/11/changes')) {
+      return new Response(JSON.stringify({ changes: [{
+        old_path: '.issue-flow/issues/42-login/decision/data/decision-data.json',
+        new_path: '.issue-flow/issues/42-login/decision/data/decision-data.json',
+        diff: '@@ -1 +1 @@',
+      }] }), { status: 200 })
     }
     if (String(url).includes('/repository/files/')) {
       const content = Buffer.from(JSON.stringify({ decisions: [
@@ -145,6 +221,49 @@ test('approved Decision comments on the open MR and advances the issue without m
   assert.match(JSON.parse(comment.options.body).body, /选择方案.*Database/)
 })
 
+test('Build MR Markdown accepts Preview comments without changing the Plan workflow', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url, options = {}) => {
+    const requestUrl = String(url)
+    requests.push({ url: requestUrl, options })
+    if (requestUrl.endsWith('/merge_requests/20')) {
+      return new Response(JSON.stringify({
+        id: 80, iid: 20,
+        description: '<!-- issue-flow:source-issue=42 -->',
+        labels: ['mr-by::build'], state: 'opened', source_branch: '42-build', target_branch: 'main', sha: 'build-head',
+      }), { status: 200 })
+    }
+    if (requestUrl.endsWith('/merge_requests/20/changes')) {
+      return new Response(JSON.stringify({ changes: [{ old_path: 'docs/notes.md', new_path: 'docs/notes.md', diff: '@@ -1 +1 @@' }] }), { status: 200 })
+    }
+    if (requestUrl.endsWith('/merge_requests/20/notes') && options.method === 'POST') {
+      return new Response(JSON.stringify({ id: 801 }), { status: 201 })
+    }
+    throw new Error(`Unexpected request: ${options.method || 'GET'} ${requestUrl}`)
+  }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget', defaultBranch: 'main' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+  }
+
+  const result = await submitVisualReview({
+    store, gitServerId: 'gitlab-main', projectId: '43326', issueNumber: 42, mergeRequestNumber: 20,
+    userId: 'user-1', session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+    input: { items: [{ comment: '这里需要补充失败路径', targetId: 'docs/notes.md', sourceRefs: [{ type: 'file', path: 'docs/notes.md' }] }] },
+  })
+
+  assert.equal(result.status, 'commented')
+  assert.equal(result.flow, undefined)
+  assert.equal(requests.some((request) => request.url.includes('/issues/42')), false)
+  const comment = requests.find((request) => request.url.endsWith('/merge_requests/20/notes'))
+  assert.match(JSON.parse(comment.options.body).body, /## Preview Review/)
+  assert.doesNotMatch(JSON.parse(comment.options.body).body, /请根据以上审阅意见更新当前/)
+})
+
 test('reviewable artifacts only include open Plan MRs', async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
@@ -179,6 +298,16 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
       sha: 'plan456',
       updated_at: '2026-07-15T05:00:00.000Z',
     },
+    {
+      id: 75,
+      iid: 15,
+      description: '<!-- issue-flow:source-issue=44 -->\n## Plan file\n\n.issue-flow/issues/44-export/plan/001-implementation.md',
+      state: 'opened',
+      source_branch: '44-export/plan',
+      target_branch: 'main',
+      sha: 'legacy456',
+      updated_at: '2026-07-15T04:00:00.000Z',
+    },
   ]), { status: 200 })
   const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget' }
   const store = {
@@ -193,7 +322,74 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     projectId: '43326',
     userId: 'user-1',
     session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
-  }), [{ issueNumber: 42, type: 'plan', format: 'json', mergeRequestNumber: 14 }])
+  }), [
+    { issueNumber: 42, type: 'plan', format: 'json', mergeRequestNumber: 14 },
+    { issueNumber: 44, type: 'plan', format: 'markdown', mergeRequestNumber: 15 },
+  ])
+})
+
+test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url, options = {}) => {
+    const requestUrl = String(url)
+    requests.push(requestUrl)
+    if (requestUrl.endsWith('/projects/12/merge_requests/1196')) {
+      return new Response(JSON.stringify({
+        id: 71,
+        iid: 1196,
+        description: '<!-- issue-flow:source-issue=1030 -->\n## Plan file\n\n.issue-flow/issues/1030-feat/plan/001-implementation.md',
+        labels: ['mr-by::plan'],
+        state: 'opened',
+        source_branch: '1030-feat/plan',
+        target_branch: 'develop',
+        sha: 'current-head',
+        updated_at: '2026-07-29T00:00:00.000Z',
+      }), { status: 200 })
+    }
+    if (requestUrl.endsWith('/projects/12/merge_requests/1196/changes')) {
+      return new Response(JSON.stringify({ changes: [{
+        old_path: '.issue-flow/issues/1030-feat/plan/001-implementation.md',
+        new_path: '.issue-flow/issues/1030-feat/plan/001-implementation.md',
+        new_file: true,
+        diff: '@@ -0,0 +1 @@\n+# Request lifecycle metrics',
+      }] }), { status: 200 })
+    }
+    if (decodeURIComponent(requestUrl).includes('/repository/files/.issue-flow/issues/1030-feat/plan/001-implementation.md?ref=current-head')) {
+      return new Response(JSON.stringify({
+        content: Buffer.from('# Request lifecycle metrics\n\n## Validation\n\n- Verify metrics.').toString('base64'),
+        encoding: 'base64',
+      }), { status: 200 })
+    }
+    if (requestUrl.endsWith('/markdown') && options.method === 'POST') {
+      return new Response(JSON.stringify({ html: '<h1>Request lifecycle metrics</h1><h2>Validation</h2><ul><li>Verify metrics.</li></ul>' }), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${options.method || 'GET'} ${requestUrl}`)
+  }
+  const repo = { id: 'repo_12', gitServerId: 'git-ke-com', serverRepoId: '12', fullName: 'ai-arch/bella-openapi', defaultBranch: 'develop' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://git.ke.com/api/v4', tokenAuth: 'private-token' }),
+  }
+
+  const result = await getVisualArtifact({
+    store,
+    gitServerId: 'git-ke-com',
+    projectId: '12',
+    issueNumber: 1030,
+    mergeRequestNumber: 1196,
+    userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'git-ke-com', token: 'user-token' },
+  })
+
+  assert.equal(result.format, 'markdown')
+  assert.equal(result.artifact.commitSha, 'current-head')
+  assert.equal(result.artifact.entryPath, '.issue-flow/issues/1030-feat/plan/001-implementation.md')
+  assert.equal(result.mergeRequest.number, 1196)
+  assert.match(result.html, /data-ref="markdown\.plan"/)
+  assert.equal(requests.some((request) => request.includes('merge_requests?')), false)
 })
 
 test('Engine renders Plan JSON with fixed layout and stable review anchors', () => {
@@ -247,6 +443,20 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
         target_branch: 'main',
         sha: 'abc123',
       }]), { status: 200 })
+    }
+    if (requestUrl.endsWith('/merge_requests/17')) {
+      return new Response(JSON.stringify({
+        id: 91, iid: 17,
+        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
+        labels: ['mr-by::plan'], state: 'opened', source_branch: '42-checkout/plan', target_branch: 'main', sha: 'abc123',
+      }), { status: 200 })
+    }
+    if (requestUrl.endsWith('/merge_requests/17/changes')) {
+      return new Response(JSON.stringify({ changes: [{
+        old_path: '.issue-flow/issues/42-checkout/plan/data/plan-data.json',
+        new_path: '.issue-flow/issues/42-checkout/plan/data/plan-data.json',
+        diff: '@@ -1 +1 @@',
+      }] }), { status: 200 })
     }
     if (decodeURIComponent(requestUrl).includes('plan-data.json')) {
       return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(planData)).toString('base64'), encoding: 'base64' }), { status: 200 })
@@ -407,7 +617,7 @@ test('invalid visual JSON is reported as a controlled artifact error', () => {
 
 test('visual review comment includes the selected anchor and page content', () => {
   const comment = buildReviewComment(
-    { type: 'plan' },
+    { type: 'plan', workflow: 'plan' },
     {
       id: 'visual_review_1',
       payload: {
@@ -453,7 +663,7 @@ test('approved visual plan comment does not ask Agentrix to resume plan', () => 
 
 test('approved visual decision comment triggers the review comment pipeline', () => {
   const comment = buildReviewComment(
-    { type: 'decision' },
+    { type: 'decision', workflow: 'plan' },
     { id: 'visual_review_3', payload: { items: [] } },
     'approved',
   )

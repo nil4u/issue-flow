@@ -16,17 +16,20 @@ export async function visualArtifactRoutes(app: FastifyInstance) {
 
   app.get("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber", async (request) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
-    return getVisualArtifact({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId) })
+    const { mergeRequest: mergeRequestNumber, path: artifactPath } = request.query as Record<string, string>
+    return getVisualArtifact({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath, ...await visualSession(request, gitServerId) })
   })
 
   app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/reviews", async (request, reply) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
-    const result = await submitVisualReview({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId), input: request.body || {} })
+    const { mergeRequest: mergeRequestNumber, path: artifactPath } = request.query as Record<string, string>
+    const result = await submitVisualReview({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath, ...await visualSession(request, gitServerId), input: request.body || {} })
     return reply.code(201).send(result)
   })
 
   app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/approve", async (request) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
-    return approveVisualPlan({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId) })
+    const { mergeRequest: mergeRequestNumber, path: artifactPath } = request.query as Record<string, string>
+    return approveVisualPlan({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath, ...await visualSession(request, gitServerId) })
   })
 }

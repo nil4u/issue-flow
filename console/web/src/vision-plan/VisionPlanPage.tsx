@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, GitPullRequest, X } from "lucide-react";
+import { ArrowLeft, GitPullRequest, MessageCircle, X } from "lucide-react";
 import { approveAllDecisions, approveVisionArtifact, loadVisualArtifact, submitReviewDraft } from "./api";
 import { anchorSelector, findDataRef, formatPlanDataSnippet, parsePlanDataIsland, PLAN_DATA_ISLAND_ID, resolvePlanDataRef } from "./anchors";
 import { decisionItemsFromDocument, interactiveDecisionRefs, type DecisionItem, type DecisionOption } from "./decision-items";
 import { ArtifactReviewPanel } from "./ArtifactReviewPanel";
+import { FileTree } from "@/components/review/file-tree";
 import { anchorOffsetForPoint, resolveVisualTargetPosition, visualTargetMarkerStyle, type MarkerFrameMetrics } from "./marker-position";
 import { addStoredReviewDraft, clearReviewStorage, deleteStoredReviewDraft, saveSubmittedReview, updateStoredReviewDraft } from "./review-storage";
 import type { ArtifactType, DecisionReview, DraftReviewItem, FeedbackRequest, IssueArtifact, LoadedIssue, VisionRouteContext, VisualReview, VisualTarget } from "./types";
@@ -28,20 +29,21 @@ type ArtifactSection = {
 
 function artifactLabel(type: ArtifactType) {
   if (type === "decision") return "决策";
+  if (type === "markdown") return "Markdown";
   return "方案";
 }
 
 function sourceRefTypeForArtifact(type: ArtifactType) {
   if (type === "decision") return "decision";
+  if (type === "markdown") return "file";
   return "plan";
 }
 
-function draftBelongsToArtifact(item: DraftReviewItem | null | undefined, artifactType: ArtifactType) {
+function draftBelongsToArtifact(item: DraftReviewItem | null | undefined, artifact: IssueArtifact) {
   if (!item) return false;
-  return item.visualTarget?.artifact === artifactType || (item.sourceRefs ?? []).some((ref) => (
-    ref.type === artifactType ||
-    ref.path === `${artifactType}/data/${artifactType}-data.json`
-  ));
+  const paths = [item.visualTarget?.path, ...(item.sourceRefs ?? []).map((ref) => ref.path)].filter(Boolean);
+  if (paths.length) return paths.includes(artifact.path);
+  return item.visualTarget?.artifact === artifact.type || (item.sourceRefs ?? []).some((ref) => ref.type === artifact.type);
 }
 
 function compareDraftDocumentOrder(left: DraftReviewItem, right: DraftReviewItem) {
@@ -371,8 +373,11 @@ function makeDecisionVisualTarget(artifact: IssueArtifact, overlay: HTMLDivEleme
   return makeElementVisualTarget(artifact, overlay, frame, element, "决策项");
 }
 
-export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRouteContext) {
-  const context = useMemo(() => ({ gitServerId, projectId, issueNumber }), [gitServerId, projectId, issueNumber]);
+export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath }: VisionRouteContext) {
+  const routeContext = useMemo(
+    () => ({ gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath }),
+    [gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath],
+  );
   const embedded = typeof window !== "undefined" && window.self !== window.top;
   const [issue, setIssue] = useState<LoadedIssue | null>(null);
   const [draftItems, setDraftItems] = useState<DraftReviewItem[]>([]);
@@ -390,8 +395,10 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewCollapsed, setReviewCollapsed] = useState(false);
   const [artifactHtml, setArtifactHtml] = useState<string | null>(null);
   const [artifactFormat, setArtifactFormat] = useState<"json" | "markdown" | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(artifactPath ?? null);
   const [decisionItemMode, setDecisionItemMode] = useState<"approval" | "choice" | "mixed">("approval");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -401,7 +408,9 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   const sectionObserverCleanupRef = useRef<(() => void) | null>(null);
   const overlayResizeObserverRef = useRef<ResizeObserver | null>(null);
   const decisionItemsRef = useRef<DecisionItem[]>([]);
-  const currentArtifact = useMemo(() => issue?.artifacts[0] ?? null, [issue]);
+  const currentArtifact = useMemo(() => issue?.artifacts.find((artifact) => artifact.path === selectedPath) ?? null, [issue, selectedPath]);
+  const artifactTreeItems = useMemo(() => (issue?.artifacts ?? []).map((artifact) => ({ path: artifact.path })), [issue?.artifacts]);
+  const context = useMemo(() => ({ gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath: currentArtifact?.path }), [currentArtifact?.path, gitServerId, issueNumber, mergeRequestNumber, projectId]);
   const artifactContext = useMemo(() => currentArtifact ? { ...context, artifactType: currentArtifact.type } : null, [context, currentArtifact]);
   commentActionEnabledRef.current = !commentComposerOpen && !editingDraftId;
 
@@ -417,20 +426,26 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
     setDecisionItemMode("approval");
     setArtifactSections([]);
     setActiveSectionId(null);
-    loadVisualArtifact(context)
+    loadVisualArtifact(routeContext)
       .then((loaded) => {
         setIssue(loaded.issue);
+        setSelectedPath(loaded.selectedPath);
         setDraftItems(loaded.drafts.filter(Boolean));
         setReviews(loaded.reviews);
         setArtifactHtml(loaded.html);
         setArtifactFormat(loaded.format);
+        if (!routeContext.artifactPath && typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          url.searchParams.set("path", loaded.selectedPath);
+          window.history.replaceState(null, "", url);
+        }
       })
       .catch((loadError) => {
         setIssue(null);
         setError(loadError instanceof Error ? loadError.message : "加载可视化产物失败");
       })
       .finally(() => setBusy(false));
-  }, [context]);
+  }, [routeContext]);
 
   useEffect(() => {
     if (!issue) return;
@@ -441,7 +456,39 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
     setVisualCommentText("");
     setArtifactSections([]);
     setActiveSectionId(null);
-  }, [currentArtifact?.type, issue]);
+  }, [currentArtifact?.path, issue]);
+
+  async function selectArtifact(path: string) {
+    if (!path || path === currentArtifact?.path) return;
+    setBusy(true);
+    setArtifactFormat(null);
+    setError(null);
+    setAgentPrompt(null);
+    setSelectedDraftId(null);
+    setCommentComposerOpen(false);
+    setPendingTarget(null);
+    setPendingDecision(null);
+    setEditingDraftId(null);
+    setArtifactSections([]);
+    setActiveSectionId(null);
+    try {
+      const loaded = await loadVisualArtifact({ gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath: path });
+      setIssue(loaded.issue);
+      setSelectedPath(loaded.selectedPath);
+      setDraftItems(loaded.drafts.filter(Boolean));
+      setReviews(loaded.reviews);
+      setArtifactHtml(loaded.html);
+      setArtifactFormat(loaded.format);
+      const url = new URL(window.location.href);
+      url.searchParams.set("path", loaded.selectedPath);
+      window.history.pushState(null, "", url);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "加载预览文件失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const refreshVisualPositions = useCallback(() => setVisualTick((value) => value + 1), []);
 
   function syncActiveSection() {
@@ -818,10 +865,10 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
     };
   }, [currentArtifact?.path, refreshVisualPositions]);
 
-  const scopedDraftItems = useMemo(() => currentArtifact ? draftItems.filter((item) => draftBelongsToArtifact(item, currentArtifact.type)) : [], [currentArtifact, draftItems]);
+  const scopedDraftItems = useMemo(() => currentArtifact ? draftItems.filter((item) => draftBelongsToArtifact(item, currentArtifact)) : [], [currentArtifact, draftItems]);
   const orderedDraftItems = useMemo(() => [...scopedDraftItems].sort(compareDraftDocumentOrder), [scopedDraftItems]);
   const submittedReviewItems = useMemo(() => currentArtifact
-    ? reviews.flatMap((review) => review.payload?.items ?? []).filter((item) => draftBelongsToArtifact(item, currentArtifact.type))
+    ? reviews.flatMap((review) => review.payload?.items ?? []).filter((item) => draftBelongsToArtifact(item, currentArtifact))
     : [], [currentArtifact, reviews]);
   const reviewMarkerItems = useMemo(() => [...orderedDraftItems, ...submittedReviewItems].sort(compareDraftDocumentOrder), [orderedDraftItems, submittedReviewItems]);
   const editingDraft = scopedDraftItems.find((item) => item.id === editingDraftId) ?? null;
@@ -875,6 +922,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   }
 
   function openElementComment(target: VisualTarget) {
+    setReviewCollapsed(false);
     setCommentComposerOpen(true);
     setPendingTarget(target);
     setPendingDecision(null);
@@ -1032,7 +1080,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   }
 
   async function confirmSubmitReview() {
-    if (!issue || !artifactContext || !orderedDraftItems.length) return;
+    if (!issue || !artifactContext || !currentArtifact || !orderedDraftItems.length) return;
+    const reviewedArtifact = currentArtifact;
     setSubmittingReview(true);
     setError(null);
     try {
@@ -1046,7 +1095,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         saveSubmittedReview(artifactContext, result.review);
         setReviews((items) => [result.review, ...items]);
       }
-      setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
+      setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => artifact.path === reviewedArtifact.path ? { ...artifact, status: result.status } : artifact) } : loaded);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "提交审阅失败");
     } finally {
@@ -1055,7 +1104,8 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   }
 
   async function approvePlan() {
-    if (!issue || !artifactContext) return;
+    if (!issue || !artifactContext || !currentArtifact) return;
+    const reviewedArtifact = currentArtifact;
     setAgentPrompt(null);
     setError(null);
     try {
@@ -1063,7 +1113,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
       clearReviewStorage(artifactContext);
       setDraftItems([]);
       setReviews([]);
-      setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.artifact.status })) } : loaded);
+      setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => artifact.path === reviewedArtifact.path ? { ...artifact, status: result.artifact.status } : artifact) } : loaded);
     } catch (approvalError) {
       setError(approvalError instanceof Error ? approvalError.message : "通过方案失败");
     }
@@ -1071,12 +1121,13 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
 
   async function approveEveryDecision() {
     if (!issue || !artifactContext || currentArtifact?.type !== "decision") return;
+    const reviewedArtifact = currentArtifact;
     setSubmittingReview(true);
     setAgentPrompt(null);
     setError(null);
     try {
       const result = await approveAllDecisions(context, orderedDraftItems);
-      setDraftItems((items) => items.filter((item) => !draftBelongsToArtifact(item, "decision")));
+      setDraftItems((items) => items.filter((item) => !draftBelongsToArtifact(item, reviewedArtifact)));
       if (result.status === "approved") {
         clearReviewStorage(artifactContext);
         setReviews([]);
@@ -1084,7 +1135,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         saveSubmittedReview(artifactContext, result.review);
         setReviews((items) => [result.review, ...items]);
       }
-      setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => ({ ...artifact, status: result.status })) } : loaded);
+      setIssue((loaded) => loaded ? { ...loaded, artifacts: loaded.artifacts.map((artifact) => artifact.path === reviewedArtifact.path ? { ...artifact, status: result.status } : artifact) } : loaded);
     } catch (approvalError) {
       setError(approvalError instanceof Error ? approvalError.message : "全部通过失败");
     } finally {
@@ -1106,7 +1157,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
   }, [reviewMarkerItems, visualTick]);
 
   return (
-    <main className="vision-plan-page artifact-engine is-review-workspace">
+    <main className={`vision-plan-page artifact-engine is-review-workspace ${reviewCollapsed ? "is-comments-collapsed" : ""}`}>
       <header className="review-workspace-header">
         <div className="artifact-heading">
           {!embedded ? <a className="artifact-back-link" href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues`} aria-label="返回 Issues 看板" title="返回 Issues 看板"><ArrowLeft size={17} /></a> : null}
@@ -1116,6 +1167,14 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
           </div>
         </div>
         <div className="toolbar-actions">
+          {issue && issue.artifacts.length > 1 ? (
+            <label className="artifact-file-select">
+              <span>预览文件</span>
+              <select value={currentArtifact?.path ?? ""} onChange={(event) => void selectArtifact(event.currentTarget.value)}>
+                {issue.artifacts.map((artifact) => <option key={artifact.path} value={artifact.path}>{artifact.path}</option>)}
+              </select>
+            </label>
+          ) : null}
           {!embedded && currentArtifact?.mergeRequestUrl ? <a href={currentArtifact.mergeRequestUrl} target="_blank" rel="noreferrer"><GitPullRequest size={16} />查看 MR #{currentArtifact.mergeRequestNumber}</a> : null}
         </div>
       </header>
@@ -1124,8 +1183,16 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         {issue ? (
           <section className="panel-section navigation-section">
             <div className="artifact-directory">
+              {issue.artifacts.length > 1 ? <>
+                <div className="artifact-file-list">
+                  <div className="artifact-nav-label"><strong>文件</strong><span>{issue.artifacts.length}</span></div>
+                  <FileTree ariaLabel="MR 预览文件" items={artifactTreeItems} activePath={currentArtifact?.path} onSelect={(path) => void selectArtifact(path)} />
+                </div>
+                <div className="artifact-nav-divider" />
+              </> : null}
+              <div className="artifact-nav-label"><strong>章节</strong><span>{artifactSections.length}</span></div>
               {artifactSections.length ? (
-                <nav aria-label={`${currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}章节`}>
+                <nav className="artifact-section-tree" aria-label={`${currentArtifact ? artifactLabel(currentArtifact.type) : "产物"}章节`}>
                   {artifactSections.map((section) => (
                     <button key={section.id} type="button" data-level={section.level} className={section.id === activeSectionId ? "is-active" : ""} onClick={() => scrollToArtifactSection(section.id)}>
                       <span>{section.label}</span>
@@ -1149,11 +1216,11 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
         ) : null}
 
         <div className="artifact-frame-wrap">
-          {busy ? <div className="empty-state">正在加载 Plan MR 产物…</div> : !currentArtifact && error ? <div className="empty-state"><pre className="error-box">{error}</pre></div> : currentArtifact ? (
+          {busy ? <div className="empty-state">正在加载 MR Preview…</div> : !currentArtifact && error ? <div className="empty-state"><pre className="error-box">{error}</pre></div> : currentArtifact ? (
             <>
               <iframe
                 ref={frameRef}
-                key={`${issue?.issueId}-${currentArtifact.type}`}
+                key={`${issue?.issueId}-${currentArtifact.path}`}
                 title={`${issue?.issueId} ${artifactLabel(currentArtifact.type)}`}
                 srcDoc={artifactHtml ?? "<!doctype html><body>正在加载产物…</body>"}
                 className="artifact-frame"
@@ -1190,13 +1257,14 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
               </div>
             </>
           ) : (
-            <div className="empty-state">当前 Plan MR 尚未发布</div>
+            <div className="empty-state">当前 MR 没有可预览的文件</div>
           )}
         </div>
       </section>
 
-      {artifactFormat && currentArtifact ? (
+      {artifactFormat && currentArtifact && !reviewCollapsed ? (
         <ArtifactReviewPanel
+          approvable={currentArtifact.workflow === "plan"}
           approved={currentArtifact.status === "approved"}
           approvalLabel={approvalLabel}
           approveWithDrafts={currentArtifact.type === "decision"}
@@ -1212,6 +1280,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
           onApprove={currentArtifact.type === "decision" ? approveEveryDecision : approvePlan}
           onCancelComment={closeCommentModal}
           onChangeComment={setVisualCommentText}
+          onCollapse={() => setReviewCollapsed(true)}
           onEditDraft={openDraftEditor}
           onOpenOverallComment={openOverallComment}
           onRemoveDraft={removeReviewItem}
@@ -1220,6 +1289,12 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber }: VisionRo
           onSubmit={confirmSubmitReview}
           onUpdateComment={updateExistingDraft}
         />
+      ) : null}
+
+      {artifactFormat && currentArtifact && reviewCollapsed ? (
+        <button type="button" className="collapsed-review-bubble" aria-label={`展开评论区，当前 ${reviewMarkerItems.length} 条评论`} onClick={() => setReviewCollapsed(false)}>
+          <MessageCircle size={16} />评论({reviewMarkerItems.length})
+        </button>
       ) : null}
 
     </main>

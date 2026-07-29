@@ -118,8 +118,15 @@
 .vision-plan-page .doc-path { margin: 0; color: var(--vp-muted); font-size: 0.78rem; line-height: 1.5; overflow-wrap: anywhere; }
 
 .vision-plan-page .artifact-directory { display: grid; gap: 7px; }
-.vision-plan-page .artifact-directory nav { display: grid; gap: 3px; max-height: min(32vh, 310px); overflow: auto; padding-right: 2px; }
-.vision-plan-page .artifact-directory button {
+.vision-plan-page .artifact-file-list { display: grid; gap: 7px; min-width: 0; }
+.vision-plan-page .artifact-nav-label { display: flex; align-items: center; justify-content: space-between; min-height: 24px; padding: 0 8px; color: var(--vp-muted); font-size: 0.7rem; }
+.vision-plan-page .artifact-nav-label strong { color: #3f3f46; font-size: 0.72rem; letter-spacing: 0.02em; }
+.vision-plan-page .artifact-nav-label span { font-variant-numeric: tabular-nums; }
+.vision-plan-page .artifact-nav-divider { height: 1px; margin: 5px 8px; background: var(--vp-line); }
+.vision-plan-page .artifact-file-list .if-file-tree { max-height: min(38vh, 360px); }
+.vision-plan-page .artifact-directory .artifact-section-tree { display: grid; gap: 3px; max-width: 100%; max-height: min(32vh, 310px); overflow: auto; padding-right: 2px; }
+.vision-plan-page .artifact-directory .artifact-section-tree::-webkit-scrollbar:horizontal { height: 0; }
+.vision-plan-page .artifact-directory .artifact-section-tree button {
   position: relative;
   justify-content: flex-start;
   min-height: 32px;
@@ -129,9 +136,9 @@
   background: transparent;
   text-align: left;
 }
-.vision-plan-page .artifact-directory button[data-level="2"] { padding-left: 18px; }
-.vision-plan-page .artifact-directory button[data-level="3"] { padding-left: 30px; }
-.vision-plan-page .artifact-directory button::before {
+.vision-plan-page .artifact-directory .artifact-section-tree button[data-level="2"] { padding-left: 18px; }
+.vision-plan-page .artifact-directory .artifact-section-tree button[data-level="3"] { padding-left: 30px; }
+.vision-plan-page .artifact-directory .artifact-section-tree button::before {
   content: "";
   width: 5px;
   height: 5px;
@@ -139,11 +146,13 @@
   border-radius: 50%;
   background: #d4d4d8;
 }
-.vision-plan-page .artifact-directory button:hover { background: var(--vp-soft); }
-.vision-plan-page .artifact-directory button.is-active { background: var(--vp-primary-soft); }
-.vision-plan-page .artifact-directory button.is-active::before { background: var(--vp-primary); box-shadow: 0 0 0 4px rgb(24 24 27 / 8%); }
-.vision-plan-page .artifact-directory button span { max-width: 100%; overflow: hidden; color: #52525b; font-size: 0.81rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.vision-plan-page .artifact-directory button.is-active span { color: var(--vp-primary); font-weight: 700; }
+.vision-plan-page .artifact-directory .artifact-section-tree button:hover { background: var(--vp-soft); }
+.vision-plan-page .artifact-directory .artifact-section-tree button.is-active { background: var(--vp-primary-soft); }
+.vision-plan-page .artifact-directory .artifact-section-tree button.is-active::before { background: var(--vp-primary); box-shadow: 0 0 0 4px rgb(24 24 27 / 8%); }
+.vision-plan-page .artifact-directory .artifact-section-tree button span { max-width: 100%; overflow: hidden; color: #52525b; font-size: 0.81rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.vision-plan-page .artifact-directory .artifact-section-tree button.is-active span { color: var(--vp-primary); font-weight: 700; }
+.vision-plan-page .artifact-file-select { display: none; min-width: 0; align-items: center; gap: 7px; color: var(--vp-muted); font-size: 0.7rem; }
+.vision-plan-page .artifact-file-select select { min-width: 180px; max-width: min(42vw, 360px); height: 34px; border: 1px solid var(--vp-line); border-radius: 8px; padding: 0 28px 0 9px; background: #fff; color: var(--vp-ink); font: inherit; text-overflow: ellipsis; }
 
 .vision-plan-page .segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 3px; border-radius: 10px; background: var(--vp-soft); }
 .vision-plan-page .segmented button { min-height: 30px; padding: 3px 8px; border: 0; background: transparent; font-size: 0.78rem; }
@@ -265,9 +274,9 @@
 .vision-plan-page.is-review-workspace:hover::-webkit-scrollbar-thumb,
 .vision-plan-page.is-review-workspace *:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--vp-muted) 42%, transparent); }
 .vision-plan-page.is-review-workspace .navigation-section { gap: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.vision-plan-page.is-review-workspace .artifact-directory nav { max-height: none; }
-.vision-plan-page.is-review-workspace .artifact-directory button { min-height: 36px; border-radius: 7px; }
-.vision-plan-page.is-review-workspace .artifact-directory button.is-active { background: #eeeeef; }
+.vision-plan-page.is-review-workspace .artifact-directory .artifact-section-tree { max-height: none; }
+.vision-plan-page.is-review-workspace .artifact-directory .artifact-section-tree button { min-height: 34px; border-radius: 5px; }
+.vision-plan-page.is-review-workspace .artifact-directory .artifact-section-tree button.is-active { background: #eeeeef; }
 .vision-plan-page.is-review-workspace .artifact-stage { grid-area: artifact; grid-template-rows: minmax(0, 1fr); height: auto; background: #fff; }
 .vision-plan-page.is-review-workspace .artifact-frame-wrap { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
 .vision-plan-page.is-review-workspace .marker.region { border: 0; border-radius: 3px; background: rgb(250 204 21 / 20%); box-shadow: inset 0 -2px 0 rgb(202 138 4 / 48%); opacity: 1; }
@@ -275,8 +284,11 @@
 .vision-plan-page .markdown-review-panel { --vp-scrollbar-track: #fafafa; grid-area: comments; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; height: auto; border-left: 1px solid var(--vp-line); background: #fafafa; }
 .vision-plan-page .markdown-review-heading { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 8px 14px; border-bottom: 1px solid var(--vp-line); background: #fff; }
 .vision-plan-page .markdown-review-heading h2 { margin: 0; font-size: 0.92rem; font-weight: 700; }
+.vision-plan-page .markdown-review-heading-actions { display: flex; align-items: center; gap: 2px; }
 .vision-plan-page .add-overall-comment { border-color: transparent; background: transparent; color: var(--vp-muted); }
 .vision-plan-page .add-overall-comment:hover:not(:disabled), .vision-plan-page .add-overall-comment[aria-expanded="true"] { border-color: var(--vp-line); background: var(--vp-soft); color: var(--vp-ink); }
+.vision-plan-page .collapse-review-panel { border-color: transparent; background: transparent; color: var(--vp-muted); }
+.vision-plan-page .collapse-review-panel:hover:not(:disabled) { border-color: var(--vp-line); background: var(--vp-soft); color: var(--vp-ink); }
 .vision-plan-page .markdown-review-content { display: flex; flex-direction: column; gap: 22px; min-height: 0; overflow: auto; padding: 18px; scrollbar-width: thin; }
 .vision-plan-page .markdown-comment-composer { display: grid; gap: 10px; padding-bottom: 20px; border-bottom: 1px solid var(--vp-line); }
 .vision-plan-page .markdown-comment-composer blockquote { display: -webkit-box; overflow: hidden; margin: 0; padding: 9px 11px; border-left: 1px solid #a1a1aa; background: #f1f1f2; color: #52525b; font-size: 0.75rem; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
@@ -305,9 +317,35 @@
 .vision-plan-page button.submitted-comment:hover:not(:disabled) { border-bottom-color: var(--vp-line); background: transparent; }
 .vision-plan-page .submitted-comment.is-selected { box-shadow: inset 2px 0 #d4a72c; }
 .vision-plan-page .markdown-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 18px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--vp-line); background: #fff; }
+.vision-plan-page .markdown-review-actions.comments-only { grid-template-columns: 1fr; }
 .vision-plan-page .markdown-review-actions button { min-height: 40px; font-size: 0.8rem; font-weight: 700; }
 .vision-plan-page .markdown-review-actions .submit-review-action { box-shadow: none; }
 .vision-plan-page .markdown-review-actions .approve-action { box-shadow: none; }
+.vision-plan-page.artifact-engine.is-review-workspace.is-comments-collapsed {
+  grid-template-areas:
+    "header header"
+    "directory artifact";
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+.vision-plan-page .collapsed-review-bubble {
+  position: fixed;
+  top: 78px;
+  right: 14px;
+  z-index: 40;
+  min-height: 34px;
+  padding: 0 12px;
+  border-color: var(--vp-line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 72%);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 8%);
+  color: var(--vp-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.6;
+}
+.vision-plan-page .collapsed-review-bubble:hover:not(:disabled),
+.vision-plan-page .collapsed-review-bubble:focus-visible { border-color: #a1a1aa; background: rgb(255 255 255 / 90%); opacity: 0.92; }
 
 @media (max-width: 1100px) {
   .vision-plan-page.artifact-engine { grid-template-columns: 330px minmax(0, 1fr); }
@@ -318,6 +356,13 @@
     grid-template-columns: minmax(0, 1fr) 330px;
   }
   .vision-plan-page.is-review-workspace .workspace-panel { display: none; }
+  .vision-plan-page .artifact-file-select { display: inline-flex; }
+  .vision-plan-page.artifact-engine.is-review-workspace.is-comments-collapsed {
+    grid-template-areas:
+      "header"
+      "artifact";
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 860px) {
@@ -339,6 +384,10 @@
   .vision-plan-page .artifact-frame-wrap { margin: 10px; border-radius: 11px; }
   .vision-plan-page .review-workspace-header { padding: 10px 12px; }
   .vision-plan-page .review-workspace-header .artifact-heading > div span { max-width: 42vw; }
+  .vision-plan-page .review-workspace-header .toolbar-actions { min-width: 0; }
+  .vision-plan-page .artifact-file-select { width: min(48vw, 260px); }
+  .vision-plan-page .artifact-file-select > span { display: none; }
+  .vision-plan-page .artifact-file-select select { width: 100%; min-width: 0; max-width: none; }
   .vision-plan-page .markdown-review-actions { grid-template-columns: 1fr; }
 }
 

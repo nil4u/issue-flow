@@ -1,4 +1,4 @@
-export type ArtifactType = "decision" | "plan"
+export type ArtifactType = "decision" | "plan" | "markdown"
 
 export type SourceRef = {
   type: "readme" | "decision" | "plan" | "artifact" | "file"
@@ -94,6 +94,8 @@ export type IssueArtifact = {
   modifiedAt: string
   status: string
   format?: "json" | "markdown"
+  previewer?: string
+  workflow?: "plan" | "preview"
   mergeRequestNumber?: number
   mergeRequestUrl?: string
   mergeRequestState?: string
@@ -110,6 +112,8 @@ export type VisionRouteContext = {
   gitServerId: string
   projectId: string
   issueNumber: number
+  mergeRequestNumber?: number
+  artifactPath?: string
 }
 
 export type VisionArtifactContext = VisionRouteContext & {
@@ -118,6 +122,7 @@ export type VisionArtifactContext = VisionRouteContext & {
 
 export type LoadedVisualArtifact = {
   issue: LoadedIssue
+  selectedPath: string
   html: string
   format: "json" | "markdown"
   drafts: DraftReviewItem[]

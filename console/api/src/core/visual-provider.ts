@@ -25,7 +25,7 @@ async function listPlanMergeRequests(server, repo) {
         title: pullRequest.title || "", state: pullRequest.merged_at ? "merged" : pullRequest.state || "",
         merged: Boolean(pullRequest.merged_at), headBranch: pullRequest.head && pullRequest.head.ref || "",
         baseBranch: pullRequest.base && pullRequest.base.ref || "", commitSha: pullRequest.head && pullRequest.head.sha || "",
-        url: pullRequest.html_url || "", createdAt: pullRequest.created_at || "", updatedAt: pullRequest.updated_at || "",
+        url: pullRequest.html_url || "", labels: ["mr-by::plan"], createdAt: pullRequest.created_at || "", updatedAt: pullRequest.updated_at || "",
       }))
   }
   if (server.type === "gitlab") {
@@ -35,7 +35,7 @@ async function listPlanMergeRequests(server, repo) {
       title: mergeRequest.title || "", state: mergeRequest.state || "", merged: mergeRequest.state === "merged",
       headBranch: mergeRequest.source_branch || "", baseBranch: mergeRequest.target_branch || "",
       commitSha: mergeRequest.sha || mergeRequest.diff_head_sha || "", url: mergeRequest.web_url || "",
-      createdAt: mergeRequest.created_at || "", updatedAt: mergeRequest.updated_at || "",
+      labels: ["mr-by::plan"], createdAt: mergeRequest.created_at || "", updatedAt: mergeRequest.updated_at || "",
     }))
   }
   throw apiError(`unsupported git provider: ${server.type}`, 400)

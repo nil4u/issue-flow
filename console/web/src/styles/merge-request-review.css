@@ -112,11 +112,7 @@
   .gh-file-tree label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .45rem; height: 2.15rem; padding: 0 .6rem; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); }
   .gh-file-tree input { min-width: 0; border: 0; outline: 0; background: transparent; }
   .gh-file-tree label button { display: grid; place-items: center; border: 0; background: transparent; color: var(--muted-foreground); }
-  .gh-file-tree nav { max-height: calc(100svh - 12rem); display: grid; align-content: start; overflow-y: auto; margin-top: .75rem; }
-  .gh-file-tree nav a { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .45rem; padding: .45rem .4rem; border-radius: 5px; color: var(--foreground); font-size: .74rem; }
-  .gh-file-tree nav a:hover { background: var(--muted); }
-  .gh-file-tree nav code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
-  .gh-file-tree nav span { color: var(--muted-foreground); font-size: .62rem; text-transform: uppercase; }
+  .gh-file-tree .if-file-tree { max-height: calc(100svh - 12rem); margin-top: .65rem; }
   .gh-file-diffs { min-width: 0; display: grid; gap: 1rem; }
   .gh-file-diff { min-width: 0; overflow: hidden; scroll-margin-top: 1rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
   .gh-file-diff > header { min-height: 2.8rem; display: flex; align-items: center; gap: .5rem; padding: 0 .75rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 52%, var(--card)); }
@@ -219,7 +215,7 @@
   .gh-pr-tabs { overflow-x: auto; }
   .gh-files-layout, .gh-conversation-view { grid-template-columns: 1fr; }
   .gh-file-tree { position: static; max-height: none; border-right: 0; padding-right: 0; }
-  .gh-file-tree nav { max-height: 12rem; }
+  .gh-file-tree .if-file-tree { max-height: 12rem; }
   .gh-pr-meta { display: none; }
   .gh-files-toolbar { align-items: flex-start; flex-direction: column; padding: .65rem 0; }
 }

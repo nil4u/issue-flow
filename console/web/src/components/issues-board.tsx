@@ -94,8 +94,12 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
   }, [filteredIssues])
 
   function issueHref(issueNumber: number) { return `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues/${issueNumber}${state === "closed" ? "?state=closed" : ""}` }
-  function reviewHref(issueNumber: number) { return `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${issueNumber}` }
   function artifactFor(issueNumber: number) { return reviewArtifacts.find((artifact) => artifact.issueNumber === issueNumber) }
+  function reviewHref(issueNumber: number) {
+    const mergeRequestNumber = artifactFor(issueNumber)?.mergeRequestNumber
+    const query = mergeRequestNumber ? `?mergeRequest=${mergeRequestNumber}` : ""
+    return `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${issueNumber}${query}`
+  }
   function selectState(nextState: IssueState) {
     setState(nextState)
     setViewMode(nextState === "open" ? "board" : "list")
