@@ -49,6 +49,7 @@ test('release-please config releases plugin and console independently', () => {
   assert.equal(pluginPackage['package-name'], 'issue-flow');
   assert.equal(pluginPackage['changelog-path'], 'CHANGELOG.md');
   assert.equal(pluginPackage['include-component-in-tag'], false);
+  assert.equal(pluginPackage['separate-pull-requests'], true);
   assert.deepEqual(pluginPackage['extra-files'], [
     {
       type: 'generic',
