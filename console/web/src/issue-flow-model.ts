@@ -139,6 +139,20 @@ export type ProviderIssueLabel = {
   description: string
 }
 
+export type ProviderIssueMilestone = {
+  id: string
+  title: string
+  description: string
+  state: "open" | "closed" | string
+  dueAt: string
+  webUrl: string
+}
+
+export type ProviderIssueReaction = {
+  content: string
+  count: number
+}
+
 export type ProviderIssueSummary = {
   id: string
   number: number
@@ -150,6 +164,7 @@ export type ProviderIssueSummary = {
   assignees: MergeRequestUser[]
   labels: ProviderIssueLabel[]
   commentsCount: number
+  milestone: ProviderIssueMilestone | null
   webUrl: string
   createdAt: string
   updatedAt: string
@@ -162,6 +177,7 @@ export type ProviderIssueComment = {
   body: string
   bodyHtml?: string
   author: MergeRequestUser
+  reactions: ProviderIssueReaction[]
   createdAt: string
   updatedAt: string
 }
@@ -249,8 +265,8 @@ export type MergeRequestDetail = {
   repository: { id: string; fullName: string; provider: string; webUrl: string }
 }
 
-export type InstallStatus = "passed" | "needs_action" | "needs_input" | "blocked" | "unknown" | "failed"
-export type VariableInstallStatus = "unchecked" | "passed" | "pending_auto" | "manual_required" | "failed"
+export type InstallStatus = "passed" | "warning" | "needs_action" | "needs_input" | "blocked" | "unknown" | "failed"
+export type VariableInstallStatus = "unchecked" | "passed" | "unverified" | "pending_auto" | "manual_required" | "failed"
 
 export type AgentrixVariable = {
   key: string
@@ -275,6 +291,7 @@ export type AgentrixVariable = {
   needsInput?: boolean
   manualRequired?: boolean
   blocker?: boolean
+  unverified?: boolean
   control?: {
     path: string
     type: "text" | "password" | "select" | "checkbox"
@@ -552,7 +569,7 @@ export type InstallCheckProgress = {
   steps: Array<{
     id: string
     label: string
-    status: "pending" | "running" | "passed" | "failed"
+    status: "pending" | "running" | "passed" | "warning" | "failed"
   }>
 }
 

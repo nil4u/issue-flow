@@ -30,6 +30,7 @@ const {
   pullRequestNumberFromUrl,
   resolveBaseBranch,
   resolveIssueFlowBaseUrl,
+  resolvePlanReviewContext,
   resolveVisualPlanFeatureMode,
   SUBMIT_KINDS,
   visualArtifactUrl,
@@ -442,16 +443,39 @@ test('visual artifact URLs use Git server and provider project routes', () => {
   const comment = buildVisualArtifactComment({
     artifact: 'plan',
     format: 'json',
-    repositoryId: 'repo_123',
     issueNumber: 42,
     branch: '42-broken-login/plan',
     commit: 'abc123',
     artifactPath: '.issue-flow/issues/42-broken-login/plan/data/plan-data.json',
     url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
   });
-  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42/);
+  assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json issue=42/);
+  assert.doesNotMatch(comment, /\brepo=/);
   assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
   assert.match(comment, /Review comments and approval are recorded on this PR\/MR/);
+});
+
+test('only visual plans resolve an Issue Flow review URL', () => {
+  withTemporaryEnv({
+    ISSUE_FLOW_BASE_URL: undefined,
+    ISSUE_FLOW_GIT_SERVER_ID: undefined,
+    ISSUE_FLOW_PROJECT_ID: undefined,
+    CI_PROJECT_ID: undefined,
+    GITHUB_REPOSITORY_ID: undefined,
+  }, () => {
+    assert.deepEqual(resolvePlanReviewContext(false, {}, {}, 42), {});
+  });
+
+  withTemporaryEnv({ ISSUE_FLOW_BASE_URL: 'https://flow.example/' }, () => {
+    assert.deepEqual(
+      resolvePlanReviewContext(true, { gitServerId: 'gitlab-main', projectId: '43326' }, {}, 42),
+      {
+        gitServerId: 'gitlab-main',
+        projectId: '43326',
+        url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
+      },
+    );
+  });
 });
 
 test('visual artifact submission replies with the shared review URL on the PR or MR', () => {
@@ -459,8 +483,10 @@ test('visual artifact submission replies with the shared review URL on the PR or
     artifact: 'plan',
     format: 'json',
     commit: 'abc123',
+    sourceTaskId: 'task-plan-42',
     url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
   });
+  assert.match(comment, /issue-flow:source source_task_id=task-plan-42 source_agent=issue-flow source_runtime=agentrix/);
   assert.match(comment, /issue-flow:plan-artifact-published artifact=plan commit=abc123/);
   assert.match(comment, /Visual Plan 已发布/);
   assert.match(comment, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
@@ -486,6 +512,7 @@ test('visual artifact publication posts the URL as an MR comment', async () => {
     { dryRun: false },
   );
   assert.equal(calls[0].pullRequest.number, 23);
+  assert.match(calls[0].body, /issue-flow:source source_agent=issue-flow/);
   assert.match(calls[0].body, /Decision 已发布/);
   assert.match(calls[0].body, /https:\/\/flow\.example\/repos\/gitlab-main\/43326\/plan\/42/);
 });
@@ -495,27 +522,24 @@ test('plan artifact marker records visual and Markdown formats in the MR body', 
     buildVisualArtifactMarker({
       artifact: 'decision',
       format: 'json',
-      repositoryId: 'repo_123',
       issueNumber: 42,
       branch: '42-issue/plan',
       commit: 'abc123',
       artifactPath: '.issue-flow/issues/42-issue/decision/data/decision-data.json',
     }),
-    '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision-data.json -->'
+    '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision-data.json -->'
   );
-  assert.match(
-    buildVisualArtifactComment({
+  const markdownMarker = buildVisualArtifactMarker({
       artifact: 'plan',
       format: 'markdown',
-      repositoryId: 'repo_123',
       issueNumber: 42,
       branch: '42-issue/plan',
       commit: 'def456',
       artifactPath: '.issue-flow/issues/42-issue/plan/plan.md',
-      url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
-    }),
-    /## Markdown Plan[\s\S]*Format: `markdown`/
-  );
+    });
+  assert.match(markdownMarker, /artifact=plan format=markdown issue=42/);
+  assert.doesNotMatch(markdownMarker, /https?:\/\//);
+  assert.doesNotMatch(markdownMarker, /\brepo=/);
 });
 
 test('submit source issue size validation blocks missing and conflicting size labels', () => {

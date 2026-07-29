@@ -422,27 +422,20 @@ function variableStepFromResults(variableResults = []) {
   const failedVariables = variableResults
     .filter((item) => item.status === 'failed')
     .map((item) => item.key);
+  const unverifiedVariables = variableResults
+    .filter((item) => item.status === 'unverified')
+    .map((item) => item.key);
   const blockerVariables = variableResults
     .filter((item) => item.blocker)
     .map((item) => item.key);
-  const status = failedVariables.length
-    ? 'failed'
-    : inputRequiredVariables.length
-      ? 'needs_input'
-      : pendingVariables.length
-      ? 'needs_action'
-      : variableResults.length
-        ? 'passed'
-        : 'unknown';
-  const detail = failedVariables.length
-    ? `${failedVariables.join(', ')} 自动写入失败`
-    : inputRequiredVariables.length
-      ? `缺少 ${inputRequiredVariables.join(', ')}，需要补充后才能写入`
-      : pendingVariables.length
-        ? `${pendingVariables.length} 个变量待自动写入`
-        : status === 'unknown'
-          ? '变量未检查'
-          : '变量已设置';
+  const outcome = [
+    { keys: failedVariables, status: 'failed', detail: `${failedVariables.join(', ')} 自动写入失败` },
+    { keys: inputRequiredVariables, status: 'needs_input', detail: `缺少 ${inputRequiredVariables.join(', ')}，需要补充后才能写入` },
+    { keys: pendingVariables, status: 'needs_action', detail: `${pendingVariables.length} 个变量待自动写入` },
+    { keys: unverifiedVariables, status: 'warning', detail: `无权验证 group 变量：${unverifiedVariables.join(', ')}` },
+  ].find((item) => item.keys.length);
+  const status = outcome && outcome.status || (variableResults.length ? 'passed' : 'unknown');
+  const detail = outcome && outcome.detail || (status === 'unknown' ? '变量未检查' : '变量已设置');
   return installStep(
     'variables',
     'api',
@@ -486,6 +479,39 @@ function failedVariableResult(variable, existingVariable, error) {
   };
 }
 
+function unverifiedVariableResult(variable, error) {
+  const groupPath = String(error && error.groupPath || '上级 group');
+  return {
+    ...variableResult(variable, undefined),
+    status: 'unverified',
+    detail: `当前账号无权读取 ${groupPath} 的 CI/CD 变量（需要 group Owner 权限），无法验证是否已设置 ${variable.key}`,
+    source: 'group',
+    groupPath,
+    needsInput: false,
+    manualRequired: false,
+    autoWritable: false,
+    writable: false,
+    blocker: false,
+    unverified: true,
+  };
+}
+
+function unverifiedVariableCache(result) {
+  return {
+    key: result.key,
+    value: '',
+    exists: false,
+    source: result.source,
+    groupPath: result.groupPath,
+    environmentScope: '*',
+    variableType: 'env_var',
+    status: result.status,
+    detail: result.detail,
+    blocker: false,
+    unverified: true,
+  };
+}
+
 async function readInstallVariable(apiInput, variable) {
   if (variable.key === ISSUE_FLOW_GITLAB_TOKEN_KEY) {
     const checked = await validateIssueFlowGitlabTokenVariable(apiInput);
@@ -511,6 +537,12 @@ async function readInstallVariableResults(apiInput, variables = [], failedByKey 
       existingVariable = checked.existingVariable;
       validation = checked.validation;
     } catch (error) {
+      if (error && error.code === 'gitlab_group_variable_forbidden') {
+        const result = unverifiedVariableResult(variable, error);
+        variableResults.push(result);
+        variableCaches.push(unverifiedVariableCache(result));
+        continue;
+      }
       variableResults.push(failedVariableResult(variable, undefined, error));
       continue;
     }
@@ -1480,7 +1512,6 @@ async function installGitlabProjectPlugin({ store, basePublicUrl, input = {}, se
       projectIdOrPath: apiInput.projectIdOrPath,
       baseUrl: config.baseUrl,
       projectPath: project.pathWithNamespace,
-      repositoryId: existing.id,
       gitServerId: server.id,
       projectId: project.id,
       issueFlowBaseUrl: basePublicUrl,

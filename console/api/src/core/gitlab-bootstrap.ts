@@ -117,7 +117,7 @@ export function configureIssueFlow(checkout, input = {}) {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
   delete config.visionPlan
   delete config.visualPlan
-  config.repositoryId = String(input.repositoryId || config.repositoryId || '')
+  delete config.repositoryId
   config.gitServerId = String(input.gitServerId || config.gitServerId || '')
   config.projectId = String(input.projectId || config.projectId || '')
   config.baseUrl = String(input.issueFlowBaseUrl || config.baseUrl || '').replace(/\/+$/, '')

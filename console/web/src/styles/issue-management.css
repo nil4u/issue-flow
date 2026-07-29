@@ -83,6 +83,8 @@
   .provider-issue-timeline-card > header { min-height: 2.65rem; display: flex; align-items: center; gap: .4rem; padding: 0 .8rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 45%, var(--card)); font-size: .76rem; }
   .provider-issue-timeline-card > header span { color: var(--muted-foreground); }
   .provider-issue-timeline-card > div { padding: .9rem; }
+  .provider-issue-reactions { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 .9rem .9rem; }
+  .provider-issue-reactions > span { display: inline-flex; align-items: center; gap: .3rem; min-height: 1.75rem; padding: .15rem .55rem; border: 1px solid var(--border); border-radius: 999px; background: color-mix(in srgb, var(--muted) 38%, transparent); color: var(--muted-foreground); font-size: .75rem; font-variant-numeric: tabular-nums; }
   .provider-issue-comment-composer > div { min-width: 0; display: grid; gap: .55rem; }
   .provider-issue-comment-composer footer { display: flex; justify-content: end; }
   .provider-issue-sidebar { min-width: 0; display: grid; align-content: start; gap: 0; }
@@ -90,6 +92,8 @@
   .provider-issue-sidebar section > header { display: flex; align-items: center; justify-content: space-between; }
   .provider-issue-sidebar section > header button { color: var(--muted-foreground); font-size: .72rem; }
   .provider-issue-sidebar p { margin: 0; color: var(--muted-foreground); font-size: .76rem; }
+  .provider-issue-milestone { color: var(--foreground); font-size: .8rem; font-weight: 600; }
+  a.provider-issue-milestone:hover { text-decoration: underline; }
   .provider-issue-assignee { display: flex; align-items: center; gap: .45rem; font-size: .76rem; }
   .provider-issue-assignee .provider-issue-avatar { width: 1.6rem; height: 1.6rem; }
   .provider-issue-label-dialog { max-width: 32rem; }

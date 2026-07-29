@@ -1,6 +1,6 @@
 ---
 name: issue-flow
-version: 0.6.1 # x-release-please-version
+version: 0.7.0 # x-release-please-version
 description: "标签驱动的 issue 状态机与 provider 操作工具。通过统一 issue-flow CLI 操作 GitHub/GitLab 的 issue、label、comment、PR/MR 与 review。在含 `.issue-flow/` 目录或使用 issue-flow managed label（type::/status::/flow:: 等）的仓库中处理 issue/PR、提交 Plan/Build PR/MR 或进行 review 时使用。"
 metadata:
   requires:
@@ -95,7 +95,7 @@ node .issue-flow/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [-
 node .issue-flow/cli.cjs pr merged --event <event-json-file>
 ```
 
-`pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
+`pr submit plan` 会读取 source issue 的特性开关。默认提交在 provider PR/MR 中直接审阅的 Markdown Plan；`feature:visual-plan:on` 发布带 Issue Flow 审阅地址的 Decision 或 Visual Plan。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
 ### Milestone、Labels
 

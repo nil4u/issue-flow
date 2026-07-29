@@ -7,6 +7,11 @@ const test = require('node:test');
 
 const { run } = require('../skills/automation-optimizer/scripts/task-context.cjs');
 
+test('task context CLI keeps repository routing internal', async () => {
+  const result = await run(['--help']);
+  assert.doesNotMatch(result.help, /--git-server-id|--project-id/);
+});
+
 test('task context script fetches the issue lifecycle and writes phase files', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-task-context-test-'));
   const requests = [];
@@ -37,7 +42,8 @@ test('task context script fetches the issue lifecycle and writes phase files', a
     const outputPath = path.join(root, 'context.json');
     fs.writeFileSync(configPath, JSON.stringify({
       baseUrl: `http://127.0.0.1:${address.port}`,
-      repositoryId: 'repo-1',
+      gitServerId: 'gitlab-main',
+      projectId: '42',
     }));
 
     const result = await run([
@@ -46,7 +52,7 @@ test('task context script fetches the issue lifecycle and writes phase files', a
       '--output', outputPath,
     ]);
 
-    assert.deepEqual(requests, ['/api/repositories/repo-1/issues/17/task-context']);
+    assert.deepEqual(requests, ['/api/repositories/gitlab-main/42/issues/17/task-context']);
     assert.equal(result.path, outputPath);
     assert.equal(result.taskCount, 2);
     assert.equal(result.eventCount, 3);

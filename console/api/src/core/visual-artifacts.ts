@@ -5,7 +5,7 @@ import path from "node:path"
 import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
-const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\s+repo=([^\s]+)\s+issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
+const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
 
 function requestError(message, status = 400, code = "visual_artifact_error") {
   const error = new Error(message); error.status = status; error.code = code; return error
@@ -25,8 +25,8 @@ function parseArtifactMarker(mergeRequest = {}) {
   const match = String(mergeRequest.body || "").match(MARKER_PATTERN)
   if (!match) return undefined
   return {
-    type: match[1].toLowerCase(), format: match[2].toLowerCase(), repositoryId: decodeURIComponent(match[3]), issueNumber: Number.parseInt(match[4], 10),
-    branch: match[5], commitSha: match[6], entryPath: normalizeRepoPath(match[7]),
+    type: match[1].toLowerCase(), format: match[2].toLowerCase(), issueNumber: Number.parseInt(match[3], 10),
+    branch: match[4], commitSha: match[5], entryPath: normalizeRepoPath(match[6]),
     mergeRequestId: String(mergeRequest.id || ""), mergeRequestNumber: Number(mergeRequest.number), mergeRequestUrl: mergeRequest.url || "",
     mergeRequestState: mergeRequest.state || "", merged: Boolean(mergeRequest.merged), baseBranch: mergeRequest.baseBranch || "",
     publishedAt: mergeRequest.updatedAt || mergeRequest.createdAt || new Date().toISOString(),
@@ -46,7 +46,7 @@ async function requireVisualContext(store, gitServerId, projectId, userId, sessi
 async function discoverVisualArtifact(store, repo, server, issueNumber, type) {
   const mergeRequests = await listPlanMergeRequests(server, repo)
   const marker = mergeRequests.map(parseArtifactMarker)
-    .filter((item) => item && (!type || item.type === type) && item.repositoryId === repo.id && item.issueNumber === issueNumber)
+    .filter((item) => item && (!type || item.type === type) && item.issueNumber === issueNumber)
     .sort((left, right) => {
       const stateRank = (item) => item.mergeRequestState === "opened" || item.mergeRequestState === "open" ? 2 : item.merged ? 1 : 0
       return stateRank(right) - stateRank(left) || String(right.publishedAt).localeCompare(String(left.publishedAt))
@@ -60,7 +60,6 @@ async function listReviewablePlanArtifacts({ store, gitServerId, projectId, user
   const artifacts = (await listPlanMergeRequests(server, repo))
     .map(parseArtifactMarker)
     .filter((item) => item
-      && item.repositoryId === repo.id
       && !item.merged
       && (item.mergeRequestState === "open" || item.mergeRequestState === "opened"))
     .sort((left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)))
@@ -140,14 +139,25 @@ function structureMarkdownSections(renderedHtml, artifact) {
   return { body: String(renderedHtml || ""), sectionCount: 0 }
 }
 
+function anchorMarkdownBlocks(renderedHtml, artifact) {
+  let blockIndex = 0
+  return String(renderedHtml || "").replace(/<(p|li|pre|blockquote|td|th)(\s[^>]*)?>/gi, (opening, tag, attributes = "") => {
+    const ref = `markdown.${artifact.type}.blocks.${blockIndex++}`
+    return /\sdata-ref\s*=/i.test(attributes)
+      ? opening
+      : `<${tag}${attributes} data-ref="${escapeHtmlAttribute(ref)}">`
+  })
+}
+
 function markdownDocument(renderedHtml, artifact) {
   const structured = structureMarkdownSections(renderedHtml, artifact)
+  const body = anchorMarkdownBlocks(structured.body, artifact)
   const fallbackAttributes = structured.sectionCount === 0
     ? ` data-comment-scope="section" data-comment-label="Markdown Plan" data-ref="markdown.${artifact.type}"`
     : ` data-ref="markdown.${artifact.type}"`
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-    :root{color:#18181b;background:#fff;font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}body{margin:0;padding:32px}article{max-width:920px;margin:0 auto}h1,h2,h3{line-height:1.3;margin:1.6em 0 .6em}.markdown-review-section{position:relative;margin:1.6em -14px .6em;padding:10px 14px;border:1px solid transparent;border-radius:10px;scroll-margin-top:24px;transition:background-color .12s ease,border-color .12s ease}.markdown-review-section:hover{border-color:#e4e4e7;background:#fafafa}.markdown-review-section h1,.markdown-review-section h2,.markdown-review-section h3{margin:0}h1{font-size:30px;border-bottom:1px solid #e4e4e7;padding-bottom:12px}h2{font-size:23px}h3{font-size:18px}p,ul,ol,pre,table,blockquote{margin:1em 0}pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}code{background:#f4f4f5;border-radius:4px;padding:.15em .35em}pre{overflow:auto;background:#18181b;color:#fafafa;border-radius:8px;padding:16px}pre code{background:none;padding:0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e4e4e7;padding:8px 10px;text-align:left}blockquote{margin-left:0;border-left:4px solid #d4d4d8;padding-left:16px;color:#52525b}a{color:#2563eb}img{max-width:100%}
-  </style></head><body><article${fallbackAttributes}>${structured.body}</article></body></html>`
+    :root{color:#18181b;background:#fff;font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}*{box-sizing:border-box}body{margin:0;padding:48px 32px 72px}article{max-width:860px;margin:0 auto;overflow-wrap:anywhere}h1,h2,h3{line-height:1.3;margin:1.6em 0 .6em;text-wrap:balance}.markdown-review-section{position:relative;margin:1.6em -14px .6em;padding:10px 14px;border:1px solid transparent;border-radius:10px;scroll-margin-top:24px;transition:background-color .12s ease,border-color .12s ease}.markdown-review-section:hover{border-color:#e4e4e7;background:#fafafa}.markdown-review-section h1,.markdown-review-section h2,.markdown-review-section h3{margin:0}h1{font-size:30px;border-bottom:1px solid #e4e4e7;padding-bottom:12px}h2{font-size:23px}h3{font-size:18px}p,ul,ol,pre,table,blockquote{margin:1em 0;text-wrap:pretty}pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}code{background:#f4f4f5;border-radius:4px;padding:.15em .35em}pre{max-width:100%;overflow:auto;background:#18181b;color:#fafafa;border-radius:8px;padding:16px}pre code{background:none;padding:0}table{width:100%;border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #e4e4e7;padding:8px 10px;text-align:left}blockquote{margin-left:0;border-left:1px solid #a1a1aa;padding-left:16px;color:#52525b}a{color:#2563eb}img{max-width:100%}@media(max-width:760px){body{padding:24px 18px 48px}.markdown-review-section{margin-left:-8px;margin-right:-8px;padding-left:8px;padding-right:8px}}
+  </style></head><body><article${fallbackAttributes}>${body}</article></body></html>`
 }
 
 function parseVisualArtifactJson(body) {
@@ -234,11 +244,11 @@ function reviewItemLines(items = []) {
     const element = visualTarget.element || (Array.isArray(visualTarget.elements) ? visualTarget.elements[0] : undefined) || {}
     const artifactPath = visualTarget.path || item.sourceRefs && item.sourceRefs[0] && item.sourceRefs[0].path || item.targetId || ""
     const anchor = visualTarget.anchorRef || element.dataRef || visualTarget.anchorSelector || element.selector || ""
-    const pageContent = element.ariaLabel || elementTextFromHtml(element.html)
+    const pageContent = visualTarget.selectionText || element.ariaLabel || elementTextFromHtml(element.html)
     const lines = [`${index + 1}. **${comment}**`]
     if (artifactPath) lines.push(`   - 产物：\`${inlineCode(artifactPath)}\``)
     if (anchor) lines.push(`   - 锚点：\`${inlineCode(anchor)}\``)
-    if (pageContent) lines.push(`   - 页面内容：${pageContent}`)
+    if (pageContent) lines.push(`   - ${visualTarget.selectionText ? "引用" : "页面内容"}：${pageContent}`)
     return lines
   })
 }

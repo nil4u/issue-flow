@@ -66,6 +66,8 @@
   .check-table-row.failed .check-status-icon {
     color: var(--destructive);
   }
+  .check-table-row.warning .check-status-icon,
+  .check-table-row.unverified .check-status-icon,
   .check-table-row.needs_action .check-status-icon {
     color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
   }
@@ -374,6 +376,9 @@
   }
   .check-progress-step.passed .check-progress-step-icon {
     color: var(--success);
+  }
+  .check-progress-step.warning .check-progress-step-icon {
+    color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
   }
   .check-progress-step.failed .check-progress-step-icon {
     color: var(--destructive);

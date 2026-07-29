@@ -15,7 +15,6 @@ function usage() {
     '  --output <path>       Write the context index to this path. Phase files are written beside it.',
     '  --config <path>       Issue Flow config path. Defaults to .issue-flow/config.json.',
     '  --base-url <url>      Issue Flow service URL.',
-    '  --repository-id <id> Issue Flow repository ID.',
   ].join('\n');
 }
 
@@ -47,12 +46,14 @@ function resolveRoute(options, config) {
   const baseUrl = String(options.baseUrl || process.env.ISSUE_FLOW_BASE_URL || config.baseUrl || '')
     .trim()
     .replace(/\/+$/, '');
-  const repositoryId = String(options.repositoryId || process.env.ISSUE_FLOW_REPOSITORY_ID || config.repositoryId || '').trim();
+  const gitServerId = String(process.env.ISSUE_FLOW_GIT_SERVER_ID || config.gitServerId || '').trim();
+  const projectId = String(process.env.ISSUE_FLOW_PROJECT_ID || process.env.CI_PROJECT_ID || config.projectId || '').trim();
   const issueNumber = Number(options.issue || 0);
   if (!baseUrl) throw new Error('Issue Flow base URL is required. Use --base-url, ISSUE_FLOW_BASE_URL, or baseUrl in .issue-flow/config.json.');
-  if (!repositoryId) throw new Error('Issue Flow repository ID is required. Use --repository-id, ISSUE_FLOW_REPOSITORY_ID, or repositoryId in .issue-flow/config.json.');
+  if (!gitServerId) throw new Error('Issue Flow Git server ID is required. Set ISSUE_FLOW_GIT_SERVER_ID or configure gitServerId in .issue-flow/config.json.');
+  if (!projectId) throw new Error('Provider project ID is required. Set ISSUE_FLOW_PROJECT_ID or configure projectId in .issue-flow/config.json.');
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error('--issue must be a positive integer.');
-  return { baseUrl, repositoryId, issueNumber };
+  return { baseUrl, gitServerId, projectId, issueNumber };
 }
 
 function defaultOutputPath(route) {
@@ -61,7 +62,7 @@ function defaultOutputPath(route) {
 
 async function fetchTaskContext(route) {
   const url = new URL(
-    `/api/repositories/${encodeURIComponent(route.repositoryId)}/issues/${route.issueNumber}/task-context`,
+    `/api/repositories/${encodeURIComponent(route.gitServerId)}/${encodeURIComponent(route.projectId)}/issues/${route.issueNumber}/task-context`,
     `${route.baseUrl}/`,
   );
   const response = await fetch(url, { headers: { Accept: 'application/json' } });

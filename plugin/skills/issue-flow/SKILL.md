@@ -95,7 +95,7 @@ node .issue-flow/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [-
 node .issue-flow/cli.cjs pr merged --event <event-json-file>
 ```
 
-`pr submit plan` 会读取 source issue 的特性开关。默认发布 Markdown Plan；`feature:visual-plan:on` 发布 Decision 或 Visual Plan。发布后的审阅和批准由 Issue Flow 处理。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
+`pr submit plan` 会读取 source issue 的特性开关。默认提交在 provider PR/MR 中直接审阅的 Markdown Plan；`feature:visual-plan:on` 发布带 Issue Flow 审阅地址的 Decision 或 Visual Plan。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
 ### Milestone、Labels
 

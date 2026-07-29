@@ -47,7 +47,7 @@ test('merged Decision MR returns to Plan and preserves the original task', () =>
   const body = [
     '<!-- issue-flow:source-issue=42 -->',
     '<!-- issue-flow:agentrix:task=task-plan-42 -->',
-    '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+    '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
   ].join('\n');
 
   assert.deepEqual(parsePlanArtifact(body), { artifact: 'decision', format: 'json' });
@@ -62,7 +62,7 @@ test('merged Decision MR returns to Plan and preserves the original task', () =>
 });
 
 test('merged Plan MR distinguishes visual and Markdown plans', () => {
-  const visualBody = '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->';
+  const visualBody = '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->';
   assert.deepEqual(resolveMergedPrTransition(['mr-by::plan'], { body: visualBody }), {
     kind: 'plan',
     label: 'mr-by::plan',
@@ -71,7 +71,7 @@ test('merged Plan MR distinguishes visual and Markdown plans', () => {
     format: 'json',
   });
 
-  const markdownBody = '<!-- issue-flow:plan-artifact artifact=plan format=markdown repo=repo_123 issue=42 branch=42-login/plan commit=def456 path=.issue-flow/issues/42-login/plan/plan.md -->';
+  const markdownBody = '<!-- issue-flow:plan-artifact artifact=plan format=markdown issue=42 branch=42-login/plan commit=def456 path=.issue-flow/issues/42-login/plan/plan.md -->';
   assert.deepEqual(resolveMergedPrTransition(['mr-by::plan'], { body: markdownBody }), {
     kind: 'plan',
     label: 'mr-by::plan',

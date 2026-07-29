@@ -71,6 +71,17 @@ function hasFailedVariables(step?: InstallStep) {
   return Boolean(step?.variables?.some((variable) => String(variable.status || "") === "failed"))
 }
 
+function unverifiedVariables(step?: InstallStep) {
+  return (step?.variables || []).filter((variable) => String(variable.status || "") === "unverified")
+}
+
+function variableWarningDetail(step?: InstallStep) {
+  const warnings = unverifiedVariables(step)
+  return warnings.length
+    ? warnings.map((variable) => variable.detail || `${variable.key} 无法验证`).join("；")
+    : ""
+}
+
 export function useDashboardController() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
   const [booting, setBooting] = useState(true)
@@ -485,6 +496,7 @@ export function useDashboardController() {
     installCheckController.current = controller
     let nextCheck: InstallCheck | undefined
     let interrupted = false
+    const warnings: string[] = []
     try {
       for (const checkType of ["permissions", "webhook", "variables", "labels", "runners", "plugins"]) {
         setCheckProgressStep(checkType, "running", "正在检查")
@@ -506,13 +518,19 @@ export function useDashboardController() {
             }
           }
           const needsManual = variableBlockers(checkedStep).length > 0 || checkedStep?.status === "failed"
+          const warningDetail = variableWarningDetail(checkedStep)
+          const hasWarnings = Boolean(warningDetail)
+          const progressStatus = needsManual ? "failed" : hasWarnings ? "warning" : "passed"
+          if (hasWarnings) warnings.push(warningDetail)
           setCheckProgress((current) => ({
             ...current,
             title: needsManual ? "需要人工处理" : current.title,
-            detail: needsManual ? variableBlockerDetail(checkedStep) : current.detail,
+            detail: needsManual
+              ? variableBlockerDetail(checkedStep)
+              : warningDetail || current.detail,
             steps: current.steps.map((step) => ({
               ...step,
-              status: step.id === checkType ? needsManual ? "failed" : "passed" : step.status,
+              status: step.id === checkType ? progressStatus : step.status,
             })),
           }))
           if (needsManual) {
@@ -536,6 +554,7 @@ export function useDashboardController() {
         setCheckProgress((current) => ({
           ...current,
           title: needsManual ? "需要人工处理" : current.title,
+          detail: needsManual ? checkedStep?.detail || "该配置项需要人工处理" : current.detail,
           steps: current.steps.map((step) => ({
             ...step,
             status: step.id === checkType ? needsManual ? "failed" : "passed" : step.status,
@@ -552,8 +571,8 @@ export function useDashboardController() {
       setCheckProgress((current) => ({
         ...current,
         open: true,
-        title: interrupted ? current.title : "检查完成",
-        detail: interrupted ? current.detail : "",
+        title: interrupted ? current.title : warnings.length ? "检查完成，有配置项未验证" : "检查完成",
+        detail: interrupted ? current.detail : warnings.join("；"),
       }))
       return nextCheck
     } catch (error) {

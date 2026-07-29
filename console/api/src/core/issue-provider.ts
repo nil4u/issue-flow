@@ -24,12 +24,40 @@ function normalizeLabels(labels = []) {
   return (Array.isArray(labels) ? labels : []).map(normalizeLabel).filter((label) => label.name)
 }
 
+function normalizeMilestone(milestone) {
+  if (!milestone) return null
+  return {
+    id: String(milestone.id || ""),
+    title: String(milestone.title || ""),
+    description: String(milestone.description || ""),
+    state: milestone.state === "closed" ? "closed" : "open",
+    dueAt: milestone.due_on || milestone.due_date || "",
+    webUrl: milestone.html_url || milestone.web_url || "",
+  }
+}
+
+function normalizeReactionCounts(entries = []) {
+  const counts = new Map()
+  for (const content of entries.map(String).filter(Boolean)) counts.set(content, (counts.get(content) || 0) + 1)
+  return [...counts.entries()].map(([content, count]) => ({ content, count }))
+}
+
+function normalizeGithubReactions(reactions = {}) {
+  return ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"]
+    .map((content) => ({ content, count: Number(reactions && reactions[content] || 0) }))
+    .filter((reaction) => reaction.count > 0)
+}
+
+function normalizeGitlabReactions(awards = []) {
+  return normalizeReactionCounts((Array.isArray(awards) ? awards : []).map((award) => award && award.name))
+}
+
 function normalizeGithubIssue(issue = {}) {
   return {
     id: String(issue.id || ""), number: Number(issue.number || 0), title: issue.title || "", body: issue.body || "",
     state: issue.state === "closed" ? "closed" : "open", author: normalizeUser(issue.user),
     assignees: (Array.isArray(issue.assignees) ? issue.assignees : []).map(normalizeUser), labels: normalizeLabels(issue.labels),
-    commentsCount: Number(issue.comments || 0), webUrl: issue.html_url || "",
+    commentsCount: Number(issue.comments || 0), milestone: normalizeMilestone(issue.milestone), webUrl: issue.html_url || "",
     createdAt: issue.created_at || "", updatedAt: issue.updated_at || "", closedAt: issue.closed_at || "",
   }
 }
@@ -39,17 +67,28 @@ function normalizeGitlabIssue(issue = {}) {
     id: String(issue.id || ""), number: Number(issue.iid || 0), title: issue.title || "", body: issue.description || "",
     state: issue.state === "closed" ? "closed" : "open", author: normalizeUser(issue.author),
     assignees: (Array.isArray(issue.assignees) ? issue.assignees : issue.assignee ? [issue.assignee] : []).map(normalizeUser), labels: normalizeLabels(issue.labels),
-    commentsCount: Number(issue.user_notes_count || 0), webUrl: issue.web_url || "",
+    commentsCount: Number(issue.user_notes_count || 0), milestone: normalizeMilestone(issue.milestone), webUrl: issue.web_url || "",
     createdAt: issue.created_at || "", updatedAt: issue.updated_at || "", closedAt: issue.closed_at || "",
   }
 }
 
 function normalizeGithubComment(comment = {}) {
-  return { id: String(comment.id || ""), body: comment.body || "", author: normalizeUser(comment.user), createdAt: comment.created_at || "", updatedAt: comment.updated_at || "" }
+  return { id: String(comment.id || ""), body: comment.body || "", author: normalizeUser(comment.user), reactions: normalizeGithubReactions(comment.reactions), createdAt: comment.created_at || "", updatedAt: comment.updated_at || "" }
 }
 
-function normalizeGitlabComment(note = {}) {
-  return { id: String(note.id || ""), body: note.body || "", author: normalizeUser(note.author), createdAt: note.created_at || "", updatedAt: note.updated_at || "" }
+function normalizeGitlabComment(note = {}, awards = []) {
+  return { id: String(note.id || ""), body: note.body || "", author: normalizeUser(note.author), reactions: normalizeGitlabReactions(awards), createdAt: note.created_at || "", updatedAt: note.updated_at || "" }
+}
+
+async function listGitlabNoteAwards(server, issueRoot, noteId) {
+  const awards = []
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await providerFetch(server, "GET", `${issueRoot}/notes/${encodeURIComponent(noteId)}/award_emoji?per_page=100${page > 1 ? `&page=${page}` : ""}`).catch(() => [])
+    const entries = Array.isArray(result) ? result : []
+    awards.push(...entries)
+    if (entries.length < 100) break
+  }
+  return awards
 }
 
 function githubIssuePermissions(repository = {}, currentUser = {}, issue = {}) {
@@ -121,9 +160,11 @@ async function getProviderIssue(server, repo, issueNumber) {
       providerFetch(server, "GET", projectRoot).catch(() => ({})),
       providerFetch(server, "GET", "/user").catch(() => ({})),
     ])
+    const comments = (Array.isArray(notes) ? notes : []).filter((note) => !note.system)
+    const awards = await Promise.all(comments.map((note) => listGitlabNoteAwards(server, root, note.id)))
     return {
       issue: { ...normalizeGitlabIssue(issue), permissions: gitlabIssuePermissions(project, currentUser, issue) },
-      comments: (Array.isArray(notes) ? notes : []).filter((note) => !note.system).map(normalizeGitlabComment),
+      comments: comments.map((note, index) => normalizeGitlabComment(note, awards[index])),
       availableLabels: labels,
     }
   }

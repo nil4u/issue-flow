@@ -10,12 +10,14 @@ function taskContextError(message, status, code) {
   return error
 }
 
-async function getTaskContext({ store, repoId, issueNumber, phase }) {
+async function getTaskContext({ store, repoId = "", gitServerId = "", projectId = "", issueNumber, phase }) {
   const normalizedRepoId = String(repoId || "").trim()
+  const normalizedGitServerId = String(gitServerId || "").trim()
+  const normalizedProjectId = String(projectId || "").trim()
   const normalizedIssueNumber = Number(issueNumber || 0)
   const normalizedPhase = String(phase || "").trim().toLowerCase()
-  if (!normalizedRepoId) {
-    throw taskContextError("repository id is required", 400, "repository_id_required")
+  if (!normalizedRepoId && (!normalizedGitServerId || !normalizedProjectId)) {
+    throw taskContextError("repository route is required", 400, "repository_route_required")
   }
   if (!Number.isInteger(normalizedIssueNumber) || normalizedIssueNumber <= 0) {
     throw taskContextError("issue number is required", 400, "issue_number_required")
@@ -24,7 +26,9 @@ async function getTaskContext({ store, repoId, issueNumber, phase }) {
     throw taskContextError("phase must be one of: triage, plan, build, review", 400, "invalid_task_context_phase")
   }
 
-  const repo = await store.db.repo.findUnique({ where: { id: normalizedRepoId } })
+  const repo = normalizedRepoId
+    ? await store.db.repo.findUnique({ where: { id: normalizedRepoId } })
+    : await store.findRepositoryByProject({ gitServerId: normalizedGitServerId, projectId: normalizedProjectId })
   if (!repo || !repo.gitServerId || !repo.serverRepoId) {
     throw taskContextError("repository not found", 404, "repository_not_found")
   }

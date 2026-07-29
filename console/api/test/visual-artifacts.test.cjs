@@ -27,19 +27,18 @@ function renderedDataRefs(html) {
   return [...html.matchAll(/data-ref="([^"]+)"/g)].map((match) => match[1])
 }
 
-test('visual artifact marker carries immutable provider coordinates', () => {
+test('visual artifact marker carries immutable artifact coordinates without a repository id', () => {
   assert.deepEqual(parseArtifactMarker({
     id: 99,
     number: 7,
     url: 'https://gitlab.test/acme/widget/-/merge_requests/7',
     state: 'opened',
     baseBranch: 'main',
-    body: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+    body: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
     createdAt: '2026-07-14T00:00:00.000Z',
   }), {
     type: 'plan',
     format: 'json',
-    repositoryId: 'repo_123',
     issueNumber: 42,
     branch: '42-login/plan',
     commitSha: 'abc123',
@@ -93,7 +92,7 @@ test('approved Decision comments on the open MR and advances the issue without m
       return new Response(JSON.stringify([{
         id: 71,
         iid: 11,
-        description: '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
         state: 'opened',
         source_branch: '42-login/plan',
         target_branch: 'main',
@@ -146,14 +145,14 @@ test('approved Decision comments on the open MR and advances the issue without m
   assert.match(JSON.parse(comment.options.body).body, /选择方案.*Database/)
 })
 
-test('reviewable artifacts only include open Plan MRs for the current repository', async (t) => {
+test('reviewable artifacts only include open Plan MRs', async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
   global.fetch = async () => new Response(JSON.stringify([
     {
       id: 71,
       iid: 11,
-      description: '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
       state: 'opened',
       source_branch: '42-login/plan',
       target_branch: 'main',
@@ -163,7 +162,7 @@ test('reviewable artifacts only include open Plan MRs for the current repository
     {
       id: 72,
       iid: 12,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=43 branch=43-export/plan commit=def456 path=.issue-flow/issues/43-export/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=43 branch=43-export/plan commit=def456 path=.issue-flow/issues/43-export/plan/data/plan-data.json -->',
       state: 'merged',
       source_branch: '43-export/plan',
       target_branch: 'main',
@@ -173,22 +172,12 @@ test('reviewable artifacts only include open Plan MRs for the current repository
     {
       id: 74,
       iid: 14,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
       state: 'opened',
       source_branch: '42-login/plan',
       target_branch: 'main',
       sha: 'plan456',
       updated_at: '2026-07-15T05:00:00.000Z',
-    },
-    {
-      id: 73,
-      iid: 13,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_other issue=44 branch=44-other/plan commit=ghi789 path=.issue-flow/issues/44-other/plan/data/plan-data.json -->',
-      state: 'opened',
-      source_branch: '44-other/plan',
-      target_branch: 'main',
-      sha: 'ghi789',
-      updated_at: '2026-07-15T04:00:00.000Z',
     },
   ]), { status: 200 })
   const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget' }
@@ -252,7 +241,7 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
       return new Response(JSON.stringify([{
         id: 91,
         iid: 17,
-        description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
         state: 'opened',
         source_branch: '42-checkout/plan',
         target_branch: 'main',
@@ -483,7 +472,7 @@ test('GitLab artifact discovery lists plan MRs with the current user token', asy
     return new Response(JSON.stringify([{
       id: 77,
       iid: 9,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
       title: 'Plan #42',
       state: 'opened',
       source_branch: '42-login/plan',
@@ -601,7 +590,29 @@ test('Markdown plans expose stable review anchors for every heading section', ()
 test('Markdown document falls back to one review scope when it has no headings', () => {
   const html = markdownDocument('<p>Plan without headings.</p>', { type: 'plan' })
   assert.match(html, /<article data-comment-scope="section" data-comment-label="Markdown Plan" data-ref="markdown\.plan">/)
+  assert.doesNotMatch(html, /agentrix-overall-feedback/)
   assert.equal((html.match(/data-comment-scope="section"/g) || []).length, 1)
+})
+
+test('visual review comment preserves the selected Markdown quote', () => {
+  const comment = buildReviewComment(
+    { type: 'plan', data: { format: 'markdown' } },
+    { payload: { items: [{
+      comment: '这里需要补充验收标准',
+      targetId: 'plan.md',
+      sourceRefs: [{ type: 'plan', path: 'plan.md' }],
+      visualTarget: {
+        path: 'plan.md',
+        anchorRef: 'markdown.plan.sections.validation',
+        selectionText: '验证方案需要覆盖失败路径',
+        element: { html: '<p>验证方案需要覆盖失败路径与重试。</p>' },
+      },
+    }] } },
+    'changes-requested',
+  )
+
+  assert.match(comment, /引用：验证方案需要覆盖失败路径/)
+  assert.doesNotMatch(comment, /页面内容：验证方案需要覆盖失败路径与重试/)
 })
 
 test('visual label updates preserve unrelated labels', async (t) => {

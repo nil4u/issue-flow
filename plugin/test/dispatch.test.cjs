@@ -21,6 +21,7 @@ const {
 const agentrix = require('../skills/issue-flow/scripts/runtimes/agentrix.cjs');
 const pipelineFailed = require('../skills/issue-flow/scripts/pipeline-failed.cjs');
 const { providers } = require('../skills/issue-flow/scripts/providers.cjs');
+const { buildVisualArtifactPublishedComment } = require('../skills/issue-flow/scripts/submit.cjs');
 
 function withEnv(values, callback) {
   const previous = {};
@@ -349,7 +350,7 @@ test('dispatch Plan PR comment uses the standard PR review reply instruction', a
           body: [
             '<!-- issue-flow:source-issue=42 -->',
             '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
-            '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+            '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
           ].join('\n'),
           labels: [{ name: 'mr-by::plan' }],
         }),
@@ -380,6 +381,36 @@ test('dispatch review-comment skips issue-flow sourced comments', async () => {
   assert.equal(result.reason, 'source_provenance');
   assert.equal(result.sourceTaskId, 'task-123');
   assert.equal(result.sourceAgent, 'codex');
+});
+
+test('dispatch review-comment skips all Plan publication notifications', async () => {
+  const publications = [
+    { artifact: 'decision', format: 'json' },
+    { artifact: 'plan', format: 'json' },
+    { artifact: 'plan', format: 'markdown' },
+  ];
+
+  for (const publication of publications) {
+    const result = await runReviewComment(
+      { dryRun: true },
+      {
+        payload: githubReviewCommentPayload({
+          issueComment: true,
+          commentBody: buildVisualArtifactPublishedComment({
+            ...publication,
+            commit: 'abc123',
+            sourceTaskId: 'task-plan-42',
+            url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
+          }),
+        }),
+      }
+    );
+
+    assert.equal(result.action, 'skipped');
+    assert.equal(result.reason, 'source_provenance');
+    assert.equal(result.sourceTaskId, 'task-plan-42');
+    assert.equal(result.sourceAgent, 'issue-flow');
+  }
 });
 
 test('dispatch review-comment skips unsupported edited events', async () => {
@@ -783,7 +814,7 @@ test('dispatch Decision merge resumes the original Plan task', async () => {
         body: [
           '<!-- issue-flow:source-issue=42 -->',
           '<!-- issue-flow:agentrix:task=task-plan-42 -->',
-          '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision-data.json -->',
+          '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision-data.json -->',
         ].join('\n'),
         title: 'Decision #42: Add widget support',
         head: { ref: '42-add-widget-support/plan' },
