@@ -1512,7 +1512,6 @@ async function installGitlabProjectPlugin({ store, basePublicUrl, input = {}, se
       projectIdOrPath: apiInput.projectIdOrPath,
       baseUrl: config.baseUrl,
       projectPath: project.pathWithNamespace,
-      repositoryId: existing.id,
       gitServerId: server.id,
       projectId: project.id,
       issueFlowBaseUrl: basePublicUrl,

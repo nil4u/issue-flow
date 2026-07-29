@@ -546,7 +546,7 @@ test('task context returns the ordered task lifecycle with optional phase filter
       ],
     });
 
-    const response = await fetch(`${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context`);
+    const response = await fetch(`${baseUrl}/api/repositories/gitlab-main/42/issues/7/task-context`);
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.repositoryId, primary.repo.id);
@@ -560,7 +560,7 @@ test('task context returns the ordered task lifecycle with optional phase filter
     assert.deepEqual(buildPhase.tasks.map((task) => task.taskId), ['task-context-build']);
 
     const phaseResponse = await fetch(
-      `${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context?phase=plan`,
+      `${baseUrl}/api/repositories/gitlab-main/42/issues/7/task-context?phase=plan`,
     );
     assert.equal(phaseResponse.status, 200);
     const phaseBody = await phaseResponse.json();
@@ -568,7 +568,7 @@ test('task context returns the ordered task lifecycle with optional phase filter
     assert.deepEqual(phaseBody.tasks.map((task) => task.taskId), ['task-context-plan']);
 
     const invalid = await fetch(
-      `${baseUrl}/api/repositories/${primary.repo.id}/issues/7/task-context?phase=clarify`,
+      `${baseUrl}/api/repositories/gitlab-main/42/issues/7/task-context?phase=clarify`,
     );
     assert.equal(invalid.status, 400);
     assert.equal((await invalid.json()).error, 'invalid_task_context_phase');

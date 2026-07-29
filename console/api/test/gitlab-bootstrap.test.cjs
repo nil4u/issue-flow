@@ -87,18 +87,18 @@ function installScriptCalls() {
   return execState.calls.filter((call) => call.file === 'sh');
 }
 
-test('issue flow install config stores repository id and service URL at the top level', () => {
+test('issue flow install config stores visual route and removes the legacy repository id', () => {
   const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'issue-flow-visual-config-'));
   try {
     const configDir = path.join(root, '.issue-flow');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+      repositoryId: 'legacy-repo-id',
       visionPlan: { publicUrl: 'https://old.example' },
       agentrix: { promptsDir: '.issue-flow/prompts' },
     }));
 
     configureIssueFlow(root, {
-      repositoryId: 'repo_123',
       gitServerId: 'gitlab-main',
       projectId: '42',
       issueFlowBaseUrl: 'https://flow.example/',
@@ -106,7 +106,7 @@ test('issue flow install config stores repository id and service URL at the top 
 
     const config = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
     assert.equal(config.visionPlan, undefined);
-    assert.equal(config.repositoryId, 'repo_123');
+    assert.equal(config.repositoryId, undefined);
     assert.equal(config.gitServerId, 'gitlab-main');
     assert.equal(config.projectId, '42');
     assert.equal(config.baseUrl, 'https://flow.example');

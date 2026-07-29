@@ -27,7 +27,7 @@ function renderedDataRefs(html) {
   return [...html.matchAll(/data-ref="([^"]+)"/g)].map((match) => match[1])
 }
 
-test('visual artifact marker carries immutable provider coordinates', () => {
+test('visual artifact marker carries immutable artifact coordinates without a repository id', () => {
   assert.deepEqual(parseArtifactMarker({
     id: 99,
     number: 7,
@@ -92,7 +92,7 @@ test('approved Decision comments on the open MR and advances the issue without m
       return new Response(JSON.stringify([{
         id: 71,
         iid: 11,
-        description: '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
         state: 'opened',
         source_branch: '42-login/plan',
         target_branch: 'main',
@@ -152,7 +152,7 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     {
       id: 71,
       iid: 11,
-      description: '<!-- issue-flow:plan-artifact artifact=decision format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
       state: 'opened',
       source_branch: '42-login/plan',
       target_branch: 'main',
@@ -162,7 +162,7 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     {
       id: 72,
       iid: 12,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=43 branch=43-export/plan commit=def456 path=.issue-flow/issues/43-export/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=43 branch=43-export/plan commit=def456 path=.issue-flow/issues/43-export/plan/data/plan-data.json -->',
       state: 'merged',
       source_branch: '43-export/plan',
       target_branch: 'main',
@@ -172,7 +172,7 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     {
       id: 74,
       iid: 14,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
       state: 'opened',
       source_branch: '42-login/plan',
       target_branch: 'main',
@@ -241,7 +241,7 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
       return new Response(JSON.stringify([{
         id: 91,
         iid: 17,
-        description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
         state: 'opened',
         source_branch: '42-checkout/plan',
         target_branch: 'main',
@@ -472,7 +472,7 @@ test('GitLab artifact discovery lists plan MRs with the current user token', asy
     return new Response(JSON.stringify([{
       id: 77,
       iid: 9,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json repo=repo_123 issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
       title: 'Plan #42',
       state: 'opened',
       source_branch: '42-login/plan',
