@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0](https://github.com/nil4u/issue-flow/compare/console-v0.14.0...console-v0.15.0) (2026-07-29)
+
+
+### Features
+
+* **console:** show issue milestone and reactions ([f87fa12](https://github.com/nil4u/issue-flow/commit/f87fa128d5062b4b3aec3146d10eadc00ae357c1))
+* **review:** unify artifact review workflow ([88ad55c](https://github.com/nil4u/issue-flow/commit/88ad55c9cc00120dbee6e42b66d3fdc238f13ff1))
+
+
+### Bug Fixes
+
+* **console:** handle unverified GitLab group variables ([cb4db44](https://github.com/nil4u/issue-flow/commit/cb4db441b62f01e97c65c5de306794b8e6c3bf3c))
+* **plan:** limit review URLs to visual plans ([56b25c9](https://github.com/nil4u/issue-flow/commit/56b25c9ad96022aab66ecdd585248601aa3d4d35))
+
 ## [0.14.0](https://github.com/nil4u/issue-flow/compare/console-v0.13.1...console-v0.14.0) (2026-07-27)
 
 
