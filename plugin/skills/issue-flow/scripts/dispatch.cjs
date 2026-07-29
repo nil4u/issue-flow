@@ -785,6 +785,9 @@ function shouldSkipPullRequestReview(pr) {
   if (pr.state && pr.state !== 'open' && pr.state !== 'opened') {
     return 'pull_request_not_open';
   }
+  if (normalizeLabels(pr.labels).includes('review::off')) {
+    return 'pull_request_review_disabled';
+  }
   return '';
 }
 
@@ -1122,6 +1125,14 @@ async function runReviewComment(options = {}, provided = {}) {
     return {
       action: 'skipped',
       reason: 'not_pull_request_review_comment',
+    };
+  }
+
+  if (!resolveReviewEnabled(options)) {
+    logIssueFlow('PR/MR review comment skipped', { reason: 'review_disabled' });
+    return {
+      action: 'skipped',
+      reason: 'review_disabled',
     };
   }
 

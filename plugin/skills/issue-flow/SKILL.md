@@ -44,6 +44,7 @@ issue-flow <resource> <action> [options]
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
 | `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
 | `mr-by::` | PR/MR | 标记 Decision、Visual/Markdown Plan 或 Build PR/MR 的来源动作 | `plan`, `build` |
+| `review::` | PR/MR | 暂停自动 review 与 review-comment task resume | `off` |
 
 详情请参考：`references/labels.md`。
 

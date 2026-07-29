@@ -294,6 +294,8 @@ test('dispatch review-comment dry-run returns structured JSON envelope', () => {
       'github',
       '--event',
       eventPath,
+      '--review-enabled',
+      'true',
       '--dry-run',
     ]);
     assert.equal(result.status, 0, result.stderr);
