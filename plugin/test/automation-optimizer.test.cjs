@@ -7,6 +7,11 @@ const test = require('node:test');
 
 const { run } = require('../skills/automation-optimizer/scripts/task-context.cjs');
 
+test('task context CLI keeps repository routing internal', async () => {
+  const result = await run(['--help']);
+  assert.doesNotMatch(result.help, /--git-server-id|--project-id/);
+});
+
 test('task context script fetches the issue lifecycle and writes phase files', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-task-context-test-'));
   const requests = [];
