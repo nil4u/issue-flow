@@ -25,6 +25,7 @@ import { AutomationInsights } from "@/components/automation-insights"
 import { EmptyPanel } from "@/components/empty-panel"
 import { GitRunnerValue } from "@/components/git-runner-value"
 import { InstallConflictWizard } from "@/components/install-conflict-wizard"
+import { PluginInstallDialog } from "@/components/plugin-install-dialog"
 import { IssuesBoard } from "@/components/issues-board"
 import { MergeRequestsBoard } from "@/components/merge-requests-board"
 import { TasksBoard } from "@/components/tasks-board"
@@ -145,6 +146,9 @@ function InstallConsole({
   const [editingRow, setEditingRow] = useState<CheckRow>()
   const [editingValue, setEditingValue] = useState("")
   const [helpTopicId, setHelpTopicId] = useState<AgentrixHelpTopicId>()
+  const [installDialogRow, setInstallDialogRow] = useState<CheckRow>()
+  const [installCommitMessage, setInstallCommitMessage] = useState("")
+  const [pendingInstallCommitMessage, setPendingInstallCommitMessage] = useState("")
   const installInput = useMemo(() => installForm, [installForm])
   const groups = useMemo(() => buildInstallGroups({
     defaults,
@@ -232,12 +236,31 @@ function InstallConsole({
 
   async function installPlugin(row: CheckRow) {
     if (row.configItem?.type !== "plugin" || !canManage) return
+    setInstallCommitMessage("")
+    setInstallDialogRow(row)
+  }
+
+  async function confirmPluginInstall() {
+    const row = installDialogRow
+    if (!row || row.configItem?.type !== "plugin" || !canManage) return
+    const commitMessage = installCommitMessage.trim()
+    setPendingInstallCommitMessage(commitMessage)
+    setInstallDialogRow(undefined)
     setActionRowId(row.id)
     try {
-      await onInstallPlugin()
+      await onInstallPlugin(commitMessage ? { commitMessage } : undefined)
     } finally {
       setActionRowId("")
     }
+  }
+
+  async function confirmInstallConflicts(decision: Parameters<typeof onConfirmInstallConflicts>[0]) {
+    return onConfirmInstallConflicts(decision, pendingInstallCommitMessage || undefined)
+  }
+
+  function cancelInstallConflicts() {
+    setPendingInstallCommitMessage("")
+    onCancelInstallConflicts()
   }
 
   if (!project) return <EmptyPanel icon={<Search className="size-6" />} title="选择仓库" detail="先从左侧选择一个 repo。" />
@@ -303,6 +326,19 @@ function InstallConsole({
           if (!open) setHelpTopicId(undefined)
         }}
       />
+      <PluginInstallDialog
+        actionLabel={installDialogRow ? pluginActionLabel(installDialogRow.plugin) : "安装"}
+        message={installCommitMessage}
+        open={Boolean(installDialogRow)}
+        saving={checking}
+        onMessageChange={setInstallCommitMessage}
+        onConfirm={confirmPluginInstall}
+        onOpenChange={(open) => {
+          if (open) return
+          setInstallDialogRow(undefined)
+          setInstallCommitMessage("")
+        }}
+      />
       <CheckProgressDialog
         checking={checking}
         progress={checkProgress}
@@ -311,11 +347,16 @@ function InstallConsole({
       <InstallConflictWizard
         checking={checking}
         plan={installConflictPlan}
-        onCancel={onCancelInstallConflicts}
-        onConfirm={onConfirmInstallConflicts}
+        onCancel={cancelInstallConflicts}
+        onConfirm={confirmInstallConflicts}
       />
     </div>
   )
+}
+
+function pluginActionLabel(plugin?: CheckRow["plugin"]) {
+  if (plugin?.manifestInvalid) return "重新安装"
+  return plugin?.installed ? "升级" : "安装"
 }
 
 type CheckStatus = InstallStep["status"] | VariableInstallStatus
@@ -672,7 +713,7 @@ function CheckTableRow({
   const pendingMergeHref = row.plugin?.pendingMergeRequest?.webUrl || ""
   const showMergeAction = Boolean(pendingMergeHref)
   const showPluginAction = canInstallPlugin && Boolean(row.plugin?.installed && row.plugin.needsUpgrade)
-  const pluginActionLabel = row.plugin?.manifestInvalid ? "重新安装" : row.plugin?.installed ? "升级" : "安装"
+  const actionLabel = pluginActionLabel(row.plugin)
   const pluginUpgradeValue = showPluginAction && row.plugin ? pluginValue(row.plugin) : ""
   const helpTopicId = row.configItem?.helpTopicId
   const rowStatus = String(row.status || "")
@@ -717,7 +758,7 @@ function CheckTableRow({
             <RowValue value={pluginUpgradeValue} />
             <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
-              {pluginActionLabel}
+              {actionLabel}
             </Button>
           </div>
         ) : row.runner && row.status === "passed" ? (
@@ -748,7 +789,7 @@ function CheckTableRow({
           {canInstallPlugin && !showPluginAction && (
             <Button type="button" size="sm" variant="secondary" onClick={onInstallPlugin} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <Wrench className="size-4" />}
-              {pluginActionLabel}
+              {actionLabel}
             </Button>
           )}
           {canOpenMembers && (

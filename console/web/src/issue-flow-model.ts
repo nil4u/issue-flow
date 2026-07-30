@@ -561,6 +561,11 @@ export type InstallConflictDecision = {
   actions: Record<string, InstallConflictAction>
 }
 
+export type PluginInstallRequest = {
+  commitMessage?: string
+  decisions?: InstallConflictDecision
+}
+
 export type InstallCheckProgress = {
   open: boolean
   title?: string
@@ -754,8 +759,8 @@ export type RepoWorkspaceProps = {
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetLabels: () => Promise<InstallCheck | undefined>
   onSetRunner: () => Promise<InstallCheck | undefined>
-  onInstallPlugin: () => Promise<InstallCheck | undefined>
-  onConfirmInstallConflicts: (decision: InstallConflictDecision) => Promise<InstallCheck | undefined>
+  onInstallPlugin: (input?: PluginInstallRequest) => Promise<InstallCheck | undefined>
+  onConfirmInstallConflicts: (decision: InstallConflictDecision, commitMessage?: string) => Promise<InstallCheck | undefined>
   onCancelInstallConflicts: () => void
 }
 

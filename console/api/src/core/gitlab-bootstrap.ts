@@ -221,7 +221,7 @@ async function installGitlabPluginMergeRequest(input = {}) {
     }
     await runGit(checkout, ['config', 'user.name', author.name], token)
     await runGit(checkout, ['config', 'user.email', author.email], token)
-    await runGit(checkout, ['commit', '-m', input.commitMessage || 'Install issue-flow plugin'], token)
+    await runGit(checkout, ['commit', '-m', String(input.commitMessage || '').trim() || `${input.operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`], token)
     await runGit(checkout, ['push', 'origin', `HEAD:refs/heads/${sourceBranch}`], token)
     progress({ id: 'commit', status: 'passed', label: '提交变更', detail: `${files.length} 个文件变更已推送` })
 
