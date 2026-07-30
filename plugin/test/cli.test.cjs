@@ -294,6 +294,8 @@ test('dispatch review-comment dry-run returns structured JSON envelope', () => {
       'github',
       '--event',
       eventPath,
+      '--review-enabled',
+      'true',
       '--dry-run',
     ]);
     assert.equal(result.status, 0, result.stderr);
@@ -303,6 +305,46 @@ test('dispatch review-comment dry-run returns structured JSON envelope', () => {
     assert.equal(parsed.data.action, 'task_resume');
     assert.equal(parsed.data.taskId, 'task-123');
     assert.equal(parsed.data.reviewComment, '101');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dispatch review-comment defaults to disabled when the switch is unset', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-cli-review-comment-'));
+  const eventPath = path.join(dir, 'event.json');
+  fs.writeFileSync(
+    eventPath,
+    JSON.stringify({
+      object_kind: 'note',
+      object_attributes: {
+        id: 101,
+        action: 'create',
+        note: 'Please handle this edge case.',
+        noteable_type: 'MergeRequest',
+        noteable_id: 9,
+      },
+      merge_request: {
+        iid: 9,
+        state: 'opened',
+        description: '<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->',
+        web_url: 'https://gitlab.example/acme/webapp/-/merge_requests/9',
+        source_branch: '9-example/build',
+        target_branch: 'main',
+      },
+      project: { id: 42, path_with_namespace: 'acme/webapp' },
+    })
+  );
+
+  try {
+    const result = runCli(
+      ['dispatch', 'review-comment', '--provider', 'gitlab', '--event', eventPath, '--dry-run'],
+      { env: { ...process.env, ISSUE_FLOW_REVIEW_ENABLED: '' } }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.data.action, 'skipped');
+    assert.equal(parsed.data.reason, 'review_disabled');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

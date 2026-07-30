@@ -214,6 +214,17 @@ const MANAGED_LABEL_GROUPS = {
       },
     ],
   },
+  review: {
+    prefix: 'review::',
+    scope: 'merge_request',
+    labels: [
+      {
+        name: 'review::off',
+        color: '6A737D',
+        description: 'Automatic review and review-comment task resume are disabled for this PR or MR',
+      },
+    ],
+  },
 };
 
 const MANAGED_LABELS = Object.freeze(

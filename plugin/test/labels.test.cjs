@@ -140,7 +140,11 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
       'size::XL',
     ]
   );
-  assert.deepEqual(labelsForScope('merge_request').map((label) => label.name), ['mr-by::plan', 'mr-by::build']);
+  assert.deepEqual(labelsForScope('merge_request').map((label) => label.name), [
+    'mr-by::plan',
+    'mr-by::build',
+    'review::off',
+  ]);
 
   for (const label of MANAGED_LABELS) {
     assert.match(label.color, /^[A-F0-9]{6}$/);
@@ -151,6 +155,14 @@ test('catalog covers issue and PR/MR managed labels with stable metadata', () =>
 
 test('catalog exposes lookup by label name', () => {
   assert.equal(labelDefinitionFor('mr-by::plan').color, '0052CC');
+  assert.deepEqual(labelDefinitionFor('review::off'), {
+    name: 'review::off',
+    color: '6A737D',
+    description: 'Automatic review and review-comment task resume are disabled for this PR or MR',
+    scope: 'merge_request',
+    group: 'review',
+    prefix: 'review::',
+  });
   assert.equal(labelDefinitionFor('missing'), undefined);
 });
 

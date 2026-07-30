@@ -1469,6 +1469,31 @@ test('current GitLab bridge merge request note carries review comment context', 
   assert.equal(provider.buildPullRequestContext(payload, {}).number, 7);
 });
 
+test('pull request contexts normalize review::off labels for GitHub and GitLab', () => {
+  const github = resolveProvider({ provider: 'github', repo: 'acme/platform' }, {});
+  const githubPullRequest = github.buildPullRequestContext({
+    pull_request: {
+      number: 8,
+      state: 'open',
+      labels: [{ name: 'mr-by::build' }, { name: 'review::off' }],
+    },
+    repository: { full_name: 'acme/platform' },
+  }, {});
+  assert.deepEqual(githubPullRequest.labels, ['mr-by::build', 'review::off']);
+
+  const gitlab = resolveProvider({ provider: 'gitlab' }, {});
+  const gitlabPullRequest = gitlab.buildPullRequestContext({
+    object_kind: 'merge_request',
+    project: { id: 42, path_with_namespace: 'acme/platform' },
+    object_attributes: {
+      iid: 9,
+      state: 'opened',
+      labels: ['mr-by::build', { title: 'review::off' }],
+    },
+  }, { provider: 'gitlab' });
+  assert.deepEqual(gitlabPullRequest.labels, ['mr-by::build', 'review::off']);
+});
+
 test('gitlab issue payload normalizes to issue-flow context', () => {
   const provider = resolveProvider({ provider: 'gitlab' }, {});
   const issue = provider.buildIssueContext(
