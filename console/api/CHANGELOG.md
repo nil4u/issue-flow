@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.0](https://github.com/nil4u/issue-flow/compare/console-v0.15.0...console-v0.16.0) (2026-07-30)
+
+
+### Features
+
+* **console:** add adaptive merge request previews ([447c5f2](https://github.com/nil4u/issue-flow/commit/447c5f204da2c9a60d557c14098cff88895af179))
+* **optimization:** add reviewable improvement workflow ([5ee55b1](https://github.com/nil4u/issue-flow/commit/5ee55b17a432ee4b8971bad06b6ac41c7ea534f5))
+* **preview:** support isv visual artifacts ([12e9dc8](https://github.com/nil4u/issue-flow/commit/12e9dc8101042e6cc841ada93142b5b35650a6d1))
+
 ## [0.15.0](https://github.com/nil4u/issue-flow/compare/console-v0.14.0...console-v0.15.0) (2026-07-29)
 
 
