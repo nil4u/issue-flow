@@ -22,9 +22,9 @@ npm-workspaces monorepo(Node 22),两个独立版本管理的产品加根级 dogf
 - `console/api/` — API 服务源码、`prisma/` migrations、独立 package.json(`issue-flow-console`)
 - `console/web/` — web 控制台(workspace `issue-flow-web`,不独立发版;React 19 + Vite + Tailwind 4 + shadcn/radix + echarts)
 - `console/scripts/` — dev/web 编排脚本;`console/docker-compose.yml` — 本地 Postgres
-- `scripts/` — 根级仓库自动化辅助脚本,目前用于 release-please 前置提交信号校验
-- `test/` — 根级测试,仅发布配置契约(release-config)
-- `.github/workflows/` — 仓库自动化:issue-flow 运行时 job、release-please、test.yml 测试门禁
+- `scripts/` — 根级仓库自动化辅助脚本,目前用于 label 驱动版本 bump
+- `test/` — 根级测试,发布版本与 workflow 契约
+- `.github/workflows/` — 仓库自动化:issue-flow 运行时 job、label 驱动 release、test.yml 测试门禁
 
 部分目录有嵌套 CLAUDE.md(`.github/`、`test/`、`plugin/test/`、`console/api/test/`、`plugin/skills/issue-flow/scripts/runtimes/` 等),带 `[PROTOCOL]` 头与成员清单;改动对应目录时同步更新。
 
@@ -73,5 +73,5 @@ console/api:`src/app.ts` 组装 Fastify,静态托管 `console/web/dist`(SPA fall
 - 统一 `issue-flow` CLI 是 agent-facing 的 provider 操作入口;直接 `gh`/`glab` 或手写 provider API 调用仅是内部 fallback 细节
 - 插件脚本是确定性行为的 source of truth,全部支持 `--dry-run`
 - SKILL.md 是 agent-facing 使用指南(保持精炼);`plugin/docs/` 与 `console/docs/` 是人类文档
-- Release Please 双包独立发版:`plugin/` → `issue-flow`(tag `vX.Y.Z`,兼容 `ISSUE_FLOW_REF` pin 安装);`console/api/` → `issue-flow-console`(tag `console-vX.Y.Z`)。发布 PR 保持 `plugin/package.json`、`plugin/skills/issue-flow/SKILL.md`、`plugin/.claude-plugin/plugin.json`、`.release-please-manifest.json` 与对应 CHANGELOG 同步
+- Label 驱动双包发版:`develop -> main` 的单一 PR 添加 `plugin:patch|minor|major` 或 `console:patch|minor|major`;workflow 把版本直接提交回 `develop`。合并到 `main` 后创建版本 tag；只有新 console tag 才构建一次镜像，并保持 plugin 元数据同步
 - `console/api` 读取插件最新版本号时以 `plugin/package.json` 为准(升级提示语义)

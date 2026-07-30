@@ -1,18 +1,18 @@
-# [INPUT]: 依赖 console-v* tag/workflow_dispatch、console/Dockerfile、根 package-lock.json、plugin 打包源
-# [OUTPUT]: 构建 issue-flow console 镜像并推送到 GitHub Container Registry
-# [POS]: console release 镜像发布入口，固定把同版本 plugin 打进镜像
+# [INPUT]: 依赖 main push/workflow_dispatch、两个 package.json、console/Dockerfile 与 plugin 源码
+# [OUTPUT]: 为新版本创建 plugin/console tag，并只构建一次 console 镜像
+# [POS]: main 合并后的版本标记与镜像发布入口
 # [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 
 name: Console Docker Image
 
 on:
   push:
-    tags:
-      - "console-v*"
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Optional image tag to publish, for example console-v0.2.0"
+        description: "Optional image tag for a manual rebuild"
         required: false
         type: string
       latest:
@@ -22,7 +22,7 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -33,9 +33,50 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}-console
 
 jobs:
-  prepare:
-    timeout-minutes: 45
+  tag:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      console_tag: ${{ steps.version.outputs.console_tag }}
+      console_tag_created: ${{ steps.version.outputs.console_tag_created }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create version tags
+        id: version
+        run: |
+          plugin_version=$(node -p "require('./plugin/package.json').version")
+          console_version=$(node -p "require('./console/api/package.json').version")
+
+          plugin_tag="v${plugin_version}"
+          if git rev-parse --verify --quiet "refs/tags/$plugin_tag" >/dev/null; then
+            echo "Tag already exists: $plugin_tag"
+          else
+            git tag "$plugin_tag" "$GITHUB_SHA"
+            git push origin "$plugin_tag"
+          fi
+
+          console_tag="console-v${console_version}"
+          console_tag_created=false
+          if git rev-parse --verify --quiet "refs/tags/$console_tag" >/dev/null; then
+            echo "Tag already exists: $console_tag"
+          else
+            git tag "$console_tag" "$GITHUB_SHA"
+            git push origin "$console_tag"
+            console_tag_created=true
+          fi
+          {
+            echo "console_tag=$console_tag"
+            echo "console_tag_created=$console_tag_created"
+          } >> "$GITHUB_OUTPUT"
+
+  prepare:
+    needs: tag
+    if: needs.tag.outputs.console_tag_created == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     outputs:
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
@@ -44,28 +85,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Image version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+            printf 'version=%s\n' "${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            printf 'version=%s\n' "${{ needs.tag.outputs.console_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=tag
-            type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/console-v') }}
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && inputs.latest }}
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.latest }}
             type=sha
-
-      - name: Image version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
-            printf 'version=%s\n' "${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
-          elif [[ "${GITHUB_REF}" == refs/tags/console-v* ]]; then
-            printf 'version=%s\n' "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            printf 'version=sha-%s\n' "$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
-          fi
 
   publish:
     needs: prepare
