@@ -1,0 +1,36 @@
+name: Sync Version Labels
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - '.github/workflows/sync-version-labels.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync-version-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync release labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sync_label() {
+            gh label create "$1" --repo "$GH_REPO" --description "$2" --color "$3" --force
+          }
+
+          sync_label "plugin:patch" "Bump plugin patch version (x.x.X)" "0E8A16"
+          sync_label "plugin:minor" "Bump plugin minor version (x.X.x)" "1D76DB"
+          sync_label "plugin:major" "Bump plugin major version (X.x.x)" "D93F0B"
+          sync_label "console:patch" "Bump console patch version (x.x.X)" "0E8A16"
+          sync_label "console:minor" "Bump console minor version (x.X.x)" "1D76DB"
+          sync_label "console:major" "Bump console major version (X.x.x)" "D93F0B"
+          sync_label "plugin-version-bumped" "Plugin version has been bumped in this PR" "5319E7"
+          sync_label "console-version-bumped" "Console version has been bumped in this PR" "5319E7"

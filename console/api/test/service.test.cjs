@@ -2793,11 +2793,13 @@ test('GitLab settings accepts readable inherited group variables', async () => {
 test('GitLab settings keeps checking when group variables cannot be verified', async () => {
   const { dir, store } = tempStore();
   const writes = [];
+  const agentrix = createAgentrixAuthServer();
   const gitlab = createInstallVariableGitlabServer({
     variables: configuredInstallProjectVariables(),
     groupVariableStatus: 403,
     writes,
   });
+  const agentrixBase = await listen(agentrix);
   const gitlabBase = await listen(gitlab);
   await seedGitlabServer(store, gitlabBase);
   try {
@@ -2812,7 +2814,17 @@ test('GitLab settings keeps checking when group variables cannot be verified', a
     const checked = await checkGitlabProjectInstall({
       store,
       basePublicUrl: 'https://issue-flow.internal',
-      input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'variables' },
+      input: {
+        gitServerId: 'gitlab-main',
+        token: 'gl-oauth-user-token',
+        projectId: '42',
+        checkType: 'variables',
+        agentrix: {
+          baseUrl: agentrixBase,
+          apiKey: 'agentrix-key',
+          runnerId: 'cloud-main',
+        },
+      },
     });
 
     const step = checked.body.steps[0];
@@ -2824,6 +2836,7 @@ test('GitLab settings keeps checking when group variables cannot be verified', a
     assert.deepEqual(step.missing, []);
     for (const key of ['AGENTRIX_API_KEY', 'AGENTRIX_RUNNER_ID']) {
       assert.equal(byKey.get(key).status, 'unverified');
+      assert.equal(byKey.get(key).autoWritable, true);
       assert.equal(byKey.get(key).blocker, false);
       assert.equal(byKey.get(key).groupPath, 'team');
       assert.match(byKey.get(key).detail, /Owner/);
@@ -2836,6 +2849,63 @@ test('GitLab settings keeps checking when group variables cannot be verified', a
     assert.equal(cachedByKey.get('AGENTRIX_API_KEY').exists, false);
     assert.equal(cachedByKey.get('AGENTRIX_RUNNER_ID').status, 'unverified');
   } finally {
+    await close(agentrix);
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GitLab settings can write project variables after group verification is forbidden', async () => {
+  const { dir, store } = tempStore();
+  const writes = [];
+  const agentrix = createAgentrixAuthServer();
+  const gitlab = createInstallVariableGitlabServer({
+    variables: configuredInstallProjectVariables(),
+    groupVariableStatus: 403,
+    writes,
+  });
+  const agentrixBase = await listen(agentrix);
+  const gitlabBase = await listen(gitlab);
+  await seedGitlabServer(store, gitlabBase);
+  try {
+    await store.createRepository({
+      gitServerId: 'gitlab-main',
+      projectId: '42',
+      projectPath: 'team/app',
+      defaultBranch: 'main',
+      webUrl: `${gitlabBase}/team/app`,
+    });
+
+    const result = await setGitlabProjectInstallVariable({
+      store,
+      basePublicUrl: 'https://issue-flow.internal',
+      env: { ...process.env, ISSUE_FLOW_AGENTRIX_BASE_URL: agentrixBase },
+      input: {
+        gitServerId: 'gitlab-main',
+        token: 'gl-oauth-user-token',
+        projectId: '42',
+        agentrix: {
+          baseUrl: agentrixBase,
+          apiKey: 'agentrix-key',
+          runnerId: 'cloud-main',
+        },
+      },
+    });
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(writes, [
+      { key: 'AGENTRIX_API_KEY', value: 'agentrix-key' },
+      { key: 'AGENTRIX_RUNNER_ID', value: 'cloud-main' },
+    ]);
+    const step = result.body.steps[0];
+    const byKey = new Map(step.variables.map((item) => [item.key, item]));
+    assert.equal(step.status, 'passed');
+    assert.equal(byKey.get('ISSUE_FLOW_GITLAB_TOKEN').status, 'passed');
+    assert.equal(byKey.get('AGENTRIX_API_KEY').status, 'passed');
+    assert.equal(byKey.get('AGENTRIX_RUNNER_ID').status, 'passed');
+  } finally {
+    await close(agentrix);
     await close(gitlab);
     await store.close();
     fs.rmSync(dir, { recursive: true, force: true });

@@ -92,20 +92,16 @@ Decision, Visual Plan, and Markdown Plan all use an `mr-by::plan` PR/MR. Only De
 
 ## Release Management
 
-`main` is the release branch. Pushes to `main` run Release Please, which opens or updates release PRs from Conventional Commit history. The plugin and the console are released independently:
+`develop` is merged into `main` through the single release PR. Add release labels to that PR before merging:
 
-- Commits touching `plugin/` release the `issue-flow` package with the historical `vX.Y.Z` tag format. The release PR updates `plugin/package.json`, `plugin/skills/issue-flow/SKILL.md`, `plugin/.claude-plugin/plugin.json`, `plugin/CHANGELOG.md`, and `.release-please-manifest.json`.
-- Commits touching `console/api/` release the `issue-flow-console` package with a `console-vX.Y.Z` tag. The release PR updates `console/api/package.json`, `console/api/CHANGELOG.md`, and `.release-please-manifest.json`. `console/web` is not versioned separately; it ships with the console.
+- `plugin:patch`, `plugin:minor`, or `plugin:major` bumps the `issue-flow` plugin.
+- `console:patch`, `console:minor`, or `console:major` bumps the console.
 
-Merge a release PR to create the GitHub release and tag. The release workflow does not publish to npm.
+The label workflow commits the version change directly to `develop`, the PR head. It updates the package metadata files together, so one PR can release both products. Merging that PR to `main` creates the corresponding version tags (`vX.Y.Z` and `console-vX.Y.Z`). A new console tag builds and pushes the image once with the version, a unique SHA tag, and `latest`.
 
-Write merge commits and direct commits with Conventional Commit prefixes:
+There is no extra release PR. Existing tags are detected, so rerunning a main build does not create another image for the same console version. The labels are the release decision; commit prefixes do not select the version bump.
 
-- `fix:` creates a patch release.
-- `feat:` creates a minor release.
-- `feat!:` or a `BREAKING CHANGE:` footer creates a major release.
-
-Pinned installs can use a tag:
+Pinned installs can use version tags:
 
 ```bash
 ISSUE_FLOW_REF=v0.1.1 \
@@ -299,7 +295,7 @@ Run the bundled production compose stack:
 docker compose -f console/docker-compose.prod.yml up --build
 ```
 
-Release tags matching `console-v*` automatically publish the image to GitHub Container Registry as `ghcr.io/nil4u/issue-flow-console`.
+Merges to `main` automatically publish the image to GitHub Container Registry as `ghcr.io/nil4u/issue-flow-console`, tagged with the console version, a unique SHA tag, and `latest`.
 
 Common production variables:
 

@@ -1,5 +1,12 @@
 import { API_BASE_URL, type InstallCheck, type InstallCheckProgress, type InstallConflictDecision, type InstallConflictPlan, type InstallStep } from "@/issue-flow-model"
 
+type PluginInstallApiInput = {
+  gitServerId: string
+  projectId: string
+  commitMessage?: string
+  decisions?: InstallConflictDecision
+}
+
 export const installCheckProgressSteps: InstallCheckProgress["steps"] = [
   { id: "permissions", label: "Permissions", status: "pending" },
   { id: "webhook", label: "Webhook", status: "pending" },
@@ -30,7 +37,7 @@ export function mergeInstallCheck(current: InstallCheck | undefined, next: Insta
 }
 
 export async function streamInstallPlugin(
-  input: { gitServerId: string; projectId: string; decisions?: InstallConflictDecision },
+  input: PluginInstallApiInput,
   onEvent: (event: string, data: unknown) => void
 ): Promise<{ kind: "complete"; body: InstallCheck } | { kind: "conflicts"; plan: InstallConflictPlan }> {
   const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin/stream`, {
@@ -82,7 +89,7 @@ export async function streamInstallPlugin(
   return terminal
 }
 
-export async function requestInstallPlugin(input: { gitServerId: string; projectId: string; decisions?: InstallConflictDecision }) {
+export async function requestInstallPlugin(input: PluginInstallApiInput) {
   const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin`, {
     method: "POST",
     credentials: "include",

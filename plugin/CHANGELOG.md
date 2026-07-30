@@ -172,4 +172,4 @@
 
 ## Changelog
 
-Release Please manages this file from Conventional Commit history after the initial release setup lands on `main`.
+This file records the historical plugin releases. Future version bumps are selected by labels on the `develop -> main` release PR.

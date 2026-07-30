@@ -1,0 +1,190 @@
+# [INPUT]: develop -> main PR 上的 plugin:* / console:* release label
+# [OUTPUT]: 把版本按当前 label 重新计算并提交回 develop（当前 PR head），同步审计标记
+# [POS]: develop -> main PR 的版本控制入口
+
+name: Auto Version Bump
+
+on:
+  pull_request:
+    types: [labeled, unlabeled]
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  bump-versions:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: version-bump-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    if: |
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository && (
+        github.event.label.name == 'plugin:patch' ||
+        github.event.label.name == 'plugin:minor' ||
+        github.event.label.name == 'plugin:major' ||
+        github.event.label.name == 'console:patch' ||
+        github.event.label.name == 'console:minor' ||
+        github.event.label.name == 'console:major'
+      )
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read main release versions
+        id: base
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          plugin_version=$(git show origin/main:plugin/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          console_version=$(git show origin/main:console/api/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          {
+            echo "plugin_version=$plugin_version"
+            echo "console_version=$console_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Detect release labels
+        id: get-label
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          labels=$(gh pr view "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --json labels --jq '.labels[].name')
+          plugin_bump=none
+          console_bump=none
+
+          higher_bump() {
+            case "$1:$2" in
+              major:*) echo major ;; *:major) echo major ;;
+              minor:*) echo minor ;; *:minor) echo minor ;;
+              *) echo patch ;;
+            esac
+          }
+
+          while IFS= read -r label; do
+            case "$label" in
+              plugin:patch|plugin:minor|plugin:major)
+                plugin_bump=$(higher_bump "$plugin_bump" "${label#plugin:}") ;;
+              console:patch|console:minor|console:major)
+                console_bump=$(higher_bump "$console_bump" "${label#console:}") ;;
+            esac
+          done <<< "$labels"
+
+          {
+            echo "plugin_bump=$plugin_bump"
+            echo "console_bump=$console_bump"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Recalculate plugin version
+        id: bump-plugin
+        run: |
+          bump="${{ steps.get-label.outputs.plugin_bump }}"
+          base="${{ steps.base.outputs.plugin_version }}"
+          if [ "$bump" = none ]; then
+            version=$(node scripts/bump-release-version.cjs plugin set "$base" | sed 's/^plugin=//')
+          else
+            version=$(node scripts/bump-release-version.cjs plugin "$bump" --from-version "$base" | sed 's/^plugin=//')
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Recalculate console version
+        id: bump-console
+        run: |
+          bump="${{ steps.get-label.outputs.console_bump }}"
+          base="${{ steps.base.outputs.console_version }}"
+          if [ "$bump" = none ]; then
+            version=$(node scripts/bump-release-version.cjs console set "$base" | sed 's/^console=//')
+          else
+            version=$(node scripts/bump-release-version.cjs console "$bump" --from-version "$base" | sed 's/^console=//')
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version changes
+        id: commit-changes
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if git diff --quiet -- plugin/package.json plugin/.claude-plugin/plugin.json \
+            plugin/skills/issue-flow/SKILL.md console/api/package.json; then
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add plugin/package.json plugin/.claude-plugin/plugin.json \
+            plugin/skills/issue-flow/SKILL.md console/api/package.json
+          git commit -m "chore: recalculate release version"
+          git push origin "HEAD:${PR_HEAD_REF}"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Synchronize audit labels
+        if: steps.commit-changes.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          PLUGIN_VERSION: ${{ steps.bump-plugin.outputs.version }}
+          CONSOLE_VERSION: ${{ steps.bump-console.outputs.version }}
+          PLUGIN_BUMP: ${{ steps.get-label.outputs.plugin_bump }}
+          CONSOLE_BUMP: ${{ steps.get-label.outputs.console_bump }}
+          COMMITTED: ${{ steps.commit-changes.outputs.committed }}
+        with:
+          script: |
+            const versions = [];
+            const definitions = {
+              'plugin-version-bumped': ['Plugin', process.env.PLUGIN_VERSION, process.env.PLUGIN_BUMP],
+              'console-version-bumped': ['Console', process.env.CONSOLE_VERSION, process.env.CONSOLE_BUMP],
+            };
+
+            for (const [name, [title, version, bump]] of Object.entries(definitions)) {
+              try {
+                await github.rest.issues.getLabel({ ...context.repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                if (bump === 'none') continue;
+                await github.rest.issues.createLabel({
+                  ...context.repo,
+                  name,
+                  description: `${title} version has been bumped in this PR`,
+                  color: '5319E7',
+                });
+              }
+              if (bump === 'none') {
+                try {
+                  await github.rest.issues.removeLabel({ ...context.repo, issue_number: context.issue.number, name });
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+                continue;
+              }
+              await github.rest.issues.addLabels({
+                ...context.repo,
+                issue_number: context.issue.number,
+                labels: [name],
+              });
+              versions.push(`- ${title}: \`${version}\` (${bump})`);
+            }
+
+            if (process.env.COMMITTED !== 'true') return;
+            const summary = versions.length > 0
+              ? versions.join('\n')
+              : '- No release labels remain; versions reset to main.';
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: `Release versions recalculated from current labels.\n\n${summary}`,
+            });
