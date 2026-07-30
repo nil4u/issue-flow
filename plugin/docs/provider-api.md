@@ -226,7 +226,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 1. 检查 worktree clean、head ≠ base、source issue 有且仅有一个 `size::`；缺失或冲突时不 push、不创建 PR/MR
 2. 确保 `mr-by::plan` label 存在且颜色/说明匹配 catalog（优先 token API；无 token 时 fallback CLI）
 3. push 当前 `{issue-number}-{slug}/plan` 分支
-4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision-data.json`、`plan/data/plan-data.json` 或 Markdown Plan 文件
+4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision.json.isv`、`plan/data/plan.json.isv` 或 Markdown Plan 文件；新增可视化产物通过 `.isv` 后缀发现且不依赖文件名或目录，JSON 内的 `artifact` 字段区分 `decision` 与 `plan`；现有 Markdown Preview 以及 `decision-data.json`、`plan-data.json` 固定文件名识别继续兼容
 5. Decision/Visual Plan 只提交 JSON；HTML、CSS、JavaScript、布局、图形和审阅锚点由 Issue Flow Engine 内置生成；`visual-brief.md` 只写入 Plan prompt 注入的系统临时路径；Visual Plan 发布前必须删除同一 Issue 的 `decision/`
 6. 仅在 `feature:visual-plan:on` 时使用 `.issue-flow/config.json` 的 `gitServerId`、`projectId` 和 `baseUrl` 生成 Engine URL；Markdown Plan 不读取这些配置
 7. 创建或更新带 `mr-by::plan` label 的 PR/MR；三种产物都写入不含 repository ID 的 `issue-flow:plan-artifact` marker，只有 Decision/Visual Plan 在 body 写入 Engine URL 并在同一 PR/MR 下回复该 URL

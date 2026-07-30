@@ -69,7 +69,11 @@ function mergeRequestArtifacts(mergeRequest, issueNumber) {
   const defaultPath = [declaredPath, markerPath].find((hint) => unique.some((descriptor) => descriptor.entryPath === hint))
   const workflow = (mergeRequest.labels || []).includes("mr-by::plan") ? "plan" : "preview"
   const coordinates = unique.map((descriptor) => {
-    const type = descriptor.kind === "markdown" && workflow === "plan" ? "plan" : descriptor.kind
+    const type = descriptor.kind === "markdown" && workflow === "plan"
+      ? "plan"
+      : descriptor.kind === "visual" && descriptor.entryPath === markerPath
+        ? marker.type
+        : descriptor.kind
     return {
       type,
       format: descriptor.format,
@@ -92,6 +96,20 @@ function mergeRequestArtifacts(mergeRequest, issueNumber) {
     const defaultRank = Number(right.entryPath === defaultPath) - Number(left.entryPath === defaultPath)
     return defaultRank || left.entryPath.localeCompare(right.entryPath)
   })
+}
+
+function visualArtifactTypeFromData(data) {
+  const artifact = String(data && data.artifact || "").trim().toLowerCase()
+  if (artifact !== "decision" && artifact !== "plan") throw requestError('visual artifact field must equal "decision" or "plan"', 422)
+  return artifact
+}
+
+async function resolveVisualArtifactTypes(server, repo, artifacts) {
+  return Promise.all(artifacts.map(async (artifact) => {
+    if (artifact.previewer !== "issue-flow-visual") return artifact
+    const body = await readVisualRepositoryFile(server, repo, artifact.commitSha, artifact.entryPath)
+    return { ...artifact, type: visualArtifactTypeFromData(parseVisualArtifactJson(body)) }
+  }))
 }
 
 function mergeRequestArtifact(mergeRequest, issueNumber, type, artifactPath) {
@@ -151,8 +169,9 @@ async function discoverVisualArtifacts(store, repo, server, issueNumber, type, r
   for (const candidate of mergeRequests) {
     const mergeRequest = candidate.files ? candidate : await readPlanMergeRequestSnapshot(server, repo, candidate.number)
     if (mergeRequestIssueNumber(mergeRequest) !== issueNumber) continue
-    const artifacts = mergeRequestArtifacts(mergeRequest, issueNumber)
-    const selected = mergeRequestArtifact(mergeRequest, issueNumber, type, artifactPath)
+    const artifacts = await resolveVisualArtifactTypes(server, repo, mergeRequestArtifacts(mergeRequest, issueNumber))
+    const requestedPath = artifactPath ? normalizePreviewPath(artifactPath) : undefined
+    const selected = artifacts.find((artifact) => (!type || artifact.type === type) && (!requestedPath || artifact.entryPath === requestedPath))
     if (selected) return { artifacts, selected }
     if (artifactPath && artifacts.length) throw requestError("Preview file was not found in the MR", 404, "preview_file_not_found")
   }

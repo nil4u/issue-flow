@@ -253,8 +253,8 @@ function findIssueArtifactPath(issueNumber, artifact, options = {}) {
   if (!issueRoot) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
   const issueDir = path.basename(issueRoot);
   const relativePath = artifact === 'decision'
-    ? path.join('.issue-flow', 'issues', issueDir, 'decision', 'data', 'decision-data.json')
-    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'plan-data.json');
+    ? path.join('.issue-flow', 'issues', issueDir, 'decision', 'data', 'decision.json.isv')
+    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'plan.json.isv');
   if (!fs.existsSync(path.resolve(process.cwd(), relativePath))) throw new Error(`Visual ${artifact} artifact does not exist: ${relativePath}`);
   return relativePath.replace(/\\/g, '/');
 }

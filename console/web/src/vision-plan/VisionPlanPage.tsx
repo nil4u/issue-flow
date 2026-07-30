@@ -959,7 +959,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
     const input: FeedbackRequest = {
       targetType: "artifact",
       targetId: decision.ref,
-      sourceRefs: [{ type: sourceRefTypeForArtifact(currentArtifact?.type ?? "plan"), path: currentArtifact?.path ?? "plan/data/plan-data.json", label: artifactLabel(currentArtifact?.type ?? "plan") }],
+      sourceRefs: [{ type: sourceRefTypeForArtifact(currentArtifact?.type ?? "plan"), path: currentArtifact?.path ?? "plan/data/plan.json.isv", label: artifactLabel(currentArtifact?.type ?? "plan") }],
       visualTarget: decision.visualTarget,
       decision: decisionReviewPayload(decision, action),
       comment,

@@ -459,7 +459,7 @@ Use this section when reviewers need to judge a proposed frontend as a real, ope
 Rules:
 
 - `file` is a file name such as `demo.html`, not a path. It must match `^[A-Za-z0-9][A-Za-z0-9._-]*\.html$`.
-- Put the HTML file in the same directory as `plan-data.json` and commit both files.
+- Put the HTML file in the same directory as `plan.json.isv` and commit both files.
 - The HTML page must be self-contained. Put its CSS and JavaScript inside the page; do not reference sibling files or repository build output.
 - The JSON remains the semantic Plan source. Use the Demo only for frontend appearance and interaction; keep implementation facts, boundaries, contracts, risks, and validation in normal sections.
 - The Engine renders the page in a sandboxed iframe and provides the section shell and expand control. The page cannot access Issue Flow credentials or its parent document.
@@ -571,6 +571,6 @@ The checker and submit script enforce:
 Run:
 
 ```bash
-node .agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs <decision-data.json>
-node .agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs <plan-data.json> --brief <temporary-visual-brief-path>
+node .agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs <decision.json.isv>
+node .agentrix/plugins/issue-flow/skills/vision-plan/plan-kit/check.mjs <plan.json.isv> --brief <temporary-visual-brief-path>
 ```

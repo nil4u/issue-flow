@@ -5,6 +5,7 @@ process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_
 require('tsx/cjs')
 
 const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview } = require('../src/core/visual-artifacts.ts')
+const { previewDescriptorForPath } = require('../src/core/preview/registry.ts')
 const { renderVisualArtifactDocument } = require('../src/core/visual-renderer.ts')
 const {
   applyVisualIssueLabels,
@@ -34,7 +35,7 @@ test('visual artifact marker carries immutable artifact coordinates without a re
     url: 'https://gitlab.test/acme/widget/-/merge_requests/7',
     state: 'opened',
     baseBranch: 'main',
-    body: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+    body: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan.json.isv -->',
     createdAt: '2026-07-14T00:00:00.000Z',
   }), {
     type: 'plan',
@@ -42,7 +43,7 @@ test('visual artifact marker carries immutable artifact coordinates without a re
     issueNumber: 42,
     branch: '42-login/plan',
     commitSha: 'abc123',
-    entryPath: '.issue-flow/issues/42-login/plan/data/plan-data.json',
+    entryPath: '.issue-flow/issues/42-login/plan/data/plan.json.isv',
     mergeRequestId: '99',
     mergeRequestNumber: 7,
     mergeRequestUrl: 'https://gitlab.test/acme/widget/-/merge_requests/7',
@@ -82,7 +83,7 @@ test('Plan preview prefers current changed files over a stale marker', () => {
     headBranch: '1030-feat/plan', commitSha: 'current-head',
     files: [
       { path: '.issue-flow/issues/1030-feat/plan/001-implementation.md', status: 'added' },
-      { path: '.issue-flow/issues/1030-feat/decision/data/decision-data.json', status: 'removed' },
+      { path: '.issue-flow/issues/1030-feat/decision/data/decision.json.isv', status: 'removed' },
     ],
   }, 1030)
   assert.equal(artifact.type, 'plan')
@@ -91,16 +92,18 @@ test('Plan preview prefers current changed files over a stale marker', () => {
   assert.equal(artifact.commitSha, 'current-head')
 })
 
-test('MR preview discovers supported files in any directory and uses Plan file only as the default', () => {
+test('MR preview discovers .isv files by suffix in any directory', () => {
   const mergeRequest = {
     id: '81', number: 21,
     body: '<!-- issue-flow:source-issue=42 -->\n## Plan file\n\n`docs/guide.md`',
     labels: ['mr-by::build'],
     state: 'open', headBranch: '42-build', commitSha: 'head-42',
     files: [
-      { path: 'specs/plan-data.json', status: 'modified' },
+      { path: 'specs/implementation-review.isv', status: 'modified' },
       { path: 'docs/guide.md', status: 'added' },
-      { path: 'decisions/decision-data.json', status: 'renamed' },
+      { path: 'legacy/decision-data.json', status: 'modified' },
+      { path: 'legacy/plan-data.json', status: 'modified' },
+      { path: 'decisions/gate.isv', status: 'renamed' },
       { path: 'docs/removed.md', status: 'removed' },
       { path: 'src/main.ts', status: 'modified' },
     ],
@@ -109,10 +112,17 @@ test('MR preview discovers supported files in any directory and uses Plan file o
 
   assert.deepEqual(artifacts.map(({ entryPath, type, previewer, workflow }) => ({ entryPath, type, previewer, workflow })), [
     { entryPath: 'docs/guide.md', type: 'markdown', previewer: 'markdown', workflow: 'preview' },
-    { entryPath: 'decisions/decision-data.json', type: 'decision', previewer: 'decision-json', workflow: 'preview' },
-    { entryPath: 'specs/plan-data.json', type: 'plan', previewer: 'plan-json', workflow: 'preview' },
+    { entryPath: 'decisions/gate.isv', type: 'visual', previewer: 'issue-flow-visual', workflow: 'preview' },
+    { entryPath: 'legacy/decision-data.json', type: 'decision', previewer: 'decision-json', workflow: 'preview' },
+    { entryPath: 'legacy/plan-data.json', type: 'plan', previewer: 'plan-json', workflow: 'preview' },
+    { entryPath: 'specs/implementation-review.isv', type: 'visual', previewer: 'issue-flow-visual', workflow: 'preview' },
   ])
-  assert.equal(mergeRequestArtifact(mergeRequest, 42, undefined, 'specs/plan-data.json').entryPath, 'specs/plan-data.json')
+  assert.equal(mergeRequestArtifact(mergeRequest, 42, undefined, 'specs/implementation-review.isv').entryPath, 'specs/implementation-review.isv')
+  assert.equal(previewDescriptorForPath('nested/anything.JSON.ISV').previewer, 'issue-flow-visual')
+  assert.equal(previewDescriptorForPath('nested/decision-data.json').kind, 'decision')
+  assert.equal(previewDescriptorForPath('nested/plan-data.json').kind, 'plan')
+  assert.equal(previewDescriptorForPath('docs/guide.md').kind, 'markdown')
+  assert.equal(previewDescriptorForPath('nested/other.json'), undefined)
 })
 
 test('approve other decisions preserves discussed and already approved decisions', () => {
@@ -154,7 +164,7 @@ test('approved Decision comments on the open MR and advances the issue without m
       return new Response(JSON.stringify([{
         id: 71,
         iid: 11,
-        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision.json.isv -->',
         state: 'opened',
         source_branch: '42-login/plan',
         target_branch: 'main',
@@ -164,19 +174,19 @@ test('approved Decision comments on the open MR and advances the issue without m
     if (String(url).endsWith('/merge_requests/11')) {
       return new Response(JSON.stringify({
         id: 71, iid: 11,
-        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision.json.isv -->',
         labels: ['mr-by::plan'], state: 'opened', source_branch: '42-login/plan', target_branch: 'main', sha: 'abc123',
       }), { status: 200 })
     }
     if (String(url).endsWith('/merge_requests/11/changes')) {
       return new Response(JSON.stringify({ changes: [{
-        old_path: '.issue-flow/issues/42-login/decision/data/decision-data.json',
-        new_path: '.issue-flow/issues/42-login/decision/data/decision-data.json',
+        old_path: '.issue-flow/issues/42-login/decision/data/decision.json.isv',
+        new_path: '.issue-flow/issues/42-login/decision/data/decision.json.isv',
         diff: '@@ -1 +1 @@',
       }] }), { status: 200 })
     }
     if (String(url).includes('/repository/files/')) {
-      const content = Buffer.from(JSON.stringify({ decisions: [
+      const content = Buffer.from(JSON.stringify({ schemaVersion: 1, artifact: 'decision', meta: { title: 'Storage decision' }, decisions: [
         { id: 'storage', type: 'choice', recommendedOptionId: 'database', options: [{ id: 'database', label: 'Database' }, { id: 'file', label: 'File' }] },
         { id: 'auth', type: 'approval' },
       ] })).toString('base64')
@@ -271,7 +281,7 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     {
       id: 71,
       iid: 11,
-      description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/decision/data/decision.json.isv -->',
       state: 'opened',
       source_branch: '42-login/plan',
       target_branch: 'main',
@@ -281,7 +291,7 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     {
       id: 72,
       iid: 12,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=43 branch=43-export/plan commit=def456 path=.issue-flow/issues/43-export/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=43 branch=43-export/plan commit=def456 path=.issue-flow/issues/43-export/plan/data/plan.json.isv -->',
       state: 'merged',
       source_branch: '43-export/plan',
       target_branch: 'main',
@@ -291,7 +301,7 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     {
       id: 74,
       iid: 14,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan.json.isv -->',
       state: 'opened',
       source_branch: '42-login/plan',
       target_branch: 'main',
@@ -437,7 +447,7 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
       return new Response(JSON.stringify([{
         id: 91,
         iid: 17,
-        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan.json.isv -->',
         state: 'opened',
         source_branch: '42-checkout/plan',
         target_branch: 'main',
@@ -447,18 +457,18 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
     if (requestUrl.endsWith('/merge_requests/17')) {
       return new Response(JSON.stringify({
         id: 91, iid: 17,
-        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan-data.json -->',
+        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan.json.isv -->',
         labels: ['mr-by::plan'], state: 'opened', source_branch: '42-checkout/plan', target_branch: 'main', sha: 'abc123',
       }), { status: 200 })
     }
     if (requestUrl.endsWith('/merge_requests/17/changes')) {
       return new Response(JSON.stringify({ changes: [{
-        old_path: '.issue-flow/issues/42-checkout/plan/data/plan-data.json',
-        new_path: '.issue-flow/issues/42-checkout/plan/data/plan-data.json',
+        old_path: '.issue-flow/issues/42-checkout/plan/data/plan.json.isv',
+        new_path: '.issue-flow/issues/42-checkout/plan/data/plan.json.isv',
         diff: '@@ -1 +1 @@',
       }] }), { status: 200 })
     }
-    if (decodeURIComponent(requestUrl).includes('plan-data.json')) {
+    if (decodeURIComponent(requestUrl).includes('plan.json.isv')) {
       return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(planData)).toString('base64'), encoding: 'base64' }), { status: 200 })
     }
     if (decodeURIComponent(requestUrl).includes('checkout-demo.html')) {
@@ -482,6 +492,8 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
     session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
   })
 
+  assert.equal(result.artifact.type, 'plan')
+  assert.equal(result.artifact.previewer, 'issue-flow-visual')
   assert.equal(requests.some((request) => decodeURIComponent(request).includes('/plan/data/checkout-demo.html?ref=abc123')), true)
   assert.match(result.html, /class="vp-demo-frame"/)
   assert.match(result.html, /sandbox="allow-scripts allow-forms allow-modals"/)
@@ -623,10 +635,10 @@ test('visual review comment includes the selected anchor and page content', () =
       payload: {
         items: [{
           comment: '确认一下还会有其他状态吗？',
-          targetId: '.issue-flow/issues/15-issue/plan/data/plan-data.json',
-          sourceRefs: [{ type: 'plan', path: '.issue-flow/issues/15-issue/plan/data/plan-data.json' }],
+          targetId: '.issue-flow/issues/15-issue/plan/data/plan.json.isv',
+          sourceRefs: [{ type: 'plan', path: '.issue-flow/issues/15-issue/plan/data/plan.json.isv' }],
           visualTarget: {
-            path: '.issue-flow/issues/15-issue/plan/data/plan-data.json',
+            path: '.issue-flow/issues/15-issue/plan/data/plan.json.isv',
             anchorRef: 'requirements.status-change',
             anchorSelector: 'li[data-ref="requirements.status-change"]',
             element: {
@@ -642,7 +654,7 @@ test('visual review comment includes the selected anchor and page content', () =
   )
 
   assert.match(comment, /\*\*确认一下还会有其他状态吗？\*\*/)
-  assert.match(comment, /产物：`.issue-flow\/issues\/15-issue\/plan\/data\/plan-data.json`/)
+  assert.match(comment, /产物：`.issue-flow\/issues\/15-issue\/plan\/data\/plan.json.isv`/)
   assert.match(comment, /锚点：`requirements.status-change`/)
   assert.match(comment, /页面内容：任务支持新增、编辑、删除和状态变更。/)
   assert.match(comment, /请根据以上审阅意见更新当前 Plan 产物/)
@@ -682,7 +694,7 @@ test('GitLab artifact discovery lists plan MRs with the current user token', asy
     return new Response(JSON.stringify([{
       id: 77,
       iid: 9,
-      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan.json.isv -->',
       title: 'Plan #42',
       state: 'opened',
       source_branch: '42-login/plan',
