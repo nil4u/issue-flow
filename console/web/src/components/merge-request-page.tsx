@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, CircleDot, Eye, FileCode2, Files, GitMerge, GitPullRequest, GitPullRequestClosed, Loader2, Maximize2, MessageCircle, Minimize2, Plus, RefreshCw, Search, Send, Trash2, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, CircleDot, Eye, FileCode2, GitMerge, GitPullRequest, GitPullRequestClosed, Loader2, Maximize2, MessageCircle, Minimize2, Plus, RefreshCw, Search, Send, Trash2, X } from "lucide-react"
 
+import { FileTree } from "@/components/review/file-tree"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -70,6 +71,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   const [error, setError] = useState("")
   const [view, setView] = useState<ReviewView>("conversation")
   const [fileFilter, setFileFilter] = useState("")
+  const [selectedDiffPath, setSelectedDiffPath] = useState("")
   const [reviewOpen, setReviewOpen] = useState(false)
   const [reviewBody, setReviewBody] = useState("")
   const [conversationComment, setConversationComment] = useState("")
@@ -126,6 +128,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     const query = fileFilter.trim().toLowerCase()
     return query ? (detail?.files || []).filter((file) => file.path.toLowerCase().includes(query)) : detail?.files || []
   }, [detail?.files, fileFilter])
+  const fileTreeItems = useMemo(() => visibleFiles.map((file) => ({ path: file.path, badge: file.status })), [visibleFiles])
   const diffTotals = useMemo(() => (detail?.files || []).reduce((totals, file) => ({ additions: totals.additions + file.additions, deletions: totals.deletions + file.deletions }), { additions: 0, deletions: 0 }), [detail?.files])
   const isOpen = detail?.mergeRequest.state === "open"
   const canMerge = Boolean(detail?.mergeRequest.permissions?.canMerge)
@@ -133,9 +136,12 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   const canApprove = Boolean(detail?.mergeRequest.permissions?.canApprove)
   const hasApproved = Boolean(detail?.mergeRequest.permissions?.hasApproved)
   const sourceIssueNumber = detail?.mergeRequest.sourceIssueNumber || 0
-  const listHref = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests`
-  const previewHref = detail?.mergeRequest.previewable && sourceIssueNumber > 0 ? `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${sourceIssueNumber}` : ""
-  const issueHref = sourceIssueNumber && detail?.repository.webUrl ? `${detail.repository.webUrl.replace(/\/+$/, "")}${detail.repository.provider === "gitlab" ? "/-/issues/" : "/issues/"}${sourceIssueNumber}` : ""
+  const defaultListHref = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests`
+  const listHref = mergeRequestReturnTo(gitServerId, projectId) || defaultListHref
+  const previewHref = detail?.mergeRequest.previewable && sourceIssueNumber > 0
+    ? `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${sourceIssueNumber}?mergeRequest=${mergeRequestNumber}`
+    : ""
+  const issueHref = sourceIssueNumber > 0 ? `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues/${sourceIssueNumber}` : ""
 
   function stateLabel() {
     if (!detail) return "Loading"
@@ -210,6 +216,13 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     }
   }
 
+  function selectDiffFile(path: string) {
+    const index = visibleFiles.findIndex((file) => file.path === path)
+    if (index < 0) return
+    setSelectedDiffPath(path)
+    document.getElementById(`changed-file-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+
   async function approveMergeRequest() {
     if (!isOpen || !canApprove || hasApproved || approving) return
     setApproving(true); setError("")
@@ -255,13 +268,12 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
         <div className="gh-pr-merge-line">
           <span className={`gh-pr-state state-${stateLabel().toLowerCase()}`}><GitPullRequest className="size-4" />{stateLabel()}</span>
           <strong>{detail?.mergeRequest.author.name || detail?.mergeRequest.author.username || "Unknown"}</strong>
-          <span>wants to merge {detail?.mergeRequest.commitsCount || 0} commits into</span>
-          <code>{detail?.mergeRequest.targetBranch}</code><span>from</span><code>{detail?.mergeRequest.sourceBranch}</code>
+          <span>wants to merge</span><code>{detail?.mergeRequest.sourceBranch}</code><span>into</span><code>{detail?.mergeRequest.targetBranch}</code>
         </div>
         <nav className="gh-pr-tabs" aria-label="Merge request views">
           <button type="button" className={view === "conversation" ? "is-active" : ""} onClick={() => setView("conversation")}><MessageCircle className="size-4" />Conversation <span>{conversationComments.length}</span></button>
           {previewHref ? <button type="button" className={view === "preview" ? "is-active" : ""} onClick={() => setView("preview")}><Eye className="size-4" />Preview</button> : null}
-          <button type="button" className={view === "files" ? "is-active" : ""} onClick={() => setView("files")}><FileCode2 className="size-4" />Files changed <span>{detail?.files.length || 0}</span></button>
+          <button type="button" className={view === "files" ? "is-active" : ""} onClick={() => setView("files")}><FileCode2 className="size-4" />Changes <span>{detail?.files.length || 0}</span></button>
           {view === "files" ? <div className="gh-pr-diff-stat"><b>+{diffTotals.additions}</b><span>-{diffTotals.deletions}</span></div> : null}
         </nav>
       </header>
@@ -283,7 +295,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
           <div className="gh-files-layout">
             <aside className="gh-file-tree">
               <label><Search className="size-4" /><input value={fileFilter} onChange={(event) => setFileFilter(event.target.value)} placeholder="Filter files…" />{fileFilter ? <button type="button" onClick={() => setFileFilter("")} aria-label="清除文件筛选"><X className="size-3" /></button> : null}</label>
-              <nav>{visibleFiles.map((file, index) => <a key={file.path} href={`#changed-file-${index}`}><Files className="size-4" /><code>{file.path}</code><span>{commentsByLine.size ? "" : file.status}</span></a>)}</nav>
+              <FileTree ariaLabel="Changed files" items={fileTreeItems} activePath={selectedDiffPath} onSelect={selectDiffFile} />
             </aside>
             <div className="gh-file-diffs">{visibleFiles.map((file, fileIndex) => <FileDiff key={file.path} file={file} fileIndex={fileIndex} isOpen={isOpen} commentsByLine={commentsByLine} draftComments={draftComments} onComment={openLineComment} onExpand={expandFileDiff} onRemoveDraft={(id) => setDraftComments((current) => current.filter((item) => item.id !== id))} />)}</div>
           </div>
@@ -297,9 +309,15 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   )
 }
 
+function mergeRequestReturnTo(gitServerId: string, projectId: string) {
+  const returnTo = new URLSearchParams(window.location.search).get("returnTo") || ""
+  const repositoryPath = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}`
+  return returnTo.startsWith(`${repositoryPath}/issues/`) ? returnTo : ""
+}
+
 function ConversationView({ detail, comments, issueHref, sourceIssueNumber, comment, submitting, baseApi, onCommentChange, onSubmitComment, onUpdated, onError }: { detail?: MergeRequestDetail; comments: MergeRequestComment[]; issueHref: string; sourceIssueNumber: number; comment: string; submitting: boolean; baseApi: string; onCommentChange: (value: string) => void; onSubmitComment: () => void; onUpdated: () => Promise<void>; onError: (message: string) => void }) {
   const threads = groupConversationComments(comments)
-  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={detail?.files || []} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection><MetaSection title="Labels"><div className="gh-labels">{detail?.mergeRequest.labels.length ? detail.mergeRequest.labels.map((label) => <span key={label}>{label}</span>) : <p>None yet</p>}</div></MetaSection><MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref} target="_blank" rel="noreferrer"><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
+  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={detail?.files || []} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection><MetaSection title="Labels"><div className="gh-labels">{detail?.mergeRequest.labels.length ? detail.mergeRequest.labels.map((label) => <span key={label}>{label}</span>) : <p>None yet</p>}</div></MetaSection><MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref}><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
 }
 
 function DiscussionCard({ thread, files, baseApi, onUpdated, onError }: { thread: ConversationThread; files: MergeRequestFile[]; baseApi: string; onUpdated: () => Promise<void>; onError: (message: string) => void }) {

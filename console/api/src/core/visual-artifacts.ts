@@ -2,10 +2,16 @@
 import crypto from "node:crypto"
 import path from "node:path"
 
-import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
+import { createProviderIssue, listAllProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { getProviderMergeRequestPreview, listProviderMergeRequests } from "./merge-request-provider.js"
+import { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, optimizationSourceIssueNumber, proposalMarker, validateOptimizationArtifact } from "./optimization-artifact.js"
+import { normalizePreviewPath, previewDescriptorForPath, previewableChangedFiles } from "./preview/registry.js"
+import { issueFlowMarkers } from "./provenance-marker.js"
+import { applyVisualIssueLabels, closePlanMergeRequest, createPlanMergeRequestComment, listPlanMergeRequestComments, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
-const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
+const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan|optimization)\s+format=(json|markdown)\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
+const ISSUE_FLOW_FEEDBACK_REPOSITORY = "nil4u/issue-flow"
 
 function requestError(message, status = 400, code = "visual_artifact_error") {
   const error = new Error(message); error.status = status; error.code = code; return error
@@ -14,6 +20,12 @@ function normalizeIssueNumber(value) {
   const issueNumber = Number.parseInt(String(value || ""), 10)
   if (!Number.isFinite(issueNumber) || issueNumber <= 0) throw requestError("issue number must be positive")
   return issueNumber
+}
+function normalizeMergeRequestNumber(value) {
+  if (value === undefined || value === null || value === "") return undefined
+  const mergeRequestNumber = Number.parseInt(String(value), 10)
+  if (!Number.isFinite(mergeRequestNumber) || mergeRequestNumber <= 0) throw requestError("merge request number must be positive")
+  return mergeRequestNumber
 }
 function normalizeRepoPath(value) {
   const normalized = path.posix.normalize(String(value || "").replace(/\\/g, "/").replace(/^\/+/, ""))
@@ -24,13 +36,121 @@ function normalizeRepoPath(value) {
 function parseArtifactMarker(mergeRequest = {}) {
   const match = String(mergeRequest.body || "").match(MARKER_PATTERN)
   if (!match) return undefined
+  let entryPath
+  try { entryPath = normalizeRepoPath(match[6]) } catch { return undefined }
   return {
     type: match[1].toLowerCase(), format: match[2].toLowerCase(), issueNumber: Number.parseInt(match[3], 10),
-    branch: match[4], commitSha: match[5], entryPath: normalizeRepoPath(match[6]),
+    branch: match[4], commitSha: match[5], entryPath,
     mergeRequestId: String(mergeRequest.id || ""), mergeRequestNumber: Number(mergeRequest.number), mergeRequestUrl: mergeRequest.url || "",
     mergeRequestState: mergeRequest.state || "", merged: Boolean(mergeRequest.merged), baseBranch: mergeRequest.baseBranch || "",
     publishedAt: mergeRequest.updatedAt || mergeRequest.createdAt || new Date().toISOString(),
   }
+}
+
+function planFilePathFromBody(body = "") {
+  const section = String(body).match(/^##[ \t]+Plan file[ \t]*\r?\n([\s\S]*?)(?=^##[ \t]+|(?![\s\S]))/im)
+  if (!section) return undefined
+  const quoted = section[1].match(/`([^`\r\n]+)`/)
+  const plain = section[1].split(/\r?\n/).map((line) => line.trim()).find(Boolean)
+  const value = String(quoted && quoted[1] || plain || "").replace(/^[-*]\s+/, "").replace(/^`|`$/g, "").replace(/[.,;:]+$/, "")
+  if (!value) return undefined
+  return normalizePreviewPath(value)
+}
+
+function mergeRequestIssueNumber(mergeRequest = {}) {
+  return issueFlowMarkers(mergeRequest.body).sourceIssueNumber || parseArtifactMarker(mergeRequest)?.issueNumber || 0
+}
+
+function mergeRequestArtifacts(mergeRequest, issueNumber) {
+  const marker = parseArtifactMarker(mergeRequest)
+  const declaredPath = planFilePathFromBody(mergeRequest.body)
+  const markerPath = marker && marker.issueNumber === issueNumber ? marker.entryPath : undefined
+  const changed = previewableChangedFiles(mergeRequest.files)
+  const hints = [declaredPath, markerPath].map(previewDescriptorForPath).filter(Boolean)
+  const descriptors = changed.length ? changed : hints
+  const unique = [...new Map(descriptors.map((descriptor) => [descriptor.entryPath, descriptor])).values()]
+  const defaultPath = [declaredPath, markerPath].find((hint) => unique.some((descriptor) => descriptor.entryPath === hint))
+  const workflow = (mergeRequest.labels || []).includes("mr-by::plan") ? "plan" : "preview"
+  const coordinates = unique.map((descriptor) => {
+    const type = descriptor.kind === "markdown" && workflow === "plan"
+      ? "plan"
+      : descriptor.kind === "visual" && descriptor.entryPath === markerPath
+        ? marker.type
+        : descriptor.kind
+    return {
+      type,
+      format: descriptor.format,
+      previewer: descriptor.previewer,
+      workflow,
+      issueNumber,
+      branch: mergeRequest.headBranch || marker?.branch || "",
+      commitSha: mergeRequest.commitSha || marker?.commitSha || "",
+      entryPath: descriptor.entryPath,
+      mergeRequestId: String(mergeRequest.id || ""),
+      mergeRequestNumber: Number(mergeRequest.number),
+      mergeRequestUrl: mergeRequest.url || "",
+      mergeRequestState: mergeRequest.state || "",
+      merged: Boolean(mergeRequest.merged),
+      baseBranch: mergeRequest.baseBranch || "",
+      publishedAt: mergeRequest.updatedAt || mergeRequest.createdAt || new Date().toISOString(),
+    }
+  })
+  return coordinates.sort((left, right) => {
+    const defaultRank = Number(right.entryPath === defaultPath) - Number(left.entryPath === defaultPath)
+    return defaultRank || left.entryPath.localeCompare(right.entryPath)
+  })
+}
+
+function visualArtifactTypeFromData(data) {
+  const artifact = String(data && data.artifact || "").trim().toLowerCase()
+  if (artifact !== "decision" && artifact !== "plan") throw requestError('visual artifact field must equal "decision" or "plan"', 422)
+  return artifact
+}
+
+async function resolveVisualArtifactTypes(server, repo, artifacts) {
+  return Promise.all(artifacts.map(async (artifact) => {
+    if (artifact.previewer !== "issue-flow-visual") return artifact
+    const body = await readVisualRepositoryFile(server, repo, artifact.commitSha, artifact.entryPath)
+    return { ...artifact, type: visualArtifactTypeFromData(parseVisualArtifactJson(body)) }
+  }))
+}
+
+function mergeRequestArtifact(mergeRequest, issueNumber, type, artifactPath) {
+  const requestedPath = artifactPath ? normalizePreviewPath(artifactPath) : undefined
+  const candidates = mergeRequestArtifacts(mergeRequest, issueNumber).filter((candidate) => !type || candidate.type === type)
+  if (requestedPath) {
+    return candidates.find((candidate) => candidate.entryPath === requestedPath)
+  }
+  return candidates[0]
+}
+
+function planMergeRequestFromSnapshot(snapshot = {}) {
+  const mergeRequest = snapshot.mergeRequest || {}
+  return {
+    id: mergeRequest.id,
+    number: mergeRequest.number,
+    body: mergeRequest.body || "",
+    title: mergeRequest.title || "",
+    state: mergeRequest.state || "",
+    merged: Boolean(mergeRequest.merged),
+    headBranch: mergeRequest.sourceBranch || "",
+    baseBranch: mergeRequest.targetBranch || "",
+    commitSha: mergeRequest.headSha || "",
+    url: mergeRequest.webUrl || "",
+    createdAt: mergeRequest.createdAt || "",
+    updatedAt: mergeRequest.updatedAt || "",
+    labels: mergeRequest.labels || [],
+    files: snapshot.files || [],
+  }
+}
+
+async function readPlanMergeRequestSnapshot(server, repo, mergeRequestNumber) {
+  return planMergeRequestFromSnapshot(await getProviderMergeRequestPreview(server, repo, mergeRequestNumber))
+}
+
+function rankedPlanMergeRequests(mergeRequests) {
+  const stateRank = (item) => item.state === "opened" || item.state === "open" ? 2 : item.merged ? 1 : 0
+  return [...mergeRequests].sort((left, right) => stateRank(right) - stateRank(left) || String(right.updatedAt).localeCompare(String(left.updatedAt)))
 }
 
 async function requireVisualContext(store, gitServerId, projectId, userId, session) {
@@ -43,25 +163,38 @@ async function requireVisualContext(store, gitServerId, projectId, userId, sessi
   return { repo, server: { ...server, userToken: session.token } }
 }
 
-async function discoverVisualArtifact(store, repo, server, issueNumber, type) {
-  const mergeRequests = await listPlanMergeRequests(server, repo)
-  const marker = mergeRequests.map(parseArtifactMarker)
-    .filter((item) => item && (!type || item.type === type) && item.issueNumber === issueNumber)
-    .sort((left, right) => {
-      const stateRank = (item) => item.mergeRequestState === "opened" || item.mergeRequestState === "open" ? 2 : item.merged ? 1 : 0
-      return stateRank(right) - stateRank(left) || String(right.publishedAt).localeCompare(String(left.publishedAt))
-    })[0]
-  if (!marker) throw requestError(type ? `${type} MR has not been published` : "Plan MR has not been published", 404, "plan_artifact_not_published")
-  return marker
+async function discoverVisualArtifacts(store, repo, server, issueNumber, type, rawMergeRequestNumber, artifactPath) {
+  const mergeRequestNumber = normalizeMergeRequestNumber(rawMergeRequestNumber)
+  const mergeRequests = mergeRequestNumber
+    ? [await readPlanMergeRequestSnapshot(server, repo, mergeRequestNumber)]
+    : rankedPlanMergeRequests((await listPlanMergeRequests(server, repo)).filter((item) => mergeRequestIssueNumber(item) === issueNumber))
+
+  for (const candidate of mergeRequests) {
+    const mergeRequest = candidate.files ? candidate : await readPlanMergeRequestSnapshot(server, repo, candidate.number)
+    if (mergeRequestIssueNumber(mergeRequest) !== issueNumber) continue
+    const artifacts = await resolveVisualArtifactTypes(server, repo, mergeRequestArtifacts(mergeRequest, issueNumber))
+    const requestedPath = artifactPath ? normalizePreviewPath(artifactPath) : undefined
+    const selected = artifacts.find((artifact) => (!type || artifact.type === type) && (!requestedPath || artifact.entryPath === requestedPath))
+    if (selected) return { artifacts, selected }
+    if (artifactPath && artifacts.length) throw requestError("Preview file was not found in the MR", 404, "preview_file_not_found")
+  }
+
+  if (!mergeRequests.length) throw requestError("Preview MR was not found", 404, "preview_merge_request_not_found")
+  throw requestError(type ? `${type} preview was not found in the MR` : "MR does not contain a previewable file", 404, "preview_file_not_found")
 }
 
 async function listReviewablePlanArtifacts({ store, gitServerId, projectId, userId, session }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
   const artifacts = (await listPlanMergeRequests(server, repo))
-    .map(parseArtifactMarker)
-    .filter((item) => item
-      && !item.merged
-      && (item.mergeRequestState === "open" || item.mergeRequestState === "opened"))
+    .filter((item) => !item.merged && (item.state === "open" || item.state === "opened"))
+    .map((item) => {
+      const issueNumber = mergeRequestIssueNumber(item)
+      return issueNumber > 0 ? mergeRequestArtifact(item, issueNumber) || {
+        issueNumber, type: "plan", format: "markdown", mergeRequestNumber: Number(item.number),
+        mergeRequestState: item.state, publishedAt: item.updatedAt || item.createdAt || "",
+      } : undefined
+    })
+    .filter(Boolean)
     .sort((left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)))
   const seen = new Set()
   return artifacts.filter((artifact) => {
@@ -77,14 +210,16 @@ async function listReviewablePlanArtifacts({ store, gitServerId, projectId, user
   }))
 }
 
-async function resolveVisualArtifact(store, repo, server, issueNumber, type) {
-  const marker = await discoverVisualArtifact(store, repo, server, issueNumber, type)
+function visualArtifactRecord(repo, issueNumber, marker) {
   const merged = marker.merged || marker.mergeRequestState === "merged"
   return {
-    id: `${repo.id}:${issueNumber}:${marker.type}`,
+    id: `${repo.id}:${issueNumber}:${marker.entryPath}`,
     repoId: repo.id,
     issueNumber,
     type: marker.type,
+    format: marker.format,
+    previewer: marker.previewer,
+    workflow: marker.workflow,
     branch: marker.branch,
     baseBranch: marker.baseBranch || repo.defaultBranch || "main",
     commitSha: marker.commitSha,
@@ -97,6 +232,18 @@ async function resolveVisualArtifact(store, repo, server, issueNumber, type) {
     updatedAt: marker.publishedAt,
     data: marker,
   }
+}
+
+async function resolveVisualArtifacts(store, repo, server, issueNumber, type, mergeRequestNumber, artifactPath) {
+  const discovered = await discoverVisualArtifacts(store, repo, server, issueNumber, type, mergeRequestNumber, artifactPath)
+  return {
+    artifact: visualArtifactRecord(repo, issueNumber, discovered.selected),
+    artifacts: discovered.artifacts.map((marker) => visualArtifactRecord(repo, issueNumber, marker)),
+  }
+}
+
+async function resolveVisualArtifact(store, repo, server, issueNumber, type, mergeRequestNumber, artifactPath) {
+  return (await resolveVisualArtifacts(store, repo, server, issueNumber, type, mergeRequestNumber, artifactPath)).artifact
 }
 
 async function readArtifactFile(server, repo, artifact) {
@@ -187,28 +334,96 @@ async function readCustomHtmlResources(server, repo, artifact, data) {
   return { customHtml: Object.fromEntries(entries) }
 }
 
-async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, userId, session }) {
+async function optimizationRuntime(server, repo, artifact, data) {
+  const [comments, issues] = await Promise.all([
+    listPlanMergeRequestComments(server, repo, artifact.data.mergeRequestNumber),
+    listAllProviderIssues(server, repo, { state: "all" }),
+  ])
+  const parentIssue = issues.find((issue) => issue.number === artifact.issueNumber)
+  const sourceIssueNumber = optimizationSourceIssueNumber(parentIssue && parentIssue.body)
+  const states = deriveOptimizationProposalStates(data, artifact.issueNumber, comments, issues)
+  return {
+    sourceIssueNumber,
+    comments,
+    issues,
+    proposals: states.map((state) => {
+      const proposal = data.proposals.find((item) => item.id === state.id)
+      return proposal && proposal.kind === "issue-flow-feedback"
+        ? { ...state, kind: proposal.kind, feedback: developerFeedbackDraft(proposal, repo, sourceIssueNumber) }
+        : { ...state, kind: proposal && proposal.kind || "project-change" }
+    }),
+  }
+}
+
+function developerFeedbackDraft(proposal, repo, sourceIssueNumber) {
+  const labels = ["type::bug", "status::active", "flow::triage", "automation::off", proposal.issue.priority, proposal.issue.size, ...(proposal.issue.labels || [])]
+  const body = [
+    proposal.issue.body.trim(),
+    "## 建议方案",
+    proposal.solution.trim(),
+    "## 验证方式",
+    proposal.validation.map((item) => `- ${String(item).trim()}`).join("\n"),
+    "## 来源",
+    [`- Repository: ${repo.fullName}`, `- Source Issue: #${sourceIssueNumber}`].join("\n"),
+  ].join("\n\n")
+  const params = new URLSearchParams({ title: proposal.issue.title, labels: labels.join(",") })
+  return {
+    title: proposal.issue.title,
+    body,
+    labels,
+    text: [`# ${proposal.issue.title}`, "", body, "", `Labels: ${labels.join(", ")}`].join("\n"),
+    url: `https://github.com/${ISSUE_FLOW_FEEDBACK_REPOSITORY}/issues/new?${params}`,
+  }
+}
+
+async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, mergeRequestNumber, artifactPath, userId, session }) {
   const issueNumber = normalizeIssueNumber(rawIssueNumber)
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifact = await resolveVisualArtifact(store, repo, server, issueNumber)
-  const status = artifact.type === "decision" && (await readVisualIssueLabels(server, repo, issueNumber)).includes("flow::plan")
-    ? "approved"
-    : artifact.status
+  const resolved = await resolveVisualArtifacts(store, repo, server, issueNumber, undefined, mergeRequestNumber, artifactPath)
+  const decisionApproved = resolved.artifacts.some((artifact) => artifact.type === "decision" && artifact.workflow === "plan")
+    && (await readVisualIssueLabels(server, repo, issueNumber)).includes("flow::plan")
+  const artifacts = resolved.artifacts.map((artifact) => artifact.type === "decision" && artifact.workflow === "plan" && decisionApproved ? { ...artifact, status: "approved" } : artifact)
+  const artifact = artifacts.find((candidate) => candidate.entryPath === resolved.artifact.entryPath) || resolved.artifact
   const entry = await readArtifactFile(server, repo, artifact)
   const format = artifact.data && artifact.data.format || "json"
   let html
+  let optimization
   if (format === "markdown") html = markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
   else {
     const data = parseVisualArtifactJson(entry.body)
-    html = renderVisualArtifactDocument(data, artifact.type, await readCustomHtmlResources(server, repo, artifact, data))
+    if (artifact.type === "optimization") {
+      validateOptimizationArtifact(data)
+      optimization = await optimizationRuntime(server, repo, artifact, data)
+    }
+    const optimizationStates = optimization && optimization.proposals.map((proposal) => ({
+      ...proposal,
+      childIssue: proposal.childIssue ? {
+        ...proposal.childIssue,
+        webUrl: `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues/${proposal.childIssue.number}`,
+      } : null,
+    }))
+    html = renderVisualArtifactDocument(data, artifact.type, {
+      ...await readCustomHtmlResources(server, repo, artifact, data),
+      optimizationStates,
+    })
   }
+  const associatedMergeRequests = (await listProviderMergeRequests(server, repo, "all"))
+    .filter((mergeRequest) => mergeRequest.sourceIssueNumber === issueNumber)
+    .map((mergeRequest) => ({
+      number: mergeRequest.number,
+      title: mergeRequest.title,
+      state: mergeRequest.state,
+      labels: mergeRequest.labels,
+    }))
   return {
-    artifact: { ...artifact, status }, format,
+    artifact, artifacts, format,
     mergeRequest: {
       id: artifact.data && artifact.data.mergeRequestId || "", number: artifact.data && artifact.data.mergeRequestNumber || 0,
       url: artifact.data && artifact.data.mergeRequestUrl || "", state: artifact.data && artifact.data.mergeRequestState || "",
     },
     repository: { id: repo.id, fullName: repo.fullName, defaultBranch: repo.defaultBranch, provider: server.type },
+    associatedMergeRequests,
+    optimization: optimization ? { sourceIssueNumber: optimization.sourceIssueNumber, proposals: optimization.proposals } : undefined,
     html,
   }
 }
@@ -253,12 +468,13 @@ function reviewItemLines(items = []) {
   })
 }
 function buildReviewComment(artifact, review, status) {
-  const title = artifact.type === "decision" ? "Decision Review" : artifact.data && artifact.data.format === "markdown" ? "Markdown Plan Review" : "Visual Plan Review"
-  const shouldResumePlanTask = status === "changes-requested"
-  const artifactName = artifact.type === "decision" ? "Decision" : "Plan"
+  const planWorkflow = artifact.workflow === "plan" || artifact.data && artifact.data.workflow === "plan"
+  const title = !planWorkflow ? "Preview Review" : artifact.type === "decision" ? "Decision Review" : artifact.type === "optimization" ? "Automation Optimization Review" : artifact.data && artifact.data.format === "markdown" ? "Markdown Plan Review" : "Visual Plan Review"
+  const shouldResumePlanTask = planWorkflow && status === "changes-requested"
+  const artifactName = artifact.type === "decision" ? "Decision" : artifact.type === "optimization" ? "Optimization Plan" : "Plan"
   const nextAction = shouldResumePlanTask
     ? `请根据以上审阅意见更新当前 ${artifactName} 产物。`
-    : artifact.type === "decision" && status === "approved"
+    : planWorkflow && artifact.type === "decision" && status === "approved"
       ? "Decision 已批准，请基于已确认的选择生成并提交 Plan。"
       : ""
   return [
@@ -339,19 +555,21 @@ function decisionCompletionItem(artifact, userId, requirement) {
   }
 }
 
-async function submitVisualReview({ store, gitServerId, projectId, issueNumber, userId, session, input = {} }) {
+async function submitVisualReview({ store, gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath, userId, session, input = {} }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber))
+  const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber), undefined, mergeRequestNumber, artifactPath)
+  const planWorkflow = artifact.workflow === "plan"
   let drafts = Array.isArray(input.items) ? input.items.filter(Boolean) : []
-  if (artifact.type === "decision" && input.approveAll === true) {
+  if (!planWorkflow && input.approveAll === true) throw requestError("Only Plan MRs support decision approval", 409, "preview_not_approvable")
+  if (planWorkflow && artifact.type === "decision" && input.approveAll === true) {
     const requirements = await decisionRequirements(server, repo, artifact)
     if (!requirements.length) throw requestError("decision artifact has no reviewable decisions")
     const pending = new Set(pendingDecisionApprovalRefs(requirements, drafts))
     drafts = [...drafts, ...requirements.filter((item) => pending.has(item.ref)).map((item) => decisionCompletionItem(artifact, userId, item))]
   }
   if (!drafts.length) throw requestError("no review drafts to submit")
-  let status = "changes-requested"
-  if (artifact.type === "decision") {
+  let status = planWorkflow ? "changes-requested" : "commented"
+  if (planWorkflow && artifact.type === "decision") {
     const requirements = await decisionRequirements(server, repo, artifact)
     const discussed = drafts.some((item) => item.decision && item.decision.action === "discuss")
     const completed = requirements.length > 0 && requirements.every((requirement) => drafts.some((item) => {
@@ -362,22 +580,27 @@ async function submitVisualReview({ store, gitServerId, projectId, issueNumber, 
     }))
     status = !discussed && completed ? "approved" : "changes-requested"
   }
-  if (artifact.type === "decision" && status === "approved") {
+  if (planWorkflow && artifact.type === "decision" && status === "approved") {
     const review = createVisualReview(artifact, userId, input, drafts, status)
     await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": "flow::plan" })
     const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
     return { review, status, providerComment, flow: "flow::plan" }
   }
   const review = createVisualReview(artifact, userId, input, drafts, status)
+  if (!planWorkflow) {
+    const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
+    return { review, status, providerComment }
+  }
   const flow = artifact.type === "decision" ? "flow::clarify" : "flow::approve"
   await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": flow })
   const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
   return { review, status, providerComment, flow }
 }
 
-async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, userId, session }) {
+async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath, userId, session }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber), "plan")
+  const artifact = await resolveVisualArtifact(store, repo, server, normalizeIssueNumber(issueNumber), "plan", mergeRequestNumber, artifactPath)
+  if (artifact.workflow !== "plan") throw requestError("Only Plan MRs can be approved from Preview", 409, "preview_not_approvable")
   const merge = await mergePlanMergeRequest(server, repo, artifact.data && artifact.data.mergeRequestNumber)
   const review = createVisualReview(artifact, userId, { kind: "approval", merge }, [], "approved")
   await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, "approved"))
@@ -385,4 +608,104 @@ async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, u
   return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
 }
 
-export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, structureMarkdownSections, submitVisualReview }
+function optimizationProposalById(data, proposalId) {
+  const proposal = data.proposals.find((item) => item.id === proposalId)
+  if (!proposal) throw requestError(`optimization proposal not found: ${proposalId}`, 404, "optimization_proposal_not_found")
+  return proposal
+}
+
+function proposalIssueLabels(proposal) {
+  return [...new Set([
+    proposal.issue.type,
+    "status::active",
+    proposal.issue.flow,
+    proposal.kind === "issue-flow-feedback" ? "automation::off" : "automation::build",
+    proposal.issue.priority,
+    proposal.issue.size,
+    ...(proposal.issue.labels || []),
+  ])]
+}
+
+async function loadOptimizationActionContext(input) {
+  const issueNumber = normalizeIssueNumber(input.issueNumber)
+  const { repo, server } = await requireVisualContext(input.store, input.gitServerId, input.projectId, input.userId, input.session)
+  const artifact = await resolveVisualArtifact(input.store, repo, server, issueNumber, "optimization")
+  if (artifact.status === "approved" || !["open", "opened"].includes(artifact.data.mergeRequestState)) throw requestError("optimization Plan is no longer open", 409, "optimization_plan_closed")
+  const data = validateOptimizationArtifact(parseVisualArtifactJson((await readArtifactFile(server, repo, artifact)).body))
+  const runtime = await optimizationRuntime(server, repo, artifact, data)
+  if (!runtime.sourceIssueNumber) throw requestError("optimization source issue marker is missing", 422, "optimization_source_missing")
+  return { repo, server, artifact, data, runtime }
+}
+
+async function finalizeOptimizationIfComplete({ server, repo, artifact, data, runtime }) {
+  const states = deriveOptimizationProposalStates(data, artifact.issueNumber, runtime.comments, runtime.issues)
+  if (!allOptimizationProposalsTerminal(states)) return { completed: false, proposals: states }
+  const parent = runtime.issues.find((issue) => issue.number === artifact.issueNumber)
+  if (!parent) throw requestError("optimization issue was not found", 404, "optimization_issue_not_found")
+  const source = runtime.issues.find((issue) => issue.number === runtime.sourceIssueNumber)
+  if (!source) throw requestError("optimization source issue was not found", 404, "optimization_source_not_found")
+  await closePlanMergeRequest(server, repo, artifact.data.mergeRequestNumber)
+  const parentLabels = (parent && parent.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+  await updateProviderIssue(server, repo, artifact.issueNumber, {
+    labels: [...new Set([...parentLabels.filter((label) => !label.startsWith("status::") && !label.startsWith("flow::")), "status::done"])],
+  })
+  await updateProviderIssueState(server, repo, artifact.issueNumber, "close")
+  const sourceLabels = (source && source.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+  await updateProviderIssue(server, repo, runtime.sourceIssueNumber, {
+    labels: [...new Set([...sourceLabels.filter((label) => !label.startsWith("optimization::")), "optimization::analyzed"])],
+  })
+  return { completed: true, proposals: states }
+}
+
+async function approveOptimizationProposal(input) {
+  const context = await loadOptimizationActionContext(input)
+  const proposal = optimizationProposalById(context.data, String(input.proposalId || ""))
+  const current = context.runtime.proposals.find((item) => item.id === proposal.id)
+  if (current.state === "ignored") throw requestError("ignored proposal cannot be approved", 409, "optimization_proposal_ignored")
+  if (current.childIssue) return { proposal: current, created: false }
+  if (proposal.kind === "issue-flow-feedback") throw requestError("Issue Flow feedback must be copied and submitted manually", 409, "issue_flow_feedback_manual_submission")
+  const marker = proposalMarker({
+    optimizationIssueNumber: context.artifact.issueNumber,
+    sourceIssueNumber: context.runtime.sourceIssueNumber,
+    proposalId: proposal.id,
+  })
+  const childIssue = await createProviderIssue(context.server, context.repo, {
+    title: proposal.issue.title,
+    body: `${proposal.issue.body.trim()}\n\n${marker}`,
+    labels: proposalIssueLabels(proposal),
+  })
+  await createPlanMergeRequestComment(
+    context.server,
+    context.repo,
+    context.artifact.data.mergeRequestNumber,
+    `<!-- issue-flow:source source_agent=issue-flow -->\n${marker}\n已通过优化方案并创建执行 Issue：${childIssue.webUrl || `#${childIssue.number}`}。`,
+  )
+  const state = { id: proposal.id, state: childProposalStateForResponse(childIssue), childIssue: { number: childIssue.number, title: childIssue.title, state: childIssue.state, webUrl: childIssue.webUrl || "" } }
+  return { proposal: state, created: true }
+}
+
+function childProposalStateForResponse(issue) {
+  const labels = (issue.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+  return labels.includes("flow::build") ? "executing" : "created"
+}
+
+async function ignoreOptimizationProposal(input) {
+  const context = await loadOptimizationActionContext(input)
+  const proposal = optimizationProposalById(context.data, String(input.proposalId || ""))
+  const current = context.runtime.proposals.find((item) => item.id === proposal.id)
+  if (current.childIssue) throw requestError("created proposal cannot be ignored", 409, "optimization_proposal_created")
+  if (current.state !== "ignored") {
+    const marker = proposalMarker({
+      optimizationIssueNumber: context.artifact.issueNumber,
+      sourceIssueNumber: context.runtime.sourceIssueNumber,
+      proposalId: proposal.id,
+      action: "ignored",
+    })
+    await createPlanMergeRequestComment(context.server, context.repo, context.artifact.data.mergeRequestNumber, `<!-- issue-flow:source source_agent=issue-flow -->\n${marker}\n已忽略优化方案：**${proposal.title}**`)
+    context.runtime.comments.push({ body: marker })
+  }
+  const completion = await finalizeOptimizationIfComplete(context)
+  return { proposal: completion.proposals.find((item) => item.id === proposal.id), completion }
+}
+
+export { approveOptimizationProposal, approveVisualPlan, buildReviewComment, decisionRequirementsFromData, developerFeedbackDraft, finalizeOptimizationIfComplete, getVisualArtifact, ignoreOptimizationProposal, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview }

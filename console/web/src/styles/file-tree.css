@@ -1,0 +1,95 @@
+.if-file-tree {
+  min-width: 0;
+  overflow: auto;
+  font-size: 0.75rem;
+}
+.if-file-tree ul {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.if-file-tree li {
+  min-width: 0;
+}
+.if-file-tree-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  margin: 0;
+  padding-block: 3px;
+  padding-inline-end: 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground, #18181b);
+  text-align: left;
+  box-shadow: none;
+}
+.if-file-tree-row:hover {
+  background: var(--muted, #f1f1f3);
+}
+.if-file-tree-row.is-active {
+  background: var(--if-color-selected-background, #e9eefb);
+  color: var(--if-color-emphasis, #18181b);
+}
+.if-file-tree-row.is-active::before {
+  content: "";
+  position: absolute;
+  inset: 4px auto 4px 0;
+  width: 2px;
+  border-radius: 2px;
+  background: #3370ff;
+}
+.if-file-tree-row.is-file {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+.if-file-tree-row > svg {
+  color: var(--muted-foreground, #71717a);
+}
+.if-file-tree-row.is-directory > svg:nth-of-type(2) {
+  color: #8b95a7;
+}
+.if-file-tree-chevron {
+  transition: transform 120ms ease;
+}
+.if-file-tree-chevron.is-open {
+  transform: rotate(90deg);
+}
+.if-file-tree-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.if-file-tree-row.is-directory > span {
+  font-weight: 600;
+}
+.if-file-tree-row > small {
+  color: var(--muted-foreground, #71717a);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+.vision-plan-page .if-file-tree-row {
+  justify-content: initial;
+  min-height: 28px;
+  padding-block: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 0.72rem;
+}
+.vision-plan-page .if-file-tree-row:hover:not(:disabled) {
+  border: 0;
+  background: var(--vp-primary-soft);
+}
+.vision-plan-page .if-file-tree-row.is-active {
+  background: var(--vp-primary-soft);
+}

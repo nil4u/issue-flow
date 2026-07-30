@@ -7,8 +7,10 @@ description: Create Issue Flow Decision and Visual Plan JSON artifacts with sepa
 
 Use this skill to create or update Issue Flow review artifacts:
 
-- `.issue-flow/issues/{issue-slug}/decision/data/decision-data.json` for a pre-plan decision review when the requirement has contradictions, ambiguous scope, or user choices that must be answered before a plan is generated.
-- `.issue-flow/issues/{issue-slug}/plan/data/plan-data.json` for a visual implementation plan.
+- `.issue-flow/issues/{issue-slug}/decision/data/decision.json.isv` for a pre-plan decision review when the requirement has contradictions, ambiguous scope, or user choices that must be answered before a plan is generated.
+- `.issue-flow/issues/{issue-slug}/plan/data/plan.json.isv` for a visual implementation plan.
+
+For newly authored visual artifacts, the `.isv` suffix is the Preview discovery contract regardless of file name or directory. Legacy Markdown and fixed-name JSON previews remain supported for compatibility. Keep the JSON `artifact` field as `decision` or `plan` so the Engine selects the correct review experience without changing the Visual Engine Schema.
 
 The JSON is the semantic source of a review surface, not a document dump. It should help the user understand the proposal faster and help an implementation agent execute it correctly. Issue Flow Engine renders the JSON with fixed components, layout, styles, diagrams, review anchors, comments, and approval controls.
 
@@ -20,13 +22,13 @@ Before writing artifact JSON, read [references/engine-json-contract.md](referenc
 
 1. Start each artifact from its source data.
    - For a plan, write `visual-brief.md` to the absolute temporary path injected by the runtime before writing Plan JSON. Never put it in the repository.
-   - For a decision gate, write `decision/data/decision-data.json`.
+   - For a decision gate, write `decision/data/decision.json.isv`.
    - Treat it as the information architecture contract for the artifact.
    - Do not create presentation code except for an interactive Demo selected under the guidance below.
 
 2. Separate source of truth from presentation.
-   - Put plan entities, edges, states, constraints, invariants, risks, and validation scenarios in `plan/data/plan-data.json`.
-   - Put unresolved questions, options, recommendations, criteria, and consequences in `decision/data/decision-data.json`.
+   - Put plan entities, edges, states, constraints, invariants, risks, and validation scenarios in `plan/data/plan.json.isv`.
+   - Put unresolved questions, options, recommendations, criteria, and consequences in `decision/data/decision.json.isv`.
    - The agent owns facts and component selection. Issue Flow Engine owns HTML, CSS, JavaScript, SVG, coordinates, layout, review anchors, and interaction behavior for every built-in component.
    - Never create `decision.html`, `plan/index.html`, artifact CSS, artifact JavaScript, SVG, or copied rendering assets. The only exception is one or more self-contained Demo HTML files explicitly referenced by `custom-html` Plan sections.
    - Encode every important review fact using the structures defined by the Engine manual.
@@ -59,7 +61,7 @@ Before writing artifact JSON, read [references/engine-json-contract.md](referenc
 
 Use a `custom-html` Plan section when reviewers need to understand the proposed frontend as a real, operable page rather than a structural sketch. When the product is page-centric and includes multiple user interactions or responsive requirements, the Plan should include an interactive Demo.
 
-- Create a standalone, self-contained `.html` file in the same directory as `plan-data.json`.
+- Create a standalone, self-contained `.html` file in the same directory as `plan.json.isv`.
 - Reference only its file name from the section's `file` field; never place HTML, CSS, or JavaScript inside JSON.
 - Keep Demo CSS and JavaScript inside that HTML file. Do not add sibling assets or depend on repository build tooling.
 - Treat the Demo as a review prototype, not production implementation code. Keep architecture, contracts, risks, and validation in the normal Engine sections.

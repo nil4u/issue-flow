@@ -44,6 +44,7 @@ issue-flow <resource> <action> [options]
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
 | `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
 | `mr-by::` | PR/MR | 标记 Decision、Visual/Markdown Plan 或 Build PR/MR 的来源动作 | `plan`, `build` |
+| `review::` | PR/MR | 暂停自动 review 与 review-comment task resume | `off` |
 
 详情请参考：`references/labels.md`。
 
@@ -87,6 +88,7 @@ node .issue-flow/cli.cjs pr get --pr 45
 node .issue-flow/cli.cjs pr submit plan --issue 123 --title "Plan #123: Add auth" --body-file <tmp-plan-pr-body-file>
 node .issue-flow/cli.cjs pr submit plan --issue 123 --artifact decision
 node .issue-flow/cli.cjs pr submit plan --issue 123 --artifact plan
+node .issue-flow/cli.cjs pr submit plan --issue 123 --artifact optimization
 node .issue-flow/cli.cjs pr submit build --issue 123 --title "Build #123: Add auth" --body-file <tmp-pr-body-file>
 node .issue-flow/cli.cjs pr comments list --pr 45
 node .issue-flow/cli.cjs pr comments create --pr 45 --body-file <tmp-comment-body-file>
@@ -95,7 +97,7 @@ node .issue-flow/cli.cjs pr review --pr 45 --body-file <tmp-review-body-file> [-
 node .issue-flow/cli.cjs pr merged --event <event-json-file>
 ```
 
-`pr submit plan` 会读取 source issue 的特性开关。默认提交在 provider PR/MR 中直接审阅的 Markdown Plan；`feature:visual-plan:on` 发布带 Issue Flow 审阅地址的 Decision 或 Visual Plan。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
+`pr submit plan` 会读取 source issue 的类型与特性开关。`type::optimization` 固定发布 Automation Optimizer Skill 定义的 Optimization JSON；其他 Issue 默认提交 Markdown Plan，`feature:visual-plan:on` 发布 Decision 或 Visual Plan。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
 ### Milestone、Labels
 
@@ -142,6 +144,10 @@ node .issue-flow/cli.cjs pr submit plan \
 # feature:visual-plan:on 且无阻塞选择或 Decision 已批准时发布 Plan：
 node .issue-flow/cli.cjs pr submit plan \
   --issue 123 --artifact plan
+
+# type::optimization 提交 Automation Optimizer Skill 生成的 JSON：
+node .issue-flow/cli.cjs pr submit plan \
+  --issue 456 --artifact optimization
 ```
 
 Markdown Plan 与 Visual Plan 的等待审批与已批准状态分别由 open/merged Plan MR 表示。Visual 模式下，Decision 提交后使用 `flow::clarify`；修改意见和批准结果都评论在同一个 open Plan MR，批准评论把 Issue 转到 `flow::plan` 并恢复原 Plan task。Plan task 继续使用同一分支和 MR 发布 Visual Plan；Plan 批准后合并 MR并进入 `flow::build`。

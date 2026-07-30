@@ -18,6 +18,7 @@ const {
   automationOptimizationIssueBody,
   automationOptimizationPhases,
   createAutomationOptimizationIssue,
+  getIssue,
   listAutomationOptimizations,
 } = require("../src/core/issues.ts")
 
@@ -73,6 +74,39 @@ test("automation optimization issue template includes the source stage contract"
   assert.match(body, /来源 Issue：#17 Add checkout/)
   assert.match(body, /`plan`：3 Turns/)
   assert.match(body, /`build`：2 Turns/)
+})
+
+test("automation insights exclude optimization analysis and generated execution issues", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async (url) => {
+    if (String(url).includes("/issues?")) return new Response(JSON.stringify([
+      { id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature"] },
+      { id: 81, iid: 81, title: "Optimize", description: "<!-- issue-flow:automation-optimization source-issue=17 -->", state: "opened", labels: ["type::optimization"] },
+      { id: 82, iid: 82, title: "Generated", description: "<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->", state: "opened", labels: ["type::docs"] },
+    ]), { status: 200 })
+    throw new Error(`Unexpected request: ${url}`)
+  }
+  const sourceIssues = [
+    { id: "issue-17", issueNumber: 17, type: "feature" },
+    { id: "issue-81", issueNumber: 81, type: "optimization" },
+    { id: "issue-82", issueNumber: 82, type: "docs" },
+  ]
+  const store = {
+    findRepositoryByProject: async () => ({ id: "repo-1", gitServerId: "gitlab-1", serverRepoId: "43326", fullName: "acme/widget" }),
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }),
+    db: {
+      issue: { findMany: async () => sourceIssues },
+      issueStat: { findMany: async () => sourceIssues.map((issue) => ({ id: issue.id, buildTaskTurns: 2 })) },
+    },
+  }
+  const result = await listAutomationOptimizations({
+    store, gitServerId: "gitlab-1", projectId: "43326", userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: { issueNumbers: [17, 81, 82] },
+  })
+  assert.deepEqual(result.items.map((item) => item.sourceIssueNumber), [17])
 })
 
 test("automation optimization creation is blocked while the source has an optimization state", async (t) => {
@@ -284,6 +318,37 @@ test("GitLab issue detail includes comments, labels, and current user permission
   assert.deepEqual(detail.comments.map((comment) => comment.body), ["Comment"])
   assert.deepEqual(detail.comments[0].reactions, [{ content: "thumbsup", count: 2 }, { content: "tada", count: 1 }])
   assert.deepEqual(detail.availableLabels[0], { name: "feature", color: "428BCA", description: "Feature" })
+})
+
+test("Issue detail includes every merge request linked by the source issue marker", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path.endsWith("/projects/43326/issues/15")) return new Response(JSON.stringify({ id: 15, iid: 15, title: "Plan", state: "opened", description: "Body", author: { id: 8, username: "author" }, labels: [] }), { status: 200 })
+    if (path.includes("/issues/15/notes?")) return new Response(JSON.stringify([]), { status: 200 })
+    if (path.endsWith("/projects/43326/labels?per_page=100")) return new Response(JSON.stringify([]), { status: 200 })
+    if (path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 30 } } }), { status: 200 })
+    if (path.endsWith("/user")) return new Response(JSON.stringify({ id: 9, username: "alice" }), { status: 200 })
+    if (path.includes("/projects/43326/merge_requests?")) return new Response(JSON.stringify([
+      { id: 41, iid: 21, title: "Plan #15", description: "<!-- issue-flow:source-issue=15 -->", state: "merged", labels: ["mr-by::plan"] },
+      { id: 42, iid: 22, title: "Build #15", description: "<!-- issue-flow:source-issue=15 -->", state: "opened", labels: ["mr-by::build"] },
+      { id: 43, iid: 23, title: "Build #16", description: "<!-- issue-flow:source-issue=16 -->", state: "opened", labels: ["mr-by::build"] },
+    ]), { status: 200 })
+    if (path.endsWith("/markdown") && options.method === "POST") return new Response(JSON.stringify({ html: "<p>Body</p>" }), { status: 200 })
+    throw new Error(`Unexpected request: ${options.method || "GET"} ${path}`)
+  }
+  const repo = { id: "repo_123", gitServerId: "gitlab-main", serverRepoId: "43326", fullName: "acme/widget" }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: "gitlab", apiUrl: "https://gitlab.test/api/v4", tokenAuth: "private-token" }),
+  }
+  const detail = await getIssue({
+    store, gitServerId: "gitlab-main", projectId: "43326", issueNumber: 15, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-main", token: "user-token" },
+  })
+  assert.deepEqual(detail.mergeRequests.map((mergeRequest) => mergeRequest.number), [21, 22])
 })
 
 test("GitHub issue create, edit, comment, close, and reopen use provider APIs", async (t) => {

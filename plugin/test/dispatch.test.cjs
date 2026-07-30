@@ -171,6 +171,34 @@ test('dispatch review queues runtime review when enabled', async () => {
   assert.equal(result.result.status, 'dry-run');
 });
 
+test('dispatch review skips a PR with review::off and resumes after removal', async () => {
+  const payload = {
+    pull_request: {
+      number: 9,
+      state: 'open',
+      draft: false,
+      merged: false,
+      title: 'Build #42: Add widget support',
+      body: '<!-- issue-flow:source-issue=42 -->',
+      html_url: 'https://github.com/example/platform/pull/9',
+      base: { ref: 'main' },
+      head: { ref: '42-add-widget-support/build', sha: 'abc123' },
+      labels: [{ name: 'mr-by::build' }, { name: 'review::off' }],
+      user: { login: 'alice' },
+    },
+    repository: { full_name: 'example/platform' },
+  };
+
+  const paused = await runReview({ dryRun: true, reviewEnabled: '1' }, { payload });
+  assert.equal(paused.action, 'skipped');
+  assert.equal(paused.reason, 'pull_request_review_disabled');
+
+  payload.pull_request.labels = [{ name: 'mr-by::build' }];
+  const resumed = await runReview({ dryRun: true, reviewEnabled: '1' }, { payload });
+  assert.equal(resumed.action, 'review');
+  assert.equal(resumed.result.status, 'dry-run');
+});
+
 function githubReviewCommentPayload(overrides = {}) {
   const payload = {
     action: overrides.action || 'created',
@@ -244,7 +272,7 @@ function githubIssueCommentPayload(overrides = {}) {
 
 test('dispatch comment without instruction does not auto-run clarify flow', async () => {
   const result = await runComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubIssueCommentPayload({ commentBody: '@agentrix' }) }
   );
 
@@ -307,7 +335,7 @@ test('dispatch comment falls back to general when clarify has multiple resumable
 
 test('dispatch review-comment resumes the PR body task id on created event', async () => {
   const result = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ userType: 'Bot', author: 'agentrix-bot' }) }
   );
 
@@ -321,7 +349,7 @@ test('dispatch review-comment resumes the PR body task id on created event', asy
 
 test('dispatch review-comment resumes GitHub PR ordinary issue comments', async () => {
   const result = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ issueComment: true }) }
   );
 
@@ -330,6 +358,50 @@ test('dispatch review-comment resumes GitHub PR ordinary issue comments', async 
   assert.equal(result.pullRequest, 9);
   assert.equal(result.sourceIssue, 42);
   assert.equal(result.reviewComment, '101');
+});
+
+test('dispatch review-comment respects repository and PR review switches', async () => {
+  const globallyDisabled = await runReviewComment(
+    { dryRun: true, reviewEnabled: 'false' },
+    { payload: githubReviewCommentPayload() }
+  );
+  assert.equal(globallyDisabled.action, 'skipped');
+  assert.equal(globallyDisabled.reason, 'review_disabled');
+
+  const pullRequestDisabled = await runReviewComment(
+    { dryRun: true, reviewEnabled: 'true' },
+    { payload: githubReviewCommentPayload({ labels: [{ name: 'mr-by::build' }, { name: 'review::off' }] }) }
+  );
+  assert.equal(pullRequestDisabled.action, 'skipped');
+  assert.equal(pullRequestDisabled.reason, 'pull_request_review_disabled');
+  assert.equal(pullRequestDisabled.reviewComment, '101');
+});
+
+test('dispatch review-comment pause has no acknowledgement or task resume side effects', async () => {
+  const originalReaction = providers.github.addReviewCommentReaction;
+  const originalResume = agentrix.resumeTask;
+  let reactions = 0;
+  let resumes = 0;
+  providers.github.addReviewCommentReaction = async () => {
+    reactions += 1;
+  };
+  agentrix.resumeTask = async () => {
+    resumes += 1;
+  };
+
+  try {
+    const result = await runReviewComment(
+      { dryRun: true, reviewEnabled: 'true' },
+      { payload: githubReviewCommentPayload({ labels: [{ name: 'review::off' }] }) }
+    );
+
+    assert.equal(result.reason, 'pull_request_review_disabled');
+    assert.equal(reactions, 0);
+    assert.equal(resumes, 0);
+  } finally {
+    providers.github.addReviewCommentReaction = originalReaction;
+    agentrix.resumeTask = originalResume;
+  }
 });
 
 test('dispatch Plan PR comment uses the standard PR review reply instruction', async () => {
@@ -342,7 +414,7 @@ test('dispatch Plan PR comment uses the standard PR review reply instruction', a
 
   try {
     const result = await runReviewComment(
-      { dryRun: true },
+      { dryRun: true, reviewEnabled: 'true' },
       {
         payload: githubReviewCommentPayload({
           issueComment: true,
@@ -350,7 +422,7 @@ test('dispatch Plan PR comment uses the standard PR review reply instruction', a
           body: [
             '<!-- issue-flow:source-issue=42 -->',
             '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
-            '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+            '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan.json.isv -->',
           ].join('\n'),
           labels: [{ name: 'mr-by::plan' }],
         }),
@@ -369,7 +441,7 @@ test('dispatch Plan PR comment uses the standard PR review reply instruction', a
 
 test('dispatch review-comment skips issue-flow sourced comments', async () => {
   const result = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     {
       payload: githubReviewCommentPayload({
         commentBody: '<!-- issue-flow:source source_task_id=task-123 source_agent=codex source_runtime=agentrix -->\nAgent output.',
@@ -392,7 +464,7 @@ test('dispatch review-comment skips all Plan publication notifications', async (
 
   for (const publication of publications) {
     const result = await runReviewComment(
-      { dryRun: true },
+      { dryRun: true, reviewEnabled: 'true' },
       {
         payload: githubReviewCommentPayload({
           issueComment: true,
@@ -415,7 +487,7 @@ test('dispatch review-comment skips all Plan publication notifications', async (
 
 test('dispatch review-comment skips unsupported edited events', async () => {
   const result = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ action: 'edited' }) }
   );
 
@@ -425,7 +497,7 @@ test('dispatch review-comment skips unsupported edited events', async () => {
 
 test('dispatch review-comment skips review comment replies', async () => {
   const result = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ inReplyToId: 100 }) }
   );
 
@@ -435,14 +507,14 @@ test('dispatch review-comment skips review comment replies', async () => {
 
 test('dispatch review-comment skips missing PR task marker and closed PRs', async () => {
   const missingTask = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ body: '<!-- issue-flow:source-issue=42 -->\nBody' }) }
   );
   assert.equal(missingTask.action, 'skipped');
   assert.equal(missingTask.reason, 'missing_agentrix_task');
 
   const closed = await runReviewComment(
-    { dryRun: true },
+    { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ state: 'closed' }) }
   );
   assert.equal(closed.action, 'skipped');
@@ -468,7 +540,7 @@ test('dispatch review-comment acknowledges without posting another task message'
 
   try {
     const result = await runReviewComment(
-      { dryRun: true },
+      { dryRun: true, reviewEnabled: 'true' },
       { payload: githubReviewCommentPayload({ commentId: 103, reviewId: 901 }) }
     );
 
@@ -814,7 +886,7 @@ test('dispatch Decision merge resumes the original Plan task', async () => {
         body: [
           '<!-- issue-flow:source-issue=42 -->',
           '<!-- issue-flow:agentrix:task=task-plan-42 -->',
-          '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision-data.json -->',
+          '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision.json.isv -->',
         ].join('\n'),
         title: 'Decision #42: Add widget support',
         head: { ref: '42-add-widget-support/plan' },

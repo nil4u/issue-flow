@@ -6,6 +6,7 @@
       "package-name": "issue-flow",
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
+      "separate-pull-requests": true,
       "extra-files": [
         {
           "type": "generic",

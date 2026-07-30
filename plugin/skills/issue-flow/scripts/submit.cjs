@@ -32,7 +32,7 @@ const SUBMIT_KINDS = {
 const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
 const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->\s*/i;
 const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
-const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan']);
+const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan', 'optimization']);
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
 const PLAN_ARTIFACT_FORMATS = new Set(['json', 'markdown']);
 const VISUAL_SECTION_TYPES = new Set([
@@ -48,6 +48,8 @@ const VISUAL_SECTION_TYPES = new Set([
 const VISUAL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/;
 const VISUAL_CHART_VARIANTS = new Set(['bar', 'horizontal-bar', 'column', 'line', 'area', 'donut', 'pie']);
 const CUSTOM_HTML_FILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/i;
+const MANAGED_LABEL_PREFIXES = ['type::', 'status::', 'flow::', 'automation::', 'priority::', 'size::', 'mr-by::', 'optimization::'];
+const OPTIMIZATION_TRACE_DETAIL_PATTERN = /(?:task[-_:][a-z0-9]|task\s+id|sequence|taskevent)/i;
 
 function usage() {
   return [
@@ -61,7 +63,7 @@ function usage() {
     '  --issue-number <num>    Source issue number.',
     '  --title <title>         PR title. #<issue-number> is prepended when missing.',
     '  --body-file <path>      Markdown Plan or Build PR/MR body file.',
-    '  --artifact <type>       Visual mode artifact: decision or plan.',
+    '  --artifact <type>       Engine artifact: decision, plan, or optimization.',
     '  --artifact-path <path>  Artifact entry file. Auto-detected when omitted.',
     '  --git-server-id <id>    Issue Flow Git server id used in the visual URL.',
     '  --project-id <id>       Provider repository/project id used in the visual URL.',
@@ -222,13 +224,13 @@ function resolveVisualRouteRepository(options = {}, repo = {}) {
 
 function resolveVisualArtifactType(options = {}) {
   const artifact = String(options.artifact || 'plan').trim().toLowerCase();
-  if (!VISUAL_ARTIFACT_TYPES.has(artifact)) throw new Error('--artifact must be decision or plan');
+  if (!VISUAL_ARTIFACT_TYPES.has(artifact)) throw new Error('--artifact must be decision, plan, or optimization');
   return artifact;
 }
 
 function resolveVisualPlanFeatureMode(issue = {}) {
   const labels = normalizeLabels(issue.labels || []);
-  if (labels.includes('type::optimization')) return 'off';
+  if (labels.includes('type::optimization')) return 'on';
   return labels.includes(VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
@@ -253,8 +255,10 @@ function findIssueArtifactPath(issueNumber, artifact, options = {}) {
   if (!issueRoot) throw new Error(`No visual artifact directory found for issue #${issueNumber}`);
   const issueDir = path.basename(issueRoot);
   const relativePath = artifact === 'decision'
-    ? path.join('.issue-flow', 'issues', issueDir, 'decision', 'data', 'decision-data.json')
-    : path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'plan-data.json');
+    ? path.join('.issue-flow', 'issues', issueDir, 'decision', 'data', 'decision.json.isv')
+    : artifact === 'optimization'
+      ? path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'optimization-data.json')
+      : path.join('.issue-flow', 'issues', issueDir, 'plan', 'data', 'plan.json.isv');
   if (!fs.existsSync(path.resolve(process.cwd(), relativePath))) throw new Error(`Visual ${artifact} artifact does not exist: ${relativePath}`);
   return relativePath.replace(/\\/g, '/');
 }
@@ -303,6 +307,58 @@ function assertVisualArtifactData(artifactPath, artifact) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(`Visual ${artifact} artifact must contain a JSON object`);
   if (data.schemaVersion !== 1) throw new Error(`Visual ${artifact} artifact schemaVersion must be 1`);
   if (data.artifact !== artifact) throw new Error(`Visual ${artifact} artifact field must equal "${artifact}"`);
+  if (artifact === 'optimization') {
+    const assertOnlyFields = (value, allowed, label) => {
+      const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+      if (unknown.length) throw new Error(`${label} contains unsupported fields: ${unknown.join(', ')}`);
+    };
+    assertOnlyFields(data, ['schemaVersion', 'artifact', 'target', 'proposals'], 'Optimization JSON');
+    if (!data.target || typeof data.target !== 'object' || Array.isArray(data.target)) throw new Error('Optimization JSON must contain target');
+    assertOnlyFields(data.target, ['summary', 'cause'], 'Optimization target');
+    const summary = String(data.target.summary || '').trim();
+    if (!summary) throw new Error('Optimization target must contain summary');
+    if (summary.length > 120) throw new Error('Optimization target summary must not exceed 120 characters');
+    if (!Array.isArray(data.target.cause) || data.target.cause.length < 1 || data.target.cause.length > 3) throw new Error('Optimization target cause must contain 1 to 3 items');
+    for (const [index, cause] of data.target.cause.entries()) {
+      const value = String(cause || '').trim();
+      if (!value) throw new Error(`Optimization target cause[${index}] must not be empty`);
+      if (value.length > 80) throw new Error(`Optimization target cause[${index}] must not exceed 80 characters`);
+      if (OPTIMIZATION_TRACE_DETAIL_PATTERN.test(value)) throw new Error(`Optimization target cause[${index}] must not contain Task IDs, sequence, or event trace details`);
+    }
+    if (!Array.isArray(data.proposals) || !data.proposals.length) throw new Error('Optimization JSON must contain at least one proposals[] item');
+    const proposalIds = new Set();
+    const allowedTypes = new Set(['type::feature', 'type::bug', 'type::debt', 'type::ops', 'type::docs']);
+    const allowedKinds = new Set(['project-change', 'issue-flow-feedback']);
+    const allowedPriorities = new Set(['priority::p0', 'priority::p1', 'priority::p2', 'priority::p3']);
+    const allowedSizes = new Set(['size::XS', 'size::S', 'size::M', 'size::L', 'size::XL']);
+    const allowedFlows = new Set(['flow::plan', 'flow::build']);
+    for (const [index, proposal] of data.proposals.entries()) {
+      const id = String(proposal && proposal.id || '').trim();
+      if (!id || !VISUAL_ID_PATTERN.test(id)) throw new Error(`proposals[${index}] must have a path-safe id`);
+      if (proposalIds.has(id)) throw new Error(`Optimization proposals contains duplicate id: ${id}`);
+      proposalIds.add(id);
+      assertOnlyFields(proposal, ['id', 'kind', 'title', 'solution', 'validation', 'issue'], `Proposal ${id}`);
+      if (!allowedKinds.has(proposal.kind)) throw new Error(`Proposal ${id} kind is invalid: ${proposal.kind || '(empty)'}`);
+      if (!String(proposal.title || '').trim()) throw new Error(`Proposal ${id} must contain title`);
+      if (!String(proposal.solution || '').trim()) throw new Error(`Proposal ${id} must contain solution`);
+      if (!Array.isArray(proposal.validation) || !proposal.validation.length || proposal.validation.some((item) => !String(item || '').trim())) throw new Error(`Proposal ${id} must contain validation[]`);
+      const issue = proposal.issue;
+      if (!issue || typeof issue !== 'object' || Array.isArray(issue)) throw new Error(`Proposal ${id} must contain issue`);
+      assertOnlyFields(issue, ['title', 'body', 'type', 'priority', 'size', 'flow', 'labels'], `Proposal ${id} issue`);
+      if (!String(issue.title || '').trim() || !String(issue.body || '').trim()) throw new Error(`Proposal ${id} issue must contain title and body`);
+      if (!allowedTypes.has(issue.type)) throw new Error(`Proposal ${id} issue.type is invalid: ${issue.type || '(empty)'}`);
+      if (!allowedPriorities.has(issue.priority)) throw new Error(`Proposal ${id} issue.priority is invalid: ${issue.priority || '(empty)'}`);
+      if (!allowedSizes.has(issue.size)) throw new Error(`Proposal ${id} issue.size is invalid: ${issue.size || '(empty)'}`);
+      if (proposal.kind === 'project-change' && !allowedFlows.has(issue.flow)) throw new Error(`Proposal ${id} project issue.flow is invalid: ${issue.flow || '(empty)'}`);
+      if (proposal.kind === 'project-change' && issue.type === 'type::docs' && issue.flow !== 'flow::build') throw new Error(`Proposal ${id} type::docs must use flow::build`);
+      if (proposal.kind === 'issue-flow-feedback' && issue.type !== 'type::bug') throw new Error(`Proposal ${id} Issue Flow feedback must use type::bug`);
+      if (proposal.kind === 'issue-flow-feedback' && issue.flow !== 'flow::triage') throw new Error(`Proposal ${id} Issue Flow feedback must use flow::triage`);
+      if (issue.labels !== undefined && (!Array.isArray(issue.labels) || issue.labels.some((label) => !String(label || '').trim()))) throw new Error(`Proposal ${id} issue.labels must be an array of non-empty labels`);
+      const managedLabel = (issue.labels || []).find((label) => MANAGED_LABEL_PREFIXES.some((prefix) => String(label).startsWith(prefix)));
+      if (managedLabel) throw new Error(`Proposal ${id} issue.labels cannot contain managed label: ${managedLabel}`);
+    }
+    return data;
+  }
   if (!data.meta || typeof data.meta !== 'object' || !String(data.meta.title || '').trim()) throw new Error(`Visual ${artifact} artifact must contain meta.title`);
   const forbidden = [];
   const invalidIds = [];
@@ -457,7 +513,7 @@ function buildVisualArtifactMarker(input = {}) {
 }
 
 function buildVisualArtifactComment(input = {}) {
-  const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  const title = input.artifact === 'decision' ? 'Decision' : input.artifact === 'optimization' ? 'Automation Optimization Plan' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
   return [
     buildVisualArtifactMarker(input),
     `## ${title}`,
@@ -474,7 +530,7 @@ function buildVisualArtifactComment(input = {}) {
 }
 
 function buildVisualArtifactPublishedComment(input = {}) {
-  const title = input.artifact === 'decision' ? 'Decision' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
+  const title = input.artifact === 'decision' ? 'Decision' : input.artifact === 'optimization' ? 'Automation Optimization Plan' : input.format === 'markdown' ? 'Markdown Plan' : 'Visual Plan';
   const sourceTaskId = String(input.sourceTaskId || '').trim();
   return [
     buildSourceMarker({
@@ -817,7 +873,11 @@ function planSubmissionIssueState(artifact) {
 
 async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch, baseBranch, sourceIssue, visualPlanMode, options }) {
   const visual = visualPlanMode === 'on';
-  const artifact = visual ? resolveVisualArtifactType(options) : 'plan';
+  const artifact = visual
+    ? normalizeLabels(sourceIssue && sourceIssue.labels || []).includes('type::optimization')
+      ? 'optimization'
+      : resolveVisualArtifactType(options)
+    : 'plan';
   const format = visual ? 'json' : 'markdown';
   const reviewContext = resolvePlanReviewContext(visual, options, repo, issueNumber);
   if (visual) {
@@ -857,7 +917,9 @@ async function publishPlanMergeRequest({ provider, repo, issueNumber, headBranch
   );
   const titleConfig = artifact === 'decision'
     ? { ...SUBMIT_KINDS.plan, titlePrefix: 'Decision' }
-    : SUBMIT_KINDS.plan;
+    : artifact === 'optimization'
+      ? { ...SUBMIT_KINDS.plan, titlePrefix: 'Optimization' }
+      : SUBMIT_KINDS.plan;
   let prUrl;
   try {
     prUrl = await createOrUpdatePullRequest({
@@ -983,6 +1045,9 @@ async function main(argv = process.argv.slice(2)) {
   validateSourceIssueSize(sourceIssue, issueNumber);
   const visualPlanMode = kind === 'plan' ? resolveVisualPlanFeatureMode(sourceIssue) : 'off';
   if (kind === 'plan') {
+    if (sourceIssue && normalizeLabels(sourceIssue.labels).includes('type::optimization') && options.artifact && options.artifact !== 'optimization') {
+      throw new Error('type::optimization issues must publish --artifact optimization.');
+    }
     if (visualPlanMode === 'off' && options.artifact) {
       throw new Error(`Source issue must have ${VISUAL_PLAN_FEATURE_ON} before publishing a Visual Plan artifact.`);
     }

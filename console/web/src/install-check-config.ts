@@ -66,7 +66,7 @@ export const gitlabInstallCheckConfig = {
           id: "variable:ISSUE_FLOW_BASE_URL",
           type: "variable",
           name: "ISSUE_FLOW_BASE_URL",
-          description: "Issue Flow 服务地址，提交 Decision、Visual Plan 或 Markdown Plan 时使用它生成 Engine URL，安装检查会自动写入。",
+          description: "Issue Flow 服务地址，提交 Decision、Visual Plan、Markdown Plan 或 Optimization Plan 时使用它生成 Engine URL，安装检查会自动写入。",
         },
         {
           id: "variable:AGENTRIX_BASE_URL",

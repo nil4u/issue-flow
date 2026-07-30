@@ -7,7 +7,7 @@ require("tsx/cjs")
 const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
 const { getMergeRequest } = require("../src/core/merge-requests.ts")
 
-test("only Plan MR with a source issue can open the Plan preview", () => {
+test("Plan labels identify workflow previews before changed files are loaded", () => {
   const planBody = "<!-- issue-flow:source-issue=42 -->\nSource issue: #42"
   assert.deepEqual(
     { sourceIssueNumber: normalizeGitlabMergeRequest({ description: planBody, labels: ["mr-by::plan"] }).sourceIssueNumber, previewable: normalizeGitlabMergeRequest({ description: planBody, labels: ["mr-by::plan"] }).previewable },
@@ -96,16 +96,16 @@ test("GitHub detail loads diff and discussions for the independent review page",
   assert.deepEqual(detail.mergeRequest.permissions, { canMerge: true, canClose: true, canApprove: true, hasApproved: false })
 })
 
-test("GitLab detail uses the compatible merge request changes API", async (t) => {
+test("GitLab detail enables Preview for supported changed files outside the Plan workflow", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
   const requests = []
   global.fetch = async (url) => {
     const path = String(url); requests.push(path)
-    if (path.endsWith("/merge_requests/54")) return new Response(JSON.stringify({ id: 54, iid: 54, title: "Plan", state: "opened", source_branch: "plan", target_branch: "main", author: { id: 8 }, user: { can_merge: true } }), { status: 200 })
+    if (path.endsWith("/merge_requests/54")) return new Response(JSON.stringify({ id: 54, iid: 54, title: "Build", description: "<!-- issue-flow:source-issue=42 -->", labels: ["mr-by::build"], state: "opened", source_branch: "build", target_branch: "main", author: { id: 8 }, user: { can_merge: true } }), { status: 200 })
     if (path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 30 } } }), { status: 200 })
     if (path.endsWith("/user")) return new Response(JSON.stringify({ id: 9 }), { status: 200 })
-    if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ diff_refs: { base_sha: "base", start_sha: "start", head_sha: "head" }, changes: [{ old_path: "a.ts", new_path: "a.ts", diff: "@@ -1 +1 @@\n-old\n+new" }, { old_path: "demo.html", new_path: "demo.html", new_file: true, diff: "" }] }), { status: 200 })
+    if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ diff_refs: { base_sha: "base", start_sha: "start", head_sha: "head" }, changes: [{ old_path: "a.ts", new_path: "a.ts", diff: "@@ -1 +1 @@\n-old\n+new" }, { old_path: "docs/review.md", new_path: "docs/review.md", new_file: true, diff: "" }] }), { status: 200 })
     if (path.includes("/discussions?")) return new Response(JSON.stringify([]), { status: 200 })
     if (path.endsWith("/approvals")) return new Response(JSON.stringify({ approved_by: [] }), { status: 200 })
     throw new Error(`Unexpected request: ${path}`)
@@ -116,6 +116,7 @@ test("GitLab detail uses the compatible merge request changes API", async (t) =>
   assert.equal(detail.files[0].deletions, 1)
   assert.equal(detail.files[1].collapsed, true)
   assert.equal(detail.files[1].truncated, false)
+  assert.equal(detail.mergeRequest.previewable, true)
   assert.deepEqual(detail.mergeRequest.diffRefs, { baseSha: "base", startSha: "start", headSha: "head" })
   assert.deepEqual(detail.mergeRequest.permissions, { canMerge: true, canClose: true, canApprove: true, hasApproved: false })
   assert.equal(requests.some((request) => request.includes("/diffs")), false)

@@ -2,6 +2,8 @@
 import fs from "node:fs"
 import path from "node:path"
 import { createProviderIssue, createProviderIssueComment, getProviderIssue, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { listProviderMergeRequests } from "./merge-request-provider.js"
+import { parseProposalMarker } from "./optimization-artifact.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 
@@ -110,7 +112,10 @@ async function listIssueLabels({ store, gitServerId, projectId, userId, session 
 async function getIssue({ store, gitServerId, projectId, issueNumber, userId, session }) {
   const { repo, server } = await requireIssueContext(store, gitServerId, projectId, userId, session)
   const normalizedIssueNumber = normalizeIssueNumber(issueNumber)
-  const detail = await getProviderIssue(server, repo, normalizedIssueNumber)
+  const [detail, mergeRequests] = await Promise.all([
+    getProviderIssue(server, repo, normalizedIssueNumber),
+    listProviderMergeRequests(server, repo, "all"),
+  ])
   const [bodyHtml, commentHtml] = await Promise.all([
     renderProviderMarkdown(server, repo, detail.issue.body),
     Promise.all(detail.comments.map((comment) => renderProviderMarkdown(server, repo, comment.body))),
@@ -119,6 +124,7 @@ async function getIssue({ store, gitServerId, projectId, issueNumber, userId, se
     ...detail,
     issue: { ...detail.issue, bodyHtml },
     comments: detail.comments.map((comment, index) => ({ ...comment, bodyHtml: commentHtml[index] || "" })),
+    mergeRequests: mergeRequests.filter((mergeRequest) => mergeRequest.sourceIssueNumber === normalizedIssueNumber),
     repository: { id: repo.id, fullName: repo.fullName, provider: server.type, webUrl: repo.webUrl || repo.url || "" },
   }
 }
@@ -133,6 +139,7 @@ async function createAutomationOptimizationIssue({ store, gitServerId, projectId
   const providerIssues = await listProviderIssues(server, repo, { state: "all" })
   const sourceIssue = providerIssues.find((issue) => issue.number === normalizedIssueNumber)
     || (await getProviderIssue(server, repo, normalizedIssueNumber)).issue
+  if (parseProposalMarker(sourceIssue.body)) throw requestError("optimization-generated issue is not eligible for automation optimization", 409, "automation_optimization_not_eligible")
   const optimizationState = optimizationStateFromLabels(sourceIssue.labels)
   if (optimizationState) throw requestError(`issue automation optimization is ${optimizationState}`, 409, "automation_optimization_already_started")
   const title = `优化任务自动化：#${normalizedIssueNumber} ${local.issue.title || ""}`.trim()
@@ -174,7 +181,10 @@ async function listAutomationOptimizations({ store, gitServerId, projectId, user
   }
 
   return {
-    items: sourceIssues.map((issue) => {
+    items: sourceIssues.filter((issue) => {
+      const providerIssue = providerIssueByNumber.get(issue.issueNumber)
+      return issue.type !== "optimization" && !parseProposalMarker(providerIssue && providerIssue.body)
+    }).map((issue) => {
       const phases = automationOptimizationPhases(issue, statsById.get(issue.id))
       const optimizationIssue = optimizationBySource.get(issue.issueNumber)
       const optimizationState = optimizationStateFromLabels(providerIssueByNumber.get(issue.issueNumber)?.labels || [])

@@ -11,6 +11,7 @@ const {
 const { parseSourceMarker } = require('./provenance.cjs');
 const prMerged = require('./pr-merged.cjs');
 const pipelineFailed = require('./pipeline-failed.cjs');
+const { completeOptimizationForChildIssue } = require('./optimization-completion.cjs');
 const { resolveIssueTarget } = require('./milestones.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
@@ -785,6 +786,9 @@ function shouldSkipPullRequestReview(pr) {
   if (pr.state && pr.state !== 'open' && pr.state !== 'opened') {
     return 'pull_request_not_open';
   }
+  if (normalizeLabels(pr.labels).includes('review::off')) {
+    return 'pull_request_review_disabled';
+  }
   return '';
 }
 
@@ -807,6 +811,15 @@ async function runAuto(options = {}, provided = {}) {
     };
   }
   if (!shouldRunAutoForEvent(payload)) {
+    const rawLabel = payload.label || payload.object_attributes && payload.object_attributes.label;
+    const changedLabel = normalizeLabels([rawLabel])[0] || '';
+    if (changedLabel === 'status::done' || changedLabel === 'status::drop') {
+      const terminalIssue = await fetchCurrentIssue(provided.issue || buildIssueContext(payload, options), options);
+      const terminalProvider = providers[terminalIssue.provider] || resolveProvider(options, payload);
+      const terminalRepo = terminalProvider.resolveRepo(payload, options);
+      const optimizationCompletion = await completeOptimizationForChildIssue(terminalProvider, terminalRepo, terminalIssue.number, options);
+      if (optimizationCompletion.completed) return { action: 'optimization_completed', optimizationCompletion };
+    }
     logIssueFlow('Automatic issue-flow skipped for non-routing labeled event');
     return {
       action: 'skipped',
@@ -816,6 +829,13 @@ async function runAuto(options = {}, provided = {}) {
 
   let issue = provided.issue || buildIssueContext(payload, options);
   issue = await fetchCurrentIssue(issue, options);
+  const issueLabels = normalizeLabels(issue.labels);
+  if (issueLabels.includes('status::done') || issueLabels.includes('status::drop')) {
+    const terminalProvider = providers[issue.provider] || resolveProvider(options, payload);
+    const terminalRepo = terminalProvider.resolveRepo(payload, options);
+    const optimizationCompletion = await completeOptimizationForChildIssue(terminalProvider, terminalRepo, issue.number, options);
+    if (optimizationCompletion.completed) return { action: 'optimization_completed', optimizationCompletion };
+  }
   if (shouldCheckForResumableVisualPlanTask(issue)) {
     const planTasks = listResumableIssueTasks(await listIssueComments(issue, options), runtime)
       .filter((task) => task.action === 'plan');
@@ -1122,6 +1142,14 @@ async function runReviewComment(options = {}, provided = {}) {
     return {
       action: 'skipped',
       reason: 'not_pull_request_review_comment',
+    };
+  }
+
+  if (!resolveReviewEnabled(options)) {
+    logIssueFlow('PR/MR review comment skipped', { reason: 'review_disabled' });
+    return {
+      action: 'skipped',
+      reason: 'review_disabled',
     };
   }
 

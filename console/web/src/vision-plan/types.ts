@@ -1,7 +1,7 @@
-export type ArtifactType = "decision" | "plan"
+export type ArtifactType = "decision" | "plan" | "optimization" | "markdown"
 
 export type SourceRef = {
-  type: "readme" | "decision" | "plan" | "artifact" | "file"
+  type: "readme" | "decision" | "plan" | "optimization" | "artifact" | "file"
   path: string
   label?: string
 }
@@ -94,6 +94,8 @@ export type IssueArtifact = {
   modifiedAt: string
   status: string
   format?: "json" | "markdown"
+  previewer?: string
+  workflow?: "plan" | "preview"
   mergeRequestNumber?: number
   mergeRequestUrl?: string
   mergeRequestState?: string
@@ -104,12 +106,20 @@ export type LoadedIssue = {
   issuePath: string
   title: string
   artifacts: IssueArtifact[]
+  mergeRequests: Array<{
+    number: number
+    title: string
+    state: string
+    labels: string[]
+  }>
 }
 
 export type VisionRouteContext = {
   gitServerId: string
   projectId: string
   issueNumber: number
+  mergeRequestNumber?: number
+  artifactPath?: string
 }
 
 export type VisionArtifactContext = VisionRouteContext & {
@@ -118,8 +128,21 @@ export type VisionArtifactContext = VisionRouteContext & {
 
 export type LoadedVisualArtifact = {
   issue: LoadedIssue
+  selectedPath: string
   html: string
   format: "json" | "markdown"
   drafts: DraftReviewItem[]
   reviews: VisualReview[]
+  optimization?: {
+    sourceIssueNumber: number
+    proposals: OptimizationProposalState[]
+  }
+}
+
+export type OptimizationProposalState = {
+  id: string
+  state: "pending" | "ignored" | "created" | "executing" | "completed" | "cancelled"
+  childIssue: { number: number; title: string; state: string; webUrl: string } | null
+  kind?: "project-change" | "issue-flow-feedback"
+  feedback?: { title: string; body: string; labels: string[]; text: string; url: string }
 }

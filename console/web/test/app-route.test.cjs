@@ -19,6 +19,10 @@ test("visual artifact route is shared by Decision and Plan for one issue", () =>
     parseVisualArtifactRoute("/repos/gitlab-main/43326/plan/42"),
     { gitServerId: "gitlab-main", projectId: "43326", issueNumber: 42 },
   )
+  assert.deepEqual(
+    parseVisualArtifactRoute("/repos/gitlab-main/43326/plan/42", "?mergeRequest=17&path=docs%2Fimplementation.md"),
+    { gitServerId: "gitlab-main", projectId: "43326", issueNumber: 42, mergeRequestNumber: 17, artifactPath: "docs/implementation.md" },
+  )
 })
 
 test("visual artifact route rejects artifact-specific and invalid paths", () => {

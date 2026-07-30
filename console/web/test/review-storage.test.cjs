@@ -29,7 +29,7 @@ const feedback = {
   intent: "question",
   severity: "note",
   comment: "需要确认存储方案",
-  sourceRefs: [{ type: "decision", path: ".issue-flow/issues/42-login/decision/data/decision-data.json" }],
+  sourceRefs: [{ type: "decision", path: ".issue-flow/issues/42-login/decision/data/decision.json.isv" }],
 }
 
 test("local review storage separates Decision and Plan for the same issue", () => {
@@ -38,6 +38,26 @@ test("local review storage separates Decision and Plan for the same issue", () =
 
   assert.equal(loadReviewStorage(decisionContext).drafts[0].comment, "需要确认存储方案")
   assert.equal(loadReviewStorage(planContext).drafts[0].comment, "需要补充计划")
+})
+
+test("local review storage separates concurrent Plan MRs for the same issue", () => {
+  const first = { ...planContext, mergeRequestNumber: 17 }
+  const second = { ...planContext, mergeRequestNumber: 18 }
+  addStoredReviewDraft(first, { ...feedback, comment: "MR 17" })
+  addStoredReviewDraft(second, { ...feedback, comment: "MR 18" })
+
+  assert.equal(loadReviewStorage(first).drafts[0].comment, "MR 17")
+  assert.equal(loadReviewStorage(second).drafts[0].comment, "MR 18")
+})
+
+test("local review storage separates files of the same type in one MR", () => {
+  const first = { ...planContext, mergeRequestNumber: 17, artifactPath: "docs/overview.md" }
+  const second = { ...planContext, mergeRequestNumber: 17, artifactPath: "docs/validation.md" }
+  addStoredReviewDraft(first, { ...feedback, comment: "Overview" })
+  addStoredReviewDraft(second, { ...feedback, comment: "Validation" })
+
+  assert.equal(loadReviewStorage(first).drafts[0].comment, "Overview")
+  assert.equal(loadReviewStorage(second).drafts[0].comment, "Validation")
 })
 
 test("submitted reviews stay local until approval clears the artifact history", () => {

@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
-import { CheckCircle2, MessageCircle, PencilLine, Plus, Send, Trash2 } from "lucide-react";
+import { CheckCircle2, MessageCircle, PanelRightClose, PencilLine, Plus, Send, Trash2 } from "lucide-react";
 import type { DraftReviewItem, VisualReview, VisualTarget } from "./types";
 
 type Props = {
+  approvable: boolean;
   approved: boolean;
   approvalLabel: string;
+  approvalEnabled: boolean;
   approveWithDrafts: boolean;
   composerOpen: boolean;
   commentText: string;
@@ -18,6 +20,7 @@ type Props = {
   onApprove: () => void;
   onCancelComment: () => void;
   onChangeComment: (value: string) => void;
+  onCollapse: () => void;
   onEditDraft: (item: DraftReviewItem) => void;
   onOpenOverallComment: () => void;
   onRemoveDraft: (itemId: string) => void;
@@ -48,8 +51,10 @@ function quotePreview(value: string | null | undefined) {
 }
 
 export function ArtifactReviewPanel({
+  approvable,
   approved,
   approvalLabel,
+  approvalEnabled,
   approveWithDrafts,
   composerOpen,
   commentText,
@@ -63,6 +68,7 @@ export function ArtifactReviewPanel({
   onApprove,
   onCancelComment,
   onChangeComment,
+  onCollapse,
   onEditDraft,
   onOpenOverallComment,
   onRemoveDraft,
@@ -84,15 +90,18 @@ export function ArtifactReviewPanel({
     <aside className="markdown-review-panel" aria-label="评论区">
       <header className="markdown-review-heading">
         <h2>评论</h2>
-        <button
-          type="button"
-          className="icon-button add-overall-comment"
-          aria-label="添加全文评论"
-          title="添加全文评论"
-          aria-expanded={composerOpen && !pendingTarget}
-          disabled={approved}
-          onClick={onOpenOverallComment}
-        ><Plus size={17} /></button>
+        <div className="markdown-review-heading-actions">
+          <button
+            type="button"
+            className="icon-button add-overall-comment"
+            aria-label="添加全文评论"
+            title="添加全文评论"
+            aria-expanded={composerOpen && !pendingTarget}
+            disabled={approved}
+            onClick={onOpenOverallComment}
+          ><Plus size={17} /></button>
+          <button type="button" className="icon-button collapse-review-panel" aria-label="收起评论区" title="收起评论区" onClick={onCollapse}><PanelRightClose size={17} /></button>
+        </div>
       </header>
 
       <div className="markdown-review-content">
@@ -170,13 +179,13 @@ export function ArtifactReviewPanel({
         {error ? <pre className="error-box">{error}</pre> : null}
       </div>
 
-      <footer className="markdown-review-actions">
+      <footer className={`markdown-review-actions ${approvable ? "" : "comments-only"}`}>
         <button type="button" className="submit-review-action" onClick={onSubmit} disabled={!drafts.length || submitting || approved}>
           <Send size={16} />{submitting ? "正在提交…" : drafts.length ? `提交 ${drafts.length} 条评论` : "提交评论"}
         </button>
-        <button type="button" className="approve-action" onClick={onApprove} disabled={approved || submitting || (!approveWithDrafts && drafts.length > 0)} title={!approveWithDrafts && drafts.length ? "请先提交当前评论" : undefined}>
+        {approvable && approvalEnabled ? <button type="button" className="approve-action" onClick={onApprove} disabled={approved || submitting || (!approveWithDrafts && drafts.length > 0)} title={!approveWithDrafts && drafts.length ? "请先提交当前评论" : undefined}>
           <CheckCircle2 size={16} />{approvalLabel}
-        </button>
+        </button> : null}
       </footer>
     </aside>
   );
