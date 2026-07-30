@@ -395,7 +395,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewCollapsed, setReviewCollapsed] = useState(false);
+  const [reviewCollapsed, setReviewCollapsed] = useState(true);
   const [artifactHtml, setArtifactHtml] = useState<string | null>(null);
   const [artifactFormat, setArtifactFormat] = useState<"json" | "markdown" | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(artifactPath ?? null);
