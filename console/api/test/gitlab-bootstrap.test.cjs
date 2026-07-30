@@ -182,7 +182,8 @@ test('install merge request applies decisions from a temp file outside the check
     }),
   });
 
-  const result = await installGitlabPluginMergeRequest(installInput({ decisions }));
+  const commitMessage = 'chore: install issue-flow from settings\n\nUse the selected settings values.';
+  const result = await installGitlabPluginMergeRequest(installInput({ decisions, commitMessage: `  ${commitMessage}  ` }));
 
   assert.deepEqual(decisionFileBody, decisions);
   assert.equal(path.dirname(decisionFileArg), path.dirname(execState.cloneTarget));
@@ -190,6 +191,7 @@ test('install merge request applies decisions from a temp file outside the check
   assert.equal(result.skipped, false);
   assert.equal(result.mergeRequest.iid, '3');
   assert.equal(gitCalls('push').length, 1);
+  assert.deepEqual(gitCalls('commit')[0].args, ['commit', '-m', commitMessage]);
   assert.deepEqual(gitCalls('config').map((call) => call.args), [
     ['config', 'user.name', 'Issue Flow Bot'],
     ['config', 'user.email', 'issue-flow-bot@gitlab.example.com'],

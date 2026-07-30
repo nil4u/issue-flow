@@ -739,7 +739,7 @@ export function useDashboardController() {
     } catch (error) { notifyError(error, "配置 GitLab Runner 失败") } finally { setChecking(false) }
   }
 
-  async function installPlugin(decisions?: InstallConflictDecision) {
+  async function installPlugin(input: { commitMessage?: string; decisions?: InstallConflictDecision } = {}) {
     if (!selectedProject || !selectedGitServerId) return
     if (projectAccess && !projectAccess.canManage) {
       toast.warning("权限不足", {
@@ -760,7 +760,8 @@ export function useDashboardController() {
       const body = await streamInstallPlugin({
         gitServerId: selectedGitServerId,
         projectId: selectedProject.id,
-        decisions,
+        commitMessage: input.commitMessage?.trim() || undefined,
+        decisions: input.decisions,
       }, (event, data) => {
         if (event !== "progress") return
         setCheckProgress((current) => pluginInstallProgressFromEvent(current, operationLabel, data))
@@ -789,7 +790,8 @@ export function useDashboardController() {
           const body = await requestInstallPlugin({
             gitServerId: selectedGitServerId,
             projectId: selectedProject.id,
-            decisions,
+            commitMessage: input.commitMessage?.trim() || undefined,
+            decisions: input.decisions,
           })
           if (body.kind === "conflicts") {
             setInstallConflictPlan(body.plan)
@@ -827,8 +829,8 @@ export function useDashboardController() {
     setCheckProgress((current) => pluginInstallCompleteProgress(current, body, operationLabel))
     return nextCheck
   }
-  async function confirmInstallConflicts(decision: InstallConflictDecision) {
-    return installPlugin(decision)
+  async function confirmInstallConflicts(decision: InstallConflictDecision, commitMessage?: string) {
+    return installPlugin({ decisions: decision, commitMessage })
   }
   function cancelInstallConflicts() {
     setInstallConflictPlan(undefined)
