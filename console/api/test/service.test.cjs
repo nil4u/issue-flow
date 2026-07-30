@@ -2880,6 +2880,7 @@ test('GitLab settings can write project variables after group verification is fo
     const result = await setGitlabProjectInstallVariable({
       store,
       basePublicUrl: 'https://issue-flow.internal',
+      env: { ...process.env, ISSUE_FLOW_AGENTRIX_BASE_URL: agentrixBase },
       input: {
         gitServerId: 'gitlab-main',
         token: 'gl-oauth-user-token',
@@ -2894,7 +2895,6 @@ test('GitLab settings can write project variables after group verification is fo
 
     assert.equal(result.status, 200);
     assert.deepEqual(writes, [
-      { key: 'ISSUE_FLOW_GITLAB_TOKEN', value: 'glpat-issue-flow-token-1234567890' },
       { key: 'AGENTRIX_API_KEY', value: 'agentrix-key' },
       { key: 'AGENTRIX_RUNNER_ID', value: 'cloud-main' },
     ]);
