@@ -618,7 +618,7 @@ test('gitlab bootstrap writes include snippet and Agentrix config convention pat
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "pull_request_review_comment"/);
     assert.match(gitlabWorkflow, /GITLAB_BRIDGE_EVENT_NAME == "issue_comment" && \$GITLAB_BRIDGE_PR_NUMBER/);
     assert.match(gitlabWorkflow, /GITLAB_EVENT_NAME == "note"/);
-    assert.match(gitlabWorkflow, /--review-enabled "\$\{ISSUE_FLOW_REVIEW_ENABLED:-\}"/);
+    assert.doesNotMatch(gitlabWorkflow, /--review-enabled/);
     assert.match(gitlabWorkflow, /cli\.cjs dispatch review-comment/);
     assert.doesNotMatch(gitlabWorkflow, /issue-flow-failure-intake:/);
     assert.doesNotMatch(gitlabWorkflow, /dispatch pipeline-failed/);

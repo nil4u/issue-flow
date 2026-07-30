@@ -144,7 +144,7 @@ issue-flow-review-comment:
       set -eu
       git fetch origin "${CI_DEFAULT_BRANCH:-main}" --depth 1
       git checkout FETCH_HEAD -- .agentrix/plugins/issue-flow .issue-flow
-      set -- --provider gitlab --review-enabled "${ISSUE_FLOW_REVIEW_ENABLED:-}"
+      set -- --provider gitlab
       if [ -n "${CI_PROJECT_PATH:-}" ]; then
         set -- "$@" --repo "$CI_PROJECT_PATH"
       fi
