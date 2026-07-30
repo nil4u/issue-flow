@@ -55,6 +55,27 @@ test('project instructions are injected by runtime instead of coupled to skills'
   assert.doesNotMatch(visionPlanSkill, /\.issue-flow\/instructions\.md/);
 });
 
+test('Markdown Plan templates distinguish required and optional content', () => {
+  const runtimeRoot = path.join(repoRoot, 'skills/issue-flow/assets/agentrix/runtime');
+  const implementationTemplate = fs.readFileSync(path.join(runtimeRoot, 'templates/plan-impl.md'), 'utf8');
+  const bugTemplate = fs.readFileSync(path.join(runtimeRoot, 'templates/plan-bug.md'), 'utf8');
+
+  assert.deepEqual(
+    [...implementationTemplate.matchAll(/^## .+$/gm)].map((match) => match[0]),
+    ['## 目标', '## 方案', '## 验证']
+  );
+  assert.deepEqual(
+    [...bugTemplate.matchAll(/^## .+$/gm)].map((match) => match[0]),
+    ['## 根因分析', '## 修复方案', '## 验证']
+  );
+  for (const template of [implementationTemplate, bugTemplate]) {
+    assert.match(template, /必填章节/);
+    assert.match(template, /按需章节/);
+    assert.match(template, /没有信息增量时省略/);
+    assert.doesNotMatch(template, /^\d+\.$/m);
+  }
+});
+
 test('install script installs GitHub runtime from checkout source', () => {
   const root = makeTempRoot();
   try {
