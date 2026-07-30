@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.9.0](https://github.com/nil4u/issue-flow/compare/v0.8.0...v0.9.0) (2026-07-30)
+
+
+### Features
+
+* **optimization:** add reviewable improvement workflow ([5ee55b1](https://github.com/nil4u/issue-flow/commit/5ee55b17a432ee4b8971bad06b6ac41c7ea534f5))
+* **plugin:** add per-PR automation pause ([c78db6b](https://github.com/nil4u/issue-flow/commit/c78db6bc81043eb1abd7103b84683bf4661ac1c6))
+* **preview:** support isv visual artifacts ([12e9dc8](https://github.com/nil4u/issue-flow/commit/12e9dc8101042e6cc841ada93142b5b35650a6d1))
+
+
+### Bug Fixes
+
+* **plan:** keep default plans concise ([#105](https://github.com/nil4u/issue-flow/issues/105)) ([d663938](https://github.com/nil4u/issue-flow/commit/d6639381843684ce7810237ff940e7346c31c338))
+
+## [0.8.0](https://github.com/nil4u/issue-flow/compare/v0.7.1...v0.8.0) (2026-07-29)
+
+
+### Features
+
+* **review:** unify artifact review workflow ([88ad55c](https://github.com/nil4u/issue-flow/commit/88ad55c9cc00120dbee6e42b66d3fdc238f13ff1))
+
+
+### Bug Fixes
+
+* **optimizer:** keep task context CLI stable ([2346c14](https://github.com/nil4u/issue-flow/commit/2346c141e8f3f5361239e88a18f2a3b384f9c4c9))
+* **plan:** ignore publication notification comments ([22717ec](https://github.com/nil4u/issue-flow/commit/22717ec05902ad3bff8079aca73166945c8857fc))
+* **plan:** limit review URLs to visual plans ([56b25c9](https://github.com/nil4u/issue-flow/commit/56b25c9ad96022aab66ecdd585248601aa3d4d35))
+
+## [0.7.1](https://github.com/nil4u/issue-flow/compare/v0.7.0...v0.7.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **optimizer:** analyze causes before prescribing rules ([a9c3352](https://github.com/nil4u/issue-flow/commit/a9c3352b558de66642a4f20802ae16992eaacf0c))
+
 ## [0.7.0](https://github.com/nil4u/issue-flow/compare/v0.6.2...v0.7.0) (2026-07-27)
 
 
