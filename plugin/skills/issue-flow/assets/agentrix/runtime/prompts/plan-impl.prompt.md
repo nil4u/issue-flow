@@ -2,12 +2,11 @@
 
 要求：
 - 能从仓库代码、文档、配置、测试或历史方案中确认的信息，不要再问用户。
-- 根据 issue 的 `type::feature`、`type::debt`、`type::ops`、`type::docs` 或 `type::optimization` 确定方案重点：
+- 根据 issue 的 `type::feature`、`type::debt`、`type::ops` 或 `type::docs` 确定方案重点：
    - feature：目标体验、数据/接口/状态变化、交互路径、验收。
    - debt：边界、重构步骤、兼容性、迁移风险、回归面。
    - ops：环境、权限、CI/CD、发布或生产操作路径、失败回滚。
    - docs：目标读者、文档范围、信息架构、事实来源和内容时效性；验证方案必须覆盖链接可达性与锚点、示例可运行性、命令有效性，以及关键事实与当前代码、配置或权威资料的一致性，不能只检查格式。
-   - optimization：依据 Automation Optimizer Skill 解释 Agent 首次未完成的原因，再选择文档、项目规范、代码、测试、工具、开发者 Bug 反馈或无需长期沉淀等合适改进；不要把人工纠正直接改写成检查规则。
 - 若仍缺少仓库无法推断的关键事实，使用统一 CLI 的 `issue apply` 将 issue 转到 `flow::clarify`，然后直接提问。
 - 按运行时提供的 Plan template 结构，把方案写入 Plan output file。
 - 提交前按运行时提供的仓库上下文创建或切换到工作分支，不要直接在基准分支提交。

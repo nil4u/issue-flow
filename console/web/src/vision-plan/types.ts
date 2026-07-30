@@ -1,7 +1,7 @@
-export type ArtifactType = "decision" | "plan" | "markdown"
+export type ArtifactType = "decision" | "plan" | "optimization" | "markdown"
 
 export type SourceRef = {
-  type: "readme" | "decision" | "plan" | "artifact" | "file"
+  type: "readme" | "decision" | "plan" | "optimization" | "artifact" | "file"
   path: string
   label?: string
 }
@@ -106,6 +106,12 @@ export type LoadedIssue = {
   issuePath: string
   title: string
   artifacts: IssueArtifact[]
+  mergeRequests: Array<{
+    number: number
+    title: string
+    state: string
+    labels: string[]
+  }>
 }
 
 export type VisionRouteContext = {
@@ -127,4 +133,16 @@ export type LoadedVisualArtifact = {
   format: "json" | "markdown"
   drafts: DraftReviewItem[]
   reviews: VisualReview[]
+  optimization?: {
+    sourceIssueNumber: number
+    proposals: OptimizationProposalState[]
+  }
+}
+
+export type OptimizationProposalState = {
+  id: string
+  state: "pending" | "ignored" | "created" | "executing" | "completed" | "cancelled"
+  childIssue: { number: number; title: string; state: string; webUrl: string } | null
+  kind?: "project-change" | "issue-flow-feedback"
+  feedback?: { title: string; body: string; labels: string[]; text: string; url: string }
 }

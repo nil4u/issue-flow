@@ -32,6 +32,7 @@ const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PLAN_ENTRY_FILE = 'data/plan.json.isv';
 const PLAN_DATA_FILE = 'data/plan.json.isv';
+const OPTIMIZATION_DATA_FILE = 'data/optimization-data.json';
 const PLAN_BRIEF_FILE = 'visual-brief.md';
 const VISUAL_BRIEF_TEMP_ROOT = path.join(os.tmpdir(), 'issue-flow', 'visual-plan');
 const DECISION_ENTRY_FILE = 'decision/data/decision.json.isv';
@@ -61,6 +62,7 @@ const PROMPT_FILES = {
   planImpl: 'plan-impl.prompt.md',
   planVisualBug: 'plan-visual-bug.prompt.md',
   planVisualImpl: 'plan-visual-impl.prompt.md',
+  planOptimization: 'plan-optimization.prompt.md',
 };
 
 const TEMPLATE_FILES = {
@@ -175,6 +177,9 @@ function promptNameForAction(action, issue) {
   if (action !== 'plan') {
     return action;
   }
+  if (hasLabel(issue, 'type::optimization')) {
+    return 'planOptimization';
+  }
   if (isVisualPlanEnabled(issue)) {
     return hasLabel(issue, 'type::bug') ? 'planVisualBug' : 'planVisualImpl';
   }
@@ -186,7 +191,7 @@ function templateNameForIssue(issue) {
 }
 
 function visualPlanFeatureMode(issue) {
-  if (hasLabel(issue, 'type::optimization')) return 'off';
+  if (hasLabel(issue, 'type::optimization')) return 'on';
   return hasLabel(issue, VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
@@ -246,6 +251,9 @@ function buildIssueArtifactDir(issue, options = {}) {
 }
 
 function buildIssuePlanFile(issue, options = {}) {
+  if (hasLabel(issue, 'type::optimization')) {
+    return path.join(buildIssuePlanDir(issue, options), OPTIMIZATION_DATA_FILE);
+  }
   return path.join(buildIssuePlanDir(issue, options), isVisualPlanEnabled(issue) ? PLAN_ENTRY_FILE : planFileNameForIssue(issue));
 }
 
@@ -351,7 +359,9 @@ function formatRequiredSkills(action = '', issue = {}) {
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
   ];
   if (action === 'plan' && isVisualPlanEnabled(issue)) {
-    lines.push('', `Read and follow the visual plan skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'vision-plan', 'SKILL.md'))}\``);
+    if (!hasLabel(issue, 'type::optimization')) {
+      lines.push('', `Read and follow the visual plan skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'vision-plan', 'SKILL.md'))}\``);
+    }
   }
   if (action === 'plan' && hasLabel(issue, 'type::optimization')) {
     lines.push('', `Read and follow the automation optimizer skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'automation-optimizer', 'SKILL.md'))}\``);
@@ -431,6 +441,11 @@ function formatOutputContext(kind, issue, options = {}) {
     const template = resolvePlanTemplate(issue, options);
     lines.push(`Plan template: \`${normalizeRepoPath(template.path)}\``);
     lines.push(`Plan output file: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
+    return formatContextBlock('output_context', lines);
+  }
+  if (hasLabel(issue, 'type::optimization')) {
+    lines.push(`Optimization output JSON: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
+    lines.push(`Publish Optimization Plan: \`node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr submit plan --issue ${issue.number} --artifact optimization\``);
     return formatContextBlock('output_context', lines);
   }
   lines.push(`Optional decision output: \`${normalizeRepoPath(buildIssueDecisionFile(issue, options))}\``);

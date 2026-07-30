@@ -136,11 +136,12 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   const canApprove = Boolean(detail?.mergeRequest.permissions?.canApprove)
   const hasApproved = Boolean(detail?.mergeRequest.permissions?.hasApproved)
   const sourceIssueNumber = detail?.mergeRequest.sourceIssueNumber || 0
-  const listHref = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests`
+  const defaultListHref = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests`
+  const listHref = mergeRequestReturnTo(gitServerId, projectId) || defaultListHref
   const previewHref = detail?.mergeRequest.previewable && sourceIssueNumber > 0
     ? `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/plan/${sourceIssueNumber}?mergeRequest=${mergeRequestNumber}`
     : ""
-  const issueHref = sourceIssueNumber && detail?.repository.webUrl ? `${detail.repository.webUrl.replace(/\/+$/, "")}${detail.repository.provider === "gitlab" ? "/-/issues/" : "/issues/"}${sourceIssueNumber}` : ""
+  const issueHref = sourceIssueNumber > 0 ? `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues/${sourceIssueNumber}` : ""
 
   function stateLabel() {
     if (!detail) return "Loading"
@@ -308,9 +309,15 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   )
 }
 
+function mergeRequestReturnTo(gitServerId: string, projectId: string) {
+  const returnTo = new URLSearchParams(window.location.search).get("returnTo") || ""
+  const repositoryPath = `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}`
+  return returnTo.startsWith(`${repositoryPath}/issues/`) ? returnTo : ""
+}
+
 function ConversationView({ detail, comments, issueHref, sourceIssueNumber, comment, submitting, baseApi, onCommentChange, onSubmitComment, onUpdated, onError }: { detail?: MergeRequestDetail; comments: MergeRequestComment[]; issueHref: string; sourceIssueNumber: number; comment: string; submitting: boolean; baseApi: string; onCommentChange: (value: string) => void; onSubmitComment: () => void; onUpdated: () => Promise<void>; onError: (message: string) => void }) {
   const threads = groupConversationComments(comments)
-  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={detail?.files || []} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection><MetaSection title="Labels"><div className="gh-labels">{detail?.mergeRequest.labels.length ? detail.mergeRequest.labels.map((label) => <span key={label}>{label}</span>) : <p>None yet</p>}</div></MetaSection><MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref} target="_blank" rel="noreferrer"><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
+  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={detail?.files || []} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection><MetaSection title="Labels"><div className="gh-labels">{detail?.mergeRequest.labels.length ? detail.mergeRequest.labels.map((label) => <span key={label}>{label}</span>) : <p>None yet</p>}</div></MetaSection><MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref}><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
 }
 
 function DiscussionCard({ thread, files, baseApi, onUpdated, onError }: { thread: ConversationThread; files: MergeRequestFile[]; baseApi: string; onUpdated: () => Promise<void>; onError: (message: string) => void }) {

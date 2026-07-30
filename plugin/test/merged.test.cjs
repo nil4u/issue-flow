@@ -4,18 +4,19 @@ const test = require('node:test');
 const {
   buildSourceIssueContext,
   normalizeMergeRequestPayload,
-  parseAutomationOptimizationSourceIssue,
   parseAgentrixTaskId,
   parsePlanArtifact,
   parseArgs: parsePrMergedArgs,
   parseSourceIssueNumber,
   pullRequestLabels,
   resolveMergedPrTransition,
+  shouldCloseSourceIssue,
 } = require('../skills/issue-flow/scripts/pr-merged.cjs');
+const { sourceIssueNumber } = require('../skills/issue-flow/scripts/optimization-completion.cjs');
 
 test('automation optimization issue links back to its source issue', () => {
   assert.equal(
-    parseAutomationOptimizationSourceIssue('<!-- issue-flow:automation-optimization source-issue=17 -->'),
+    sourceIssueNumber('<!-- issue-flow:automation-optimization source-issue=17 -->'),
     17,
   );
 });
@@ -81,6 +82,16 @@ test('merged Plan MR distinguishes visual and Markdown plans', () => {
   });
 });
 
+test('merged Optimization Plan does not advance the parent Issue to Build', () => {
+  const body = '<!-- issue-flow:plan-artifact artifact=optimization format=json issue=81 branch=81-optimize/plan commit=abc123 path=.issue-flow/issues/81-optimize/plan/data/optimization-data.json -->';
+  assert.deepEqual(resolveMergedPrTransition(['mr-by::plan'], { body }), {
+    kind: 'optimization',
+    label: 'mr-by::plan',
+    artifact: 'optimization',
+    format: 'json',
+  });
+});
+
 test('merged PR source issue context simulates post-transition labels', () => {
   assert.deepEqual(
     buildSourceIssueContext(
@@ -100,6 +111,26 @@ test('merged PR source issue context simulates post-transition labels', () => {
       labels: ['status::active', 'flow::build'],
     }
   );
+  assert.deepEqual(
+    buildSourceIssueContext(
+      { name: 'gitlab' },
+      { owner: 'example', repo: 'platform', fullName: 'example/platform', projectId: '42' },
+      43,
+      { kind: 'build', label: 'mr-by::build', status: 'status::done', clearFlow: true }
+    ),
+    {
+      provider: 'gitlab',
+      owner: 'example',
+      repo: 'platform',
+      repoFullName: 'example/platform',
+      projectId: '42',
+      number: 43,
+      state: 'closed',
+      labels: ['status::done'],
+    }
+  );
+  assert.equal(shouldCloseSourceIssue({ kind: 'plan', flow: 'flow::build' }), false);
+  assert.equal(shouldCloseSourceIssue({ kind: 'build', status: 'status::done' }), true);
 });
 
 test('gitlab merge request payload normalizes for merged source transition', () => {

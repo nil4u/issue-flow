@@ -2271,6 +2271,43 @@ async function createGithubIssue({ repo, title, body, labels, milestone }) {
   return normalizeGithubIssue(created, repo, { title, body, labels });
 }
 
+async function listGithubRepositoryIssues(repo) {
+  const issues = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGithubForApply('GET', `${githubRepoApiPath(repo)}/issues?state=all&per_page=100&page=${page}`);
+    if (!Array.isArray(pageItems) || pageItems.length === 0) break;
+    issues.push(...pageItems.filter((issue) => !issue.pull_request).map((issue) => normalizeGithubIssue(issue, repo)));
+    if (pageItems.length < 100) break;
+  }
+  return issues;
+}
+
+async function listGithubPlanPullRequests(repo) {
+  const pulls = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGithubForApply('GET', `${githubPullRequestsApiPath(repo)}?state=all&per_page=100&page=${page}`);
+    if (!Array.isArray(pageItems) || pageItems.length === 0) break;
+    pulls.push(...pageItems.filter((pull) => normalizeLabels(pull.labels).includes('mr-by::plan')).map((pull) => normalizeGithubPullRequest(pull, repo)));
+    if (pageItems.length < 100) break;
+  }
+  return pulls;
+}
+
+async function readGithubRepositoryFile(repo, ref, filePath) {
+  const encodedPath = String(filePath).split('/').map(encodeURIComponent).join('/');
+  const result = await requestGithubForApply('GET', `${githubRepoApiPath(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`);
+  if (!result || result.type !== 'file' || !result.content) throw new Error(`Repository file not found: ${filePath}`);
+  return Buffer.from(String(result.content).replace(/\s+/g, ''), 'base64').toString('utf8');
+}
+
+async function closeGithubPullRequest(pr) {
+  return requestGithubForApply('PATCH', githubPullRequestApiPath(pr), { state: 'closed' });
+}
+
+async function closeGithubIssue(issue) {
+  return requestGithubForApply('PATCH', githubIssueApiPath(issue), { state: 'closed' });
+}
+
 function githubLabelApiPath(repo, labelName) {
   return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/labels/${encodeURIComponent(labelName)}`;
 }
@@ -2402,6 +2439,42 @@ async function createGitlabIssue({ repo, title, body, labels, milestone, managed
   if (milestone) payload.milestone_id = milestone.id;
   const created = await requestGitlab('POST', `/projects/${gitlabProjectRef(repo)}/issues`, payload, options);
   return normalizeGitlabIssue(created, repo, { title, body, labels });
+}
+
+async function listGitlabRepositoryIssues(repo, options = {}) {
+  const issues = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGitlab('GET', `/projects/${gitlabProjectRef(repo)}/issues?state=all&scope=all&per_page=100&page=${page}`, undefined, options);
+    if (!Array.isArray(pageItems) || pageItems.length === 0) break;
+    issues.push(...pageItems.map((issue) => normalizeGitlabIssue(issue, repo)));
+    if (pageItems.length < 100) break;
+  }
+  return issues;
+}
+
+async function listGitlabPlanPullRequests(repo, options = {}) {
+  const pulls = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const pageItems = await requestGitlab('GET', `/projects/${gitlabProjectRef(repo)}/merge_requests?scope=all&state=all&labels=${encodeURIComponent('mr-by::plan')}&per_page=100&page=${page}`, undefined, options);
+    if (!Array.isArray(pageItems) || pageItems.length === 0) break;
+    pulls.push(...pageItems.map((pull) => normalizeGitlabPullRequest(pull, repo)));
+    if (pageItems.length < 100) break;
+  }
+  return pulls;
+}
+
+async function readGitlabRepositoryFile(repo, ref, filePath, options = {}) {
+  const result = await requestGitlab('GET', `/projects/${gitlabProjectRef(repo)}/repository/files/${encodeURIComponent(filePath)}?ref=${encodeURIComponent(ref)}`, undefined, options);
+  if (!result || !result.content) throw new Error(`Repository file not found: ${filePath}`);
+  return Buffer.from(String(result.content).replace(/\s+/g, ''), result.encoding || 'base64').toString('utf8');
+}
+
+async function closeGitlabPullRequest(pr, options = {}) {
+  return requestGitlab('PUT', gitlabMergeRequestApiPath(pr), { state_event: 'close' }, options);
+}
+
+async function closeGitlabIssue(issue, options = {}) {
+  return requestGitlab('PUT', gitlabIssueApiPath(issue), { state_event: 'close' }, options);
 }
 
 function parsePositiveInteger(value, name) {
@@ -2657,6 +2730,11 @@ const githubProvider = {
   applyLabels: applyGithubLabels,
   updateIssueBody: updateGithubIssueBody,
   createIssue: createGithubIssue,
+  listRepositoryIssues: listGithubRepositoryIssues,
+  listPlanPullRequests: listGithubPlanPullRequests,
+  readRepositoryFile: readGithubRepositoryFile,
+  closePullRequest: closeGithubPullRequest,
+  closeIssue: closeGithubIssue,
   listIssuesByLabel: listGithubIssuesByLabel,
   collectWorkflowRunFailureDetails: collectGithubWorkflowRunFailureDetails,
   getLabel: getGithubLabel,
@@ -2707,6 +2785,11 @@ const gitlabProvider = {
   applyLabels: applyGitlabLabels,
   updateIssueBody: updateGitlabIssueBody,
   createIssue: createGitlabIssue,
+  listRepositoryIssues: listGitlabRepositoryIssues,
+  listPlanPullRequests: listGitlabPlanPullRequests,
+  readRepositoryFile: readGitlabRepositoryFile,
+  closePullRequest: closeGitlabPullRequest,
+  closeIssue: closeGitlabIssue,
   listIssuesByLabel: listGitlabIssuesByLabel,
   createOrUpdateMergeRequest: createOrUpdateGitlabMergeRequest,
   getLabel: getGitlabLabel,

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, GitPullRequest, MessageCircle, X } from "lucide-react";
-import { approveAllDecisions, approveVisionArtifact, loadVisualArtifact, submitReviewDraft } from "./api";
+import { actOnOptimizationProposal, approveAllDecisions, approveVisionArtifact, loadVisualArtifact, submitReviewDraft } from "./api";
 import { anchorSelector, findDataRef, formatPlanDataSnippet, parsePlanDataIsland, PLAN_DATA_ISLAND_ID, resolvePlanDataRef } from "./anchors";
 import { decisionItemsFromDocument, interactiveDecisionRefs, type DecisionItem, type DecisionOption } from "./decision-items";
 import { ArtifactReviewPanel } from "./ArtifactReviewPanel";
 import { FileTree } from "@/components/review/file-tree";
 import { anchorOffsetForPoint, resolveVisualTargetPosition, visualTargetMarkerStyle, type MarkerFrameMetrics } from "./marker-position";
 import { addStoredReviewDraft, clearReviewStorage, deleteStoredReviewDraft, saveSubmittedReview, updateStoredReviewDraft } from "./review-storage";
-import type { ArtifactType, DecisionReview, DraftReviewItem, FeedbackRequest, IssueArtifact, LoadedIssue, VisionRouteContext, VisualReview, VisualTarget } from "./types";
+import type { ArtifactType, DecisionReview, DraftReviewItem, FeedbackRequest, IssueArtifact, LoadedIssue, OptimizationProposalState, VisionRouteContext, VisualReview, VisualTarget } from "./types";
 import "./vision-plan.css";
 
 type FrameMetrics = MarkerFrameMetrics;
@@ -29,12 +29,14 @@ type ArtifactSection = {
 
 function artifactLabel(type: ArtifactType) {
   if (type === "decision") return "决策";
+  if (type === "optimization") return "自动化优化";
   if (type === "markdown") return "Markdown";
   return "方案";
 }
 
 function sourceRefTypeForArtifact(type: ArtifactType) {
   if (type === "decision") return "decision";
+  if (type === "optimization") return "optimization";
   if (type === "markdown") return "file";
   return "plan";
 }
@@ -118,6 +120,7 @@ const DECISION_ACTION_STYLE_ID = "agentrix-decision-action-style";
 const COMMENT_ACTION_CLASS = "agentrix-comment-action";
 const COMMENT_ACTION_STYLE_ID = "agentrix-comment-action-style";
 const COMMENTABLE_SELECTOR = "[data-comment-scope]";
+const OPTIMIZATION_ACTION_STYLE_ID = "issue-flow-optimization-action-style";
 const SECTION_SELECTOR = '[data-comment-scope="section"]';
 const NAVIGATION_SELECTOR = SECTION_SELECTOR;
 
@@ -400,6 +403,9 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
   const [artifactFormat, setArtifactFormat] = useState<"json" | "markdown" | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(artifactPath ?? null);
   const [decisionItemMode, setDecisionItemMode] = useState<"approval" | "choice" | "mixed">("approval");
+  const [optimizationProposals, setOptimizationProposals] = useState<OptimizationProposalState[]>([]);
+  const [optimizationActionId, setOptimizationActionId] = useState<string | null>(null);
+  const [developerFeedback, setDeveloperFeedback] = useState<{ title: string; url: string } | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const frameScrollCleanupRef = useRef<(() => void) | null>(null);
@@ -434,6 +440,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
         setReviews(loaded.reviews);
         setArtifactHtml(loaded.html);
         setArtifactFormat(loaded.format);
+        setOptimizationProposals(loaded.optimization?.proposals ?? []);
         if (!routeContext.artifactPath && typeof window !== "undefined") {
           const url = new URL(window.location.href);
           url.searchParams.set("path", loaded.selectedPath);
@@ -479,6 +486,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
       setReviews(loaded.reviews);
       setArtifactHtml(loaded.html);
       setArtifactFormat(loaded.format);
+      setOptimizationProposals(loaded.optimization?.proposals ?? []);
       const url = new URL(window.location.href);
       url.searchParams.set("path", loaded.selectedPath);
       window.history.pushState(null, "", url);
@@ -768,6 +776,50 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
     }
   }
 
+  function injectOptimizationActionControls() {
+    const doc = frameRef.current?.contentDocument;
+    if (!doc || currentArtifact?.type !== "optimization") return;
+    try {
+      if (!doc.getElementById(OPTIMIZATION_ACTION_STYLE_ID)) {
+        const style = doc.createElement("style");
+        style.id = OPTIMIZATION_ACTION_STYLE_ID;
+        style.textContent = `
+          [data-optimization-actions] button { appearance:none; min-height:34px; border:1px solid #d4d4d8; border-radius:7px; padding:6px 12px; background:#fff; color:#27272a; font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif; cursor:pointer; }
+          [data-optimization-actions] button[data-action="approve"] { border-color:#18181b; background:#18181b; color:#fff; }
+          [data-optimization-actions] button:disabled { cursor:wait; opacity:.55; }
+        `;
+        doc.head?.appendChild(style);
+      }
+      const states = new Map(optimizationProposals.map((proposal) => [proposal.id, proposal]));
+      doc.querySelectorAll<HTMLElement>("[data-optimization-actions]").forEach((container) => {
+        container.replaceChildren();
+        const proposalId = container.dataset.optimizationActions ?? "";
+        const proposal = states.get(proposalId);
+        if (!proposal || proposal.state !== "pending") return;
+        const feedback = container.dataset.optimizationKind === "issue-flow-feedback";
+        const approve = doc.createElement("button");
+        approve.type = "button";
+        approve.dataset.action = "approve";
+        approve.textContent = optimizationActionId === proposalId
+          ? feedback ? "正在复制…" : "正在创建…"
+          : feedback ? "复制给开发者" : "通过并创建 Issue";
+        approve.disabled = Boolean(optimizationActionId);
+        approve.addEventListener("click", () => void (feedback ? copyDeveloperFeedback(proposalId) : handleOptimizationAction(proposalId, "approve")));
+        container.append(approve);
+        if (feedback) return;
+        const ignore = doc.createElement("button");
+        ignore.type = "button";
+        ignore.dataset.action = "ignore";
+        ignore.textContent = optimizationActionId === proposalId ? "处理中…" : "忽略";
+        ignore.disabled = Boolean(optimizationActionId);
+        ignore.addEventListener("click", () => void handleOptimizationAction(proposalId, "ignore"));
+        container.append(ignore);
+      });
+    } catch {
+      // Cross-origin or transient iframe states should not break artifact actions.
+    }
+  }
+
   function scanArtifactSections() {
     const doc = frameRef.current?.contentDocument;
     if (!doc) {
@@ -835,6 +887,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
   function handleFrameLoad() {
     bindFrameScroll();
     injectDecisionActionControls();
+    injectOptimizationActionControls();
     injectCommentActionControl();
     scanArtifactSections();
     observeArtifactSections();
@@ -845,6 +898,10 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
   useEffect(() => {
     if (currentArtifact?.type === "decision") injectDecisionActionControls();
   }, [currentArtifact?.status, draftItems]);
+
+  useEffect(() => {
+    if (currentArtifact?.type === "optimization") injectOptimizationActionControls();
+  }, [currentArtifact?.type, optimizationProposals, optimizationActionId]);
 
   useEffect(() => {
     window.addEventListener("resize", refreshVisualPositions);
@@ -1143,6 +1200,38 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
     }
   }
 
+  async function handleOptimizationAction(proposalId: string, action: "approve" | "ignore") {
+    if (currentArtifact?.type !== "optimization") return;
+    setOptimizationActionId(proposalId);
+    setError(null);
+    try {
+      await actOnOptimizationProposal(context, proposalId, action);
+      const loaded = await loadVisualArtifact(context);
+      setIssue(loaded.issue);
+      setArtifactHtml(loaded.html);
+      setArtifactFormat(loaded.format);
+      setDraftItems(loaded.drafts.filter(Boolean));
+      setReviews(loaded.reviews);
+      setOptimizationProposals(loaded.optimization?.proposals ?? []);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "处理优化方案失败");
+    } finally {
+      setOptimizationActionId(null);
+    }
+  }
+
+  async function copyDeveloperFeedback(proposalId: string) {
+    const proposal = optimizationProposals.find((item) => item.id === proposalId);
+    if (!proposal?.feedback) return;
+    setError(null);
+    try {
+      await navigator.clipboard.writeText(proposal.feedback.text);
+      setDeveloperFeedback({ title: proposal.feedback.title, url: proposal.feedback.url });
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : "复制开发者反馈失败");
+    }
+  }
+
   async function copyAgentPrompt() {
     if (!agentPrompt) return;
     await navigator.clipboard?.writeText(agentPrompt);
@@ -1175,7 +1264,15 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
               </select>
             </label>
           ) : null}
-          {!embedded && currentArtifact?.mergeRequestUrl ? <a href={currentArtifact.mergeRequestUrl} target="_blank" rel="noreferrer"><GitPullRequest size={16} />查看 MR #{currentArtifact.mergeRequestNumber}</a> : null}
+          {!embedded ? issue?.mergeRequests.map((mergeRequest) => (
+            <a
+              key={mergeRequest.number}
+              href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests/${mergeRequest.number}`}
+              title={mergeRequest.title}
+            >
+              <GitPullRequest size={16} />查看 MR #{mergeRequest.number}
+            </a>
+          )) : null}
         </div>
       </header>
 
@@ -1206,6 +1303,13 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
       </aside>
 
       <section className="artifact-stage">
+        {developerFeedback ? (
+          <div className="developer-feedback-banner">
+            <div><strong>反馈建议已复制</strong><span>{developerFeedback.title}</span></div>
+            <a href={developerFeedback.url} target="_blank" rel="noreferrer">打开 GitHub 并粘贴正文</a>
+            <button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setDeveloperFeedback(null)}><X size={14} /></button>
+          </div>
+        ) : null}
         {agentPrompt ? (
           <div className="agent-prompt-banner">
             <strong>发送给智能体</strong>
@@ -1267,6 +1371,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
           approvable={currentArtifact.workflow === "plan"}
           approved={currentArtifact.status === "approved"}
           approvalLabel={approvalLabel}
+          approvalEnabled={currentArtifact.type !== "optimization"}
           approveWithDrafts={currentArtifact.type === "decision"}
           composerOpen={commentComposerOpen && !editingDraft}
           commentText={visualCommentText}

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { approveVisualPlan, getVisualArtifact, listReviewablePlanArtifacts, submitVisualReview } from "../core/visual-artifacts.js"
+import { approveOptimizationProposal, approveVisualPlan, getVisualArtifact, ignoreOptimizationProposal, listReviewablePlanArtifacts, submitVisualReview } from "../core/visual-artifacts.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function visualSession(request: FastifyRequest, gitServerId: string) {
@@ -31,5 +31,16 @@ export async function visualArtifactRoutes(app: FastifyInstance) {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
     const { mergeRequest: mergeRequestNumber, path: artifactPath } = request.query as Record<string, string>
     return approveVisualPlan({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, mergeRequestNumber, artifactPath, ...await visualSession(request, gitServerId) })
+  })
+
+  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/proposals/:proposalId/approve", async (request, reply) => {
+    const { gitServerId, projectId, issueNumber, proposalId } = request.params as Record<string, string>
+    const result = await approveOptimizationProposal({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, proposalId, ...await visualSession(request, gitServerId) })
+    return reply.code(result.created ? 201 : 200).send(result)
+  })
+
+  app.post("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber/proposals/:proposalId/ignore", async (request) => {
+    const { gitServerId, projectId, issueNumber, proposalId } = request.params as Record<string, string>
+    return ignoreOptimizationProposal({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, proposalId, ...await visualSession(request, gitServerId) })
   })
 }

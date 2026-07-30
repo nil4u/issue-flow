@@ -4,9 +4,10 @@ const test = require('node:test')
 process.env.DATABASE_URL ||= 'postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test'
 require('tsx/cjs')
 
-const { buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview } = require('../src/core/visual-artifacts.ts')
+const { approveOptimizationProposal, buildReviewComment, decisionRequirementsFromData, developerFeedbackDraft, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview } = require('../src/core/visual-artifacts.ts')
 const { previewDescriptorForPath } = require('../src/core/preview/registry.ts')
 const { renderVisualArtifactDocument } = require('../src/core/visual-renderer.ts')
+const { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, parseProposalMarker, proposalMarker, validateOptimizationArtifact } = require('../src/core/optimization-artifact.ts')
 const {
   applyVisualIssueLabels,
   createPlanMergeRequestComment,
@@ -52,6 +53,169 @@ test('visual artifact marker carries immutable artifact coordinates without a re
     baseBranch: 'main',
     publishedAt: '2026-07-14T00:00:00.000Z',
   })
+})
+
+test('optimization artifact validates independent executable proposals', () => {
+  const data = {
+    schemaVersion: 1,
+    artifact: 'optimization',
+    target: { summary: 'Plan required two corrections', cause: ['Project conventions were not discoverable'] },
+    proposals: [{
+      id: 'document-conventions', kind: 'project-change',
+      title: 'Document routing conventions',
+      solution: 'Add the stable routing contract to project instructions.',
+      validation: ['A fresh Plan task follows the contract without correction'],
+      issue: {
+        title: 'Document routing conventions', body: 'Add the routing contract.',
+        type: 'type::docs', priority: 'priority::p2', size: 'size::S', flow: 'flow::build', labels: ['documentation'],
+      },
+    }],
+  }
+  assert.equal(validateOptimizationArtifact(data), data)
+  assert.throws(() => validateOptimizationArtifact({ ...data, currentContext: 'not allowed' }), /unsupported fields: currentContext/)
+  assert.throws(() => validateOptimizationArtifact({ ...data, target: { ...data.target, cause: ['Task task-123 sequence 9 missed the requirement'] } }), /must not contain Task IDs/)
+  assert.throws(() => validateOptimizationArtifact({ ...data, proposals: [{ ...data.proposals[0], issue: { ...data.proposals[0].issue, flow: 'flow::plan' } }] }), /type::docs must use flow::build/)
+  assert.throws(() => validateOptimizationArtifact({ ...data, proposals: [{ ...data.proposals[0], issue: { ...data.proposals[0].issue, labels: ['status::done'] } }] }), /cannot contain managed label/)
+  assert.throws(() => validateOptimizationArtifact({ ...data, proposals: [{ ...data.proposals[0], kind: 'issue-flow-feedback' }] }), /must use type::bug/)
+  assert.equal(validateOptimizationArtifact({
+    ...data,
+    proposals: [{
+      ...data.proposals[0], kind: 'issue-flow-feedback',
+      issue: { ...data.proposals[0].issue, type: 'type::bug', flow: 'flow::triage' },
+    }],
+  }).proposals[0].kind, 'issue-flow-feedback')
+})
+
+test('optimization proposal state is derived from provider markers and terminal labels', () => {
+  const marker = proposalMarker({ optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'docs' })
+  assert.deepEqual(parseProposalMarker(marker), { optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'docs', action: 'created' })
+  const data = { proposals: [{ id: 'docs' }, { id: 'tests' }, { id: 'tooling' }] }
+  const states = deriveOptimizationProposalStates(data, 81, [
+    { body: proposalMarker({ optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'tests', action: 'ignored' }) },
+  ], [
+    { number: 82, title: 'Docs', state: 'closed', body: marker, labels: [{ name: 'status::done' }] },
+  ])
+  assert.deepEqual(states.map((item) => item.state), ['completed', 'ignored', 'pending'])
+  assert.equal(allOptimizationProposalsTerminal(states), false)
+  assert.equal(allOptimizationProposalsTerminal([
+    { kind: 'project-change', state: 'completed' },
+    { kind: 'issue-flow-feedback', state: 'pending' },
+  ]), true)
+  assert.equal(allOptimizationProposalsTerminal([{ kind: 'issue-flow-feedback', state: 'pending' }]), true)
+  assert.equal(allOptimizationProposalsTerminal(states.map((item) => item.id === 'tooling' ? { ...item, state: 'cancelled' } : item)), true)
+})
+
+test('Engine renders Optimization JSON with reusable review anchors and runtime states', () => {
+  const data = {
+    schemaVersion: 1,
+    artifact: 'optimization',
+    target: { summary: 'Build needed a correction', cause: ['The project contract was missing'] },
+    proposals: [{
+      id: 'add-contract', kind: 'project-change', title: 'Add project contract', solution: 'Document the stable behavior.',
+      validation: ['A new task completes in one turn'],
+      issue: { title: 'Add contract', body: 'Update instructions.', type: 'type::docs', priority: 'priority::p2', size: 'size::S', flow: 'flow::build', labels: [] },
+    }],
+  }
+  const html = renderVisualArtifactDocument(data, 'optimization', { optimizationStates: [{ id: 'add-contract', state: 'pending', childIssue: null }] })
+  assert.match(html, /Automation Optimization/)
+  assert.match(html, /data-ref="target\.cause"/)
+  assert.match(html, /vp-optimization-causes/)
+  assert.match(html, /data-ref="proposals\.add-contract\.solution"/)
+  assert.match(html, /data-optimization-actions="add-contract"/)
+  assert.match(html, />待处理</)
+  const unresolved = renderedDataRefs(html).filter((ref) => resolveDataRef(data, ref) === undefined)
+  assert.deepEqual(unresolved, [])
+})
+
+test('Engine renders Issue Flow feedback as developer feedback instead of a pending proposal', () => {
+  const data = {
+    schemaVersion: 1,
+    artifact: 'optimization',
+    target: { summary: 'Build context was incomplete', cause: ['A workflow defect dropped required context'] },
+    proposals: [{
+      id: 'report-context-defect', kind: 'issue-flow-feedback', title: 'Report context defect', solution: 'Preserve the approved Build Task association.',
+      validation: ['A reproduced chain includes the Build Task'],
+      issue: { title: 'Fix task-context Build Task association', body: 'Expected the Build Task to be present.', type: 'type::bug', priority: 'priority::p1', size: 'size::M', flow: 'flow::triage', labels: [] },
+    }],
+  }
+  const html = renderVisualArtifactDocument(data, 'optimization', { optimizationStates: [{ id: 'report-context-defect', state: 'pending', childIssue: null }] })
+  assert.match(html, /data-optimization-kind="issue-flow-feedback"/)
+  assert.match(html, /data-optimization-state="feedback"/)
+  assert.match(html, />开发者反馈</)
+  assert.doesNotMatch(html, />待处理</)
+})
+
+test('approving an optimization proposal creates one linked Issue with fixed workflow labels', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  const artifact = {
+    schemaVersion: 1,
+    artifact: 'optimization',
+    target: { summary: 'Review needed correction', cause: ['Project knowledge was missing'] },
+    proposals: [{
+      id: 'project-docs', kind: 'project-change', title: 'Add project knowledge', solution: 'Document the missing contract.', validation: ['A new task completes in one turn'],
+      issue: { title: 'Document project contract', body: 'Add the missing contract.', type: 'type::docs', priority: 'priority::p2', size: 'size::S', flow: 'flow::build', labels: ['documentation'] },
+    }],
+  }
+  global.fetch = async (url, options = {}) => {
+    const request = { url: String(url), method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : undefined }
+    requests.push(request)
+    if (request.method === 'GET' && request.url.includes('/merge_requests?')) return new Response(JSON.stringify([{
+      id: 91, iid: 19, description: '<!-- issue-flow:plan-artifact artifact=optimization format=json issue=81 branch=81-optimize/plan commit=abc123 path=.issue-flow/issues/81-optimize/plan/data/optimization-data.json -->',
+      state: 'opened', source_branch: '81-optimize/plan', target_branch: 'main', sha: 'abc123',
+    }]), { status: 200 })
+    if (request.method === 'GET' && request.url.endsWith('/merge_requests/19')) return new Response(JSON.stringify({
+      id: 91, iid: 19, description: '<!-- issue-flow:plan-artifact artifact=optimization format=json issue=81 branch=81-optimize/plan commit=abc123 path=.issue-flow/issues/81-optimize/plan/data/optimization-data.json -->',
+      labels: ['mr-by::plan'], state: 'opened', source_branch: '81-optimize/plan', target_branch: 'main', sha: 'abc123',
+    }), { status: 200 })
+    if (request.method === 'GET' && request.url.endsWith('/merge_requests/19/changes')) return new Response(JSON.stringify({ changes: [{
+      old_path: '.issue-flow/issues/81-optimize/plan/data/optimization-data.json',
+      new_path: '.issue-flow/issues/81-optimize/plan/data/optimization-data.json',
+      new_file: true,
+    }] }), { status: 200 })
+    if (request.method === 'GET' && request.url.includes('/repository/files/')) return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(artifact)).toString('base64'), encoding: 'base64' }), { status: 200 })
+    if (request.method === 'GET' && request.url.includes('/merge_requests/19/notes?')) return new Response(JSON.stringify([]), { status: 200 })
+    if (request.method === 'GET' && request.url.includes('/issues?')) return new Response(JSON.stringify([
+      { id: 17, iid: 17, title: 'Source', description: '', state: 'closed', labels: ['optimization::analyzing'] },
+      { id: 81, iid: 81, title: 'Optimize', description: '<!-- issue-flow:automation-optimization source-issue=17 -->', state: 'opened', labels: ['type::optimization', 'flow::approve'] },
+    ]), { status: 200 })
+    if (request.method === 'POST' && request.url.endsWith('/issues')) return new Response(JSON.stringify({ id: 82, iid: 82, title: request.body.title, description: request.body.description, state: 'opened', labels: request.body.labels.split(',') }), { status: 201 })
+    if (request.method === 'POST' && request.url.endsWith('/merge_requests/19/notes')) return new Response(JSON.stringify({ id: 501 }), { status: 201 })
+    throw new Error(`Unexpected request: ${request.method} ${request.url}`)
+  }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget', defaultBranch: 'main' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+  }
+  const result = await approveOptimizationProposal({
+    store, gitServerId: 'gitlab-main', projectId: '43326', issueNumber: 81, proposalId: 'project-docs', userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+  })
+  assert.equal(result.created, true)
+  assert.equal(result.proposal.childIssue.number, 82)
+  const create = requests.find((request) => request.method === 'POST' && request.url.endsWith('/issues'))
+  assert.deepEqual(create.body.labels.split(','), ['type::docs', 'status::active', 'flow::build', 'automation::build', 'priority::p2', 'size::S', 'documentation'])
+  assert.match(create.body.description, /optimization-issue=81 source-issue=17 proposal=project-docs/)
+  const comment = requests.find((request) => request.method === 'POST' && request.url.endsWith('/merge_requests/19/notes'))
+  assert.match(comment.body.body, /source_agent=issue-flow/)
+  assert.match(comment.body.body, /创建执行 Issue：#82/)
+})
+
+test('Issue Flow developer feedback produces a copyable GitHub Issue draft without creating it', () => {
+  const draft = developerFeedbackDraft({
+    kind: 'issue-flow-feedback', title: 'Report context defect', solution: 'Preserve the approved Build Task association.', validation: ['A reproduced chain includes the Build Task'],
+    issue: { title: 'Fix task-context Build Task association', body: 'Expected the Build Task to be present, but it was omitted.', priority: 'priority::p1', size: 'size::M', labels: [] },
+  }, { fullName: 'acme/widget' }, 17)
+  assert.deepEqual(draft.labels, ['type::bug', 'status::active', 'flow::triage', 'automation::off', 'priority::p1', 'size::M'])
+  assert.match(draft.text, /Fix task-context Build Task association/)
+  assert.match(draft.text, /Repository: acme\/widget/)
+  const url = new URL(draft.url)
+  assert.equal(`${url.origin}${url.pathname}`, 'https://github.com/nil4u/issue-flow/issues/new')
+  assert.equal(url.searchParams.get('labels'), draft.labels.join(','))
+  assert.equal(url.searchParams.has('body'), false)
 })
 
 test('Plan preview resolves a legacy Markdown Plan from its MR and follows the current head', () => {
@@ -375,6 +539,7 @@ test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR',
     if (requestUrl.endsWith('/markdown') && options.method === 'POST') {
       return new Response(JSON.stringify({ html: '<h1>Request lifecycle metrics</h1><h2>Validation</h2><ul><li>Verify metrics.</li></ul>' }), { status: 200 })
     }
+    if (requestUrl.includes('/projects/12/merge_requests?')) return new Response(JSON.stringify([]), { status: 200 })
     throw new Error(`Unexpected request: ${options.method || 'GET'} ${requestUrl}`)
   }
   const repo = { id: 'repo_12', gitServerId: 'git-ke-com', serverRepoId: '12', fullName: 'ai-arch/bella-openapi', defaultBranch: 'develop' }
@@ -399,7 +564,7 @@ test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR',
   assert.equal(result.artifact.entryPath, '.issue-flow/issues/1030-feat/plan/001-implementation.md')
   assert.equal(result.mergeRequest.number, 1196)
   assert.match(result.html, /data-ref="markdown\.plan"/)
-  assert.equal(requests.some((request) => request.includes('merge_requests?')), false)
+  assert.equal(requests.some((request) => request.includes('merge_requests?')), true)
 })
 
 test('Engine renders Plan JSON with fixed layout and stable review anchors', () => {
@@ -444,15 +609,41 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
     const requestUrl = String(url)
     requests.push(requestUrl)
     if (requestUrl.includes('/merge_requests?')) {
-      return new Response(JSON.stringify([{
-        id: 91,
-        iid: 17,
-        description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan.json.isv -->',
-        state: 'opened',
-        source_branch: '42-checkout/plan',
-        target_branch: 'main',
-        sha: 'abc123',
-      }]), { status: 200 })
+      return new Response(JSON.stringify([
+        {
+          id: 91,
+          iid: 17,
+          title: 'Plan #42: Checkout',
+          description: '<!-- issue-flow:source-issue=42 -->\n<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan.json.isv -->',
+          labels: ['mr-by::plan'],
+          state: 'opened',
+          source_branch: '42-checkout/plan',
+          target_branch: 'main',
+          sha: 'abc123',
+        },
+        {
+          id: 92,
+          iid: 18,
+          title: 'Build #42: Checkout',
+          description: '<!-- issue-flow:source-issue=42 -->',
+          labels: ['mr-by::build'],
+          state: 'merged',
+          source_branch: '42-checkout/build',
+          target_branch: 'main',
+          sha: 'def456',
+        },
+        {
+          id: 93,
+          iid: 19,
+          title: 'Build #43: Other issue',
+          description: '<!-- issue-flow:source-issue=43 -->',
+          labels: ['mr-by::build'],
+          state: 'opened',
+          source_branch: '43-other/build',
+          target_branch: 'main',
+          sha: 'ghi789',
+        },
+      ]), { status: 200 })
     }
     if (requestUrl.endsWith('/merge_requests/17')) {
       return new Response(JSON.stringify({
@@ -500,6 +691,10 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
   assert.match(result.html, /&lt;button id=&quot;demo-action&quot;&gt;Pay now&lt;\/button&gt;/)
   assert.match(result.html, /data-ref="sections\.frontend-demo"/)
   assert.doesNotMatch(result.html, /allow-same-origin/)
+  assert.deepEqual(result.associatedMergeRequests, [
+    { number: 17, title: 'Plan #42: Checkout', state: 'open', labels: ['mr-by::plan'] },
+    { number: 18, title: 'Build #42: Checkout', state: 'merged', labels: ['mr-by::build'] },
+  ])
 })
 
 test('Engine renders boundaries, state refs, path filters, sequence fragments, and matrix cells', () => {

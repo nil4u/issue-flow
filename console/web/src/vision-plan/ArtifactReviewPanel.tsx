@@ -6,6 +6,7 @@ type Props = {
   approvable: boolean;
   approved: boolean;
   approvalLabel: string;
+  approvalEnabled: boolean;
   approveWithDrafts: boolean;
   composerOpen: boolean;
   commentText: string;
@@ -53,6 +54,7 @@ export function ArtifactReviewPanel({
   approvable,
   approved,
   approvalLabel,
+  approvalEnabled,
   approveWithDrafts,
   composerOpen,
   commentText,
@@ -181,7 +183,7 @@ export function ArtifactReviewPanel({
         <button type="button" className="submit-review-action" onClick={onSubmit} disabled={!drafts.length || submitting || approved}>
           <Send size={16} />{submitting ? "正在提交…" : drafts.length ? `提交 ${drafts.length} 条评论` : "提交评论"}
         </button>
-        {approvable ? <button type="button" className="approve-action" onClick={onApprove} disabled={approved || submitting || (!approveWithDrafts && drafts.length > 0)} title={!approveWithDrafts && drafts.length ? "请先提交当前评论" : undefined}>
+        {approvable && approvalEnabled ? <button type="button" className="approve-action" onClick={onApprove} disabled={approved || submitting || (!approveWithDrafts && drafts.length > 0)} title={!approveWithDrafts && drafts.length ? "请先提交当前评论" : undefined}>
           <CheckCircle2 size={16} />{approvalLabel}
         </button> : null}
       </footer>

@@ -229,15 +229,16 @@ test('Markdown plan and build submit use their PR or MR labels', () => {
   assert.equal(SUBMIT_KINDS.build.labelDefinition, labelDefinitionFor('mr-by::build'));
 });
 
-test('visual plan mode is enabled only by the opt-in label', () => {
+test('visual plan mode is enabled by opt-in or optimization workflow', () => {
   assert.equal(resolveVisualPlanFeatureMode({ labels: [] }), 'off');
   assert.equal(resolveVisualPlanFeatureMode({ labels: ['feature:visual-plan:on'] }), 'on');
-  assert.equal(resolveVisualPlanFeatureMode({ labels: ['type::optimization', 'feature:visual-plan:on'] }), 'off');
+  assert.equal(resolveVisualPlanFeatureMode({ labels: ['type::optimization'] }), 'on');
 });
 
 test('Decision and Plan publication use their distinct issue gates', () => {
   assert.deepEqual(planSubmissionIssueState('decision'), { flow: 'flow::clarify' });
   assert.deepEqual(planSubmissionIssueState('plan'), { flow: 'flow::approve' });
+  assert.deepEqual(planSubmissionIssueState('optimization'), { flow: 'flow::approve' });
 });
 
 test('Visual Plan publication requires completed Decision artifacts to be removed', () => {
@@ -295,6 +296,81 @@ test('Visual artifacts contain renderable JSON without presentation code', () =>
     assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'));
     fs.writeFileSync(planPath, JSON.stringify({ schemaVersion: 1, artifact: 'plan', meta: { title: 'Bad Plan' }, core: { outcome: 'Bad' }, sections: [{ id: 'bad', type: 'cards', html: '<div />' }] }), 'utf8');
     assert.throws(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'), /cannot contain presentation code/);
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Optimization artifacts enforce the independent Issue proposal contract', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-optimization-'));
+  try {
+    const artifactPath = path.join(root, '.issue-flow/issues/81-optimization/plan/data/optimization-data.json');
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    process.chdir(root);
+    const artifact = {
+      schemaVersion: 1,
+      artifact: 'optimization',
+      target: {
+        summary: 'Plan review required repeated corrections',
+        cause: ['The project had no discoverable contract for preserving provider request fields'],
+      },
+      proposals: [{
+        id: 'document-provider-contract',
+        kind: 'project-change',
+        title: 'Document the provider request contract',
+        solution: 'Add the authoritative request preservation contract to project documentation.',
+        validation: ['A fresh Plan identifies all preserved fields without human correction.'],
+        issue: {
+          title: 'Document provider request preservation',
+          body: 'Add and verify the project-specific provider request preservation contract.',
+          type: 'type::docs',
+          priority: 'priority::p2',
+          size: 'size::S',
+          flow: 'flow::build',
+          labels: ['provider-contract'],
+        },
+      }],
+    };
+    const writeArtifact = (value) => fs.writeFileSync(artifactPath, JSON.stringify(value), 'utf8');
+
+    writeArtifact(artifact);
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'));
+
+    writeArtifact({ ...artifact, context: 'stale Markdown section' });
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'),
+      /unsupported fields: context/,
+    );
+
+    writeArtifact({ ...artifact, target: { ...artifact.target, cause: ['Task task-123 sequence 9 missed the requirement'] } });
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'),
+      /must not contain Task IDs/,
+    );
+
+    writeArtifact({
+      ...artifact,
+      proposals: [{
+        ...artifact.proposals[0],
+        kind: 'issue-flow-feedback',
+        issue: { ...artifact.proposals[0].issue, type: 'type::bug', flow: 'flow::triage' },
+      }],
+    });
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'));
+
+    writeArtifact({
+      ...artifact,
+      proposals: [{
+        ...artifact.proposals[0],
+        issue: { ...artifact.proposals[0].issue, labels: ['flow::plan'] },
+      }],
+    });
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'),
+      /cannot contain managed label: flow::plan/,
+    );
   } finally {
     process.chdir(previousCwd);
     fs.rmSync(root, { recursive: true, force: true });

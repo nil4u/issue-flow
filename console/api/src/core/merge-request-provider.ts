@@ -82,8 +82,14 @@ function gitlabMergeRequestPermissions(project = {}, currentUser = {}, mergeRequ
 async function listProviderMergeRequests(server, repo, state = "open") {
   if (server.type === "github") {
     const providerState = state === "open" ? "open" : state === "closed" || state === "merged" ? "closed" : "all"
-    const result = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${providerState}&per_page=100&sort=updated&direction=desc`)
-    return (Array.isArray(result) ? result : []).map(normalizeGithubMergeRequest).filter((item) => {
+    const result = []
+    for (let page = 1; page <= 100; page += 1) {
+      const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${providerState}&per_page=100&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
+      const pageItems = Array.isArray(entries) ? entries : []
+      result.push(...pageItems)
+      if (pageItems.length < 100) break
+    }
+    return result.map(normalizeGithubMergeRequest).filter((item) => {
       if (state === "merged") return item.merged
       if (state === "closed") return !item.merged
       return true
@@ -91,8 +97,14 @@ async function listProviderMergeRequests(server, repo, state = "open") {
   }
   if (server.type === "gitlab") {
     const providerState = state === "open" ? "opened" : state === "all" ? "all" : state
-    const result = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=100&order_by=updated_at&sort=desc`)
-    return (Array.isArray(result) ? result : []).map(normalizeGitlabMergeRequest)
+    const result = []
+    for (let page = 1; page <= 100; page += 1) {
+      const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=100&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
+      const pageItems = Array.isArray(entries) ? entries : []
+      result.push(...pageItems)
+      if (pageItems.length < 100) break
+    }
+    return result.map(normalizeGitlabMergeRequest)
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }

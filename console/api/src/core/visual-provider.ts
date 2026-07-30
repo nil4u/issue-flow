@@ -17,8 +17,14 @@ async function readVisualRepositoryFile(server, repo, ref, filePath) {
 
 async function listPlanMergeRequests(server, repo) {
   if (server.type === "github") {
-    const result = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=all&per_page=100&sort=updated&direction=desc`)
-    return (Array.isArray(result) ? result : [])
+    const result = []
+    for (let page = 1; page <= 100; page += 1) {
+      const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=all&per_page=100&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
+      const pageItems = Array.isArray(entries) ? entries : []
+      result.push(...pageItems)
+      if (pageItems.length < 100) break
+    }
+    return result
       .filter((pullRequest) => (pullRequest.labels || []).some((label) => (typeof label === "string" ? label : label.name) === "mr-by::plan"))
       .map((pullRequest) => ({
         id: String(pullRequest.id || ""), number: Number(pullRequest.number), body: pullRequest.body || "",
@@ -29,8 +35,14 @@ async function listPlanMergeRequests(server, repo) {
       }))
   }
   if (server.type === "gitlab") {
-    const result = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=all&labels=${encodeURIComponent("mr-by::plan")}&per_page=100&order_by=updated_at&sort=desc`)
-    return (Array.isArray(result) ? result : []).map((mergeRequest) => ({
+    const result = []
+    for (let page = 1; page <= 100; page += 1) {
+      const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=all&labels=${encodeURIComponent("mr-by::plan")}&per_page=100&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
+      const pageItems = Array.isArray(entries) ? entries : []
+      result.push(...pageItems)
+      if (pageItems.length < 100) break
+    }
+    return result.map((mergeRequest) => ({
       id: String(mergeRequest.id || ""), number: Number(mergeRequest.iid), body: mergeRequest.description || "",
       title: mergeRequest.title || "", state: mergeRequest.state || "", merged: mergeRequest.state === "merged",
       headBranch: mergeRequest.source_branch || "", baseBranch: mergeRequest.target_branch || "",
@@ -44,6 +56,36 @@ async function listPlanMergeRequests(server, repo) {
 async function createPlanMergeRequestComment(server, repo, mergeRequestNumber, body) {
   if (server.type === "github") return providerFetch(server, "POST", `${githubRepoPath(repo)}/issues/${mergeRequestNumber}/comments`, { body })
   if (server.type === "gitlab") return providerFetch(server, "POST", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}/notes`, { body })
+  throw apiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function listPlanMergeRequestComments(server, repo, mergeRequestNumber) {
+  if (server.type === "github") {
+    const comments = []
+    for (let page = 1; page <= 100; page += 1) {
+      const result = await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues/${mergeRequestNumber}/comments?per_page=100${page > 1 ? `&page=${page}` : ""}`)
+      const entries = Array.isArray(result) ? result : []
+      comments.push(...entries.map((comment) => ({ id: String(comment.id || ""), body: comment.body || "" })))
+      if (entries.length < 100) break
+    }
+    return comments
+  }
+  if (server.type === "gitlab") {
+    const comments = []
+    for (let page = 1; page <= 100; page += 1) {
+      const result = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}/notes?per_page=100&sort=asc${page > 1 ? `&page=${page}` : ""}`)
+      const entries = Array.isArray(result) ? result : []
+      comments.push(...entries.filter((note) => !note.system).map((note) => ({ id: String(note.id || ""), body: note.body || "" })))
+      if (entries.length < 100) break
+    }
+    return comments
+  }
+  throw apiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function closePlanMergeRequest(server, repo, mergeRequestNumber) {
+  if (server.type === "github") return providerFetch(server, "PATCH", `${githubRepoPath(repo)}/pulls/${mergeRequestNumber}`, { state: "closed" })
+  if (server.type === "gitlab") return providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`, { state_event: "close" })
   throw apiError(`unsupported git provider: ${server.type}`, 400)
 }
 
@@ -95,4 +137,4 @@ async function renderPlanMarkdown(server, repo, markdown) {
   return renderProviderMarkdown(server, repo, markdown)
 }
 
-export { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown }
+export { applyVisualIssueLabels, closePlanMergeRequest, createPlanMergeRequestComment, listPlanMergeRequestComments, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown }

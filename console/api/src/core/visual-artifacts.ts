@@ -2,13 +2,16 @@
 import crypto from "node:crypto"
 import path from "node:path"
 
-import { getProviderMergeRequestPreview } from "./merge-request-provider.js"
+import { createProviderIssue, listAllProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { getProviderMergeRequestPreview, listProviderMergeRequests } from "./merge-request-provider.js"
+import { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, optimizationSourceIssueNumber, proposalMarker, validateOptimizationArtifact } from "./optimization-artifact.js"
 import { normalizePreviewPath, previewDescriptorForPath, previewableChangedFiles } from "./preview/registry.js"
 import { issueFlowMarkers } from "./provenance-marker.js"
-import { applyVisualIssueLabels, createPlanMergeRequestComment, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
+import { applyVisualIssueLabels, closePlanMergeRequest, createPlanMergeRequestComment, listPlanMergeRequestComments, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
-const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
+const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan|optimization)\s+format=(json|markdown)\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
+const ISSUE_FLOW_FEEDBACK_REPOSITORY = "nil4u/issue-flow"
 
 function requestError(message, status = 400, code = "visual_artifact_error") {
   const error = new Error(message); error.status = status; error.code = code; return error
@@ -331,6 +334,48 @@ async function readCustomHtmlResources(server, repo, artifact, data) {
   return { customHtml: Object.fromEntries(entries) }
 }
 
+async function optimizationRuntime(server, repo, artifact, data) {
+  const [comments, issues] = await Promise.all([
+    listPlanMergeRequestComments(server, repo, artifact.data.mergeRequestNumber),
+    listAllProviderIssues(server, repo, { state: "all" }),
+  ])
+  const parentIssue = issues.find((issue) => issue.number === artifact.issueNumber)
+  const sourceIssueNumber = optimizationSourceIssueNumber(parentIssue && parentIssue.body)
+  const states = deriveOptimizationProposalStates(data, artifact.issueNumber, comments, issues)
+  return {
+    sourceIssueNumber,
+    comments,
+    issues,
+    proposals: states.map((state) => {
+      const proposal = data.proposals.find((item) => item.id === state.id)
+      return proposal && proposal.kind === "issue-flow-feedback"
+        ? { ...state, kind: proposal.kind, feedback: developerFeedbackDraft(proposal, repo, sourceIssueNumber) }
+        : { ...state, kind: proposal && proposal.kind || "project-change" }
+    }),
+  }
+}
+
+function developerFeedbackDraft(proposal, repo, sourceIssueNumber) {
+  const labels = ["type::bug", "status::active", "flow::triage", "automation::off", proposal.issue.priority, proposal.issue.size, ...(proposal.issue.labels || [])]
+  const body = [
+    proposal.issue.body.trim(),
+    "## 建议方案",
+    proposal.solution.trim(),
+    "## 验证方式",
+    proposal.validation.map((item) => `- ${String(item).trim()}`).join("\n"),
+    "## 来源",
+    [`- Repository: ${repo.fullName}`, `- Source Issue: #${sourceIssueNumber}`].join("\n"),
+  ].join("\n\n")
+  const params = new URLSearchParams({ title: proposal.issue.title, labels: labels.join(",") })
+  return {
+    title: proposal.issue.title,
+    body,
+    labels,
+    text: [`# ${proposal.issue.title}`, "", body, "", `Labels: ${labels.join(", ")}`].join("\n"),
+    url: `https://github.com/${ISSUE_FLOW_FEEDBACK_REPOSITORY}/issues/new?${params}`,
+  }
+}
+
 async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: rawIssueNumber, mergeRequestNumber, artifactPath, userId, session }) {
   const issueNumber = normalizeIssueNumber(rawIssueNumber)
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
@@ -342,11 +387,34 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
   const entry = await readArtifactFile(server, repo, artifact)
   const format = artifact.data && artifact.data.format || "json"
   let html
+  let optimization
   if (format === "markdown") html = markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
   else {
     const data = parseVisualArtifactJson(entry.body)
-    html = renderVisualArtifactDocument(data, artifact.type, await readCustomHtmlResources(server, repo, artifact, data))
+    if (artifact.type === "optimization") {
+      validateOptimizationArtifact(data)
+      optimization = await optimizationRuntime(server, repo, artifact, data)
+    }
+    const optimizationStates = optimization && optimization.proposals.map((proposal) => ({
+      ...proposal,
+      childIssue: proposal.childIssue ? {
+        ...proposal.childIssue,
+        webUrl: `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues/${proposal.childIssue.number}`,
+      } : null,
+    }))
+    html = renderVisualArtifactDocument(data, artifact.type, {
+      ...await readCustomHtmlResources(server, repo, artifact, data),
+      optimizationStates,
+    })
   }
+  const associatedMergeRequests = (await listProviderMergeRequests(server, repo, "all"))
+    .filter((mergeRequest) => mergeRequest.sourceIssueNumber === issueNumber)
+    .map((mergeRequest) => ({
+      number: mergeRequest.number,
+      title: mergeRequest.title,
+      state: mergeRequest.state,
+      labels: mergeRequest.labels,
+    }))
   return {
     artifact, artifacts, format,
     mergeRequest: {
@@ -354,6 +422,8 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
       url: artifact.data && artifact.data.mergeRequestUrl || "", state: artifact.data && artifact.data.mergeRequestState || "",
     },
     repository: { id: repo.id, fullName: repo.fullName, defaultBranch: repo.defaultBranch, provider: server.type },
+    associatedMergeRequests,
+    optimization: optimization ? { sourceIssueNumber: optimization.sourceIssueNumber, proposals: optimization.proposals } : undefined,
     html,
   }
 }
@@ -399,9 +469,9 @@ function reviewItemLines(items = []) {
 }
 function buildReviewComment(artifact, review, status) {
   const planWorkflow = artifact.workflow === "plan" || artifact.data && artifact.data.workflow === "plan"
-  const title = !planWorkflow ? "Preview Review" : artifact.type === "decision" ? "Decision Review" : artifact.data && artifact.data.format === "markdown" ? "Markdown Plan Review" : "Visual Plan Review"
+  const title = !planWorkflow ? "Preview Review" : artifact.type === "decision" ? "Decision Review" : artifact.type === "optimization" ? "Automation Optimization Review" : artifact.data && artifact.data.format === "markdown" ? "Markdown Plan Review" : "Visual Plan Review"
   const shouldResumePlanTask = planWorkflow && status === "changes-requested"
-  const artifactName = artifact.type === "decision" ? "Decision" : "Plan"
+  const artifactName = artifact.type === "decision" ? "Decision" : artifact.type === "optimization" ? "Optimization Plan" : "Plan"
   const nextAction = shouldResumePlanTask
     ? `请根据以上审阅意见更新当前 ${artifactName} 产物。`
     : planWorkflow && artifact.type === "decision" && status === "approved"
@@ -538,4 +608,104 @@ async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, m
   return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
 }
 
-export { approveVisualPlan, buildReviewComment, decisionRequirementsFromData, getVisualArtifact, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview }
+function optimizationProposalById(data, proposalId) {
+  const proposal = data.proposals.find((item) => item.id === proposalId)
+  if (!proposal) throw requestError(`optimization proposal not found: ${proposalId}`, 404, "optimization_proposal_not_found")
+  return proposal
+}
+
+function proposalIssueLabels(proposal) {
+  return [...new Set([
+    proposal.issue.type,
+    "status::active",
+    proposal.issue.flow,
+    proposal.kind === "issue-flow-feedback" ? "automation::off" : "automation::build",
+    proposal.issue.priority,
+    proposal.issue.size,
+    ...(proposal.issue.labels || []),
+  ])]
+}
+
+async function loadOptimizationActionContext(input) {
+  const issueNumber = normalizeIssueNumber(input.issueNumber)
+  const { repo, server } = await requireVisualContext(input.store, input.gitServerId, input.projectId, input.userId, input.session)
+  const artifact = await resolveVisualArtifact(input.store, repo, server, issueNumber, "optimization")
+  if (artifact.status === "approved" || !["open", "opened"].includes(artifact.data.mergeRequestState)) throw requestError("optimization Plan is no longer open", 409, "optimization_plan_closed")
+  const data = validateOptimizationArtifact(parseVisualArtifactJson((await readArtifactFile(server, repo, artifact)).body))
+  const runtime = await optimizationRuntime(server, repo, artifact, data)
+  if (!runtime.sourceIssueNumber) throw requestError("optimization source issue marker is missing", 422, "optimization_source_missing")
+  return { repo, server, artifact, data, runtime }
+}
+
+async function finalizeOptimizationIfComplete({ server, repo, artifact, data, runtime }) {
+  const states = deriveOptimizationProposalStates(data, artifact.issueNumber, runtime.comments, runtime.issues)
+  if (!allOptimizationProposalsTerminal(states)) return { completed: false, proposals: states }
+  const parent = runtime.issues.find((issue) => issue.number === artifact.issueNumber)
+  if (!parent) throw requestError("optimization issue was not found", 404, "optimization_issue_not_found")
+  const source = runtime.issues.find((issue) => issue.number === runtime.sourceIssueNumber)
+  if (!source) throw requestError("optimization source issue was not found", 404, "optimization_source_not_found")
+  await closePlanMergeRequest(server, repo, artifact.data.mergeRequestNumber)
+  const parentLabels = (parent && parent.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+  await updateProviderIssue(server, repo, artifact.issueNumber, {
+    labels: [...new Set([...parentLabels.filter((label) => !label.startsWith("status::") && !label.startsWith("flow::")), "status::done"])],
+  })
+  await updateProviderIssueState(server, repo, artifact.issueNumber, "close")
+  const sourceLabels = (source && source.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+  await updateProviderIssue(server, repo, runtime.sourceIssueNumber, {
+    labels: [...new Set([...sourceLabels.filter((label) => !label.startsWith("optimization::")), "optimization::analyzed"])],
+  })
+  return { completed: true, proposals: states }
+}
+
+async function approveOptimizationProposal(input) {
+  const context = await loadOptimizationActionContext(input)
+  const proposal = optimizationProposalById(context.data, String(input.proposalId || ""))
+  const current = context.runtime.proposals.find((item) => item.id === proposal.id)
+  if (current.state === "ignored") throw requestError("ignored proposal cannot be approved", 409, "optimization_proposal_ignored")
+  if (current.childIssue) return { proposal: current, created: false }
+  if (proposal.kind === "issue-flow-feedback") throw requestError("Issue Flow feedback must be copied and submitted manually", 409, "issue_flow_feedback_manual_submission")
+  const marker = proposalMarker({
+    optimizationIssueNumber: context.artifact.issueNumber,
+    sourceIssueNumber: context.runtime.sourceIssueNumber,
+    proposalId: proposal.id,
+  })
+  const childIssue = await createProviderIssue(context.server, context.repo, {
+    title: proposal.issue.title,
+    body: `${proposal.issue.body.trim()}\n\n${marker}`,
+    labels: proposalIssueLabels(proposal),
+  })
+  await createPlanMergeRequestComment(
+    context.server,
+    context.repo,
+    context.artifact.data.mergeRequestNumber,
+    `<!-- issue-flow:source source_agent=issue-flow -->\n${marker}\n已通过优化方案并创建执行 Issue：${childIssue.webUrl || `#${childIssue.number}`}。`,
+  )
+  const state = { id: proposal.id, state: childProposalStateForResponse(childIssue), childIssue: { number: childIssue.number, title: childIssue.title, state: childIssue.state, webUrl: childIssue.webUrl || "" } }
+  return { proposal: state, created: true }
+}
+
+function childProposalStateForResponse(issue) {
+  const labels = (issue.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+  return labels.includes("flow::build") ? "executing" : "created"
+}
+
+async function ignoreOptimizationProposal(input) {
+  const context = await loadOptimizationActionContext(input)
+  const proposal = optimizationProposalById(context.data, String(input.proposalId || ""))
+  const current = context.runtime.proposals.find((item) => item.id === proposal.id)
+  if (current.childIssue) throw requestError("created proposal cannot be ignored", 409, "optimization_proposal_created")
+  if (current.state !== "ignored") {
+    const marker = proposalMarker({
+      optimizationIssueNumber: context.artifact.issueNumber,
+      sourceIssueNumber: context.runtime.sourceIssueNumber,
+      proposalId: proposal.id,
+      action: "ignored",
+    })
+    await createPlanMergeRequestComment(context.server, context.repo, context.artifact.data.mergeRequestNumber, `<!-- issue-flow:source source_agent=issue-flow -->\n${marker}\n已忽略优化方案：**${proposal.title}**`)
+    context.runtime.comments.push({ body: marker })
+  }
+  const completion = await finalizeOptimizationIfComplete(context)
+  return { proposal: completion.proposals.find((item) => item.id === proposal.id), completion }
+}
+
+export { approveOptimizationProposal, approveVisualPlan, buildReviewComment, decisionRequirementsFromData, developerFeedbackDraft, finalizeOptimizationIfComplete, getVisualArtifact, ignoreOptimizationProposal, listReviewablePlanArtifacts, markdownDocument, mergeRequestArtifact, mergeRequestArtifacts, parseArtifactMarker, parseVisualArtifactJson, pendingDecisionApprovalRefs, planFilePathFromBody, structureMarkdownSections, submitVisualReview }

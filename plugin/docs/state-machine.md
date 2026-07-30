@@ -24,6 +24,12 @@ flow::plan ──(plan agent)──┬── 默认（无 Visual Plan opt-in）
                                  ├── 可选 Decision → 同一 Plan MR + flow::clarify
                                  └── Visual Plan → 同一 Plan MR + flow::approve
 
+type::optimization ──(optimizer agent)── Optimization JSON → Plan MR + flow::approve
+    ├── Proposal Ignore → 该 Proposal 结束
+    ├── Proposal Approve → 创建独立执行 Issue
+    └── 全部 Proposal 结束 → close Plan MR + close 优化 Issue
+                            → 来源 Issue optimization::analyzed
+
 Decision 审阅：
   讨论/修改 → 评论 Plan MR + flow::clarify
             → resume 原 Plan task 修改 Decision
@@ -47,11 +53,11 @@ merge build PR/MR → status::done + clear flow
 
 `type::docs` 复用现有生命周期，但不经过 Plan：`flow::triage -> flow::build -> flow::approve`，Build PR/MR 合并后进入 `status::done`。纯文档新增、修订、迁移和信息架构调整都走这条路径；不新增 flow、审批模型或提交入口。
 
-Decision 和 Visual Plan 使用 Issue Flow Engine 审阅地址：
+所有 Plan 产物使用 Issue Flow Engine 审阅地址：
 
 - `{ISSUE_FLOW_BASE_URL}/repos/{git-server-id}/{project-id}/plan/{issue-number}`
 
-Decision 和 Visual Plan 共用同一个 Issue 级 URL；页面根据当前 Plan MR marker 中的 artifact 选择渲染方式。Markdown Plan 直接在 provider PR/MR 中审阅，不生成 Engine URL。
+Decision、Visual Plan、Markdown Plan 和 Optimization Plan 共用同一个 Issue 级 URL；页面根据当前 Plan MR marker 中的 artifact 与 format 选择渲染方式。
 
 两种模式的产物都保存在 `.issue-flow/issues/{issue-number}-{slug}/`，Plan 分支继续沿用 `{issue-number}-{slug}/plan` 规则。未设置开关时默认 Markdown 模式，以保持已有线上行为。Decision 和后续 Visual Plan 更新同一个分支与 `mr-by::plan` PR/MR；Markdown Plan 使用相同的 Plan MR 规则；Build PR/MR 保持不变。
 
@@ -59,7 +65,7 @@ Decision 和 Visual Plan 共用同一个 Issue 级 URL；页面根据当前 Plan
 
 | 动作 | 结果 |
 |------|------|
-| 提交 Markdown Plan PR/MR | MR body 写入不含 repository ID 的 artifact marker，不生成或回复 Engine URL；`mr-by::plan` + `flow::approve` |
+| 提交 Markdown Plan PR/MR | MR body 写入 artifact marker 与统一 Engine URL；`mr-by::plan` + `flow::approve` |
 | 提交 Markdown Plan 修改请求 | 直接评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
 | Approve Markdown Plan | 在 provider 中 merge MR；`flow::build` |
 | 提交 Decision | MR body 写入统一 Engine URL，并在 MR 下回复该 URL；`mr-by::plan` + `flow::clarify` |
@@ -68,6 +74,11 @@ Decision 和 Visual Plan 共用同一个 Issue 级 URL；页面根据当前 Plan
 | 提交 Visual Plan JSON | 删除已完成的 Decision JSON，更新同一分支/MR；Engine 内置渲染；`flow::approve` |
 | 提交 Visual Plan 修改请求 | 审阅记录写入 LocalStorage、评论 MR 并 resume 原 Plan task；保持 `flow::approve` |
 | Approve Visual Plan | 清除 Plan 本地记录并 merge Plan MR；`flow::build` |
+| 提交 Optimization Plan JSON | 同一 Engine URL 渲染目标与 Proposal；`flow::approve` |
+| 提交 Optimization 修改请求 | 评论 Plan MR 并 resume 原优化 Plan task |
+| Approve Proposal | 创建带关联 marker 的独立执行 Issue；优化 Issue 不进入 Build |
+| Ignore Proposal | 在 Plan MR 记录忽略 marker；该 Proposal 视为结束 |
+| 全部 Proposal 结束 | 不 merge，关闭 Plan MR 与优化 Issue；来源 Issue 改为 `optimization::analyzed` |
 | Plan 合并失败 | 保持 MR open 和当前 `flow::approve` 状态 |
 | 提交 Build PR/MR | `mr-by::build` + `flow::approve` |
 | 合并 Build PR/MR | `status::done` + clear `flow::` |
@@ -96,6 +107,7 @@ Decision、Visual Plan 和 Markdown Plan 都使用 `mr-by::plan` PR/MR。Decisio
 | `mr-by::plan` + Decision marker | 非预期手工 merge 时回到 `flow::plan` |
 | `mr-by::plan` + Visual Plan marker | `flow::build` |
 | `mr-by::plan` + Markdown Plan marker | `flow::build` |
+| `mr-by::plan` + Optimization marker | 不允许用 merge 推进；由 Proposal 完成自动关闭 |
 | `mr-by::build` | `status::done` + clear `flow::` |
 
 Source issue 仍按 marker、body 文本、标题和 branch 名解析。

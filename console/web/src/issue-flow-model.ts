@@ -186,6 +186,7 @@ export type ProviderIssueDetail = {
   issue: ProviderIssueSummary
   comments: ProviderIssueComment[]
   availableLabels: ProviderIssueLabel[]
+  mergeRequests: MergeRequestSummary[]
   repository: { id: string; fullName: string; provider: string; webUrl: string }
 }
 

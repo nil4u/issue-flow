@@ -300,7 +300,7 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   assert.match(prompt, /Working branch: `42-broken-login\/plan`/);
 });
 
-test('agentrix optimization plan always uses Markdown and loads only the optimizer skill', () => {
+test('agentrix optimization plan uses its JSON protocol and loads only the optimizer skill', () => {
   const prompt = agentrix.composeActionPrompt('plan', {
     number: 42,
     labels: ['type::optimization', 'size::M', 'feature:visual-plan:on'],
@@ -310,8 +310,11 @@ test('agentrix optimization plan always uses Markdown and loads only the optimiz
 
   assert.match(prompt, /skills\/automation-optimizer\/SKILL\.md`/);
   assert.doesNotMatch(prompt, /skills\/vision-plan\/SKILL\.md`/);
-  assert.match(prompt, /Plan output file: `\.issue-flow\/issues\/42-optimize-plan-automation\/plan\/001-implementation\.md`/);
-  assert.doesNotMatch(prompt, /Plan output JSON:/);
+  assert.match(prompt, /Optimization output JSON: `\.issue-flow\/issues\/42-optimize-plan-automation\/plan\/data\/optimization-data\.json`/);
+  assert.match(prompt, /--artifact optimization/);
+  assert.match(prompt, /项目级执行规范统一写入 `\.issue-flow\/instructions\.md`/);
+  assert.match(prompt, /除该文件外，不得生成修改 `\.issue-flow\/` 下任何文件的方案/);
+  assert.doesNotMatch(prompt, /Plan template:/);
 });
 
 test('agentrix action prompt uses full issue input when no plan files exist', () => {

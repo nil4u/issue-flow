@@ -1,5 +1,5 @@
 import { loadReviewStorage } from "./review-storage"
-import type { DraftReviewItem, LoadedVisualArtifact, VisionRouteContext, VisualReview } from "./types"
+import type { DraftReviewItem, LoadedVisualArtifact, OptimizationProposalState, VisionRouteContext, VisualReview } from "./types"
 
 function endpoint(context: VisionRouteContext, suffix = "") {
   const base = `/api/visual-artifacts/${encodeURIComponent(context.gitServerId)}/${encodeURIComponent(context.projectId)}/${context.issueNumber}`
@@ -18,12 +18,14 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export async function loadVisualArtifact(context: VisionRouteContext): Promise<LoadedVisualArtifact> {
   const result = await parseResponse<{
-    artifact: { type: "decision" | "plan" | "markdown"; format?: "json" | "markdown"; entryPath: string; updatedAt: string; status?: string; previewer?: string; workflow?: "plan" | "preview" }
-    artifacts?: Array<{ type: "decision" | "plan" | "markdown"; format?: "json" | "markdown"; entryPath: string; updatedAt: string; status?: string; previewer?: string; workflow?: "plan" | "preview" }>
+    artifact: { type: "decision" | "plan" | "optimization" | "markdown"; format?: "json" | "markdown"; entryPath: string; updatedAt: string; status?: string; previewer?: string; workflow?: "plan" | "preview" }
+    artifacts?: Array<{ type: "decision" | "plan" | "optimization" | "markdown"; format?: "json" | "markdown"; entryPath: string; updatedAt: string; status?: string; previewer?: string; workflow?: "plan" | "preview" }>
     format?: "json" | "markdown"
     mergeRequest?: { number?: number; url?: string; state?: string }
+    associatedMergeRequests?: Array<{ number: number; title: string; state: string; labels: string[] }>
     repository?: { fullName?: string }
     html: string
+    optimization?: { sourceIssueNumber: number; proposals: OptimizationProposalState[] }
   }>(await fetch(endpoint(context)))
   const artifact = result.artifact
   const artifactContext = { ...context, artifactType: artifact.type, artifactPath: artifact.entryPath }
@@ -47,12 +49,14 @@ export async function loadVisualArtifact(context: VisionRouteContext): Promise<L
       issuePath: `${context.gitServerId}/${context.projectId}/${context.issueNumber}`,
       title: `${result.repository?.fullName || context.projectId} · 议题 #${context.issueNumber}`,
       artifacts,
+      mergeRequests: result.associatedMergeRequests || [],
     },
     selectedPath: artifact.entryPath,
     html: result.html,
     format: result.format || "json",
     drafts: stored.drafts,
     reviews: stored.reviews,
+    optimization: result.optimization,
   }
 }
 
@@ -75,6 +79,13 @@ export async function approveAllDecisions(context: VisionRouteContext, items: Dr
 export async function approveVisionArtifact(context: VisionRouteContext) {
   return parseResponse<{ artifact: { status: string }; review: VisualReview; flow: string }>(await fetch(
     endpoint(context, "/approve"),
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+  ))
+}
+
+export async function actOnOptimizationProposal(context: VisionRouteContext, proposalId: string, action: "approve" | "ignore") {
+  return parseResponse<{ proposal: OptimizationProposalState; created?: boolean; completion?: { completed: boolean } }>(await fetch(
+    endpoint(context, `/proposals/${encodeURIComponent(proposalId)}/${action}`),
     { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
   ))
 }

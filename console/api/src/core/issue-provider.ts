@@ -107,19 +107,33 @@ function gitlabIssuePermissions(project = {}, currentUser = {}, issue = {}) {
 async function listProviderIssues(server, repo, input = {}) {
   const state = input.state === "closed" ? "closed" : input.state === "all" ? "all" : "open"
   const search = String(input.search || "").trim()
+  const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
+  const perPage = Math.min(100, Math.max(1, Number.parseInt(String(input.perPage || "100"), 10) || 100))
   if (server.type === "github") {
-    const params = new URLSearchParams({ state, per_page: "100", sort: "updated", direction: "desc" })
+    const params = new URLSearchParams({ state, per_page: String(perPage), sort: "updated", direction: "desc" })
+    if (input.page !== undefined) params.set("page", String(page))
     if (search) params.set("q", search)
     const result = await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues?${params}`)
     return (Array.isArray(result) ? result : []).filter((issue) => !issue.pull_request).map(normalizeGithubIssue)
   }
   if (server.type === "gitlab") {
-    const params = new URLSearchParams({ scope: "all", state: state === "open" ? "opened" : state, per_page: "100", order_by: "updated_at", sort: "desc" })
+    const params = new URLSearchParams({ scope: "all", state: state === "open" ? "opened" : state, per_page: String(perPage), order_by: "updated_at", sort: "desc" })
+    if (input.page !== undefined) params.set("page", String(page))
     if (search) params.set("search", search)
     const result = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/issues?${params}`)
     return (Array.isArray(result) ? result : []).map(normalizeGitlabIssue)
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function listAllProviderIssues(server, repo, input = {}) {
+  const issues = []
+  for (let page = 1; page <= 100; page += 1) {
+    const entries = await listProviderIssues(server, repo, { ...input, page, perPage: 100 })
+    issues.push(...entries)
+    if (entries.length < 100) break
+  }
+  return issues
 }
 
 async function listProviderIssueLabels(server, repo) {
@@ -249,4 +263,4 @@ async function updateProviderIssueState(server, repo, issueNumber, action) {
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { createProviderIssue, createProviderIssueComment, getProviderIssue, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState }
+export { createProviderIssue, createProviderIssueComment, getProviderIssue, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState }
