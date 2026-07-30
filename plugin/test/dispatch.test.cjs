@@ -422,7 +422,7 @@ test('dispatch Plan PR comment uses the standard PR review reply instruction', a
           body: [
             '<!-- issue-flow:source-issue=42 -->',
             '<!-- issue-flow:source source_task_id=task-plan-42 source_agent=codex source_runtime=agentrix -->',
-            '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan-data.json -->',
+            '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=abc123 path=.issue-flow/issues/42-login/plan/data/plan.json.isv -->',
           ].join('\n'),
           labels: [{ name: 'mr-by::plan' }],
         }),
@@ -886,7 +886,7 @@ test('dispatch Decision merge resumes the original Plan task', async () => {
         body: [
           '<!-- issue-flow:source-issue=42 -->',
           '<!-- issue-flow:agentrix:task=task-plan-42 -->',
-          '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision-data.json -->',
+          '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-add-widget-support/plan commit=abc123 path=.issue-flow/issues/42-add-widget-support/decision/data/decision.json.isv -->',
         ].join('\n'),
         title: 'Decision #42: Add widget support',
         head: { ref: '42-add-widget-support/plan' },

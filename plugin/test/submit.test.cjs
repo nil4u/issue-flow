@@ -246,7 +246,7 @@ test('Visual Plan publication requires completed Decision artifacts to be remove
   try {
     const issueRoot = path.join(root, '.issue-flow/issues/42-issue');
     fs.mkdirSync(path.join(issueRoot, 'decision/data'), { recursive: true });
-    fs.writeFileSync(path.join(issueRoot, 'decision/data/decision-data.json'), '{}', 'utf8');
+    fs.writeFileSync(path.join(issueRoot, 'decision/data/decision.json.isv'), '{}', 'utf8');
     process.chdir(root);
     assert.throws(() => assertDecisionArtifactsRemoved(42), /Delete the completed Decision artifacts/);
     fs.rmSync(path.join(issueRoot, 'decision'), { recursive: true });
@@ -279,7 +279,7 @@ test('Visual artifacts contain renderable JSON without presentation code', () =>
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-json-'));
   try {
     const issueRoot = path.join(root, '.issue-flow/issues/42-issue');
-    const planPath = path.join(issueRoot, 'plan/data/plan-data.json');
+    const planPath = path.join(issueRoot, 'plan/data/plan.json.isv');
     fs.mkdirSync(path.dirname(planPath), { recursive: true });
     fs.writeFileSync(planPath, JSON.stringify({
       schemaVersion: 1,
@@ -292,9 +292,9 @@ test('Visual artifacts contain renderable JSON without presentation code', () =>
       ],
     }), 'utf8');
     process.chdir(root);
-    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'));
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'));
     fs.writeFileSync(planPath, JSON.stringify({ schemaVersion: 1, artifact: 'plan', meta: { title: 'Bad Plan' }, core: { outcome: 'Bad' }, sections: [{ id: 'bad', type: 'cards', html: '<div />' }] }), 'utf8');
-    assert.throws(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'), /cannot contain presentation code/);
+    assert.throws(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'), /cannot contain presentation code/);
   } finally {
     process.chdir(previousCwd);
     fs.rmSync(root, { recursive: true, force: true });
@@ -305,7 +305,7 @@ test('Visual Plan custom HTML sections reference an existing same-directory Demo
   const previousCwd = process.cwd();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-custom-html-'));
   try {
-    const planPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan-data.json');
+    const planPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan.json.isv');
     const demoPath = path.join(path.dirname(planPath), 'demo.html');
     fs.mkdirSync(path.dirname(planPath), { recursive: true });
     const writePlan = (file) => fs.writeFileSync(planPath, JSON.stringify({
@@ -323,17 +323,17 @@ test('Visual Plan custom HTML sections reference an existing same-directory Demo
 
     fs.writeFileSync(demoPath, '<!doctype html><button>Demo</button>', 'utf8');
     writePlan('demo.html');
-    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'));
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'));
 
     fs.rmSync(demoPath);
     assert.throws(
-      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'),
       /file does not exist/,
     );
 
     writePlan('../demo.html');
     assert.throws(
-      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'),
       /same-directory \.html file name/,
     );
   } finally {
@@ -346,7 +346,7 @@ test('Visual artifact submission rejects invalid graph relationships and Decisio
   const previousCwd = process.cwd();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-invalid-json-'));
   try {
-    const artifactPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan-data.json');
+    const artifactPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan.json.isv');
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     process.chdir(root);
     fs.writeFileSync(artifactPath, JSON.stringify({
@@ -365,11 +365,11 @@ test('Visual artifact submission rejects invalid graph relationships and Decisio
       ],
     }), 'utf8');
     assert.throws(
-      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'),
       /unknown target: missing/,
     );
 
-    const decisionPath = path.join(root, '.issue-flow/issues/42-issue/decision/data/decision-data.json');
+    const decisionPath = path.join(root, '.issue-flow/issues/42-issue/decision/data/decision.json.isv');
     fs.mkdirSync(path.dirname(decisionPath), { recursive: true });
     fs.writeFileSync(decisionPath, JSON.stringify({
       schemaVersion: 1,
@@ -381,7 +381,7 @@ test('Visual artifact submission rejects invalid graph relationships and Decisio
       }],
     }), 'utf8');
     assert.throws(
-      () => assertVisualArtifactData('.issue-flow/issues/42-issue/decision/data/decision-data.json', 'decision'),
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/decision/data/decision.json.isv', 'decision'),
       /recommendedOptionId does not match an option: missing/,
     );
   } finally {
@@ -394,7 +394,7 @@ test('Visual artifact submission validates chart variants and numeric items', ()
   const previousCwd = process.cwd();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-chart-json-'));
   try {
-    const artifactPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan-data.json');
+    const artifactPath = path.join(root, '.issue-flow/issues/42-issue/plan/data/plan.json.isv');
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     process.chdir(root);
     const writePlan = (chart) => fs.writeFileSync(artifactPath, JSON.stringify({
@@ -411,18 +411,18 @@ test('Visual artifact submission validates chart variants and numeric items', ()
 
     writePlan({ id: 'metrics', type: 'chart', variant: 'radar', items: [{ id: 'value', label: 'Value', value: 1 }] });
     assert.throws(
-      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'),
       /unsupported variant: radar/,
     );
 
     writePlan({ id: 'metrics', type: 'chart', variant: 'line', items: [{ id: 'value', label: 'Value', value: 'many' }] });
     assert.throws(
-      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'),
+      () => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'),
       /must contain a numeric value/,
     );
 
     writePlan({ id: 'metrics', type: 'chart', variant: 'donut', items: [{ id: 'value', label: 'Value', value: 1 }] });
-    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan-data.json', 'plan'));
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/42-issue/plan/data/plan.json.isv', 'plan'));
   } finally {
     process.chdir(previousCwd);
     fs.rmSync(root, { recursive: true, force: true });
@@ -446,7 +446,7 @@ test('visual artifact URLs use Git server and provider project routes', () => {
     issueNumber: 42,
     branch: '42-broken-login/plan',
     commit: 'abc123',
-    artifactPath: '.issue-flow/issues/42-broken-login/plan/data/plan-data.json',
+    artifactPath: '.issue-flow/issues/42-broken-login/plan/data/plan.json.isv',
     url: 'https://flow.example/repos/gitlab-main/43326/plan/42',
   });
   assert.match(comment, /issue-flow:plan-artifact artifact=plan format=json issue=42/);
@@ -525,9 +525,9 @@ test('plan artifact marker records visual and Markdown formats in the MR body', 
       issueNumber: 42,
       branch: '42-issue/plan',
       commit: 'abc123',
-      artifactPath: '.issue-flow/issues/42-issue/decision/data/decision-data.json',
+      artifactPath: '.issue-flow/issues/42-issue/decision/data/decision.json.isv',
     }),
-    '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision-data.json -->'
+    '<!-- issue-flow:plan-artifact artifact=decision format=json issue=42 branch=42-issue/plan commit=abc123 path=.issue-flow/issues/42-issue/decision/data/decision.json.isv -->'
   );
   const markdownMarker = buildVisualArtifactMarker({
       artifact: 'plan',

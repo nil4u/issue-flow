@@ -288,7 +288,7 @@ test('agentrix plan prompt enables visual artifacts only with the issue feature 
   }, {}, { planRootDir: '.issue-flow/issues' });
 
   assert.match(prompt, /Decision 或根因修复 Visual Plan/);
-  assert.match(prompt, /Plan output JSON: `\.issue-flow\/issues\/42-broken-login\/plan\/data\/plan-data\.json`/);
+  assert.match(prompt, /Plan output JSON: `\.issue-flow\/issues\/42-broken-login\/plan\/data\/plan\.json\.isv`/);
   const visualBriefPath = path.join(os.tmpdir(), 'issue-flow', 'visual-plan', '42-broken-login', 'visual-brief.md').replace(/\\/g, '/');
   assert.equal(prompt.includes(`Temporary visual brief (do not commit): \`${visualBriefPath}\``), true);
   assert.doesNotMatch(prompt, /plan\/data\/visual-brief\.md/);
@@ -350,7 +350,7 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
   try {
     const planDir = path.join(root, '42-add-export-button', 'plan');
     fs.mkdirSync(path.join(planDir, 'data'), { recursive: true });
-    fs.writeFileSync(path.join(planDir, 'data', 'plan-data.json'), '{not parsed by runtime');
+    fs.writeFileSync(path.join(planDir, 'data', 'plan.json.isv'), '{not parsed by runtime');
     fs.writeFileSync(path.join(planDir, '001-implementation.md'), '# Markdown plan\n');
 
     const visualPrompt = agentrix.composeActionPrompt('build', {
@@ -359,7 +359,7 @@ test('agentrix build prompt provides only the visual plan JSON path', () => {
       title: 'Add export button',
       body: 'Add CSV export.',
     }, {}, { planRootDir: root });
-    assert.match(visualPrompt, /plan\/data\/plan-data\.json/);
+    assert.match(visualPrompt, /plan\/data\/plan\.json\.isv/);
     assert.doesNotMatch(visualPrompt, /\*\*Core outcome\*\*: Add export/);
     assert.doesNotMatch(visualPrompt, /visual-brief\.md/);
     assert.doesNotMatch(visualPrompt, /not parsed by runtime/);

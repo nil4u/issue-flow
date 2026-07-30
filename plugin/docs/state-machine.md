@@ -76,7 +76,7 @@ Engine 页面保留元素锚点、`data-ref`、`data-comment-scope`、点/区域
 
 ## Build 输入
 
-Visual Plan Approve 后，Runtime 只向 Build Agent 提供已合并到默认分支的 `plan/data/plan-data.json` 仓库路径，由 Build Agent 自行读取完整结构化内容；不会把 JSON 正文或 `visual-brief.md` 注入提示词，也不从 HTML 抓取文字。`visual-brief.md` 仅用于 Plan Agent 生成方案时自检和组织视觉模型，保存在 Runtime 注入的系统临时目录中，不属于仓库产物。Markdown 模式继续读取 `plan/*.md`。
+Visual Plan Approve 后，Runtime 只向 Build Agent 提供已合并到默认分支的 `plan/data/plan.json.isv` 仓库路径，由 Build Agent 自行读取完整结构化内容；不会把 JSON 正文或 `visual-brief.md` 注入提示词，也不从 HTML 抓取文字。`visual-brief.md` 仅用于 Plan Agent 生成方案时自检和组织视觉模型，保存在 Runtime 注入的系统临时目录中，不属于仓库产物。Markdown 模式继续读取 `plan/*.md`。
 
 ## 路由决策
 

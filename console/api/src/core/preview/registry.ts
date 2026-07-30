@@ -4,6 +4,7 @@ import path from "node:path"
 const PREVIEWERS = [
   { id: "decision-json", kind: "decision", format: "json", matches: (file) => file.basename === "decision-data.json" },
   { id: "plan-json", kind: "plan", format: "json", matches: (file) => file.basename === "plan-data.json" },
+  { id: "issue-flow-visual", kind: "visual", format: "json", matches: (file) => file.extension === ".isv" },
   { id: "markdown", kind: "markdown", format: "markdown", matches: (file) => file.extension === ".md" },
 ]
 
