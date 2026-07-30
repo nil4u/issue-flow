@@ -293,12 +293,19 @@ export type AgentrixVariable = {
   manualRequired?: boolean
   blocker?: boolean
   unverified?: boolean
+  groupAccessForbidden?: boolean
   control?: {
     path: string
     type: "text" | "password" | "select" | "checkbox"
     placeholder?: string
     options?: string[]
   }
+}
+
+export type GroupVariableDecision = "install_project" | "skip"
+
+export type GroupVariablePrompt = {
+  variables: AgentrixVariable[]
 }
 
 export type PluginInstall = {
@@ -748,6 +755,7 @@ export type RepoWorkspaceProps = {
   installCheck?: InstallCheck
   checkProgress?: InstallCheckProgress
   installConflictPlan?: InstallConflictPlan
+  groupVariablePrompt?: GroupVariablePrompt
   checking: boolean
   projectAccess?: ProjectAccess
   loadingProjectAccess?: boolean
@@ -755,6 +763,7 @@ export type RepoWorkspaceProps = {
   onLogin: () => void
   onCheck: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onCloseCheckProgress: () => void
+  onResolveGroupVariablePrompt: (decision: GroupVariableDecision) => void
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetLabels: () => Promise<InstallCheck | undefined>

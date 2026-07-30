@@ -481,18 +481,18 @@ function failedVariableResult(variable, existingVariable, error) {
 
 function unverifiedVariableResult(variable, error) {
   const groupPath = String(error && error.groupPath || '上级 group');
+  const result = variableResult(variable, undefined);
+  const detail = result.manualRequired
+    ? `当前账号无权读取 ${groupPath} 的 CI/CD 变量（需要 group Owner 权限），也无法确认是否已继承 ${variable.key}；如需写入当前 Project，请先填写变量值`
+    : `当前账号无权读取 ${groupPath} 的 CI/CD 变量（需要 group Owner 权限），无法验证是否已设置 ${variable.key}`;
   return {
-    ...variableResult(variable, undefined),
-    status: 'unverified',
-    detail: `当前账号无权读取 ${groupPath} 的 CI/CD 变量（需要 group Owner 权限），无法验证是否已设置 ${variable.key}`,
+    ...result,
+    status: result.manualRequired ? 'manual_required' : 'unverified',
+    detail,
     source: 'group',
     groupPath,
-    needsInput: false,
-    manualRequired: false,
-    autoWritable: false,
-    writable: false,
-    blocker: false,
     unverified: true,
+    groupAccessForbidden: true,
   };
 }
 
@@ -507,14 +507,26 @@ function unverifiedVariableCache(result) {
     variableType: 'env_var',
     status: result.status,
     detail: result.detail,
-    blocker: false,
+    blocker: Boolean(result.blocker),
     unverified: true,
+    groupAccessForbidden: true,
   };
 }
 
 async function readInstallVariable(apiInput, variable) {
   if (variable.key === ISSUE_FLOW_GITLAB_TOKEN_KEY) {
-    const checked = await validateIssueFlowGitlabTokenVariable(apiInput);
+    let checked;
+    try {
+      checked = await validateIssueFlowGitlabTokenVariable(apiInput);
+    } catch (error) {
+      if (error && error.code === 'gitlab_group_variable_forbidden') {
+        return {
+          existingVariable: undefined,
+          validation: undefined,
+        };
+      }
+      throw error;
+    }
     return {
       existingVariable: checked.variable,
       validation: checked.validation,
@@ -1232,7 +1244,14 @@ async function setGitlabProjectInstallLabels({ store, input = {}, session, env =
 async function writeInstallVariable({ definition, input = {}, key = '', config, project, apiInput, env = process.env }) {
   const nextValue = input.value !== undefined && key ? input.value : definition.value;
   if (definition.key === ISSUE_FLOW_GITLAB_TOKEN_KEY && (nextValue === undefined || nextValue === '')) {
-    const checked = await validateIssueFlowGitlabTokenVariable(apiInput);
+    let checked = { variable: undefined, validation: undefined };
+    try {
+      checked = await validateIssueFlowGitlabTokenVariable(apiInput);
+    } catch (error) {
+      if (!error || error.code !== 'gitlab_group_variable_forbidden') {
+        throw error;
+      }
+    }
     if (checked.variable && checked.validation && checked.validation.status === 'valid') return;
     await createIssueFlowGitlabTokenVariable({ config, project, apiInput });
     return;
@@ -1280,7 +1299,12 @@ async function setGitlabProjectInstallVariable({ store, basePublicUrl, input = {
   const initialByKey = new Map(initial.variableResults.map((item) => [item.key, item]));
   const selectedDefinitions = key
     ? definitions.filter((item) => item.key === key)
-    : definitions.filter((item) => initialByKey.get(item.key) && initialByKey.get(item.key).status === 'pending_auto');
+    : definitions.filter((item) => {
+      const current = initialByKey.get(item.key);
+      if (!current) return false;
+      return current.status === 'pending_auto'
+        || current.status === 'unverified' && Boolean(current.autoWritable ?? current.writable);
+    });
   if (!selectedDefinitions.length) {
     if (key) return { status: 400, body: { error: 'gitlab_variable_unknown' } };
     const variables = { items: initial.variableCaches, checkedAt: new Date().toISOString() };

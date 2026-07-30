@@ -10,6 +10,8 @@ import {
   type GitLabProject,
   type GitLabUser,
   type GitServer,
+  type GroupVariableDecision,
+  type GroupVariablePrompt,
   type InstallCheck,
   type InstallStep,
   type InstallConflictDecision,
@@ -46,6 +48,7 @@ function hasPendingAutoVariables(step?: InstallStep) {
     const status = String(variable.status || "")
     return status === "pending_auto"
       || status === "needs_action" && Boolean(variable.autoWritable ?? variable.writable)
+      || status === "unverified" && Boolean(variable.autoWritable ?? variable.writable)
   }))
 }
 
@@ -82,6 +85,17 @@ function variableWarningDetail(step?: InstallStep) {
     : ""
 }
 
+function groupAccessForbiddenAutoVariables(step?: InstallStep) {
+  return (step?.variables || []).filter((variable) => {
+    const status = String(variable.status || "")
+    return status === "unverified"
+      && Boolean(variable.groupAccessForbidden ?? variable.unverified)
+      && Boolean(variable.autoWritable ?? variable.writable)
+      && !variable.manualRequired
+      && !variable.needsInput
+  })
+}
+
 export function useDashboardController() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
   const [booting, setBooting] = useState(true)
@@ -111,6 +125,7 @@ export function useDashboardController() {
   const [agentrixDefaults, setAgentrixDefaults] = useState<AgentrixDefaults>()
   const [installCheck, setInstallCheck] = useState<InstallCheck>()
   const [installConflictPlan, setInstallConflictPlan] = useState<InstallConflictPlan>()
+  const [groupVariablePrompt, setGroupVariablePrompt] = useState<GroupVariablePrompt>()
   const [checkProgress, setCheckProgress] = useState<InstallCheckProgress>({
     open: false,
     steps: installCheckProgressSteps,
@@ -118,6 +133,7 @@ export function useDashboardController() {
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>()
   const projectAccessKey = useRef("")
   const projectAccessRequestKey = useRef("")
+  const groupVariablePromptResolver = useRef<((decision: GroupVariableDecision) => void) | undefined>(undefined)
   const autoCheckedSettingsVisit = useRef("")
   const installCheckController = useRef<AbortController | undefined>(undefined)
   const [loadingProjectAccess, setLoadingProjectAccess] = useState(false)
@@ -504,17 +520,27 @@ export function useDashboardController() {
         let checkedStep = body.steps.find((step) => step.id === checkType)
         if (checkType === "variables") {
           if (hasPendingAutoVariables(checkedStep)) {
-            setCheckProgressStep(checkType, "running", "正在自动写入")
-            nextCheck = applyInstallCheck(nextCheck, body)
-            const fixed = await autoConfigureInstallStep(checkType, input, controller.signal)
-            nextCheck = applyInstallCheck(nextCheck, fixed)
-            const fixedStep = fixed.steps.find((step) => step.id === checkType)
-            if (hasFailedVariables(fixedStep)) {
-              body = fixed
-              checkedStep = fixedStep
-            } else {
-              body = await checkInstallStep(checkType, input, controller.signal)
-              checkedStep = body.steps.find((step) => step.id === checkType)
+            const needsDecision = groupAccessForbiddenAutoVariables(checkedStep)
+            let shouldAutoConfigure = true
+            if (needsDecision.length) {
+              nextCheck = applyInstallCheck(nextCheck, body)
+              const decision = await requestGroupVariableDecision(needsDecision)
+              if (controller.signal.aborted) return
+              shouldAutoConfigure = decision === "install_project"
+            }
+            if (shouldAutoConfigure) {
+              setCheckProgressStep(checkType, "running", "正在自动写入")
+              nextCheck = applyInstallCheck(nextCheck, body)
+              const fixed = await autoConfigureInstallStep(checkType, input, controller.signal)
+              nextCheck = applyInstallCheck(nextCheck, fixed)
+              const fixedStep = fixed.steps.find((step) => step.id === checkType)
+              if (hasFailedVariables(fixedStep)) {
+                body = fixed
+                checkedStep = fixedStep
+              } else {
+                body = await checkInstallStep(checkType, input, controller.signal)
+                checkedStep = body.steps.find((step) => step.id === checkType)
+              }
             }
           }
           const needsManual = variableBlockers(checkedStep).length > 0 || checkedStep?.status === "failed"
@@ -589,11 +615,37 @@ export function useDashboardController() {
       }))
       notifyError(error, "检查失败")
     } finally {
+      groupVariablePromptResolver.current = undefined
+      setGroupVariablePrompt(undefined)
       if (installCheckController.current === controller) {
         installCheckController.current = undefined
         setChecking(false)
       }
     }
+  }
+
+  async function requestGroupVariableDecision(variables: GroupVariablePrompt["variables"]) {
+    return new Promise<GroupVariableDecision>((resolve) => {
+      groupVariablePromptResolver.current = resolve
+      setGroupVariablePrompt({ variables })
+      setCheckProgress((current) => ({
+        ...current,
+        open: false,
+        title: "发现无法验证的 group 变量",
+        detail: "当前账号无权读取上级 group 变量。你可以继续写入到当前 Project，或跳过并继续检查后续配置。",
+        steps: current.steps.map((step) => ({
+          ...step,
+          status: step.id === "variables" ? "warning" : step.status,
+        })),
+      }))
+    })
+  }
+
+  function resolveGroupVariablePrompt(decision: GroupVariableDecision) {
+    const resolve = groupVariablePromptResolver.current
+    groupVariablePromptResolver.current = undefined
+    setGroupVariablePrompt(undefined)
+    resolve?.(decision)
   }
 
   async function checkInstallStep(checkType: string, input: Record<string, unknown> = {}, signal?: AbortSignal) {
@@ -650,6 +702,9 @@ export function useDashboardController() {
   }
 
   function closeCheckProgress() {
+    if (groupVariablePromptResolver.current) {
+      resolveGroupVariablePrompt("skip")
+    }
     setCheckProgress((current) => ({ ...current, open: false }))
     installCheckController.current?.abort()
   }
@@ -1167,6 +1222,7 @@ export function useDashboardController() {
       installCheck,
       checkProgress,
       installConflictPlan,
+      groupVariablePrompt,
       checking,
       projectAccess,
       loadingProjectAccess,
@@ -1174,6 +1230,7 @@ export function useDashboardController() {
       onLogin: () => loginGitLab(selectedGitServerId),
       onCheck: runInstallCheck,
       onCloseCheckProgress: closeCheckProgress,
+      onResolveGroupVariablePrompt: resolveGroupVariablePrompt,
       onSetVariable: setInstallVariable,
       onSetWebhook: setInstallWebhook,
       onSetLabels: setInstallLabels,

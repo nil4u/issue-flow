@@ -128,11 +128,13 @@ function InstallConsole({
   installCheck,
   checkProgress,
   installConflictPlan,
+  groupVariablePrompt,
   checking,
   projectAccess,
   loadingProjectAccess,
   onCheck,
   onCloseCheckProgress,
+  onResolveGroupVariablePrompt,
   onConfirmInstallConflicts,
   onCancelInstallConflicts,
   onInstallPlugin,
@@ -343,6 +345,12 @@ function InstallConsole({
         checking={checking}
         progress={checkProgress}
         onClose={onCloseCheckProgress}
+      />
+      <GroupVariablePromptDialog
+        open={Boolean(groupVariablePrompt?.variables?.length)}
+        variables={groupVariablePrompt?.variables || []}
+        onConfirm={() => onResolveGroupVariablePrompt("install_project")}
+        onSkip={() => onResolveGroupVariablePrompt("skip")}
       />
       <InstallConflictWizard
         checking={checking}
@@ -869,6 +877,39 @@ function CheckProgressDialog({
               <Button type="button" variant="secondary" onClick={onClose}>完成</Button>
             </>
           )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function GroupVariablePromptDialog({
+  open,
+  variables,
+  onConfirm,
+  onSkip,
+}: {
+  open: boolean
+  variables: Array<NonNullable<CheckRow["variable"]>>
+  onConfirm: () => void
+  onSkip: () => void
+}) {
+  return (
+    <Dialog open={open}>
+      <DialogContent className="check-progress-dialog">
+        <DialogHeader>
+          <DialogTitle>上级 Group 变量无法验证</DialogTitle>
+        </DialogHeader>
+        <div className="check-progress-body">
+          <p>当前账号无权读取上级 group 的 CI/CD 变量，但这些变量仍然可以写入当前 Project：</p>
+          <div className="check-row-meta chips">
+            {variables.map((variable) => <code key={variable.key}>{variable.key}</code>)}
+          </div>
+          <p>选择“设置到 Project”会继续写入可自动生成或已有默认值的变量。缺少值的变量仍然需要单独填写。</p>
+        </div>
+        <div className="check-progress-actions">
+          <Button type="button" variant="secondary" onClick={onSkip}>跳过并继续检查</Button>
+          <Button type="button" onClick={onConfirm}>设置到 Project</Button>
         </div>
       </DialogContent>
     </Dialog>
