@@ -218,6 +218,19 @@ function withIssueStore(Base) {
       }
     }
 
+    async listPullRequestsByIssue(input = {}, client = this.db) {
+      await this.ready
+      const gitServerId = String(input.gitServerId || "").trim()
+      const repositoryId = String(input.repositoryId || "").trim()
+      const issueNumber = Number(input.issueNumber || 0)
+      if (!gitServerId || !repositoryId || !issueNumber) return []
+      const rows = await client.pullRequest.findMany({
+        where: { gitServerId, repositoryId, issueNumber },
+        orderBy: [{ updatedAt: "desc" }, { prNumber: "desc" }],
+      })
+      return rows.map((row) => this.pullRequestFromRecord(row))
+    }
+
     async upsertPullRequestSnapshot(input = {}, client = this.db) {
       await this.ready
       const gitServerId = String(input.gitServerId || "").trim()

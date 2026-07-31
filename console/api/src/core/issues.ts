@@ -2,10 +2,10 @@
 import fs from "node:fs"
 import path from "node:path"
 import { createProviderIssue, createProviderIssueComment, getProviderIssue, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
-import { listProviderMergeRequests } from "./merge-request-provider.js"
 import { parseProposalMarker } from "./optimization-artifact.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
 import { renderProviderMarkdown } from "./provider-api.js"
+import { listIssuePullRequestSummaries } from "./pull-request-facts.js"
 
 const AUTOMATION_OPTIMIZATION_PHASES = [
   ["triage", "triageTaskTurns"],
@@ -114,7 +114,7 @@ async function getIssue({ store, gitServerId, projectId, issueNumber, userId, se
   const normalizedIssueNumber = normalizeIssueNumber(issueNumber)
   const [detail, mergeRequests] = await Promise.all([
     getProviderIssue(server, repo, normalizedIssueNumber),
-    listProviderMergeRequests(server, repo, "all"),
+    listIssuePullRequestSummaries(store, repo, normalizedIssueNumber),
   ])
   const [bodyHtml, commentHtml] = await Promise.all([
     renderProviderMarkdown(server, repo, detail.issue.body),
@@ -124,7 +124,7 @@ async function getIssue({ store, gitServerId, projectId, issueNumber, userId, se
     ...detail,
     issue: { ...detail.issue, bodyHtml },
     comments: detail.comments.map((comment, index) => ({ ...comment, bodyHtml: commentHtml[index] || "" })),
-    mergeRequests: mergeRequests.filter((mergeRequest) => mergeRequest.sourceIssueNumber === normalizedIssueNumber),
+    mergeRequests,
     repository: { id: repo.id, fullName: repo.fullName, provider: server.type, webUrl: repo.webUrl || repo.url || "" },
   }
 }

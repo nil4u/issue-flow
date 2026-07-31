@@ -539,7 +539,6 @@ test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR',
     if (requestUrl.endsWith('/markdown') && options.method === 'POST') {
       return new Response(JSON.stringify({ html: '<h1>Request lifecycle metrics</h1><h2>Validation</h2><ul><li>Verify metrics.</li></ul>' }), { status: 200 })
     }
-    if (requestUrl.includes('/projects/12/merge_requests?')) return new Response(JSON.stringify([]), { status: 200 })
     throw new Error(`Unexpected request: ${options.method || 'GET'} ${requestUrl}`)
   }
   const repo = { id: 'repo_12', gitServerId: 'git-ke-com', serverRepoId: '12', fullName: 'ai-arch/bella-openapi', defaultBranch: 'develop' }
@@ -547,6 +546,7 @@ test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR',
     findRepositoryByProject: async () => repo,
     userCanAccessRepo: async () => true,
     getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://git.ke.com/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async () => [],
   }
 
   const result = await getVisualArtifact({
@@ -564,7 +564,7 @@ test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR',
   assert.equal(result.artifact.entryPath, '.issue-flow/issues/1030-feat/plan/001-implementation.md')
   assert.equal(result.mergeRequest.number, 1196)
   assert.match(result.html, /data-ref="markdown\.plan"/)
-  assert.equal(requests.some((request) => request.includes('merge_requests?')), true)
+  assert.equal(requests.some((request) => request.includes('merge_requests?')), false)
 })
 
 test('Engine renders Plan JSON with fixed layout and stable review anchors', () => {
@@ -608,43 +608,6 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
   global.fetch = async (url) => {
     const requestUrl = String(url)
     requests.push(requestUrl)
-    if (requestUrl.includes('/merge_requests?')) {
-      return new Response(JSON.stringify([
-        {
-          id: 91,
-          iid: 17,
-          title: 'Plan #42: Checkout',
-          description: '<!-- issue-flow:source-issue=42 -->\n<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-checkout/plan commit=abc123 path=.issue-flow/issues/42-checkout/plan/data/plan.json.isv -->',
-          labels: ['mr-by::plan'],
-          state: 'opened',
-          source_branch: '42-checkout/plan',
-          target_branch: 'main',
-          sha: 'abc123',
-        },
-        {
-          id: 92,
-          iid: 18,
-          title: 'Build #42: Checkout',
-          description: '<!-- issue-flow:source-issue=42 -->',
-          labels: ['mr-by::build'],
-          state: 'merged',
-          source_branch: '42-checkout/build',
-          target_branch: 'main',
-          sha: 'def456',
-        },
-        {
-          id: 93,
-          iid: 19,
-          title: 'Build #43: Other issue',
-          description: '<!-- issue-flow:source-issue=43 -->',
-          labels: ['mr-by::build'],
-          state: 'opened',
-          source_branch: '43-other/build',
-          target_branch: 'main',
-          sha: 'ghi789',
-        },
-      ]), { status: 200 })
-    }
     if (requestUrl.endsWith('/merge_requests/17')) {
       return new Response(JSON.stringify({
         id: 91, iid: 17,
@@ -672,6 +635,13 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
     findRepositoryByProject: async () => repo,
     userCanAccessRepo: async () => true,
     getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async (input) => {
+      assert.deepEqual(input, { gitServerId: 'gitlab-main', repositoryId: '43326', issueNumber: 42 })
+      return [
+        { id: 'pr-91', pullRequestId: '91', prNumber: 17, issueNumber: 42, kind: 'plan', state: 'open' },
+        { id: 'pr-92', pullRequestId: '92', prNumber: 18, issueNumber: 42, kind: 'build', state: 'merged' },
+      ]
+    },
   }
 
   const result = await getVisualArtifact({
@@ -679,12 +649,15 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
     gitServerId: 'gitlab-main',
     projectId: '43326',
     issueNumber: 42,
+    mergeRequestNumber: 17,
+    artifactPath: '.issue-flow/issues/42-checkout/plan/data/plan.json.isv',
     userId: 'user-1',
     session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
   })
 
   assert.equal(result.artifact.type, 'plan')
   assert.equal(result.artifact.previewer, 'issue-flow-visual')
+  assert.equal(requests.some((request) => request.includes('/merge_requests?')), false)
   assert.equal(requests.some((request) => decodeURIComponent(request).includes('/plan/data/checkout-demo.html?ref=abc123')), true)
   assert.match(result.html, /class="vp-demo-frame"/)
   assert.match(result.html, /sandbox="allow-scripts allow-forms allow-modals"/)
@@ -692,8 +665,8 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
   assert.match(result.html, /data-ref="sections\.frontend-demo"/)
   assert.doesNotMatch(result.html, /allow-same-origin/)
   assert.deepEqual(result.associatedMergeRequests, [
-    { number: 17, title: 'Plan #42: Checkout', state: 'open', labels: ['mr-by::plan'] },
-    { number: 18, title: 'Build #42: Checkout', state: 'merged', labels: ['mr-by::build'] },
+    { number: 17, title: 'Plan MR #17', state: 'open', labels: ['mr-by::plan'] },
+    { number: 18, title: 'Build MR #18', state: 'merged', labels: ['mr-by::build'] },
   ])
 })
 
