@@ -84,6 +84,18 @@ test('optimization artifact validates independent executable proposals', () => {
       issue: { ...data.proposals[0].issue, type: 'type::bug', flow: 'flow::triage' },
     }],
   }).proposals[0].kind, 'issue-flow-feedback')
+  assert.equal(validateOptimizationArtifact({
+    ...data,
+    proposals: [{
+      id: 'provide-toolchain', kind: 'project-developer-feedback', title: 'Provide a reproducible Java toolchain',
+      solution: 'Project maintainers should expose a supported JDK and Maven execution entrypoint.',
+      validation: ['A fresh Build task can execute the declared Maven test command'],
+    }],
+  }).proposals[0].kind, 'project-developer-feedback')
+  assert.throws(() => validateOptimizationArtifact({
+    ...data,
+    proposals: [{ ...data.proposals[0], kind: 'project-developer-feedback' }],
+  }), /project developer feedback must not contain issue/)
 })
 
 test('optimization proposal state is derived from provider markers and terminal labels', () => {
@@ -99,8 +111,10 @@ test('optimization proposal state is derived from provider markers and terminal 
   assert.equal(allOptimizationProposalsTerminal(states), false)
   assert.equal(allOptimizationProposalsTerminal([
     { kind: 'project-change', state: 'completed' },
+    { kind: 'project-developer-feedback', state: 'pending' },
     { kind: 'issue-flow-feedback', state: 'pending' },
   ]), true)
+  assert.equal(allOptimizationProposalsTerminal([{ kind: 'project-developer-feedback', state: 'pending' }]), true)
   assert.equal(allOptimizationProposalsTerminal([{ kind: 'issue-flow-feedback', state: 'pending' }]), true)
   assert.equal(allOptimizationProposalsTerminal(states.map((item) => item.id === 'tooling' ? { ...item, state: 'cancelled' } : item)), true)
 })
@@ -127,7 +141,7 @@ test('Engine renders Optimization JSON with reusable review anchors and runtime 
   assert.deepEqual(unresolved, [])
 })
 
-test('Engine renders Issue Flow feedback as developer feedback instead of a pending proposal', () => {
+test('Engine renders Issue Flow feedback as public developer feedback instead of a pending proposal', () => {
   const data = {
     schemaVersion: 1,
     artifact: 'optimization',
@@ -140,9 +154,32 @@ test('Engine renders Issue Flow feedback as developer feedback instead of a pend
   }
   const html = renderVisualArtifactDocument(data, 'optimization', { optimizationStates: [{ id: 'report-context-defect', state: 'pending', childIssue: null }] })
   assert.match(html, /data-optimization-kind="issue-flow-feedback"/)
-  assert.match(html, /data-optimization-state="feedback"/)
-  assert.match(html, />开发者反馈</)
+  assert.match(html, /data-optimization-state="issue-flow-feedback"/)
+  assert.match(html, />Issue Flow 开发者反馈</)
+  assert.match(html, /反馈仓库 · nil4u\/issue-flow/)
   assert.doesNotMatch(html, />待处理</)
+})
+
+test('Engine renders project developer feedback without copy or Issue actions', () => {
+  const data = {
+    schemaVersion: 1,
+    artifact: 'optimization',
+    target: { summary: 'Java tests could not run', cause: ['The project does not expose a reproducible Java toolchain'] },
+    proposals: [{
+      id: 'provide-toolchain', kind: 'project-developer-feedback', title: 'Provide a reproducible Java toolchain',
+      solution: 'Project maintainers should expose a supported JDK and Maven execution entrypoint.',
+      validation: ['A fresh Build task can execute the declared Maven test command'],
+    }],
+  }
+  const html = renderVisualArtifactDocument(data, 'optimization', { optimizationStates: [{ id: 'provide-toolchain', state: 'pending', childIssue: null }] })
+  assert.match(html, /data-optimization-state="project-developer-feedback"/)
+  assert.match(html, />项目开发者建议</)
+  assert.match(html, />建议内容</)
+  assert.doesNotMatch(html, /data-optimization-actions=/)
+  assert.doesNotMatch(html, /<div class="vp-optimization-issue"/)
+  assert.doesNotMatch(html, />待处理</)
+  const unresolved = renderedDataRefs(html).filter((ref) => resolveDataRef(data, ref) === undefined)
+  assert.deepEqual(unresolved, [])
 })
 
 test('approving an optimization proposal creates one linked Issue with fixed workflow labels', async (t) => {

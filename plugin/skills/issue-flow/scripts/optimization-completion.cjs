@@ -75,7 +75,7 @@ function proposalStates(data, optimizationIssueNumber, comments, issues) {
 }
 
 function allOptimizationProposalsTerminal(states = []) {
-  const executable = states.filter((item) => item.kind !== 'issue-flow-feedback');
+  const executable = states.filter((item) => item.kind === 'project-change');
   return states.length > 0 && executable.every((item) => ['ignored', 'completed', 'cancelled'].includes(item.state));
 }
 

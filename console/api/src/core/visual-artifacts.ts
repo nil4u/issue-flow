@@ -619,7 +619,7 @@ function proposalIssueLabels(proposal) {
     proposal.issue.type,
     "status::active",
     proposal.issue.flow,
-    proposal.kind === "issue-flow-feedback" ? "automation::off" : "automation::build",
+    "automation::build",
     proposal.issue.priority,
     proposal.issue.size,
     ...(proposal.issue.labels || []),
@@ -663,7 +663,7 @@ async function approveOptimizationProposal(input) {
   const current = context.runtime.proposals.find((item) => item.id === proposal.id)
   if (current.state === "ignored") throw requestError("ignored proposal cannot be approved", 409, "optimization_proposal_ignored")
   if (current.childIssue) return { proposal: current, created: false }
-  if (proposal.kind === "issue-flow-feedback") throw requestError("Issue Flow feedback must be copied and submitted manually", 409, "issue_flow_feedback_manual_submission")
+  if (proposal.kind !== "project-change") throw requestError("Developer feedback does not create an execution Issue", 409, "developer_feedback_not_executable")
   const marker = proposalMarker({
     optimizationIssueNumber: context.artifact.issueNumber,
     sourceIssueNumber: context.runtime.sourceIssueNumber,
@@ -692,6 +692,7 @@ function childProposalStateForResponse(issue) {
 async function ignoreOptimizationProposal(input) {
   const context = await loadOptimizationActionContext(input)
   const proposal = optimizationProposalById(context.data, String(input.proposalId || ""))
+  if (proposal.kind !== "project-change") throw requestError("Developer feedback cannot be ignored", 409, "developer_feedback_not_actionable")
   const current = context.runtime.proposals.find((item) => item.id === proposal.id)
   if (current.childIssue) throw requestError("created proposal cannot be ignored", 409, "optimization_proposal_created")
   if (current.state !== "ignored") {

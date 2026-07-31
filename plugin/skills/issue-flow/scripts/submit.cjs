@@ -328,7 +328,7 @@ function assertVisualArtifactData(artifactPath, artifact) {
     if (!Array.isArray(data.proposals) || !data.proposals.length) throw new Error('Optimization JSON must contain at least one proposals[] item');
     const proposalIds = new Set();
     const allowedTypes = new Set(['type::feature', 'type::bug', 'type::debt', 'type::ops', 'type::docs']);
-    const allowedKinds = new Set(['project-change', 'issue-flow-feedback']);
+    const allowedKinds = new Set(['project-change', 'project-developer-feedback', 'issue-flow-feedback']);
     const allowedPriorities = new Set(['priority::p0', 'priority::p1', 'priority::p2', 'priority::p3']);
     const allowedSizes = new Set(['size::XS', 'size::S', 'size::M', 'size::L', 'size::XL']);
     const allowedFlows = new Set(['flow::plan', 'flow::build']);
@@ -342,6 +342,10 @@ function assertVisualArtifactData(artifactPath, artifact) {
       if (!String(proposal.title || '').trim()) throw new Error(`Proposal ${id} must contain title`);
       if (!String(proposal.solution || '').trim()) throw new Error(`Proposal ${id} must contain solution`);
       if (!Array.isArray(proposal.validation) || !proposal.validation.length || proposal.validation.some((item) => !String(item || '').trim())) throw new Error(`Proposal ${id} must contain validation[]`);
+      if (proposal.kind === 'project-developer-feedback') {
+        if (proposal.issue !== undefined) throw new Error(`Proposal ${id} project developer feedback must not contain issue`);
+        continue;
+      }
       const issue = proposal.issue;
       if (!issue || typeof issue !== 'object' || Array.isArray(issue)) throw new Error(`Proposal ${id} must contain issue`);
       assertOnlyFields(issue, ['title', 'body', 'type', 'priority', 'size', 'flow', 'labels'], `Proposal ${id} issue`);

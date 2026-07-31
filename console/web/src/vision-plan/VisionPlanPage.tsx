@@ -796,6 +796,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
         const proposalId = container.dataset.optimizationActions ?? "";
         const proposal = states.get(proposalId);
         if (!proposal || proposal.state !== "pending") return;
+        if (container.dataset.optimizationKind === "project-developer-feedback") return;
         const feedback = container.dataset.optimizationKind === "issue-flow-feedback";
         const approve = doc.createElement("button");
         approve.type = "button";

@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 const OPTIMIZATION_TYPES = new Set(["type::feature", "type::bug", "type::debt", "type::ops", "type::docs"])
-const OPTIMIZATION_PROPOSAL_KINDS = new Set(["project-change", "issue-flow-feedback"])
+const OPTIMIZATION_PROPOSAL_KINDS = new Set(["project-change", "project-developer-feedback", "issue-flow-feedback"])
 const OPTIMIZATION_PRIORITIES = new Set(["priority::p0", "priority::p1", "priority::p2", "priority::p3"])
 const OPTIMIZATION_SIZES = new Set(["size::XS", "size::S", "size::M", "size::L", "size::XL"])
 const OPTIMIZATION_FLOWS = new Set(["flow::plan", "flow::build"])
@@ -50,6 +50,10 @@ function validateOptimizationProposals(data) {
     if (!String(proposal.title || "").trim()) throw artifactError(`Proposal ${id} must contain title`)
     if (!String(proposal.solution || "").trim()) throw artifactError(`Proposal ${id} must contain solution`)
     if (!Array.isArray(proposal.validation) || !proposal.validation.length || proposal.validation.some((item) => !String(item || "").trim())) throw artifactError(`Proposal ${id} must contain validation`)
+    if (proposal.kind === "project-developer-feedback") {
+      if (proposal.issue !== undefined) throw artifactError(`Proposal ${id} project developer feedback must not contain issue`)
+      continue
+    }
     const issue = proposal.issue
     if (!issue || typeof issue !== "object" || Array.isArray(issue)) throw artifactError(`Proposal ${id} must contain issue`)
     assertOnlyFields(issue, ["title", "body", "type", "priority", "size", "flow", "labels"], `Proposal ${id} issue`)
@@ -125,7 +129,7 @@ function deriveOptimizationProposalStates(data, optimizationIssueNumber, comment
 }
 
 function allOptimizationProposalsTerminal(states = []) {
-  const executable = states.filter((item) => item.kind !== "issue-flow-feedback")
+  const executable = states.filter((item) => item.kind === "project-change")
   return states.length > 0 && executable.every((item) => item.state === "ignored" || item.state === "completed" || item.state === "cancelled")
 }
 
