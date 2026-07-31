@@ -3,10 +3,11 @@ import crypto from "node:crypto"
 import path from "node:path"
 
 import { createProviderIssue, listAllProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
-import { getProviderMergeRequestPreview, listProviderMergeRequests } from "./merge-request-provider.js"
+import { getProviderMergeRequestPreview } from "./merge-request-provider.js"
 import { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, optimizationSourceIssueNumber, proposalMarker, validateOptimizationArtifact } from "./optimization-artifact.js"
 import { normalizePreviewPath, previewDescriptorForPath, previewableChangedFiles } from "./preview/registry.js"
 import { issueFlowMarkers } from "./provenance-marker.js"
+import { listIssuePullRequestSummaries } from "./pull-request-facts.js"
 import { applyVisualIssueLabels, closePlanMergeRequest, createPlanMergeRequestComment, listPlanMergeRequestComments, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
@@ -407,8 +408,7 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
       optimizationStates,
     })
   }
-  const associatedMergeRequests = (await listProviderMergeRequests(server, repo, "all"))
-    .filter((mergeRequest) => mergeRequest.sourceIssueNumber === issueNumber)
+  const associatedMergeRequests = (await listIssuePullRequestSummaries(store, repo, issueNumber))
     .map((mergeRequest) => ({
       number: mergeRequest.number,
       title: mergeRequest.title,

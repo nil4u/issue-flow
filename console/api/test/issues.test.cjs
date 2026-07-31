@@ -320,7 +320,7 @@ test("GitLab issue detail includes comments, labels, and current user permission
   assert.deepEqual(detail.availableLabels[0], { name: "feature", color: "428BCA", description: "Feature" })
 })
 
-test("Issue detail includes every merge request linked by the source issue marker", async (t) => {
+test("Issue detail reads associated merge requests from synchronized pull request facts", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
   global.fetch = async (url, options = {}) => {
@@ -330,11 +330,6 @@ test("Issue detail includes every merge request linked by the source issue marke
     if (path.endsWith("/projects/43326/labels?per_page=100")) return new Response(JSON.stringify([]), { status: 200 })
     if (path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 30 } } }), { status: 200 })
     if (path.endsWith("/user")) return new Response(JSON.stringify({ id: 9, username: "alice" }), { status: 200 })
-    if (path.includes("/projects/43326/merge_requests?")) return new Response(JSON.stringify([
-      { id: 41, iid: 21, title: "Plan #15", description: "<!-- issue-flow:source-issue=15 -->", state: "merged", labels: ["mr-by::plan"] },
-      { id: 42, iid: 22, title: "Build #15", description: "<!-- issue-flow:source-issue=15 -->", state: "opened", labels: ["mr-by::build"] },
-      { id: 43, iid: 23, title: "Build #16", description: "<!-- issue-flow:source-issue=16 -->", state: "opened", labels: ["mr-by::build"] },
-    ]), { status: 200 })
     if (path.endsWith("/markdown") && options.method === "POST") return new Response(JSON.stringify({ html: "<p>Body</p>" }), { status: 200 })
     throw new Error(`Unexpected request: ${options.method || "GET"} ${path}`)
   }
@@ -343,12 +338,20 @@ test("Issue detail includes every merge request linked by the source issue marke
     findRepositoryByProject: async () => repo,
     userCanAccessRepo: async () => true,
     getGitServer: async () => ({ type: "gitlab", apiUrl: "https://gitlab.test/api/v4", tokenAuth: "private-token" }),
+    listPullRequestsByIssue: async (input) => {
+      assert.deepEqual(input, { gitServerId: "gitlab-main", repositoryId: "43326", issueNumber: 15 })
+      return [
+        { id: "pr-41", pullRequestId: "41", prNumber: 21, issueNumber: 15, kind: "plan", state: "merged", htmlUrl: "https://gitlab.test/acme/widget/-/merge_requests/21" },
+        { id: "pr-42", pullRequestId: "42", prNumber: 22, issueNumber: 15, kind: "build", state: "open", htmlUrl: "https://gitlab.test/acme/widget/-/merge_requests/22" },
+      ]
+    },
   }
   const detail = await getIssue({
     store, gitServerId: "gitlab-main", projectId: "43326", issueNumber: 15, userId: "user-1",
     session: { userId: "user-1", gitServerId: "gitlab-main", token: "user-token" },
   })
   assert.deepEqual(detail.mergeRequests.map((mergeRequest) => mergeRequest.number), [21, 22])
+  assert.deepEqual(detail.mergeRequests.map((mergeRequest) => mergeRequest.labels), [["mr-by::plan"], ["mr-by::build"]])
 })
 
 test("GitHub issue create, edit, comment, close, and reopen use provider APIs", async (t) => {
