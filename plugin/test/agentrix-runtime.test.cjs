@@ -937,6 +937,59 @@ test('agentrix-run child env strips provider tokens without rewriting connector 
   assert.equal(source.GITHUB_TOKEN, 'actions-token');
 });
 
+test('agentrix-run child env drops merged PR context for the follow-up issue task', () => {
+  const env = agentrix.sanitizeAgentrixRunEnv(
+    {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_REPOSITORY: 'example/platform',
+      GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_EVENT_PATH: '/tmp/merged-pr.json',
+      GITHUB_REF: 'refs/pull/7/merge',
+      GITHUB_SHA: 'github-plan-sha',
+      GITHUB_BASE_REF: 'main',
+      GITHUB_HEAD_REF: '42-add-widget-support/plan',
+      GITLAB_CI: 'true',
+      CI_PROJECT_PATH: 'example/platform',
+      CI_COMMIT_REF_NAME: '42-add-widget-support/plan',
+      CI_COMMIT_SHA: 'gitlab-plan-sha',
+      CI_PIPELINE_SOURCE: 'merge_request_event',
+      CI_MERGE_REQUEST_IID: '7',
+      CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: '42-add-widget-support/plan',
+      CI_MERGE_REQUEST_SOURCE_BRANCH_SHA: 'gitlab-plan-sha',
+      GITLAB_BRIDGE_EVENT_NAME: 'pull_request',
+      GITLAB_BRIDGE_EVENT_ACTION: 'closed',
+      GITLAB_BRIDGE_PR_NUMBER: '7',
+      GITLAB_BRIDGE_HEAD_REF: '42-add-widget-support/plan',
+      GITLAB_BRIDGE_HEAD_SHA: 'gitlab-plan-sha',
+      AGENTRIX_API_KEY: 'agentrix-key',
+    },
+    { prMerged: { kind: 'plan' } }
+  );
+
+  assert.equal(env.GITHUB_ACTIONS, 'true');
+  assert.equal(env.GITHUB_REPOSITORY, 'example/platform');
+  assert.equal(env.GITLAB_CI, 'true');
+  assert.equal(env.CI_PROJECT_PATH, 'example/platform');
+  assert.equal(env.AGENTRIX_API_KEY, 'agentrix-key');
+  assert.equal(env.GITHUB_EVENT_NAME, undefined);
+  assert.equal(env.GITHUB_EVENT_PATH, undefined);
+  assert.equal(env.GITHUB_REF, undefined);
+  assert.equal(env.GITHUB_SHA, undefined);
+  assert.equal(env.GITHUB_BASE_REF, undefined);
+  assert.equal(env.GITHUB_HEAD_REF, undefined);
+  assert.equal(env.CI_COMMIT_REF_NAME, undefined);
+  assert.equal(env.CI_COMMIT_SHA, undefined);
+  assert.equal(env.CI_PIPELINE_SOURCE, undefined);
+  assert.equal(env.CI_MERGE_REQUEST_IID, undefined);
+  assert.equal(env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME, undefined);
+  assert.equal(env.CI_MERGE_REQUEST_SOURCE_BRANCH_SHA, undefined);
+  assert.equal(env.GITLAB_BRIDGE_EVENT_NAME, undefined);
+  assert.equal(env.GITLAB_BRIDGE_EVENT_ACTION, undefined);
+  assert.equal(env.GITLAB_BRIDGE_PR_NUMBER, undefined);
+  assert.equal(env.GITLAB_BRIDGE_HEAD_REF, undefined);
+  assert.equal(env.GITLAB_BRIDGE_HEAD_SHA, undefined);
+});
+
 test('agentrix review comment resume instruction stays minimal', () => {
   const prompt = agentrix.buildReviewCommentResumeInstruction(
     {
