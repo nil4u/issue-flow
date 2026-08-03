@@ -33,7 +33,7 @@ export function IssuePage({ gitServerId, projectId, issueNumber }: { gitServerId
     try {
       const [issueDetail, artifactBody] = await Promise.all([
         api<ProviderIssueDetail>(issueApi),
-        api<{ artifacts?: ReviewablePlanArtifact[] }>(`/api/visual-artifacts/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/reviewable`).catch(() => ({ artifacts: [] })),
+        api<{ artifacts?: ReviewablePlanArtifact[] }>(`/api/visual-artifacts/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/reviewable?issueNumber=${issueNumber}`).catch(() => ({ artifacts: [] })),
       ])
       setDetail(issueDetail)
       setArtifact((artifactBody.artifacts || []).find((item) => item.issueNumber === issueNumber))

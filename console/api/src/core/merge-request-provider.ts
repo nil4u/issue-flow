@@ -156,37 +156,40 @@ function normalizeGitlabFile(file = {}, options = {}) {
   return { path: file.new_path || "", oldPath: file.old_path || file.new_path || "", status: file.new_file ? "added" : file.deleted_file ? "removed" : file.renamed_file ? "renamed" : "modified", ...countPatchChanges(patch), patch, collapsed: options.raw !== true && file.too_large !== true && (file.collapsed === true || !patch), truncated: file.too_large === true }
 }
 
-async function readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber) {
+async function readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber, input = {}) {
+  const includeFiles = input.includeFiles !== false
   if (server.type === "github") {
     const root = githubRepoPath(repo)
     const [pullRequest, files] = await Promise.all([
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}`),
-      providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/files?per_page=100`),
+      includeFiles ? providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/files?per_page=100`) : [],
     ])
     return {
       rawMergeRequest: pullRequest,
       mergeRequest: normalizeGithubMergeRequest(pullRequest),
       files: (Array.isArray(files) ? files : []).map(normalizeGithubFile),
+      filesLoaded: includeFiles,
     }
   }
   if (server.type === "gitlab") {
     const root = `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`
     const [mergeRequest, changes] = await Promise.all([
       providerFetch(server, "GET", root),
-      providerFetch(server, "GET", `${root}/changes`),
+      includeFiles ? providerFetch(server, "GET", `${root}/changes`) : undefined,
     ])
     if (!mergeRequest.diff_refs && changes && changes.diff_refs) mergeRequest.diff_refs = changes.diff_refs
     return {
       rawMergeRequest: mergeRequest,
       mergeRequest: normalizeGitlabMergeRequest(mergeRequest),
       files: (Array.isArray(changes && changes.changes) ? changes.changes : []).map(normalizeGitlabFile),
+      filesLoaded: includeFiles,
     }
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-async function getProviderMergeRequestPreview(server, repo, mergeRequestNumber) {
-  const { rawMergeRequest, ...snapshot } = await readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber)
+async function getProviderMergeRequestPreview(server, repo, mergeRequestNumber, input = {}) {
+  const { rawMergeRequest, ...snapshot } = await readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber, input)
   return snapshot
 }
 

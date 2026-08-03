@@ -9,7 +9,7 @@ const MANAGED_LABEL_PREFIXES = ["type::", "status::", "flow::", "automation::", 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/
 const TRACE_DETAIL_PATTERN = /(?:task[-_:][a-z0-9]|task\s+id|sequence|taskevent)/i
 const SOURCE_PATTERN = /<!--\s*issue-flow:automation-optimization\s+source-issue=(\d+)\s*-->/i
-const PROPOSAL_PATTERN = /<!--\s*issue-flow:optimization-proposal\s+optimization-issue=(\d+)\s+source-issue=(\d+)\s+proposal=([^\s>]+)(?:\s+action=([^\s>]+))?\s*-->/i
+const PROPOSAL_PATTERN = /<!--\s*issue-flow:optimization-proposal\s+optimization-issue=(\d+)\s+source-issue=(\d+)\s+proposal=([^\s>]+)(?:\s+action=([^\s>]+))?(?:\s+child-issue=(\d+))?\s*-->/i
 
 function artifactError(message, status = 422) {
   const error = new Error(message)
@@ -83,8 +83,8 @@ function optimizationSourceIssueNumber(body) {
   return match ? Number.parseInt(match[1], 10) : 0
 }
 
-function proposalMarker({ optimizationIssueNumber, sourceIssueNumber, proposalId, action }) {
-  return `<!-- issue-flow:optimization-proposal optimization-issue=${optimizationIssueNumber} source-issue=${sourceIssueNumber} proposal=${proposalId}${action ? ` action=${action}` : ""} -->`
+function proposalMarker({ optimizationIssueNumber, sourceIssueNumber, proposalId, action, childIssueNumber }) {
+  return `<!-- issue-flow:optimization-proposal optimization-issue=${optimizationIssueNumber} source-issue=${sourceIssueNumber} proposal=${proposalId}${action ? ` action=${action}` : ""}${childIssueNumber ? ` child-issue=${childIssueNumber}` : ""} -->`
 }
 
 function parseProposalMarker(body) {
@@ -94,6 +94,7 @@ function parseProposalMarker(body) {
     sourceIssueNumber: Number.parseInt(match[2], 10),
     proposalId: match[3],
     action: match[4] || "created",
+    ...(match[5] ? { childIssueNumber: Number.parseInt(match[5], 10) } : {}),
   } : undefined
 }
 

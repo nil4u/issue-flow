@@ -15,11 +15,12 @@ async function readVisualRepositoryFile(server, repo, ref, filePath) {
   throw apiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-async function listPlanMergeRequests(server, repo) {
+async function listPlanMergeRequests(server, repo, input = {}) {
+  const openOnly = input.state === "open"
   if (server.type === "github") {
     const result = []
     for (let page = 1; page <= 100; page += 1) {
-      const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=all&per_page=100&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
+      const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${openOnly ? "open" : "all"}&per_page=100&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
       const pageItems = Array.isArray(entries) ? entries : []
       result.push(...pageItems)
       if (pageItems.length < 100) break
@@ -37,7 +38,7 @@ async function listPlanMergeRequests(server, repo) {
   if (server.type === "gitlab") {
     const result = []
     for (let page = 1; page <= 100; page += 1) {
-      const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=all&labels=${encodeURIComponent("mr-by::plan")}&per_page=100&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
+      const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${openOnly ? "opened" : "all"}&labels=${encodeURIComponent("mr-by::plan")}&per_page=100&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
       const pageItems = Array.isArray(entries) ? entries : []
       result.push(...pageItems)
       if (pageItems.length < 100) break

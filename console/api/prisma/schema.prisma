@@ -212,6 +212,7 @@ model PullRequest {
   @@unique([gitServerId, repositoryId, pullRequestId])
   @@unique([gitServerId, repositoryId, prNumber])
   @@index([gitServerId, repositoryId, issueId])
+  @@index([gitServerId, repositoryId, issueNumber])
   @@map("pull_requests")
 }
 

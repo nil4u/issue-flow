@@ -136,6 +136,12 @@ async function listAllProviderIssues(server, repo, input = {}) {
   return issues
 }
 
+async function getProviderIssueSnapshot(server, repo, issueNumber) {
+  if (server.type === "github") return normalizeGithubIssue(await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues/${issueNumber}`))
+  if (server.type === "gitlab") return normalizeGitlabIssue(await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/issues/${issueNumber}`))
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
 async function listProviderIssueLabels(server, repo) {
   const root = server.type === "github" ? githubRepoPath(repo) : gitlabProjectPath(repo)
   const labels = []
@@ -263,4 +269,4 @@ async function updateProviderIssueState(server, repo, issueNumber, action) {
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { createProviderIssue, createProviderIssueComment, getProviderIssue, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState }
+export { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState }

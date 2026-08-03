@@ -2,9 +2,9 @@
 import crypto from "node:crypto"
 import path from "node:path"
 
-import { createProviderIssue, listAllProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { createProviderIssue, getProviderIssueSnapshot, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
 import { getProviderMergeRequestPreview } from "./merge-request-provider.js"
-import { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, optimizationSourceIssueNumber, proposalMarker, validateOptimizationArtifact } from "./optimization-artifact.js"
+import { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, optimizationSourceIssueNumber, parseProposalMarker, proposalMarker, validateOptimizationArtifact } from "./optimization-artifact.js"
 import { normalizePreviewPath, previewDescriptorForPath, previewableChangedFiles } from "./preview/registry.js"
 import { issueFlowMarkers } from "./provenance-marker.js"
 import { listIssuePullRequestSummaries } from "./pull-request-facts.js"
@@ -142,16 +142,26 @@ function planMergeRequestFromSnapshot(snapshot = {}) {
     updatedAt: mergeRequest.updatedAt || "",
     labels: mergeRequest.labels || [],
     files: snapshot.files || [],
+    filesLoaded: snapshot.filesLoaded !== false,
   }
 }
 
-async function readPlanMergeRequestSnapshot(server, repo, mergeRequestNumber) {
-  return planMergeRequestFromSnapshot(await getProviderMergeRequestPreview(server, repo, mergeRequestNumber))
+async function readPlanMergeRequestSnapshot(server, repo, mergeRequestNumber, input = {}) {
+  return planMergeRequestFromSnapshot(await getProviderMergeRequestPreview(server, repo, mergeRequestNumber, input))
 }
 
 function rankedPlanMergeRequests(mergeRequests) {
   const stateRank = (item) => item.state === "opened" || item.state === "open" ? 2 : item.merged ? 1 : 0
   return [...mergeRequests].sort((left, right) => stateRank(right) - stateRank(left) || String(right.updatedAt).localeCompare(String(left.updatedAt)))
+}
+
+function planMergeRequestFactCandidate(fact = {}) {
+  return {
+    number: Number(fact.prNumber || 0),
+    state: String(fact.state || "open"),
+    merged: fact.state === "merged",
+    updatedAt: String(fact.updatedAt || ""),
+  }
 }
 
 async function requireVisualContext(store, gitServerId, projectId, userId, session) {
@@ -166,16 +176,29 @@ async function requireVisualContext(store, gitServerId, projectId, userId, sessi
 
 async function discoverVisualArtifacts(store, repo, server, issueNumber, type, rawMergeRequestNumber, artifactPath) {
   const mergeRequestNumber = normalizeMergeRequestNumber(rawMergeRequestNumber)
-  const mergeRequests = mergeRequestNumber
-    ? [await readPlanMergeRequestSnapshot(server, repo, mergeRequestNumber)]
-    : rankedPlanMergeRequests((await listPlanMergeRequests(server, repo)).filter((item) => mergeRequestIssueNumber(item) === issueNumber))
+  let mergeRequests
+  if (mergeRequestNumber) {
+    mergeRequests = [await readPlanMergeRequestSnapshot(server, repo, mergeRequestNumber, { includeFiles: !artifactPath })]
+  } else {
+    const facts = (await store.listPullRequestsByIssue({
+      gitServerId: repo.gitServerId,
+      repositoryId: repo.serverRepoId,
+      issueNumber,
+    })).filter((item) => item.kind === "plan")
+    mergeRequests = rankedPlanMergeRequests(facts.map(planMergeRequestFactCandidate))
+  }
 
   for (const candidate of mergeRequests) {
     const mergeRequest = candidate.files ? candidate : await readPlanMergeRequestSnapshot(server, repo, candidate.number)
     if (mergeRequestIssueNumber(mergeRequest) !== issueNumber) continue
-    const artifacts = await resolveVisualArtifactTypes(server, repo, mergeRequestArtifacts(mergeRequest, issueNumber))
+    let artifacts = await resolveVisualArtifactTypes(server, repo, mergeRequestArtifacts(mergeRequest, issueNumber))
     const requestedPath = artifactPath ? normalizePreviewPath(artifactPath) : undefined
-    const selected = artifacts.find((artifact) => (!type || artifact.type === type) && (!requestedPath || artifact.entryPath === requestedPath))
+    let selected = artifacts.find((artifact) => (!type || artifact.type === type) && (!requestedPath || artifact.entryPath === requestedPath))
+    if (!selected && requestedPath && mergeRequest.filesLoaded === false) {
+      const completeMergeRequest = await readPlanMergeRequestSnapshot(server, repo, mergeRequest.number)
+      artifacts = await resolveVisualArtifactTypes(server, repo, mergeRequestArtifacts(completeMergeRequest, issueNumber))
+      selected = artifacts.find((artifact) => (!type || artifact.type === type) && artifact.entryPath === requestedPath)
+    }
     if (selected) return { artifacts, selected }
     if (artifactPath && artifacts.length) throw requestError("Preview file was not found in the MR", 404, "preview_file_not_found")
   }
@@ -184,9 +207,18 @@ async function discoverVisualArtifacts(store, repo, server, issueNumber, type, r
   throw requestError(type ? `${type} preview was not found in the MR` : "MR does not contain a previewable file", 404, "preview_file_not_found")
 }
 
-async function listReviewablePlanArtifacts({ store, gitServerId, projectId, userId, session }) {
+async function listReviewablePlanArtifacts({ store, gitServerId, projectId, issueNumber: rawIssueNumber, userId, session }) {
   const { repo, server } = await requireVisualContext(store, gitServerId, projectId, userId, session)
-  const artifacts = (await listPlanMergeRequests(server, repo))
+  const issueNumber = rawIssueNumber ? normalizeIssueNumber(rawIssueNumber) : 0
+  const issueFacts = issueNumber
+    ? await store.listPullRequestsByIssue({ gitServerId: repo.gitServerId, repositoryId: repo.serverRepoId, issueNumber })
+    : []
+  const planFacts = issueFacts.filter((item) => item.kind === "plan")
+  const openPlanFacts = planFacts.filter((item) => item.state === "open")
+  const mergeRequests = issueNumber
+    ? await Promise.all(openPlanFacts.map((item) => readPlanMergeRequestSnapshot(server, repo, item.prNumber, { includeFiles: false })))
+    : await listPlanMergeRequests(server, repo, { state: "open" })
+  const artifacts = mergeRequests
     .filter((item) => !item.merged && (item.state === "open" || item.state === "opened"))
     .map((item) => {
       const issueNumber = mergeRequestIssueNumber(item)
@@ -336,12 +368,21 @@ async function readCustomHtmlResources(server, repo, artifact, data) {
 }
 
 async function optimizationRuntime(server, repo, artifact, data) {
-  const [comments, issues] = await Promise.all([
+  const [comments, parentIssue] = await Promise.all([
     listPlanMergeRequestComments(server, repo, artifact.data.mergeRequestNumber),
-    listAllProviderIssues(server, repo, { state: "all" }),
+    getProviderIssueSnapshot(server, repo, artifact.issueNumber),
   ])
-  const parentIssue = issues.find((issue) => issue.number === artifact.issueNumber)
   const sourceIssueNumber = optimizationSourceIssueNumber(parentIssue && parentIssue.body)
+  const childIssueNumbers = [...new Set(comments.flatMap((comment) => {
+    const marker = parseProposalMarker(comment && comment.body)
+    if (!marker || marker.optimizationIssueNumber !== artifact.issueNumber || marker.action === "ignored") return []
+    if (marker.childIssueNumber) return [marker.childIssueNumber]
+    const legacyMatch = String(comment && comment.body || "").match(/(?:\/issues\/|Issue：#)(\d+)/i)
+    return legacyMatch ? [Number.parseInt(legacyMatch[1], 10)] : []
+  }))]
+  const relatedIssueNumbers = [...new Set([sourceIssueNumber, ...childIssueNumbers].filter(Boolean))]
+  const relatedIssues = await Promise.all(relatedIssueNumbers.map((issueNumber) => getProviderIssueSnapshot(server, repo, issueNumber)))
+  const issues = [parentIssue, ...relatedIssues]
   const states = deriveOptimizationProposalStates(data, artifact.issueNumber, comments, issues)
   return {
     sourceIssueNumber,
@@ -674,11 +715,17 @@ async function approveOptimizationProposal(input) {
     body: `${proposal.issue.body.trim()}\n\n${marker}`,
     labels: proposalIssueLabels(proposal),
   })
+  const childMarker = proposalMarker({
+    optimizationIssueNumber: context.artifact.issueNumber,
+    sourceIssueNumber: context.runtime.sourceIssueNumber,
+    proposalId: proposal.id,
+    childIssueNumber: childIssue.number,
+  })
   await createPlanMergeRequestComment(
     context.server,
     context.repo,
     context.artifact.data.mergeRequestNumber,
-    `<!-- issue-flow:source source_agent=issue-flow -->\n${marker}\n已通过优化方案并创建执行 Issue：${childIssue.webUrl || `#${childIssue.number}`}。`,
+    `<!-- issue-flow:source source_agent=issue-flow -->\n${childMarker}\n已通过优化方案并创建执行 Issue：${childIssue.webUrl || `#${childIssue.number}`}。`,
   )
   const state = { id: proposal.id, state: childProposalStateForResponse(childIssue), childIssue: { number: childIssue.number, title: childIssue.title, state: childIssue.state, webUrl: childIssue.webUrl || "" } }
   return { proposal: state, created: true }

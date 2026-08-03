@@ -11,7 +11,8 @@ async function visualSession(request: FastifyRequest, gitServerId: string) {
 export async function visualArtifactRoutes(app: FastifyInstance) {
   app.get("/api/visual-artifacts/:gitServerId/:projectId/reviewable", async (request) => {
     const { gitServerId, projectId } = request.params as Record<string, string>
-    return { artifacts: await listReviewablePlanArtifacts({ ...contextFromRequest(request), gitServerId, projectId, ...await visualSession(request, gitServerId) }) }
+    const { issueNumber } = request.query as Record<string, string>
+    return { artifacts: await listReviewablePlanArtifacts({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await visualSession(request, gitServerId) }) }
   })
 
   app.get("/api/visual-artifacts/:gitServerId/:projectId/:issueNumber", async (request) => {
