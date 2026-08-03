@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
+import { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequestsPage, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 
 function requestError(message, status = 400, code = "merge_request_error") {
@@ -30,8 +30,9 @@ async function requireMergeRequestContext(store, gitServerId, projectId, userId,
 async function listMergeRequests({ store, gitServerId, projectId, userId, session, input = {} }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
   const state = ["open", "closed", "merged", "all"].includes(input.state) ? input.state : "open"
+  const result = await listProviderMergeRequestsPage(server, repo, state, { page: input.page, perPage: input.perPage })
   return {
-    mergeRequests: await listProviderMergeRequests(server, repo, state),
+    ...result,
     repository: { id: repo.id, fullName: repo.fullName, provider: server.type },
     state,
   }

@@ -191,6 +191,7 @@ export type ProviderIssueDetail = {
 }
 
 export type AutomationOptimizationItem = {
+  issue: ProviderIssueSummary
   sourceIssueNumber: number
   phases: Array<{ phase: "triage" | "plan" | "build" | "review"; turns: number }>
   status: "available" | "analyzing" | "analyzed" | "unavailable"

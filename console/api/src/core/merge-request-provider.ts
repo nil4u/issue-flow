@@ -79,34 +79,48 @@ function gitlabMergeRequestPermissions(project = {}, currentUser = {}, mergeRequ
   return { canMerge: mergeRequest.user && typeof mergeRequest.user.can_merge === "boolean" ? mergeRequest.user.can_merge : accessLevel >= 30, canClose: accessLevel >= 30 || isAuthor, canApprove: typeof approvals.user_can_approve === "boolean" ? approvals.user_can_approve : accessLevel >= 20 && !isAuthor, hasApproved: Boolean(approvals.user_has_approved) }
 }
 
-async function listProviderMergeRequests(server, repo, state = "open") {
+async function fetchProviderMergeRequestPage(server, repo, state = "open", input = {}) {
+  const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
+  const perPage = Math.min(100, Math.max(1, Number.parseInt(String(input.perPage || "100"), 10) || 100))
   if (server.type === "github") {
     const providerState = state === "open" ? "open" : state === "closed" || state === "merged" ? "closed" : "all"
-    const result = []
-    for (let page = 1; page <= 100; page += 1) {
-      const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${providerState}&per_page=100&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
-      const pageItems = Array.isArray(entries) ? entries : []
-      result.push(...pageItems)
-      if (pageItems.length < 100) break
-    }
-    return result.map(normalizeGithubMergeRequest).filter((item) => {
+    const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${providerState}&per_page=${perPage}&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
+    const pageItems = Array.isArray(entries) ? entries : []
+    return { entries: pageItems, mergeRequests: pageItems.map(normalizeGithubMergeRequest).filter((item) => {
       if (state === "merged") return item.merged
       if (state === "closed") return !item.merged
       return true
-    })
+    }) }
   }
   if (server.type === "gitlab") {
     const providerState = state === "open" ? "opened" : state === "all" ? "all" : state
-    const result = []
-    for (let page = 1; page <= 100; page += 1) {
-      const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=100&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
-      const pageItems = Array.isArray(entries) ? entries : []
-      result.push(...pageItems)
-      if (pageItems.length < 100) break
-    }
-    return result.map(normalizeGitlabMergeRequest)
+    const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=${perPage}&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
+    const pageItems = Array.isArray(entries) ? entries : []
+    return { entries: pageItems, mergeRequests: pageItems.map(normalizeGitlabMergeRequest) }
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function listProviderMergeRequests(server, repo, state = "open") {
+  const mergeRequests = []
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await fetchProviderMergeRequestPage(server, repo, state, { page, perPage: 100 })
+    mergeRequests.push(...result.mergeRequests)
+    if (result.entries.length < 100) break
+  }
+  return mergeRequests
+}
+
+async function listProviderMergeRequestsPage(server, repo, state = "open", input = {}) {
+  const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
+  const perPage = Math.min(99, Math.max(1, Number.parseInt(String(input.perPage || "30"), 10) || 30))
+  const result = await fetchProviderMergeRequestPage(server, repo, state, { page, perPage: perPage + 1 })
+  return {
+    mergeRequests: result.mergeRequests.slice(0, perPage),
+    page,
+    perPage,
+    hasMore: result.entries.length > perPage,
+  }
 }
 
 async function listProviderMentionUsers(server, repo, mergeRequestNumber) {
@@ -355,4 +369,4 @@ async function updateProviderMergeRequestState(server, repo, mergeRequestNumber,
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }
+export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }

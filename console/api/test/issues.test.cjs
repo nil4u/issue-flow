@@ -11,6 +11,7 @@ const {
   listProviderIssueLabels,
   listProviderIssueMentionUsers,
   listProviderIssues,
+  listProviderIssuesPage,
   updateProviderIssue,
   updateProviderIssueState,
 } = require("../src/core/issue-provider.ts")
@@ -169,13 +170,16 @@ test("automation optimization issue template includes the source stage contract"
 test("automation insights exclude optimization analysis and generated execution issues", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
+  const requests = []
   global.fetch = async (url) => {
-    if (String(url).includes("/issues?")) return new Response(JSON.stringify([
-      { id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature"] },
+    const requestUrl = String(url)
+    requests.push(requestUrl)
+    if (requestUrl.endsWith("/issues/17")) return new Response(JSON.stringify({ id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature", "optimization::analyzing"] }), { status: 200 })
+    if (requestUrl.endsWith("/issues/82")) return new Response(JSON.stringify({ id: 82, iid: 82, title: "Generated", description: "<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->", state: "opened", labels: ["type::docs"] }), { status: 200 })
+    if (requestUrl.includes("/issues?") && requestUrl.includes("labels=type%3A%3Aoptimization")) return new Response(JSON.stringify([
       { id: 81, iid: 81, title: "Optimize", description: "<!-- issue-flow:automation-optimization source-issue=17 -->", state: "opened", labels: ["type::optimization"] },
-      { id: 82, iid: 82, title: "Generated", description: "<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->", state: "opened", labels: ["type::docs"] },
     ]), { status: 200 })
-    throw new Error(`Unexpected request: ${url}`)
+    throw new Error(`Unexpected request: ${requestUrl}`)
   }
   const sourceIssues = [
     { id: "issue-17", issueNumber: 17, type: "feature" },
@@ -197,6 +201,9 @@ test("automation insights exclude optimization analysis and generated execution 
     input: { issueNumbers: [17, 81, 82] },
   })
   assert.deepEqual(result.items.map((item) => item.sourceIssueNumber), [17])
+  assert.equal(result.items[0].issue.title, "Source")
+  assert.equal(result.items[0].optimizationIssueNumber, 81)
+  assert.equal(requests.some((url) => url.includes("/issues?") && !url.includes("labels=")), false)
 })
 
 test("automation optimization creation is blocked while the source has an optimization state", async (t) => {
@@ -217,8 +224,11 @@ test("automation optimization creation is blocked while the source has an optimi
   global.fetch = async (url, options = {}) => {
     const request = { url: String(url), method: options.method || "GET", body: options.body ? JSON.parse(options.body) : undefined }
     requests.push(request)
-    if (request.method === "GET" && request.url.includes("/issues?")) {
-      return new Response(JSON.stringify(createdIssue ? [sourceIssue, createdIssue] : [sourceIssue]), { status: 200 })
+    if (request.method === "GET" && request.url.endsWith("/issues/17")) {
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    if (request.method === "GET" && request.url.includes("/issues?") && request.url.includes("labels=type%3A%3Aoptimization")) {
+      return new Response(JSON.stringify(createdIssue ? [createdIssue] : []), { status: 200 })
     }
     if (request.method === "POST" && request.url.endsWith("/issues")) {
       createdIssue = {
@@ -282,13 +292,21 @@ test("automation optimization creation is blocked while the source has an optimi
   ])
 
   let status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
-  assert.deepEqual(status.items[0], {
+  assert.deepEqual({
+    sourceIssueNumber: status.items[0].sourceIssueNumber,
+    phases: status.items[0].phases,
+    status: status.items[0].status,
+    optimizationIssueNumber: status.items[0].optimizationIssueNumber,
+    optimizationIssueUrl: status.items[0].optimizationIssueUrl,
+  }, {
     sourceIssueNumber: 17,
     phases: [{ phase: "plan", turns: 3 }, { phase: "build", turns: 2 }],
     status: "analyzing",
     optimizationIssueNumber: 81,
     optimizationIssueUrl: "",
   })
+  assert.equal(status.items[0].issue.title, "Add checkout")
+  assert.deepEqual(status.items[0].issue.labels.map((label) => label.name), ["type::feature", "status::done", "optimization::analyzing"])
 
   sourceIssue.labels = sourceIssue.labels.map((label) => label === "optimization::analyzing" ? "optimization::analyzed" : label)
   status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
@@ -357,6 +375,40 @@ test("GitHub issue list excludes pull requests and uses the current user credent
   assert.equal(request.options.headers.Authorization, "Bearer user-token")
   assert.deepEqual(issues.map((issue) => issue.number), [7])
   assert.deepEqual(issues[0].labels[0], { name: "bug", color: "d73a4a", description: "" })
+})
+
+test("GitLab issue pages request one lookahead item", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url) => {
+    requests.push(String(url))
+    return new Response(JSON.stringify(Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      iid: index + 1,
+      title: `Issue ${index + 1}`,
+      state: "opened",
+      labels: [],
+    }))), { status: 200 })
+  }
+
+  const first = await listProviderIssuesPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    { state: "open", page: 1, perPage: 50 },
+  )
+  const second = await listProviderIssuesPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    { state: "open", page: 2, perPage: 50 },
+  )
+
+  assert.equal(first.issues.length, 50)
+  assert.equal(first.hasMore, true)
+  assert.equal(second.page, 2)
+  assert.match(requests[0], /per_page=51/)
+  assert.match(requests[0], /page=1/)
+  assert.match(requests[1], /page=2/)
 })
 
 test("GitHub issue detail normalizes milestone and non-zero comment reactions", async (t) => {

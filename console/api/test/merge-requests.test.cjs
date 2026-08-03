@@ -4,7 +4,7 @@ const test = require("node:test")
 process.env.DATABASE_URL ||= "postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test"
 require("tsx/cjs")
 
-const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
+const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
 const { getMergeRequest } = require("../src/core/merge-requests.ts")
 
 test("Plan labels identify workflow previews before changed files are loaded", () => {
@@ -41,6 +41,44 @@ test("GitLab merge request list uses the current user credential", async (t) => 
   assert.equal(request.options.headers["PRIVATE-TOKEN"], "user-token")
   assert.equal(result[0].sourceIssueNumber, 42)
   assert.equal(result[0].previewable, true)
+})
+
+test("GitLab merge request pages request one lookahead item", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url) => {
+    requests.push(String(url))
+    return new Response(JSON.stringify(Array.from({ length: 31 }, (_, index) => ({
+      id: index + 1,
+      iid: index + 1,
+      title: `Merge request ${index + 1}`,
+      state: "opened",
+      labels: [],
+      source_branch: `branch-${index + 1}`,
+      target_branch: "main",
+    }))), { status: 200 })
+  }
+
+  const first = await listProviderMergeRequestsPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    "open",
+    { page: 1, perPage: 30 },
+  )
+  const second = await listProviderMergeRequestsPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    "open",
+    { page: 2, perPage: 30 },
+  )
+
+  assert.equal(first.mergeRequests.length, 30)
+  assert.equal(first.hasMore, true)
+  assert.equal(second.page, 2)
+  assert.match(requests[0], /per_page=31/)
+  assert.doesNotMatch(requests[0], /page=2/)
+  assert.match(requests[1], /page=2/)
 })
 
 test("GitLab mention candidates combine repository members, participants, and bots", async (t) => {

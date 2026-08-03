@@ -154,6 +154,8 @@
   .automation-insight-phases span { min-height: 1.55rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0 .5rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .68rem; }
   .automation-insight-phases b { color: var(--foreground); font-variant-numeric: tabular-nums; }
   .automation-insight-action { min-width: 7.5rem; display: flex; align-items: center; justify-content: end; gap: .4rem; }
+  .provider-list-pagination { min-height: 2.25rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: var(--muted-foreground); font-size: .75rem; }
+  .provider-list-pagination > div { display: flex; align-items: center; gap: .4rem; }
   @media (max-width: 820px) {
     .provider-issues-toolbar { align-items: stretch; flex-wrap: wrap; }
     .provider-issues-search { order: 3; max-width: none; flex-basis: 100%; }
