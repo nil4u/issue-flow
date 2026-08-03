@@ -3,6 +3,8 @@ type SearchableLabel = {
   description?: string
 }
 
+const MANAGED_ISSUE_LABEL_PREFIXES = ["type::", "status::", "flow::", "feature:visual-plan:", "automation::", "optimization::", "priority::", "size::", "mr-by::", "review::"]
+
 const SEARCH_SEPARATOR = /[^\p{L}\p{N}]+/gu
 
 function normalizeSearchValue(value: unknown) {
@@ -22,4 +24,8 @@ export function labelMatchesQuery(label: SearchableLabel, query: string) {
 
   const tokens = needle.split(SEARCH_SEPARATOR).filter(Boolean)
   return tokens.length > 0 && tokens.every((token) => haystack.includes(token))
+}
+
+export function isManagedIssueLabel(name: string) {
+  return MANAGED_ISSUE_LABEL_PREFIXES.some((prefix) => name.startsWith(prefix))
 }

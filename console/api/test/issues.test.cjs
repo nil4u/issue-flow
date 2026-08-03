@@ -20,7 +20,97 @@ const {
   createAutomationOptimizationIssue,
   getIssue,
   listAutomationOptimizations,
+  updateIssueWorkflow,
 } = require("../src/core/issues.ts")
+const {
+  applyWorkflowChanges,
+  normalizeWorkflowChanges,
+} = require("../src/core/managed-issue-labels.ts")
+
+test("workflow changes replace only the requested managed prefix", () => {
+  const labels = applyWorkflowChanges([
+    "type::bug",
+    "status::active",
+    "flow::triage",
+    "priority::p1",
+    "backend",
+  ], { status: "status::suspend" })
+
+  assert.deepEqual(labels, ["type::bug", "flow::triage", "priority::p1", "backend", "status::suspend"])
+})
+
+test("workflow changes repair duplicate values in a changed group", () => {
+  const labels = applyWorkflowChanges([
+    "status::active",
+    "status::suspend",
+    "type::feature",
+  ], { status: "status::done" })
+
+  assert.deepEqual(labels, ["type::feature", "status::done"])
+})
+
+test("plan and build workflow changes require exactly one size", () => {
+  assert.throws(
+    () => applyWorkflowChanges(["status::active"], { flow: "flow::build" }),
+    (error) => error.code === "workflow_size_required",
+  )
+  assert.deepEqual(
+    applyWorkflowChanges(["status::active"], { flow: "flow::build", size: "size::M" }),
+    ["status::active", "flow::build", "size::M"],
+  )
+})
+
+test("workflow changes reject unknown groups and invalid values", () => {
+  assert.throws(() => normalizeWorkflowChanges({ changes: { review: "review::off" } }), /unsupported workflow group/)
+  assert.throws(() => normalizeWorkflowChanges({ changes: { status: "status::paused" } }), /invalid status label/)
+})
+
+test("workflow status changes only labels and preserve the provider issue state", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const updates = []
+  const issue = { id: 17, iid: 17, title: "Ship it", description: "", state: "opened", labels: ["status::active", "flow::build", "size::M", "backend"], author: { id: 1, username: "alice" } }
+  global.fetch = async (url, options = {}) => {
+    const path = String(url)
+    const method = options.method || "GET"
+    if (method === "GET" && path.endsWith("/projects/43326/issues/17")) return new Response(JSON.stringify(issue), { status: 200 })
+    if (method === "GET" && path.includes("/issues/17/notes?")) return new Response("[]", { status: 200 })
+    if (method === "GET" && path.includes("/labels?")) return new Response("[]", { status: 200 })
+    if (method === "GET" && path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 40 } } }), { status: 200 })
+    if (method === "GET" && path.endsWith("/user")) return new Response(JSON.stringify({ id: 1, username: "alice" }), { status: 200 })
+    if (method === "PUT" && path.endsWith("/projects/43326/issues/17")) {
+      const body = JSON.parse(options.body)
+      updates.push(body)
+      if (body.labels) issue.labels = body.labels.split(",")
+      return new Response(JSON.stringify(issue), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${method} ${path}`)
+  }
+  const store = {
+    findRepositoryByProject: async () => ({ id: "repo-1", gitServerId: "gitlab-1", serverRepoId: "43326", fullName: "acme/widget" }),
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }),
+  }
+
+  const doneResult = await updateIssueWorkflow({
+    store, gitServerId: "gitlab-1", projectId: "43326", issueNumber: 17, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: { changes: { status: "status::done" } },
+  })
+  issue.state = "closed"
+  const activeResult = await updateIssueWorkflow({
+    store, gitServerId: "gitlab-1", projectId: "43326", issueNumber: 17, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: { changes: { status: "status::active" } },
+  })
+
+  assert.deepEqual(updates, [
+    { labels: "flow::build,size::M,backend,status::done" },
+    { labels: "flow::build,size::M,backend,status::active" },
+  ])
+  assert.equal(doneResult.issue.state, "open")
+  assert.equal(activeResult.issue.state, "closed")
+})
 
 test("issue label picker receives every provider label page", async (t) => {
   const originalFetch = global.fetch

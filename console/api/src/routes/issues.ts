@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { createAutomationOptimizationIssue, createIssue, getIssue, getIssueMentionUsers, listAutomationOptimizations, listIssueLabels, listIssues, renderIssueMarkdown, submitIssueComment, updateIssue, updateIssueState } from "../core/issues.js"
+import { createAutomationOptimizationIssue, createIssue, getIssue, getIssueMentionUsers, listAutomationOptimizations, listIssueLabels, listIssues, renderIssueMarkdown, submitIssueComment, updateIssue, updateIssueState, updateIssueWorkflow } from "../core/issues.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function providerSession(request: FastifyRequest, gitServerId: string) {
@@ -65,5 +65,10 @@ export async function issueRoutes(app: FastifyInstance) {
   app.post("/api/issues/:gitServerId/:projectId/:issueNumber/state", async (request) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
     return updateIssueState({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
+  })
+
+  app.patch("/api/issues/:gitServerId/:projectId/:issueNumber/workflow", async (request) => {
+    const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
+    return updateIssueWorkflow({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
   })
 }

@@ -3,6 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import domain from "issue-flow/domain"
 import { createProviderIssue, createProviderIssueComment, getProviderIssue, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { applyWorkflowChanges, normalizeWorkflowChanges } from "./managed-issue-labels.js"
 import { parseProposalMarker } from "./optimization-artifact.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
 import { renderProviderMarkdown } from "./provider-api.js"
@@ -212,6 +213,15 @@ async function updateIssue({ store, gitServerId, projectId, issueNumber, userId,
   return { issue: await updateProviderIssue(server, repo, normalizeIssueNumber(issueNumber), input) }
 }
 
+async function updateIssueWorkflow({ store, gitServerId, projectId, issueNumber, userId, session, input = {} }) {
+  const { repo, server } = await requireIssueContext(store, gitServerId, projectId, userId, session)
+  const normalizedIssueNumber = normalizeIssueNumber(issueNumber)
+  const changes = normalizeWorkflowChanges(input)
+  const current = (await getProviderIssue(server, repo, normalizedIssueNumber)).issue
+  const labels = applyWorkflowChanges(current.labels.map((label) => label.name), changes)
+  return { issue: await updateProviderIssue(server, repo, normalizedIssueNumber, { labels }) }
+}
+
 async function submitIssueComment({ store, gitServerId, projectId, issueNumber, userId, session, input = {} }) {
   const { repo, server } = await requireIssueContext(store, gitServerId, projectId, userId, session)
   const body = String(input.body || "").trim()
@@ -254,5 +264,6 @@ export {
   renderIssueMarkdown,
   submitIssueComment,
   updateIssue,
+  updateIssueWorkflow,
   updateIssueState,
 }
