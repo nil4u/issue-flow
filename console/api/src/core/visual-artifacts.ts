@@ -1,6 +1,7 @@
 // @ts-nocheck
 import crypto from "node:crypto"
 import path from "node:path"
+import domain from "issue-flow/domain"
 
 import { createProviderIssue, getProviderIssueSnapshot, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
 import { getProviderMergeRequestPreview } from "./merge-request-provider.js"
@@ -11,7 +12,6 @@ import { listIssuePullRequestSummaries } from "./pull-request-facts.js"
 import { applyVisualIssueLabels, closePlanMergeRequest, createPlanMergeRequestComment, listPlanMergeRequestComments, listPlanMergeRequests, mergePlanMergeRequest, readVisualIssueLabels, readVisualRepositoryFile, renderPlanMarkdown } from "./visual-provider.js"
 import { renderVisualArtifactDocument } from "./visual-renderer.js"
 
-const MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan|optimization)\s+format=(json|markdown)\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i
 const ISSUE_FLOW_FEEDBACK_REPOSITORY = "nil4u/issue-flow"
 
 function requestError(message, status = 400, code = "visual_artifact_error") {
@@ -35,13 +35,13 @@ function normalizeRepoPath(value) {
 }
 
 function parseArtifactMarker(mergeRequest = {}) {
-  const match = String(mergeRequest.body || "").match(MARKER_PATTERN)
-  if (!match) return undefined
+  const marker = domain.parsePlanArtifactMarker(mergeRequest.body)
+  if (!marker) return undefined
   let entryPath
-  try { entryPath = normalizeRepoPath(match[6]) } catch { return undefined }
+  try { entryPath = normalizeRepoPath(marker.path) } catch { return undefined }
   return {
-    type: match[1].toLowerCase(), format: match[2].toLowerCase(), issueNumber: Number.parseInt(match[3], 10),
-    branch: match[4], commitSha: match[5], entryPath,
+    type: marker.artifact, format: marker.format, issueNumber: marker.issueNumber,
+    branch: marker.branch, commitSha: marker.commit, entryPath,
     mergeRequestId: String(mergeRequest.id || ""), mergeRequestNumber: Number(mergeRequest.number), mergeRequestUrl: mergeRequest.url || "",
     mergeRequestState: mergeRequest.state || "", merged: Boolean(mergeRequest.merged), baseBranch: mergeRequest.baseBranch || "",
     publishedAt: mergeRequest.updatedAt || mergeRequest.createdAt || new Date().toISOString(),
@@ -432,7 +432,7 @@ async function getVisualArtifact({ store, gitServerId, projectId, issueNumber: r
   let optimization
   if (format === "markdown") html = markdownDocument(await renderPlanMarkdown(server, repo, String(entry.body)), artifact)
   else {
-    const data = parseVisualArtifactJson(entry.body)
+    const data = domain.validateVisualArtifactData(parseVisualArtifactJson(entry.body), artifact.type)
     if (artifact.type === "optimization") {
       validateOptimizationArtifact(data)
       optimization = await optimizationRuntime(server, repo, artifact, data)
@@ -623,9 +623,10 @@ async function submitVisualReview({ store, gitServerId, projectId, issueNumber, 
   }
   if (planWorkflow && artifact.type === "decision" && status === "approved") {
     const review = createVisualReview(artifact, userId, input, drafts, status)
-    await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": "flow::plan" })
+    const flow = domain.resolvePlanArtifactTransition("decision").flow
+    await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": flow })
     const providerComment = await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, status))
-    return { review, status, providerComment, flow: "flow::plan" }
+    return { review, status, providerComment, flow }
   }
   const review = createVisualReview(artifact, userId, input, drafts, status)
   if (!planWorkflow) {
@@ -645,8 +646,9 @@ async function approveVisualPlan({ store, gitServerId, projectId, issueNumber, m
   const merge = await mergePlanMergeRequest(server, repo, artifact.data && artifact.data.mergeRequestNumber)
   const review = createVisualReview(artifact, userId, { kind: "approval", merge }, [], "approved")
   await createPlanMergeRequestComment(server, repo, artifact.data && artifact.data.mergeRequestNumber, buildReviewComment(artifact, review, "approved"))
-  await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": "flow::build" })
-  return { artifact: { ...artifact, status: "approved" }, review, merge, flow: "flow::build" }
+  const flow = domain.resolvePlanArtifactTransition("plan").flow
+  await applyVisualIssueLabels(server, repo, artifact.issueNumber, { "flow::": flow })
+  return { artifact: { ...artifact, status: "approved" }, review, merge, flow }
 }
 
 function optimizationProposalById(data, proposalId) {
@@ -656,15 +658,14 @@ function optimizationProposalById(data, proposalId) {
 }
 
 function proposalIssueLabels(proposal) {
-  return [...new Set([
-    proposal.issue.type,
-    "status::active",
-    proposal.issue.flow,
-    "automation::build",
-    proposal.issue.priority,
-    proposal.issue.size,
-    ...(proposal.issue.labels || []),
-  ])]
+  return [...domain.applyManagedLabels([], {
+    type: proposal.issue.type,
+    status: "status::active",
+    flow: proposal.issue.flow,
+    automation: "automation::build",
+    priority: proposal.issue.priority,
+    size: proposal.issue.size,
+  }), ...(proposal.issue.labels || [])]
 }
 
 async function loadOptimizationActionContext(input) {
@@ -688,12 +689,12 @@ async function finalizeOptimizationIfComplete({ server, repo, artifact, data, ru
   await closePlanMergeRequest(server, repo, artifact.data.mergeRequestNumber)
   const parentLabels = (parent && parent.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
   await updateProviderIssue(server, repo, artifact.issueNumber, {
-    labels: [...new Set([...parentLabels.filter((label) => !label.startsWith("status::") && !label.startsWith("flow::")), "status::done"])],
+    labels: domain.applyManagedLabels(parentLabels, { status: "status::done" }, ["flow"]),
   })
   await updateProviderIssueState(server, repo, artifact.issueNumber, "close")
   const sourceLabels = (source && source.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
   await updateProviderIssue(server, repo, runtime.sourceIssueNumber, {
-    labels: [...new Set([...sourceLabels.filter((label) => !label.startsWith("optimization::")), "optimization::analyzed"])],
+    labels: domain.applyManagedLabels(sourceLabels, { optimizationState: "optimization::analyzed" }),
   })
   return { completed: true, proposals: states }
 }

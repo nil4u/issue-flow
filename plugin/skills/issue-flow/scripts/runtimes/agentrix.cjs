@@ -8,6 +8,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { sourceIssueNumber } = require('../../../../domain/index.cjs');
 const { spawnSync } = require('node:child_process');
 const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
@@ -506,6 +507,8 @@ function composeActionPrompt(action, issue, data = {}, options = {}) {
 }
 
 function extractSourceIssueNumberFromPullRequest(pr = {}) {
+  const markerIssueNumber = sourceIssueNumber(pr.body);
+  if (markerIssueNumber) return markerIssueNumber;
   const candidates = [
     pr.body,
     pr.title,
@@ -514,7 +517,6 @@ function extractSourceIssueNumberFromPullRequest(pr = {}) {
   ].filter(Boolean).map(String);
 
   const patterns = [
-    /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i,
     /Source issue:\s*#(\d+)/i,
     /\b(?:Plan|Build)\s+#(\d+)/i,
     /^(\d+)-[^/]+\/(?:plan|build)$/i,

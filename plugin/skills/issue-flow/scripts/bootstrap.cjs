@@ -52,6 +52,11 @@ const AGENTRIX_PLUGIN_ROOT = '.agentrix/plugins/issue-flow';
 const LEGACY_AGENTRIX_PROJECT_ROOT = '.agentrix/issue-flow';
 const AGENTRIX_PLUGIN_SPECS = [
   [
+    'domain',
+    `${AGENTRIX_PLUGIN_ROOT}/domain`,
+    { mode: MODE_MANAGED },
+  ],
+  [
     'skills/issue-flow',
     `${AGENTRIX_PLUGIN_ROOT}/skills/issue-flow`,
     {

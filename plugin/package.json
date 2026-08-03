@@ -11,6 +11,10 @@
   "bin": {
     "issue-flow": "skills/issue-flow/cli.cjs"
   },
+  "exports": {
+    ".": "./skills/issue-flow/cli.cjs",
+    "./domain": "./domain/index.cjs"
+  },
   "scripts": {
     "test": "node --test \"test/*.test.cjs\"",
     "test:integration": "node --test \"test/integration/*.test.cjs\""

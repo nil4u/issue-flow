@@ -1,4 +1,5 @@
 // @ts-nocheck
+import domain from 'issue-flow/domain'
 import {
   createGitlabProjectLabel,
   createGitlabProjectAccessToken,
@@ -45,7 +46,6 @@ import {
   pluginState,
 } from './issue-flow-plugin.js'
 import { sanitizeError } from './sanitize.js'
-import { issueFlowLabelsCatalogPath } from './plugin-paths.js'
 
 const ADMIN_PAT_PERMISSION_KEY = 'admin-pat'
 const ISSUE_FLOW_RUNNER_TAG = 'issue-flow'
@@ -53,8 +53,7 @@ const ISSUE_FLOW_GITLAB_TOKEN_KEY = 'ISSUE_FLOW_GITLAB_TOKEN'
 const ISSUE_FLOW_AUTO_DEFAULT_VALUES = new Set(['off', 'triage', 'plan', 'build'])
 
 function issueFlowManagedLabels() {
-  const { labelsForScope } = require(issueFlowLabelsCatalogPath())
-  return labelsForScope('all')
+  return domain.labelsForScope('all')
 }
 
 function automationDefaultValue(value) {

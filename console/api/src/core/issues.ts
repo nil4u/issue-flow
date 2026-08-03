@@ -1,6 +1,7 @@
 // @ts-nocheck
 import fs from "node:fs"
 import path from "node:path"
+import domain from "issue-flow/domain"
 import { createProviderIssue, createProviderIssueComment, getProviderIssue, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
 import { parseProposalMarker } from "./optimization-artifact.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
@@ -67,23 +68,19 @@ function automationOptimizationPhases(issue, stats) {
 }
 
 function automationOptimizationSourceIssue(body) {
-  const match = String(body || "").match(/<!--\s*issue-flow:automation-optimization\s+source-issue=(\d+)\s*-->/i)
-  return match ? Number(match[1]) : 0
+  return domain.optimizationSourceIssueNumber(body)
 }
 
 function optimizationStateFromLabels(labels = []) {
-  const names = labels.map((label) => typeof label === "string" ? label : label?.name).filter(Boolean)
-  if (names.includes("optimization::analyzed")) return "analyzed"
-  if (names.includes("optimization::analyzing")) return "analyzing"
-  return ""
+  return domain.managedLabelValue(labels, "optimizationState", (value) => value.toLowerCase())
 }
 
 function labelsWithOptimizationState(labels = [], state) {
-  return [...labels.map((label) => typeof label === "string" ? label : label?.name).filter((name) => name && !name.startsWith("optimization::")), state]
+  return domain.applyManagedLabels(labels, { optimizationState: state })
 }
 
 function labelsWithoutOptimizationState(labels = []) {
-  return labels.map((label) => typeof label === "string" ? label : label?.name).filter((name) => name && !name.startsWith("optimization::"))
+  return domain.applyManagedLabels(labels, {}, ["optimizationState"])
 }
 
 function automationOptimizationTemplatePath() {

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import domain from "issue-flow/domain"
 import { githubRepoPath, gitlabProjectPath, providerApiError as apiError, providerFetch, renderProviderMarkdown } from "./provider-api.js"
 
 async function readVisualRepositoryFile(server, repo, ref, filePath) {
@@ -91,19 +92,15 @@ async function closePlanMergeRequest(server, repo, mergeRequestNumber) {
 }
 
 async function applyVisualIssueLabels(server, repo, issueNumber, desired = {}) {
-  const prefixes = Object.keys(desired)
   if (server.type === "github") {
     const issue = await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues/${issueNumber}`)
     const labels = (issue.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
-    const next = labels.filter((label) => !prefixes.some((prefix) => label.startsWith(prefix)))
-    for (const label of Object.values(desired)) if (label) next.push(label)
-    return providerFetch(server, "PATCH", `${githubRepoPath(repo)}/issues/${issueNumber}`, { labels: [...new Set(next)] })
+    return providerFetch(server, "PATCH", `${githubRepoPath(repo)}/issues/${issueNumber}`, { labels: domain.replaceLabelsByPrefix(labels, desired) })
   }
   if (server.type === "gitlab") {
     const issue = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/issues/${issueNumber}`)
-    const next = (Array.isArray(issue.labels) ? issue.labels : []).filter((label) => !prefixes.some((prefix) => label.startsWith(prefix)))
-    for (const label of Object.values(desired)) if (label) next.push(label)
-    return providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/issues/${issueNumber}`, { labels: [...new Set(next)].join(",") })
+    const next = domain.replaceLabelsByPrefix(issue.labels, desired)
+    return providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/issues/${issueNumber}`, { labels: next.join(",") })
   }
   throw apiError(`unsupported git provider: ${server.type}`, 400)
 }
