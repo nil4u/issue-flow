@@ -26,7 +26,7 @@
     "@xmz-ai/gitlab-webhook-bridge": "^0.2.0",
     "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
-    "issue-flow": "0.9.1",
+    "issue-flow": "*",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
     "ws": "^8.21.0"

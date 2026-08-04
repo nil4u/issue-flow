@@ -48,6 +48,7 @@ COPY --from=builder --chown=issueflow:issueflow /app/console/api/prisma.config.t
 RUN cd /app/console/api \
   && DATABASE_URL=postgres://issue_flow:issue_flow@127.0.0.1:5432/issue_flow node ../../node_modules/prisma/build/index.js generate
 COPY --from=builder --chown=issueflow:issueflow /app/console/web/dist console/web/dist
+COPY --from=builder --chown=issueflow:issueflow /app/plugin/domain plugin/domain
 COPY --chown=issueflow:issueflow plugin/install.sh /opt/issue-flow/plugin/install.sh
 COPY --chown=issueflow:issueflow plugin/.claude-plugin /opt/issue-flow/plugin/.claude-plugin
 COPY --chown=issueflow:issueflow plugin/package.json /opt/issue-flow/plugin/package.json
