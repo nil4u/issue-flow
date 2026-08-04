@@ -3,7 +3,7 @@ const test = require("node:test")
 
 require("tsx/cjs")
 
-const { isManagedIssueLabel, labelMatchesQuery } = require("../src/lib/label-search.ts")
+const { isManagedIssueLabel, isManagedMergeRequestLabel, labelMatchesQuery } = require("../src/lib/label-search.ts")
 
 const visualPlanLabel = {
   name: "feature:visual-plan:on",
@@ -31,4 +31,11 @@ test("managed issue label detection keeps ordinary labels in the generic picker"
   assert.equal(isManagedIssueLabel("status::active"), true)
   assert.equal(isManagedIssueLabel("feature:visual-plan:on"), true)
   assert.equal(isManagedIssueLabel("backend"), false)
+})
+
+test("managed merge request label detection reserves MR By and Review labels", () => {
+  assert.equal(isManagedMergeRequestLabel("mr-by::plan"), true)
+  assert.equal(isManagedMergeRequestLabel("mr-by::build"), true)
+  assert.equal(isManagedMergeRequestLabel("review::off"), true)
+  assert.equal(isManagedMergeRequestLabel("backend"), false)
 })

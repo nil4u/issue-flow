@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestState } from "../core/merge-requests.js"
+import { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestLabels, updateMergeRequestState, updateMergeRequestWorkflow } from "../core/merge-requests.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function providerSession(request: FastifyRequest, gitServerId: string) {
@@ -60,5 +60,15 @@ export async function mergeRequestRoutes(app: FastifyInstance) {
   app.post("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/state", async (request) => {
     const { gitServerId, projectId, mergeRequestNumber } = request.params as Record<string, string>
     return updateMergeRequestState({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
+  })
+
+  app.patch("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/labels", async (request) => {
+    const { gitServerId, projectId, mergeRequestNumber } = request.params as Record<string, string>
+    return updateMergeRequestLabels({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
+  })
+
+  app.patch("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/workflow", async (request) => {
+    const { gitServerId, projectId, mergeRequestNumber } = request.params as Record<string, string>
+    return updateMergeRequestWorkflow({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId), input: request.body || {} })
   })
 }

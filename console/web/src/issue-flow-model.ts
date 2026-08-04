@@ -264,6 +264,7 @@ export type MergeRequestDetail = {
   mergeRequest: MergeRequestSummary
   files: MergeRequestFile[]
   comments: MergeRequestComment[]
+  availableLabels: ProviderIssueLabel[]
   repository: { id: string; fullName: string; provider: string; webUrl: string }
 }
 

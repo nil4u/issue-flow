@@ -95,6 +95,20 @@
   .gh-pr-meta a { display: inline-flex; align-items: center; gap: .35rem; color: #0969da; }
   .gh-labels { display: flex; flex-wrap: wrap; gap: .35rem; }
   .gh-labels span { padding: .18rem .5rem; border-radius: 999px; background: #0969da; color: #fff; font-size: .68rem; font-weight: 650; }
+  .mr-label-section { gap: .2rem !important; }
+  .mr-label-section > header { min-height: 1.65rem; display: flex; align-items: center; justify-content: space-between; }
+  .mr-label-section > header strong { color: var(--muted-foreground); }
+  .mr-label-section > header button { color: var(--muted-foreground); font-size: .72rem; }
+  .mr-label-control-row { min-height: 2.35rem; display: flex; align-items: center; justify-content: space-between; gap: .65rem; }
+  .mr-label-control-row > span { min-width: 0; display: flex; align-items: center; gap: .45rem; color: var(--muted-foreground); font-size: .74rem; }
+  .mr-label-control-trigger { min-width: 0; max-width: 9rem; min-height: 2rem; display: inline-flex; align-items: center; justify-content: end; gap: .28rem; padding: 0 .15rem 0 .5rem; border-radius: 6px; color: var(--foreground); font-size: .74rem; transition: background-color 120ms, transform 120ms; }
+  .mr-label-control-trigger:hover:not(:disabled) { background: var(--muted); }
+  .mr-label-control-trigger:active:not(:disabled) { transform: scale(.96); }
+  .mr-label-control-trigger:disabled { cursor: default; opacity: .65; }
+  .mr-label-option { min-width: 9rem; display: grid; gap: .05rem; }
+  .mr-label-option strong { font-size: .76rem; font-weight: 600; }
+  .mr-label-option small { color: var(--muted-foreground); font-size: .66rem; }
+  .mr-unmanaged-labels { margin-top: .35rem; padding-top: .7rem; border-top: 1px solid var(--border); }
 
   .gh-preview-view { position: relative; height: calc(100svh - 7.5rem); min-height: 38rem; background: var(--background); }
   .gh-pr-page.is-preview .gh-preview-view { flex: 1; min-height: 0; height: auto; }
@@ -216,6 +230,8 @@
   .gh-files-layout, .gh-conversation-view { grid-template-columns: 1fr; }
   .gh-file-tree { position: static; max-height: none; border-right: 0; padding-right: 0; }
   .gh-file-tree .if-file-tree { max-height: 12rem; }
-  .gh-pr-meta { display: none; }
+  .gh-pr-meta { display: grid; }
+  .gh-pr-meta > section { display: none; }
+  .gh-pr-meta > .mr-label-section { display: grid; }
   .gh-files-toolbar { align-items: flex-start; flex-direction: column; padding: .65rem 0; }
 }

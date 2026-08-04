@@ -29,3 +29,7 @@ export function labelMatchesQuery(label: SearchableLabel, query: string) {
 export function isManagedIssueLabel(name: string) {
   return MANAGED_ISSUE_LABEL_PREFIXES.some((prefix) => name.startsWith(prefix))
 }
+
+export function isManagedMergeRequestLabel(name: string) {
+  return name.startsWith("mr-by::") || name.startsWith("review::")
+}

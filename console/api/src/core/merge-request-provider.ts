@@ -369,4 +369,17 @@ async function updateProviderMergeRequestState(server, repo, mergeRequestNumber,
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }
+async function updateProviderMergeRequestLabels(server, repo, mergeRequestNumber, labels = []) {
+  const uniqueLabels = [...new Set(labels.map((label) => String(label).trim()).filter(Boolean))]
+  if (server.type === "github") {
+    const result = await providerFetch(server, "PATCH", `${githubRepoPath(repo)}/issues/${mergeRequestNumber}`, { labels: uniqueLabels })
+    return normalizeLabels(result && result.labels)
+  }
+  if (server.type === "gitlab") {
+    const result = await providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`, { labels: uniqueLabels.join(",") })
+    return normalizeLabels(result && result.labels)
+  }
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState }
