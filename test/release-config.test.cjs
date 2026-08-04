@@ -95,3 +95,14 @@ test('main workflow creates version tags and builds only a new console tag', () 
   assert.match(workflow, /type=raw,value=latest/);
   assert.match(workflow, /console-image-publish\.yml/);
 });
+
+test('console runtime image includes every bootstrap source root', () => {
+  const dockerfile = read('console/Dockerfile');
+
+  for (const sourceRoot of ['domain', 'skills']) {
+    assert.match(
+      dockerfile,
+      new RegExp(`COPY --chown=issueflow:issueflow plugin/${sourceRoot} /opt/issue-flow/plugin/${sourceRoot}`),
+    );
+  }
+});

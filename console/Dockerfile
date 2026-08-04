@@ -52,6 +52,7 @@ COPY --from=builder --chown=issueflow:issueflow /app/plugin plugin
 COPY --chown=issueflow:issueflow plugin/install.sh /opt/issue-flow/plugin/install.sh
 COPY --chown=issueflow:issueflow plugin/.claude-plugin /opt/issue-flow/plugin/.claude-plugin
 COPY --chown=issueflow:issueflow plugin/package.json /opt/issue-flow/plugin/package.json
+COPY --chown=issueflow:issueflow plugin/domain /opt/issue-flow/plugin/domain
 COPY --chown=issueflow:issueflow plugin/skills /opt/issue-flow/plugin/skills
 
 USER issueflow
