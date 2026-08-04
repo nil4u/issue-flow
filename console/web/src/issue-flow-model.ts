@@ -191,6 +191,7 @@ export type ProviderIssueDetail = {
 }
 
 export type AutomationOptimizationItem = {
+  issue: ProviderIssueSummary
   sourceIssueNumber: number
   phases: Array<{ phase: "triage" | "plan" | "build" | "review"; turns: number }>
   status: "available" | "analyzing" | "analyzed" | "unavailable"
@@ -263,6 +264,7 @@ export type MergeRequestDetail = {
   mergeRequest: MergeRequestSummary
   files: MergeRequestFile[]
   comments: MergeRequestComment[]
+  availableLabels: ProviderIssueLabel[]
   repository: { id: string; fullName: string; provider: string; webUrl: string }
 }
 

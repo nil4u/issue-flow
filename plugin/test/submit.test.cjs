@@ -338,6 +338,30 @@ test('Optimization artifacts enforce the independent Issue proposal contract', (
     writeArtifact(artifact);
     assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'));
 
+    writeArtifact({
+      ...artifact,
+      proposals: [{
+        id: 'provide-toolchain',
+        kind: 'project-developer-feedback',
+        title: 'Provide a reproducible Java toolchain',
+        solution: 'Project maintainers should expose a supported JDK and Maven execution entrypoint.',
+        validation: ['A fresh Build task can execute the declared Maven test command'],
+      }],
+    });
+    assert.doesNotThrow(() => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'));
+
+    writeArtifact({
+      ...artifact,
+      proposals: [{
+        ...artifact.proposals[0],
+        kind: 'project-developer-feedback',
+      }],
+    });
+    assert.throws(
+      () => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'),
+      /project developer feedback must not contain issue/,
+    );
+
     writeArtifact({ ...artifact, context: 'stale Markdown section' });
     assert.throws(
       () => assertVisualArtifactData('.issue-flow/issues/81-optimization/plan/data/optimization-data.json', 'optimization'),

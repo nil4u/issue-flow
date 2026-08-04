@@ -6,17 +6,11 @@ import { Button } from "@/components/ui/button"
 import {
   api,
   type AutomationOptimizationItem,
-  type ProviderIssueSummary,
   type RepoWorkspaceProps,
 } from "@/issue-flow-model"
 
-type AutomationInsight = {
-  issue: ProviderIssueSummary
-  optimization: AutomationOptimizationItem
-}
-
 export function AutomationInsights({ gitServer, user, project, repository, onLogin }: RepoWorkspaceProps) {
-  const [items, setItems] = useState<AutomationInsight[]>([])
+  const [items, setItems] = useState<AutomationOptimizationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [creatingIssueNumber, setCreatingIssueNumber] = useState(0)
@@ -28,17 +22,11 @@ export function AutomationInsights({ gitServer, user, project, repository, onLog
     if (!gitServerId || !projectId || !user) return
     setLoading(true); setError("")
     try {
-      const issueBody = await api<{ issues?: ProviderIssueSummary[] }>(`${baseApi}?state=all`)
-      const issues = Array.isArray(issueBody.issues) ? issueBody.issues : []
       const optimizationBody = await api<{ items?: AutomationOptimizationItem[] }>(`${baseApi}/automation-optimizations`, {
         method: "POST",
-        body: JSON.stringify({ issueNumbers: issues.map((issue) => issue.number) }),
+        body: "{}",
       })
-      const issueByNumber = new Map(issues.map((issue) => [issue.number, issue]))
-      setItems((optimizationBody.items || [])
-        .filter((optimization) => optimization.status !== "unavailable")
-        .map((optimization) => ({ issue: issueByNumber.get(optimization.sourceIssueNumber), optimization }))
-        .filter((item): item is AutomationInsight => Boolean(item.issue)))
+      setItems((optimizationBody.items || []).filter((optimization) => optimization.status !== "unavailable"))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载自动化优化 Insights 失败")
     } finally {
@@ -58,12 +46,9 @@ export function AutomationInsights({ gitServer, user, project, repository, onLog
       })
       setItems((current) => current.map((item) => item.issue.number === sourceIssueNumber ? {
         ...item,
-        optimization: {
-          ...item.optimization,
-          status: "analyzing",
-          optimizationIssueNumber: result.issue.number,
-          optimizationIssueUrl: result.issue.webUrl || "",
-        },
+        status: "analyzing",
+        optimizationIssueNumber: result.issue.number,
+        optimizationIssueUrl: result.issue.webUrl || "",
       } : item))
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "创建优化 Issue 失败")
@@ -73,9 +58,9 @@ export function AutomationInsights({ gitServer, user, project, repository, onLog
   }
 
   const counts = useMemo(() => ({
-    available: items.filter((item) => item.optimization.status === "available").length,
-    analyzing: items.filter((item) => item.optimization.status === "analyzing").length,
-    analyzed: items.filter((item) => item.optimization.status === "analyzed").length,
+    available: items.filter((item) => item.status === "available").length,
+    analyzing: items.filter((item) => item.status === "analyzing").length,
+    analyzed: items.filter((item) => item.status === "analyzed").length,
   }), [items])
 
   if (!gitServer) return <EmptyPanel icon={<Lightbulb className="size-6" />} title="没有 Git server" detail="请先在后台配置 Git server。" />
@@ -108,16 +93,16 @@ function InsightCount({ label, value }: { label: string; value: number }) {
   return <div><span>{label}</span><strong>{value}</strong></div>
 }
 
-function AutomationInsightRow({ item, gitServerId, projectId, creating, onCreate }: { item: AutomationInsight; gitServerId: string; projectId: string; creating: boolean; onCreate: () => Promise<void> }) {
-  const { issue, optimization } = item
+function AutomationInsightRow({ item, gitServerId, projectId, creating, onCreate }: { item: AutomationOptimizationItem; gitServerId: string; projectId: string; creating: boolean; onCreate: () => Promise<void> }) {
+  const { issue } = item
   const sourceHref = issueHref(gitServerId, projectId, issue.number)
   return (
     <article className="automation-insight-row">
       <a className="automation-insight-issue" href={sourceHref}><span className={`provider-issue-state state-${issue.state}`}><CircleDot className="size-3.5" />{issue.state === "closed" ? "Closed" : "Open"}</span><div><strong>#{issue.number} {issue.title}</strong><small>{issue.author.name || issue.author.username || "Unknown"}</small></div></a>
-      <div className="automation-insight-phases">{optimization.phases.map((phase) => <span key={phase.phase}>{phaseName(phase.phase)} <b>{phase.turns}</b></span>)}</div>
+      <div className="automation-insight-phases">{item.phases.map((phase) => <span key={phase.phase}>{phaseName(phase.phase)} <b>{phase.turns}</b></span>)}</div>
       <div className="automation-insight-action">
-        {optimization.status === "available" ? <button type="button" className="metrics-optimization-action" disabled={creating} onClick={() => void onCreate()}>{creating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}{creating ? "正在创建" : "分析优化"}</button>
-          : <span className={`metrics-optimization-status is-${optimization.status}`}>{optimization.status === "analyzing" ? <><Loader2 className="size-3.5 animate-spin" />正在分析优化</> : <><Check className="size-3.5" />已分析优化</>}</span>}
+        {item.status === "available" ? <button type="button" className="metrics-optimization-action" disabled={creating} onClick={() => void onCreate()}>{creating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}{creating ? "正在创建" : "分析优化"}</button>
+          : <span className={`metrics-optimization-status is-${item.status}`}>{item.status === "analyzing" ? <><Loader2 className="size-3.5 animate-spin" />正在分析优化</> : <><Check className="size-3.5" />已分析优化</>}</span>}
       </div>
     </article>
   )

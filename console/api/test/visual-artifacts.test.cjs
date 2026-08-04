@@ -84,11 +84,25 @@ test('optimization artifact validates independent executable proposals', () => {
       issue: { ...data.proposals[0].issue, type: 'type::bug', flow: 'flow::triage' },
     }],
   }).proposals[0].kind, 'issue-flow-feedback')
+  assert.equal(validateOptimizationArtifact({
+    ...data,
+    proposals: [{
+      id: 'provide-toolchain', kind: 'project-developer-feedback', title: 'Provide a reproducible Java toolchain',
+      solution: 'Project maintainers should expose a supported JDK and Maven execution entrypoint.',
+      validation: ['A fresh Build task can execute the declared Maven test command'],
+    }],
+  }).proposals[0].kind, 'project-developer-feedback')
+  assert.throws(() => validateOptimizationArtifact({
+    ...data,
+    proposals: [{ ...data.proposals[0], kind: 'project-developer-feedback' }],
+  }), /project developer feedback must not contain issue/)
 })
 
 test('optimization proposal state is derived from provider markers and terminal labels', () => {
   const marker = proposalMarker({ optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'docs' })
   assert.deepEqual(parseProposalMarker(marker), { optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'docs', action: 'created' })
+  const childMarker = proposalMarker({ optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'docs', childIssueNumber: 82 })
+  assert.deepEqual(parseProposalMarker(childMarker), { optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'docs', action: 'created', childIssueNumber: 82 })
   const data = { proposals: [{ id: 'docs' }, { id: 'tests' }, { id: 'tooling' }] }
   const states = deriveOptimizationProposalStates(data, 81, [
     { body: proposalMarker({ optimizationIssueNumber: 81, sourceIssueNumber: 17, proposalId: 'tests', action: 'ignored' }) },
@@ -99,8 +113,10 @@ test('optimization proposal state is derived from provider markers and terminal 
   assert.equal(allOptimizationProposalsTerminal(states), false)
   assert.equal(allOptimizationProposalsTerminal([
     { kind: 'project-change', state: 'completed' },
+    { kind: 'project-developer-feedback', state: 'pending' },
     { kind: 'issue-flow-feedback', state: 'pending' },
   ]), true)
+  assert.equal(allOptimizationProposalsTerminal([{ kind: 'project-developer-feedback', state: 'pending' }]), true)
   assert.equal(allOptimizationProposalsTerminal([{ kind: 'issue-flow-feedback', state: 'pending' }]), true)
   assert.equal(allOptimizationProposalsTerminal(states.map((item) => item.id === 'tooling' ? { ...item, state: 'cancelled' } : item)), true)
 })
@@ -127,7 +143,7 @@ test('Engine renders Optimization JSON with reusable review anchors and runtime 
   assert.deepEqual(unresolved, [])
 })
 
-test('Engine renders Issue Flow feedback as developer feedback instead of a pending proposal', () => {
+test('Engine renders Issue Flow feedback as public developer feedback instead of a pending proposal', () => {
   const data = {
     schemaVersion: 1,
     artifact: 'optimization',
@@ -140,9 +156,32 @@ test('Engine renders Issue Flow feedback as developer feedback instead of a pend
   }
   const html = renderVisualArtifactDocument(data, 'optimization', { optimizationStates: [{ id: 'report-context-defect', state: 'pending', childIssue: null }] })
   assert.match(html, /data-optimization-kind="issue-flow-feedback"/)
-  assert.match(html, /data-optimization-state="feedback"/)
-  assert.match(html, />开发者反馈</)
+  assert.match(html, /data-optimization-state="issue-flow-feedback"/)
+  assert.match(html, />Issue Flow 开发者反馈</)
+  assert.match(html, /反馈仓库 · nil4u\/issue-flow/)
   assert.doesNotMatch(html, />待处理</)
+})
+
+test('Engine renders project developer feedback without copy or Issue actions', () => {
+  const data = {
+    schemaVersion: 1,
+    artifact: 'optimization',
+    target: { summary: 'Java tests could not run', cause: ['The project does not expose a reproducible Java toolchain'] },
+    proposals: [{
+      id: 'provide-toolchain', kind: 'project-developer-feedback', title: 'Provide a reproducible Java toolchain',
+      solution: 'Project maintainers should expose a supported JDK and Maven execution entrypoint.',
+      validation: ['A fresh Build task can execute the declared Maven test command'],
+    }],
+  }
+  const html = renderVisualArtifactDocument(data, 'optimization', { optimizationStates: [{ id: 'provide-toolchain', state: 'pending', childIssue: null }] })
+  assert.match(html, /data-optimization-state="project-developer-feedback"/)
+  assert.match(html, />项目开发者建议</)
+  assert.match(html, />建议内容</)
+  assert.doesNotMatch(html, /data-optimization-actions=/)
+  assert.doesNotMatch(html, /<div class="vp-optimization-issue"/)
+  assert.doesNotMatch(html, />待处理</)
+  const unresolved = renderedDataRefs(html).filter((ref) => resolveDataRef(data, ref) === undefined)
+  assert.deepEqual(unresolved, [])
 })
 
 test('approving an optimization proposal creates one linked Issue with fixed workflow labels', async (t) => {
@@ -175,11 +214,9 @@ test('approving an optimization proposal creates one linked Issue with fixed wor
       new_file: true,
     }] }), { status: 200 })
     if (request.method === 'GET' && request.url.includes('/repository/files/')) return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(artifact)).toString('base64'), encoding: 'base64' }), { status: 200 })
-    if (request.method === 'GET' && request.url.includes('/merge_requests/19/notes?')) return new Response(JSON.stringify([]), { status: 200 })
-    if (request.method === 'GET' && request.url.includes('/issues?')) return new Response(JSON.stringify([
-      { id: 17, iid: 17, title: 'Source', description: '', state: 'closed', labels: ['optimization::analyzing'] },
-      { id: 81, iid: 81, title: 'Optimize', description: '<!-- issue-flow:automation-optimization source-issue=17 -->', state: 'opened', labels: ['type::optimization', 'flow::approve'] },
-    ]), { status: 200 })
+    if (request.method === 'GET' && request.url.includes('/merge_requests/19/notes?')) return new Response(JSON.stringify([{ id: 500, body: 'Please keep the proposal concise.' }]), { status: 200 })
+    if (request.method === 'GET' && request.url.endsWith('/issues/17')) return new Response(JSON.stringify({ id: 17, iid: 17, title: 'Source', description: '', state: 'closed', labels: ['optimization::analyzing'] }), { status: 200 })
+    if (request.method === 'GET' && request.url.endsWith('/issues/81')) return new Response(JSON.stringify({ id: 81, iid: 81, title: 'Optimize', description: '<!-- issue-flow:automation-optimization source-issue=17 -->', state: 'opened', labels: ['type::optimization', 'flow::approve'] }), { status: 200 })
     if (request.method === 'POST' && request.url.endsWith('/issues')) return new Response(JSON.stringify({ id: 82, iid: 82, title: request.body.title, description: request.body.description, state: 'opened', labels: request.body.labels.split(',') }), { status: 201 })
     if (request.method === 'POST' && request.url.endsWith('/merge_requests/19/notes')) return new Response(JSON.stringify({ id: 501 }), { status: 201 })
     throw new Error(`Unexpected request: ${request.method} ${request.url}`)
@@ -189,6 +226,7 @@ test('approving an optimization proposal creates one linked Issue with fixed wor
     findRepositoryByProject: async () => repo,
     userCanAccessRepo: async () => true,
     getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async () => [{ prNumber: 19, issueNumber: 81, kind: 'plan', state: 'open' }],
   }
   const result = await approveOptimizationProposal({
     store, gitServerId: 'gitlab-main', projectId: '43326', issueNumber: 81, proposalId: 'project-docs', userId: 'user-1',
@@ -201,7 +239,10 @@ test('approving an optimization proposal creates one linked Issue with fixed wor
   assert.match(create.body.description, /optimization-issue=81 source-issue=17 proposal=project-docs/)
   const comment = requests.find((request) => request.method === 'POST' && request.url.endsWith('/merge_requests/19/notes'))
   assert.match(comment.body.body, /source_agent=issue-flow/)
+  assert.match(comment.body.body, /child-issue=82/)
   assert.match(comment.body.body, /创建执行 Issue：#82/)
+  assert.equal(requests.some((request) => request.method === 'GET' && request.url.includes('/issues?')), false)
+  assert.equal(requests.some((request) => request.method === 'GET' && request.url.includes('/merge_requests?')), false)
 })
 
 test('Issue Flow developer feedback produces a copyable GitHub Issue draft without creating it', () => {
@@ -372,6 +413,7 @@ test('approved Decision comments on the open MR and advances the issue without m
     findRepositoryByProject: async () => repo,
     userCanAccessRepo: async () => true,
     getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async () => [{ prNumber: 11, issueNumber: 42, kind: 'plan', state: 'open' }],
   }
 
   const result = await submitVisualReview({
@@ -393,6 +435,7 @@ test('approved Decision comments on the open MR and advances the issue without m
   assert.match(JSON.parse(comment.options.body).body, /## Decision Review/)
   assert.match(JSON.parse(comment.options.body).body, /Status: \*\*approved\*\*/)
   assert.match(JSON.parse(comment.options.body).body, /选择方案.*Database/)
+  assert.equal(requests.some((request) => request.url.includes('/merge_requests?')), false)
 })
 
 test('Build MR Markdown accepts Preview comments without changing the Plan workflow', async (t) => {
@@ -441,7 +484,10 @@ test('Build MR Markdown accepts Preview comments without changing the Plan workf
 test('reviewable artifacts only include open Plan MRs', async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
-  global.fetch = async () => new Response(JSON.stringify([
+  const requests = []
+  global.fetch = async (url) => {
+    requests.push(String(url))
+    return new Response(JSON.stringify([
     {
       id: 71,
       iid: 11,
@@ -482,7 +528,8 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
       sha: 'legacy456',
       updated_at: '2026-07-15T04:00:00.000Z',
     },
-  ]), { status: 200 })
+    ]), { status: 200 })
+  }
   const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget' }
   const store = {
     findRepositoryByProject: async () => repo,
@@ -500,6 +547,99 @@ test('reviewable artifacts only include open Plan MRs', async (t) => {
     { issueNumber: 42, type: 'plan', format: 'json', mergeRequestNumber: 14 },
     { issueNumber: 44, type: 'plan', format: 'markdown', mergeRequestNumber: 15 },
   ])
+  assert.equal(requests.length, 1)
+  assert.match(requests[0], /state=opened/)
+})
+
+test('issue reviewable artifacts read only synchronized Plan MRs for that Issue', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url) => {
+    const requestUrl = String(url)
+    requests.push(requestUrl)
+    if (requestUrl.endsWith('/merge_requests/14')) return new Response(JSON.stringify({
+      id: 74, iid: 14,
+      description: '<!-- issue-flow:plan-artifact artifact=plan format=json issue=42 branch=42-login/plan commit=plan456 path=.issue-flow/issues/42-login/plan/data/plan.json.isv -->',
+      labels: ['mr-by::plan'], state: 'opened', source_branch: '42-login/plan', target_branch: 'main', sha: 'plan456',
+      updated_at: '2026-07-15T05:00:00.000Z',
+    }), { status: 200 })
+    if (requestUrl.endsWith('/merge_requests/14/changes')) return new Response(JSON.stringify({ changes: [{
+      old_path: '.issue-flow/issues/42-login/plan/data/plan.json.isv',
+      new_path: '.issue-flow/issues/42-login/plan/data/plan.json.isv',
+    }] }), { status: 200 })
+    throw new Error(`Unexpected request: ${requestUrl}`)
+  }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async (input) => {
+      assert.deepEqual(input, { gitServerId: 'gitlab-main', repositoryId: '43326', issueNumber: 42 })
+      return [
+        { prNumber: 14, issueNumber: 42, kind: 'plan', state: 'open' },
+        { prNumber: 15, issueNumber: 42, kind: 'build', state: 'open' },
+        { prNumber: 16, issueNumber: 42, kind: 'plan', state: 'merged' },
+      ]
+    },
+  }
+
+  assert.deepEqual(await listReviewablePlanArtifacts({
+    store,
+    gitServerId: 'gitlab-main',
+    projectId: '43326',
+    issueNumber: 42,
+    userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+  }), [{ issueNumber: 42, type: 'plan', format: 'json', mergeRequestNumber: 14 }])
+  assert.equal(requests.some((request) => request.includes('/merge_requests?')), false)
+  assert.equal(requests.some((request) => request.includes('/merge_requests/15')), false)
+  assert.equal(requests.some((request) => request.includes('/merge_requests/16')), false)
+})
+
+test('issue reviewable artifacts do not scan Provider MRs when its synchronized Plan MRs are closed', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async (url) => { throw new Error(`Unexpected request: ${url}`) }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async () => [{ prNumber: 16, issueNumber: 42, kind: 'plan', state: 'merged' }],
+  }
+
+  assert.deepEqual(await listReviewablePlanArtifacts({
+    store,
+    gitServerId: 'gitlab-main',
+    projectId: '43326',
+    issueNumber: 42,
+    userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+  }), [])
+})
+
+test('issue reviewable artifacts do not scan Provider MRs when no synchronized Plan MR exists', async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async (url) => { throw new Error(`Unexpected request: ${url}`) }
+  const repo = { id: 'repo_123', gitServerId: 'gitlab-main', serverRepoId: '43326', fullName: 'acme/widget' }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ type: 'gitlab', apiUrl: 'https://gitlab.test/api/v4', tokenAuth: 'private-token' }),
+    listPullRequestsByIssue: async () => [],
+  }
+
+  assert.deepEqual(await listReviewablePlanArtifacts({
+    store,
+    gitServerId: 'gitlab-main',
+    projectId: '43326',
+    issueNumber: 42,
+    userId: 'user-1',
+    session: { userId: 'user-1', gitServerId: 'gitlab-main', token: 'user-token' },
+  }), [])
 })
 
 test('Engine loads a legacy Markdown Plan directly from the selected GitLab MR', async (t) => {
@@ -658,6 +798,7 @@ test('Engine loads a same-directory custom HTML Demo through the provider and re
   assert.equal(result.artifact.type, 'plan')
   assert.equal(result.artifact.previewer, 'issue-flow-visual')
   assert.equal(requests.some((request) => request.includes('/merge_requests?')), false)
+  assert.equal(requests.some((request) => request.endsWith('/merge_requests/17/changes')), false)
   assert.equal(requests.some((request) => decodeURIComponent(request).includes('/plan/data/checkout-demo.html?ref=abc123')), true)
   assert.match(result.html, /class="vp-demo-frame"/)
   assert.match(result.html, /sandbox="allow-scripts allow-forms allow-modals"/)

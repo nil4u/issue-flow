@@ -14,6 +14,12 @@ const {
 } = require('./providers.cjs');
 const { labelDefinitionFor, resolveIssueSizeLabel } = require('./labels.cjs');
 const { buildSourceMarker } = require('./provenance.cjs');
+const {
+  buildPlanArtifactMarker,
+  buildSourceIssueMarker: domainSourceIssueMarker,
+  upsertSourceIssueMarker,
+  validateVisualArtifactData,
+} = require('../../../domain/index.cjs');
 
 const SUBMIT_KINDS = {
   plan: {
@@ -29,27 +35,11 @@ const SUBMIT_KINDS = {
     labelDefinition: labelDefinitionFor('mr-by::build'),
   },
 };
-const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=\d+\s*-->/i;
 const LEGACY_AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->\s*/i;
 const SOURCE_PROVENANCE_MARKER_PATTERN = /<!--\s*issue-flow:source\s+[^>]*-->\s*/i;
 const VISUAL_ARTIFACT_TYPES = new Set(['decision', 'plan', 'optimization']);
 const VISUAL_PLAN_FEATURE_ON = 'feature:visual-plan:on';
 const PLAN_ARTIFACT_FORMATS = new Set(['json', 'markdown']);
-const VISUAL_SECTION_TYPES = new Set([
-  'summary', 'solution-summary', 'architecture', 'dependency-graph', 'deployment',
-  'runtime-flow', 'sequence', 'state-machine', 'data-flow', 'swimlane', 'user-journey',
-  'tree', 'component-tree', 'erd', 'matrix', 'path-matrix', 'permission-matrix',
-  'compatibility-matrix', 'option-comparison', 'risk-control', 'validation-matrix',
-  'traceability', 'responsibility-matrix', 'state-action', 'failure-handling',
-  'timeline', 'implementation-steps', 'implementation-dag', 'rollout', 'screen-flow',
-  'wireframe', 'chart', 'change-set', 'contract', 'risk-register', 'validation',
-  'evidence', 'cards', 'diagram', 'custom-html',
-]);
-const VISUAL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:-]*$/;
-const VISUAL_CHART_VARIANTS = new Set(['bar', 'horizontal-bar', 'column', 'line', 'area', 'donut', 'pie']);
-const CUSTOM_HTML_FILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/i;
-const MANAGED_LABEL_PREFIXES = ['type::', 'status::', 'flow::', 'automation::', 'priority::', 'size::', 'mr-by::', 'optimization::'];
-const OPTIMIZATION_TRACE_DETAIL_PATTERN = /(?:task[-_:][a-z0-9]|task\s+id|sequence|taskevent)/i;
 
 function usage() {
   return [
@@ -304,169 +294,13 @@ function assertVisualArtifactData(artifactPath, artifact) {
   } catch (error) {
     throw new Error(`Visual ${artifact} artifact must be valid JSON: ${error.message}`);
   }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(`Visual ${artifact} artifact must contain a JSON object`);
-  if (data.schemaVersion !== 1) throw new Error(`Visual ${artifact} artifact schemaVersion must be 1`);
-  if (data.artifact !== artifact) throw new Error(`Visual ${artifact} artifact field must equal "${artifact}"`);
-  if (artifact === 'optimization') {
-    const assertOnlyFields = (value, allowed, label) => {
-      const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
-      if (unknown.length) throw new Error(`${label} contains unsupported fields: ${unknown.join(', ')}`);
-    };
-    assertOnlyFields(data, ['schemaVersion', 'artifact', 'target', 'proposals'], 'Optimization JSON');
-    if (!data.target || typeof data.target !== 'object' || Array.isArray(data.target)) throw new Error('Optimization JSON must contain target');
-    assertOnlyFields(data.target, ['summary', 'cause'], 'Optimization target');
-    const summary = String(data.target.summary || '').trim();
-    if (!summary) throw new Error('Optimization target must contain summary');
-    if (summary.length > 120) throw new Error('Optimization target summary must not exceed 120 characters');
-    if (!Array.isArray(data.target.cause) || data.target.cause.length < 1 || data.target.cause.length > 3) throw new Error('Optimization target cause must contain 1 to 3 items');
-    for (const [index, cause] of data.target.cause.entries()) {
-      const value = String(cause || '').trim();
-      if (!value) throw new Error(`Optimization target cause[${index}] must not be empty`);
-      if (value.length > 80) throw new Error(`Optimization target cause[${index}] must not exceed 80 characters`);
-      if (OPTIMIZATION_TRACE_DETAIL_PATTERN.test(value)) throw new Error(`Optimization target cause[${index}] must not contain Task IDs, sequence, or event trace details`);
-    }
-    if (!Array.isArray(data.proposals) || !data.proposals.length) throw new Error('Optimization JSON must contain at least one proposals[] item');
-    const proposalIds = new Set();
-    const allowedTypes = new Set(['type::feature', 'type::bug', 'type::debt', 'type::ops', 'type::docs']);
-    const allowedKinds = new Set(['project-change', 'issue-flow-feedback']);
-    const allowedPriorities = new Set(['priority::p0', 'priority::p1', 'priority::p2', 'priority::p3']);
-    const allowedSizes = new Set(['size::XS', 'size::S', 'size::M', 'size::L', 'size::XL']);
-    const allowedFlows = new Set(['flow::plan', 'flow::build']);
-    for (const [index, proposal] of data.proposals.entries()) {
-      const id = String(proposal && proposal.id || '').trim();
-      if (!id || !VISUAL_ID_PATTERN.test(id)) throw new Error(`proposals[${index}] must have a path-safe id`);
-      if (proposalIds.has(id)) throw new Error(`Optimization proposals contains duplicate id: ${id}`);
-      proposalIds.add(id);
-      assertOnlyFields(proposal, ['id', 'kind', 'title', 'solution', 'validation', 'issue'], `Proposal ${id}`);
-      if (!allowedKinds.has(proposal.kind)) throw new Error(`Proposal ${id} kind is invalid: ${proposal.kind || '(empty)'}`);
-      if (!String(proposal.title || '').trim()) throw new Error(`Proposal ${id} must contain title`);
-      if (!String(proposal.solution || '').trim()) throw new Error(`Proposal ${id} must contain solution`);
-      if (!Array.isArray(proposal.validation) || !proposal.validation.length || proposal.validation.some((item) => !String(item || '').trim())) throw new Error(`Proposal ${id} must contain validation[]`);
-      const issue = proposal.issue;
-      if (!issue || typeof issue !== 'object' || Array.isArray(issue)) throw new Error(`Proposal ${id} must contain issue`);
-      assertOnlyFields(issue, ['title', 'body', 'type', 'priority', 'size', 'flow', 'labels'], `Proposal ${id} issue`);
-      if (!String(issue.title || '').trim() || !String(issue.body || '').trim()) throw new Error(`Proposal ${id} issue must contain title and body`);
-      if (!allowedTypes.has(issue.type)) throw new Error(`Proposal ${id} issue.type is invalid: ${issue.type || '(empty)'}`);
-      if (!allowedPriorities.has(issue.priority)) throw new Error(`Proposal ${id} issue.priority is invalid: ${issue.priority || '(empty)'}`);
-      if (!allowedSizes.has(issue.size)) throw new Error(`Proposal ${id} issue.size is invalid: ${issue.size || '(empty)'}`);
-      if (proposal.kind === 'project-change' && !allowedFlows.has(issue.flow)) throw new Error(`Proposal ${id} project issue.flow is invalid: ${issue.flow || '(empty)'}`);
-      if (proposal.kind === 'project-change' && issue.type === 'type::docs' && issue.flow !== 'flow::build') throw new Error(`Proposal ${id} type::docs must use flow::build`);
-      if (proposal.kind === 'issue-flow-feedback' && issue.type !== 'type::bug') throw new Error(`Proposal ${id} Issue Flow feedback must use type::bug`);
-      if (proposal.kind === 'issue-flow-feedback' && issue.flow !== 'flow::triage') throw new Error(`Proposal ${id} Issue Flow feedback must use flow::triage`);
-      if (issue.labels !== undefined && (!Array.isArray(issue.labels) || issue.labels.some((label) => !String(label || '').trim()))) throw new Error(`Proposal ${id} issue.labels must be an array of non-empty labels`);
-      const managedLabel = (issue.labels || []).find((label) => MANAGED_LABEL_PREFIXES.some((prefix) => String(label).startsWith(prefix)));
-      if (managedLabel) throw new Error(`Proposal ${id} issue.labels cannot contain managed label: ${managedLabel}`);
-    }
-    return data;
-  }
-  if (!data.meta || typeof data.meta !== 'object' || !String(data.meta.title || '').trim()) throw new Error(`Visual ${artifact} artifact must contain meta.title`);
-  const forbidden = [];
-  const invalidIds = [];
-  const visit = (value, location = '') => {
-    if (!value || typeof value !== 'object') return;
-    if (Array.isArray(value)) return value.forEach((entry, index) => visit(entry, `${location}[${index}]`));
-    for (const [key, entry] of Object.entries(value)) {
-      const next = location ? `${location}.${key}` : key;
-      if (['html', 'css', 'js', 'script', 'style'].includes(key.toLowerCase())) forbidden.push(next);
-      if (key === 'id' && (!String(entry || '').trim() || !VISUAL_ID_PATTERN.test(String(entry).trim()))) invalidIds.push(next);
-      visit(entry, next);
-    }
-  };
-  visit(data);
-  if (forbidden.length) throw new Error(`Visual ${artifact} JSON cannot contain presentation code fields: ${forbidden.join(', ')}`);
-  if (invalidIds.length) throw new Error(`Visual ${artifact} JSON contains invalid path-safe ids: ${invalidIds.join(', ')}`);
-  const collectIds = (items, location) => {
-    const ids = new Set();
-    for (const [index, item] of items.entries()) {
-      const id = String(item && item.id || '').trim();
-      if (!id) throw new Error(`${location}[${index}] must have an id`);
-      if (!VISUAL_ID_PATTERN.test(id)) throw new Error(`${location}[${index}] has an invalid id: ${id}`);
-      if (ids.has(id)) throw new Error(`${location} contains duplicate id: ${id}`);
-      ids.add(id);
-    }
-    return ids;
-  };
-  if (artifact === 'decision') {
-    if (!Array.isArray(data.decisions) || !data.decisions.length) throw new Error('Decision JSON must contain at least one decisions[] item');
-    collectIds(data.decisions, 'decisions');
-    for (const [index, decision] of data.decisions.entries()) {
-      const id = String(decision && decision.id || '').trim();
-      if (!String(decision.question || decision.title || '').trim()) throw new Error(`Decision ${id} must contain a question`);
-      const options = Array.isArray(decision.options) ? decision.options : [];
-      if (decision.type === 'choice' && options.length < 2) throw new Error(`Decision ${id} choice must contain at least two options`);
-      if (decision.type === 'choice') {
-        const optionIds = collectIds(options, `decisions.${id}.options`);
-        const recommended = String(decision.recommendedOptionId || decision.recommended || '').trim();
-        if (!recommended) throw new Error(`Decision ${id} choice must contain recommendedOptionId`);
-        if (!optionIds.has(recommended)) throw new Error(`Decision ${id} recommendedOptionId does not match an option: ${recommended}`);
-      }
-    }
-    return data;
-  }
-  if (!Array.isArray(data.sections) || !data.sections.length) throw new Error('Plan JSON must contain at least one sections[] item');
-  if (!data.core || typeof data.core !== 'object' || Array.isArray(data.core)) throw new Error('Plan JSON must contain a core object');
-  if (!String(data.core.outcome || data.core.goal || data.core.summary || '').trim()) throw new Error('Plan core must describe the outcome');
-  collectIds(data.sections, 'sections');
-  let hasSummary = false;
-  let hasValidation = false;
-  for (const [index, section] of data.sections.entries()) {
-    const id = String(section && section.id || '').trim();
-    const type = String(section && section.type || '').trim();
-    if (!VISUAL_SECTION_TYPES.has(type)) throw new Error(`Plan section ${id} uses unsupported type: ${type || '(empty)'}`);
-    if (type === 'summary' || type === 'solution-summary') hasSummary = true;
-    if (type === 'validation' || type === 'validation-matrix') hasValidation = true;
-    const graph = ['architecture', 'dependency-graph', 'deployment', 'runtime-flow', 'state-machine', 'data-flow', 'rollout', 'screen-flow', 'component-tree', 'implementation-dag'].includes(type)
-      || type === 'diagram' && String(section.variant || '').trim() !== 'sequence';
-    if (graph) {
-      const nodes = section.nodes || section.elements || section.states || section.screens || section.tasks || [];
-      const edges = section.edges || section.relationships || section.transitions || section.connections || [];
-      if (!Array.isArray(nodes) || !nodes.length) throw new Error(`Graph section ${id} must contain nodes`);
-      const nodeIds = collectIds(nodes, `sections.${id}.nodes`);
-      if (!Array.isArray(edges)) throw new Error(`Graph section ${id} edges must be an array`);
-      for (const [edgeIndex, edge] of edges.entries()) {
-        const source = String(edge && (edge.sourceId || edge.from || edge.source) || '').trim();
-        const target = String(edge && (edge.destinationId || edge.to || edge.target) || '').trim();
-        if (!source || !nodeIds.has(source)) throw new Error(`sections.${id}.edges[${edgeIndex}] has unknown source: ${source || '(empty)'}`);
-        if (!target || !nodeIds.has(target)) throw new Error(`sections.${id}.edges[${edgeIndex}] has unknown target: ${target || '(empty)'}`);
-      }
-      collectIds(edges, `sections.${id}.edges`);
-    }
-    const sequence = type === 'sequence' || type === 'diagram' && String(section.variant || '').trim() === 'sequence';
-    if (sequence) {
-      const participants = Array.isArray(section.participants || section.actors) ? section.participants || section.actors : [];
-      const messages = Array.isArray(section.messages || section.steps) ? section.messages || section.steps : [];
-      if (participants.length < 2) throw new Error(`Sequence section ${id} must contain at least two participants`);
-      if (!messages.length) throw new Error(`Sequence section ${id} must contain messages`);
-      const participantIds = collectIds(participants, `sections.${id}.participants`);
-      collectIds(messages, `sections.${id}.messages`);
-      for (const [messageIndex, message] of messages.entries()) {
-        const source = String(message && (message.sourceId || message.from || message.source) || '').trim();
-        const target = String(message && (message.destinationId || message.to || message.target) || '').trim();
-        if (!participantIds.has(source)) throw new Error(`sections.${id}.messages[${messageIndex}] has unknown source: ${source || '(empty)'}`);
-        if (!participantIds.has(target)) throw new Error(`sections.${id}.messages[${messageIndex}] has unknown target: ${target || '(empty)'}`);
-      }
-    }
-    if (type === 'chart') {
-      const variant = String(section.variant || 'bar').trim();
-      if (!VISUAL_CHART_VARIANTS.has(variant)) throw new Error(`Chart section ${id} uses unsupported variant: ${variant}`);
-      if (!Array.isArray(section.items) || !section.items.length) throw new Error(`Chart section ${id} must contain items`);
-      collectIds(section.items, `sections.${id}.items`);
-      for (const [itemIndex, item] of section.items.entries()) {
-        if (!Number.isFinite(Number(item && item.value))) throw new Error(`sections.${id}.items[${itemIndex}] must contain a numeric value`);
-      }
-    }
-    if (type === 'custom-html') {
-      const file = String(section.file || '').trim();
-      if (!CUSTOM_HTML_FILE_PATTERN.test(file)) throw new Error(`Custom HTML section ${id} must reference a same-directory .html file name`);
+  return validateVisualArtifactData(data, artifact, {
+    customHtmlFileExists(file) {
       const demoPath = path.resolve(path.dirname(path.resolve(process.cwd(), artifactPath)), file);
-      if (!fs.existsSync(demoPath) || !fs.statSync(demoPath).isFile()) throw new Error(`Custom HTML section ${id} file does not exist: ${demoPath}`);
-    }
-  }
-  if (!hasSummary) throw new Error('Plan JSON must include a summary or solution-summary section');
-  if (!hasValidation) throw new Error('Plan JSON must include a validation or validation-matrix section');
-  return data;
+      return fs.existsSync(demoPath) && fs.statSync(demoPath).isFile();
+    },
+  });
 }
-
 function findMarkdownPlanPath(issueNumber, options = {}) {
   if (options.artifactPath) {
     const explicitPath = path.resolve(process.cwd(), options.artifactPath);
@@ -509,7 +343,7 @@ function resolvePlanReviewContext(visual, options, repo, issueNumber) {
 function buildVisualArtifactMarker(input = {}) {
   const format = String(input.format || 'json').trim().toLowerCase();
   if (!PLAN_ARTIFACT_FORMATS.has(format)) throw new Error(`Unsupported Plan artifact format: ${format}`);
-  return `<!-- issue-flow:plan-artifact artifact=${input.artifact} format=${format} issue=${input.issueNumber} branch=${input.branch} commit=${input.commit} path=${input.artifactPath} -->`;
+  return buildPlanArtifactMarker({ ...input, format });
 }
 
 function buildVisualArtifactComment(input = {}) {
@@ -670,7 +504,7 @@ function assertBodyFileNotTracked(bodyFile) {
 }
 
 function buildSourceIssueMarker(issueNumber) {
-  return `<!-- issue-flow:source-issue=${issueNumber} -->`;
+  return domainSourceIssueMarker(issueNumber);
 }
 
 function resolveAgentrixTaskId(options = {}) {
@@ -685,9 +519,7 @@ function buildPrBodyWithMarkers(body, issueNumber, taskId = '') {
     sourceRuntime: sourceTaskId ? 'agentrix' : '',
   });
   const content = String(body || '').replace(LEGACY_AGENTRIX_TASK_MARKER_PATTERN, '').trimStart();
-  let marked = SOURCE_ISSUE_MARKER_PATTERN.test(content)
-    ? content.replace(SOURCE_ISSUE_MARKER_PATTERN, sourceMarker)
-    : `${sourceMarker}\n${content}`;
+  let marked = upsertSourceIssueMarker(content, issueNumber);
 
   if (provenanceMarker) {
     if (SOURCE_PROVENANCE_MARKER_PATTERN.test(marked)) {

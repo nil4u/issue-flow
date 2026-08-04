@@ -143,6 +143,6 @@ export type OptimizationProposalState = {
   id: string
   state: "pending" | "ignored" | "created" | "executing" | "completed" | "cancelled"
   childIssue: { number: number; title: string; state: string; webUrl: string } | null
-  kind?: "project-change" | "issue-flow-feedback"
+  kind?: "project-change" | "project-developer-feedback" | "issue-flow-feedback"
   feedback?: { title: string; body: string; labels: string[]; text: string; url: string }
 }

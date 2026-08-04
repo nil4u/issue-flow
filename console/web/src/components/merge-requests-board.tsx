@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, ExternalLink, GitBranch, GitMerge, Loader2, RefreshCw, Search } from "lucide-react"
+import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, Loader2, RefreshCw, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { EmptyPanel } from "@/components/empty-panel"
 import { api, formatWhen, type MergeRequestSummary, type RepoWorkspaceProps } from "@/issue-flow-model"
 
 type MergeRequestState = "open" | "merged" | "closed" | "all"
+const MERGE_REQUESTS_PER_PAGE = 30
 
 const stateOptions: Array<{ value: MergeRequestState; label: string }> = [
   { value: "open", label: "Open" },
@@ -22,6 +23,8 @@ function stateLabel(mergeRequest: MergeRequestSummary) {
 
 export function MergeRequestsBoard({ gitServer, user, project, repository, onLogin }: RepoWorkspaceProps) {
   const [state, setState] = useState<MergeRequestState>("open")
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
   const [mergeRequests, setMergeRequests] = useState<MergeRequestSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -33,31 +36,22 @@ export function MergeRequestsBoard({ gitServer, user, project, repository, onLog
     setLoading(true)
     setError("")
     try {
-      const body = await api<{ mergeRequests?: MergeRequestSummary[] }>(
-        `/api/merge-requests/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}?state=${state}`,
+      const body = await api<{ mergeRequests?: MergeRequestSummary[]; hasMore?: boolean }>(
+        `/api/merge-requests/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}?${new URLSearchParams({ state, page: String(page), perPage: String(MERGE_REQUESTS_PER_PAGE) })}`,
       )
       setMergeRequests(Array.isArray(body.mergeRequests) ? body.mergeRequests : [])
+      setHasMore(Boolean(body.hasMore))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载 Merge Requests 失败")
     } finally {
       setLoading(false)
     }
-  }, [gitServerId, projectId, state, user])
+  }, [gitServerId, page, projectId, state, user])
 
   useEffect(() => {
     if (!gitServerId || !projectId || !user) return
-    let active = true
-    void api<{ mergeRequests?: MergeRequestSummary[] }>(
-      `/api/merge-requests/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}?state=${state}`,
-    ).then((body) => {
-      if (active) setMergeRequests(Array.isArray(body.mergeRequests) ? body.mergeRequests : [])
-    }).catch((loadError) => {
-      if (active) setError(loadError instanceof Error ? loadError.message : "加载 Merge Requests 失败")
-    }).finally(() => {
-      if (active) setLoading(false)
-    })
-    return () => { active = false }
-  }, [gitServerId, projectId, state, user])
+    void loadMergeRequests()
+  }, [gitServerId, loadMergeRequests, projectId, state, user])
 
   if (!gitServer) return <EmptyPanel icon={<GitBranch className="size-6" />} title="没有 Git server" detail="请先在后台配置 Git server。" />
   if (!user) {
@@ -85,6 +79,7 @@ export function MergeRequestsBoard({ gitServer, user, project, repository, onLog
                 if (state === option.value) return
                 setLoading(true)
                 setError("")
+                setPage(1)
                 setState(option.value)
               }}>
                 {option.label}
@@ -133,6 +128,13 @@ export function MergeRequestsBoard({ gitServer, user, project, repository, onLog
           ))}
         </div>
       )}
+      <footer className="provider-list-pagination" aria-label="Merge request pagination">
+        <span>第 {page} 页</span>
+        <div>
+          <Button variant="secondary" size="sm" disabled={loading || page <= 1} onClick={() => { setLoading(true); setPage((value) => Math.max(1, value - 1)) }}><ChevronLeft className="size-4" />上一页</Button>
+          <Button variant="secondary" size="sm" disabled={loading || !hasMore} onClick={() => { setLoading(true); setPage((value) => value + 1) }}>下一页<ChevronRight className="size-4" /></Button>
+        </div>
+      </footer>
     </div>
   )
 }

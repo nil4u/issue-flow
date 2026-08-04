@@ -35,8 +35,8 @@ function assertInstalledSymlinks(root) {
 test('vision-plan skill links a manual covering every supported Engine section type', () => {
   const skill = fs.readFileSync(path.join(repoRoot, 'skills/vision-plan/SKILL.md'), 'utf8');
   const manual = fs.readFileSync(path.join(repoRoot, 'skills/vision-plan/references/engine-json-contract.md'), 'utf8');
-  const submitSource = fs.readFileSync(path.join(repoRoot, 'skills/issue-flow/scripts/submit.cjs'), 'utf8');
-  const sectionTypesSource = submitSource.match(/const VISUAL_SECTION_TYPES = new Set\(\[([\s\S]*?)\]\);/);
+  const domainSource = fs.readFileSync(path.join(repoRoot, 'domain/index.cjs'), 'utf8');
+  const sectionTypesSource = domainSource.match(/const VISUAL_SECTION_TYPES = new Set\(\[([\s\S]*?)\]\);/);
   assert.ok(sectionTypesSource, 'VISUAL_SECTION_TYPES must be readable');
   const sectionTypes = [...sectionTypesSource[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
 
@@ -103,6 +103,7 @@ test('install script installs GitHub runtime from checkout source', () => {
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/.claude-plugin')), false);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));
     assert.equal(Object.keys(manifest.files).some((file) => file.includes('.claude-plugin')), false);
+    assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/domain/index.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/dispatch.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/create-issue.cjs')), true);
     assert.equal(fs.existsSync(path.join(root, '.agentrix/plugins/issue-flow/skills/issue-flow/scripts/sync-labels.cjs')), true);

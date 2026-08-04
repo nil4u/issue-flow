@@ -5,21 +5,13 @@ const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
 const { loadEventPayload } = require('./events.cjs');
 const { completeOptimizationForChildIssue } = require('./optimization-completion.cjs');
+const {
+  parsePlanArtifactMarker,
+  resolveMergedPullRequestTransition,
+  sourceIssueNumber,
+} = require('../../../domain/index.cjs');
 
-const MERGED_PR_TRANSITIONS = {
-  plan: {
-    label: 'mr-by::plan',
-    flow: 'flow::build',
-  },
-  build: {
-    label: 'mr-by::build',
-    status: 'status::done',
-    clearFlow: true,
-  },
-};
-const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i;
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
-const PLAN_ARTIFACT_MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan|optimization)\s+format=(json|markdown)\b[^>]*-->/i;
 
 function usage() {
   return [
@@ -106,8 +98,8 @@ function pullRequestLabels(pullRequest) {
 }
 
 function parsePlanArtifact(body = '') {
-  const match = String(body || '').match(PLAN_ARTIFACT_MARKER_PATTERN);
-  return match ? { artifact: match[1].toLowerCase(), format: match[2].toLowerCase() } : undefined;
+  const marker = parsePlanArtifactMarker(body);
+  return marker ? { artifact: marker.artifact, format: marker.format } : undefined;
 }
 
 function parseAgentrixTaskId(body = '') {
@@ -117,40 +109,7 @@ function parseAgentrixTaskId(body = '') {
 
 
 function resolveMergedPrTransition(labels, pullRequest = {}) {
-  const matches = Object.entries(MERGED_PR_TRANSITIONS).filter(([, transition]) => labels.includes(transition.label));
-  if (matches.length === 0) {
-    return undefined;
-  }
-  if (matches.length > 1) {
-    throw new Error(`Pull request has multiple issue-flow source labels: ${matches.map(([, transition]) => transition.label).join(', ')}`);
-  }
-  const [kind, transition] = matches[0];
-  const planArtifact = kind === 'plan' ? parsePlanArtifact(pullRequest.body) : undefined;
-  if (planArtifact && planArtifact.artifact === 'decision') {
-    return {
-      kind: 'decision',
-      label: transition.label,
-      flow: 'flow::plan',
-      artifact: planArtifact.artifact,
-      format: planArtifact.format,
-    };
-  }
-  if (planArtifact && planArtifact.artifact === 'optimization') {
-    return {
-      kind: 'optimization',
-      label: transition.label,
-      artifact: planArtifact.artifact,
-      format: planArtifact.format,
-    };
-  }
-  return {
-    kind,
-    ...transition,
-    ...(planArtifact ? {
-      artifact: planArtifact.artifact,
-      format: planArtifact.format,
-    } : {}),
-  };
+  return resolveMergedPullRequestTransition(labels, pullRequest);
 }
 
 function firstIssueReference(value, patterns) {
@@ -168,7 +127,7 @@ function firstIssueReference(value, patterns) {
 }
 
 function parseSourceIssueNumber(pullRequest) {
-  const markerIssue = firstIssueReference(pullRequest.body, [SOURCE_ISSUE_MARKER_PATTERN]);
+  const markerIssue = sourceIssueNumber(pullRequest.body);
   if (markerIssue) {
     return markerIssue;
   }

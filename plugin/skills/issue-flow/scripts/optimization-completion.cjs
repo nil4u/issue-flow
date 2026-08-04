@@ -1,33 +1,30 @@
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-
-const OPTIMIZATION_SOURCE_PATTERN = /<!--\s*issue-flow:automation-optimization\s+source-issue=(\d+)\s*-->/i;
-const PROPOSAL_PATTERN = /<!--\s*issue-flow:optimization-proposal\s+optimization-issue=(\d+)\s+source-issue=(\d+)\s+proposal=([^\s>]+)(?:\s+action=([^\s>]+))?\s*-->/i;
-const ARTIFACT_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=optimization\s+format=json\s+(?:repo=[^\s]+\s+)?issue=(\d+)\s+branch=([^\s]+)\s+commit=([^\s]+)\s+path=([^\s]+)\s*-->/i;
+const {
+  allOptimizationProposalsTerminal,
+  childOptimizationState,
+  deriveOptimizationProposalStates,
+  optimizationSourceIssueNumber,
+  parseOptimizationProposalMarker,
+  parsePlanArtifactMarker,
+} = require('../../../domain/index.cjs');
 
 function parseProposalMarker(body = '') {
-  const match = String(body).match(PROPOSAL_PATTERN);
-  return match ? {
-    optimizationIssueNumber: Number.parseInt(match[1], 10),
-    sourceIssueNumber: Number.parseInt(match[2], 10),
-    proposalId: match[3],
-    action: match[4] || 'created',
-  } : undefined;
+  return parseOptimizationProposalMarker(body);
 }
 
 function parseArtifactMarker(pullRequest = {}) {
-  const match = String(pullRequest.body || '').match(ARTIFACT_PATTERN);
-  return match ? {
-    issueNumber: Number.parseInt(match[1], 10),
-    branch: match[2],
-    commit: match[3],
-    path: match[4],
+  const marker = parsePlanArtifactMarker(pullRequest.body);
+  return marker && marker.artifact === 'optimization' ? {
+    issueNumber: marker.issueNumber,
+    branch: marker.branch,
+    commit: marker.commit,
+    path: marker.path,
   } : undefined;
 }
 
 function sourceIssueNumber(body = '') {
-  const match = String(body).match(OPTIMIZATION_SOURCE_PATTERN);
-  return match ? Number.parseInt(match[1], 10) : 0;
+  return optimizationSourceIssueNumber(body);
 }
 
 function issueBody(issue = {}) {
@@ -35,12 +32,8 @@ function issueBody(issue = {}) {
 }
 
 function terminalState(issue = {}) {
-  const labels = (Array.isArray(issue.labels) ? issue.labels : [])
-    .map((label) => typeof label === 'string' ? label : label && label.name)
-    .filter(Boolean);
-  if (labels.includes('status::done')) return 'completed';
-  if (labels.includes('status::drop')) return 'cancelled';
-  return '';
+  const state = childOptimizationState(issue);
+  return state === 'completed' || state === 'cancelled' ? state : '';
 }
 
 function runApply(provider, repo, issueNumber, args, options = {}) {
@@ -58,25 +51,8 @@ function runApply(provider, repo, issueNumber, args, options = {}) {
 }
 
 function proposalStates(data, optimizationIssueNumber, comments, issues) {
-  const ignored = new Set(comments.map((comment) => parseProposalMarker(comment.body)).filter((marker) => marker && marker.optimizationIssueNumber === optimizationIssueNumber && marker.action === 'ignored').map((marker) => marker.proposalId));
-  const children = new Map();
-  for (const issue of issues) {
-    const marker = parseProposalMarker(issueBody(issue));
-    if (marker && marker.optimizationIssueNumber === optimizationIssueNumber && !children.has(marker.proposalId)) children.set(marker.proposalId, issue);
-  }
-  return data.proposals.map((proposal) => {
-    const child = children.get(proposal.id);
-    return {
-      id: proposal.id,
-      kind: proposal.kind || 'project-change',
-      state: child ? terminalState(child) || 'active' : ignored.has(proposal.id) ? 'ignored' : 'pending',
-    };
-  });
-}
-
-function allOptimizationProposalsTerminal(states = []) {
-  const executable = states.filter((item) => item.kind !== 'issue-flow-feedback');
-  return states.length > 0 && executable.every((item) => ['ignored', 'completed', 'cancelled'].includes(item.state));
+  return deriveOptimizationProposalStates(data, optimizationIssueNumber, comments, issues)
+    .map(({ childIssue, ...state }) => ({ ...state, state: state.state === 'created' || state.state === 'executing' ? 'active' : state.state }));
 }
 
 async function completeOptimizationForChildIssue(provider, repo, childIssueNumber, options = {}) {

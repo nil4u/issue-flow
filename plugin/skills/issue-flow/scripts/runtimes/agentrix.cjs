@@ -8,6 +8,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { sourceIssueNumber } = require('../../../../domain/index.cjs');
 const { spawnSync } = require('node:child_process');
 const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
 
@@ -49,6 +50,20 @@ const PROVIDER_TOKEN_ENV_KEYS = [
   'GITLAB_PRIVATE_TOKEN',
   'CI_JOB_TOKEN',
   'ISSUE_FLOW_GIT_TOKEN',
+];
+const GITHUB_TRIGGER_ENV_KEYS = [
+  'GITHUB_EVENT_NAME',
+  'GITHUB_EVENT_PATH',
+  'GITHUB_REF',
+  'GITHUB_REF_NAME',
+  'GITHUB_SHA',
+  'GITHUB_BASE_REF',
+  'GITHUB_HEAD_REF',
+];
+const GITLAB_TRIGGER_ENV_KEYS = [
+  'CI_COMMIT_REF_NAME',
+  'CI_COMMIT_SHA',
+  'CI_PIPELINE_SOURCE',
 ];
 
 const PROMPT_FILES = {
@@ -492,6 +507,8 @@ function composeActionPrompt(action, issue, data = {}, options = {}) {
 }
 
 function extractSourceIssueNumberFromPullRequest(pr = {}) {
+  const markerIssueNumber = sourceIssueNumber(pr.body);
+  if (markerIssueNumber) return markerIssueNumber;
   const candidates = [
     pr.body,
     pr.title,
@@ -500,7 +517,6 @@ function extractSourceIssueNumberFromPullRequest(pr = {}) {
   ].filter(Boolean).map(String);
 
   const patterns = [
-    /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i,
     /Source issue:\s*#(\d+)/i,
     /\b(?:Plan|Build)\s+#(\d+)/i,
     /^(\d+)-[^/]+\/(?:plan|build)$/i,
@@ -809,10 +825,27 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
-function sanitizeAgentrixRunEnv(env = process.env) {
+function clearMergedPullRequestContext(env) {
+  for (const key of GITHUB_TRIGGER_ENV_KEYS) {
+    delete env[key];
+  }
+  for (const key of GITLAB_TRIGGER_ENV_KEYS) {
+    delete env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GITLAB_BRIDGE_') || key.startsWith('CI_MERGE_REQUEST_')) {
+      delete env[key];
+    }
+  }
+}
+
+function sanitizeAgentrixRunEnv(env = process.env, data = {}) {
   const childEnv = { ...env };
   for (const key of PROVIDER_TOKEN_ENV_KEYS) {
     delete childEnv[key];
+  }
+  if (data.prMerged) {
+    clearMergedPullRequestContext(childEnv);
   }
   return childEnv;
 }
@@ -837,7 +870,7 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: sanitizeAgentrixRunEnv(),
+    env: sanitizeAgentrixRunEnv(process.env, data),
   });
 
   try {

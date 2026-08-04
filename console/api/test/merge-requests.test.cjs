@@ -4,8 +4,59 @@ const test = require("node:test")
 process.env.DATABASE_URL ||= "postgresql://issue-flow:test@127.0.0.1:5432/issue_flow_test"
 require("tsx/cjs")
 
-const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
-const { getMergeRequest } = require("../src/core/merge-requests.ts")
+const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
+const { getMergeRequest, updateMergeRequestWorkflow } = require("../src/core/merge-requests.ts")
+const { applyMergeRequestLabelChanges, normalizeMergeRequestLabelChanges } = require("../src/core/managed-merge-request-labels.ts")
+
+test("merge request label changes replace only the requested managed prefix", () => {
+  assert.deepEqual(
+    applyMergeRequestLabelChanges(["mr-by::plan", "review::off", "backend"], { mrBy: "mr-by::build" }),
+    ["review::off", "backend", "mr-by::build"],
+  )
+  assert.deepEqual(applyMergeRequestLabelChanges(["mr-by::plan", "backend"], { mrBy: null }), ["backend"])
+  assert.deepEqual(applyMergeRequestLabelChanges(["mr-by::build", "review::off", "backend"], { review: null }), ["mr-by::build", "backend"])
+  assert.throws(() => normalizeMergeRequestLabelChanges({ changes: { flow: "flow::build" } }), /unsupported merge request label group/)
+})
+
+test("merge request workflow updates only labels through the current user credential", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url, options = {}) => {
+    const request = { url: String(url), method: options.method || "GET", body: options.body ? JSON.parse(options.body) : undefined }
+    requests.push(request)
+    if (request.method === "GET" && request.url.endsWith("/merge_requests/17")) return new Response(JSON.stringify({ id: 17, iid: 17, title: "Plan", state: "opened", labels: ["mr-by::plan", "review::off", "backend"] }), { status: 200 })
+    if (request.method === "PUT" && request.url.endsWith("/merge_requests/17")) return new Response(JSON.stringify({ labels: request.body.labels.split(",") }), { status: 200 })
+    throw new Error(`Unexpected request: ${request.method} ${request.url}`)
+  }
+  const repo = { id: "repo-1", gitServerId: "gitlab-1", serverRepoId: "43326", fullName: "acme/widget" }
+  const result = await updateMergeRequestWorkflow({
+    store: { findRepositoryByProject: async () => repo, userCanAccessRepo: async () => true, getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }) },
+    gitServerId: "gitlab-1", projectId: "43326", mergeRequestNumber: 17, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: { changes: { review: null } },
+  })
+
+  assert.deepEqual(requests.map((request) => request.method), ["GET", "PUT"])
+  assert.deepEqual(requests[1].body, { labels: "mr-by::plan,backend" })
+  assert.deepEqual(result.labels, ["mr-by::plan", "backend"])
+})
+
+test("GitHub and GitLab merge request label updates use provider-specific endpoints", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url, options = {}) => {
+    const body = JSON.parse(options.body)
+    requests.push({ url: String(url), method: options.method, body })
+    return new Response(JSON.stringify({ labels: Array.isArray(body.labels) ? body.labels.map((name) => ({ name })) : body.labels.split(",") }), { status: 200 })
+  }
+  await updateProviderMergeRequestLabels({ type: "github", apiUrl: "https://api.github.test", userToken: "token" }, { fullName: "acme/widget" }, 7, ["mr-by::plan"])
+  await updateProviderMergeRequestLabels({ type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "token" }, { serverRepoId: "43326" }, 17, ["mr-by::build"])
+
+  assert.deepEqual(requests[0], { url: "https://api.github.test/repos/acme/widget/issues/7", method: "PATCH", body: { labels: ["mr-by::plan"] } })
+  assert.deepEqual(requests[1], { url: "https://gitlab.test/api/v4/projects/43326/merge_requests/17", method: "PUT", body: { labels: "mr-by::build" } })
+})
 
 test("Plan labels identify workflow previews before changed files are loaded", () => {
   const planBody = "<!-- issue-flow:source-issue=42 -->\nSource issue: #42"
@@ -41,6 +92,44 @@ test("GitLab merge request list uses the current user credential", async (t) => 
   assert.equal(request.options.headers["PRIVATE-TOKEN"], "user-token")
   assert.equal(result[0].sourceIssueNumber, 42)
   assert.equal(result[0].previewable, true)
+})
+
+test("GitLab merge request pages request one lookahead item", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url) => {
+    requests.push(String(url))
+    return new Response(JSON.stringify(Array.from({ length: 31 }, (_, index) => ({
+      id: index + 1,
+      iid: index + 1,
+      title: `Merge request ${index + 1}`,
+      state: "opened",
+      labels: [],
+      source_branch: `branch-${index + 1}`,
+      target_branch: "main",
+    }))), { status: 200 })
+  }
+
+  const first = await listProviderMergeRequestsPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    "open",
+    { page: 1, perPage: 30 },
+  )
+  const second = await listProviderMergeRequestsPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    "open",
+    { page: 2, perPage: 30 },
+  )
+
+  assert.equal(first.mergeRequests.length, 30)
+  assert.equal(first.hasMore, true)
+  assert.equal(second.page, 2)
+  assert.match(requests[0], /per_page=31/)
+  assert.doesNotMatch(requests[0], /page=2/)
+  assert.match(requests[1], /page=2/)
 })
 
 test("GitLab mention candidates combine repository members, participants, and bots", async (t) => {
@@ -178,6 +267,7 @@ test("merge request detail renders summary and comments as provider Markdown", a
     if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ changes: [] }), { status: 200 })
     if (path.includes("/discussions?")) return new Response(JSON.stringify([{ notes: [{ id: 8, body: "[Open task](https://example.test/task)", author: { username: "agentrix" } }] }]), { status: 200 })
     if (path.endsWith("/approvals")) return new Response(JSON.stringify({ approved_by: [] }), { status: 200 })
+    if (path.endsWith("/projects/43326/labels?per_page=100")) return new Response(JSON.stringify([{ name: "mr-by::plan", color: "0052CC", description: "Plan" }]), { status: 200 })
     if (path.endsWith("/markdown") && options.method === "POST") {
       const body = JSON.parse(options.body)
       return new Response(JSON.stringify({ html: `<p>${body.text}</p>` }), { status: 200 })
@@ -192,6 +282,7 @@ test("merge request detail renders summary and comments as provider Markdown", a
   })
   assert.match(detail.mergeRequest.bodyHtml, /## Summary/)
   assert.match(detail.comments[0].bodyHtml, /Open task/)
+  assert.equal(detail.availableLabels[0].name, "mr-by::plan")
 })
 
 test("GitLab diff review submits inline comments, summary, and approval", async (t) => {

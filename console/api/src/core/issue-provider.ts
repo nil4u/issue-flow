@@ -104,26 +104,47 @@ function gitlabIssuePermissions(project = {}, currentUser = {}, issue = {}) {
   return { canCreate: accessLevel >= 10, canEdit: accessLevel >= 20 || isAuthor, canClose: accessLevel >= 20 || isAuthor, canLabel: accessLevel >= 20, canComment: accessLevel >= 10 }
 }
 
-async function listProviderIssues(server, repo, input = {}) {
+async function fetchProviderIssuePage(server, repo, input = {}) {
   const state = input.state === "closed" ? "closed" : input.state === "all" ? "all" : "open"
   const search = String(input.search || "").trim()
   const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
   const perPage = Math.min(100, Math.max(1, Number.parseInt(String(input.perPage || "100"), 10) || 100))
+  const labels = (Array.isArray(input.labels) ? input.labels : [input.labels]).map((label) => String(label || "").trim()).filter(Boolean)
   if (server.type === "github") {
     const params = new URLSearchParams({ state, per_page: String(perPage), sort: "updated", direction: "desc" })
     if (input.page !== undefined) params.set("page", String(page))
     if (search) params.set("q", search)
+    if (labels.length) params.set("labels", labels.join(","))
     const result = await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues?${params}`)
-    return (Array.isArray(result) ? result : []).filter((issue) => !issue.pull_request).map(normalizeGithubIssue)
+    const entries = Array.isArray(result) ? result : []
+    return { entries, issues: entries.filter((issue) => !issue.pull_request).map(normalizeGithubIssue) }
   }
   if (server.type === "gitlab") {
     const params = new URLSearchParams({ scope: "all", state: state === "open" ? "opened" : state, per_page: String(perPage), order_by: "updated_at", sort: "desc" })
     if (input.page !== undefined) params.set("page", String(page))
     if (search) params.set("search", search)
+    if (labels.length) params.set("labels", labels.join(","))
     const result = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/issues?${params}`)
-    return (Array.isArray(result) ? result : []).map(normalizeGitlabIssue)
+    const entries = Array.isArray(result) ? result : []
+    return { entries, issues: entries.map(normalizeGitlabIssue) }
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function listProviderIssues(server, repo, input = {}) {
+  return (await fetchProviderIssuePage(server, repo, input)).issues
+}
+
+async function listProviderIssuesPage(server, repo, input = {}) {
+  const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
+  const perPage = Math.min(99, Math.max(1, Number.parseInt(String(input.perPage || "50"), 10) || 50))
+  const result = await fetchProviderIssuePage(server, repo, { ...input, page, perPage: perPage + 1 })
+  return {
+    issues: result.issues.slice(0, perPage),
+    page,
+    perPage,
+    hasMore: result.entries.length > perPage,
+  }
 }
 
 async function listAllProviderIssues(server, repo, input = {}) {
@@ -134,6 +155,12 @@ async function listAllProviderIssues(server, repo, input = {}) {
     if (entries.length < 100) break
   }
   return issues
+}
+
+async function getProviderIssueSnapshot(server, repo, issueNumber) {
+  if (server.type === "github") return normalizeGithubIssue(await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues/${issueNumber}`))
+  if (server.type === "gitlab") return normalizeGitlabIssue(await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/issues/${issueNumber}`))
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
 async function listProviderIssueLabels(server, repo) {
@@ -263,4 +290,4 @@ async function updateProviderIssueState(server, repo, issueNumber, action) {
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { createProviderIssue, createProviderIssueComment, getProviderIssue, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, updateProviderIssue, updateProviderIssueState }
+export { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, listProviderIssuesPage, updateProviderIssue, updateProviderIssueState }

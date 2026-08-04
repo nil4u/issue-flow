@@ -34,11 +34,12 @@ test('optimization completion treats ignored, done, and drop as terminal', () =>
   ]);
 });
 
-test('optimization completion excludes Issue Flow feedback from terminal state', () => {
+test('optimization completion excludes developer feedback from terminal state', () => {
   const data = {
     proposals: [
       { id: 'docs', kind: 'project-change' },
       { id: 'tests', kind: 'project-change' },
+      { id: 'project-feedback', kind: 'project-developer-feedback' },
       { id: 'feedback', kind: 'issue-flow-feedback' },
     ],
   };
@@ -50,6 +51,7 @@ test('optimization completion excludes Issue Flow feedback from terminal state',
   assert.deepEqual(states, [
     { id: 'docs', kind: 'project-change', state: 'ignored' },
     { id: 'tests', kind: 'project-change', state: 'completed' },
+    { id: 'project-feedback', kind: 'project-developer-feedback', state: 'pending' },
     { id: 'feedback', kind: 'issue-flow-feedback', state: 'pending' },
   ]);
   assert.equal(allOptimizationProposalsTerminal(states), true);

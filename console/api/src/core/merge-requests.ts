@@ -1,5 +1,7 @@
 // @ts-nocheck
-import { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState } from "./merge-request-provider.js"
+import { listProviderIssueLabels } from "./issue-provider.js"
+import { applyMergeRequestLabelChanges, normalizeMergeRequestLabelChanges } from "./managed-merge-request-labels.js"
+import { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequestsPage, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState } from "./merge-request-provider.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 
 function requestError(message, status = 400, code = "merge_request_error") {
@@ -30,8 +32,9 @@ async function requireMergeRequestContext(store, gitServerId, projectId, userId,
 async function listMergeRequests({ store, gitServerId, projectId, userId, session, input = {} }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
   const state = ["open", "closed", "merged", "all"].includes(input.state) ? input.state : "open"
+  const result = await listProviderMergeRequestsPage(server, repo, state, { page: input.page, perPage: input.perPage })
   return {
-    mergeRequests: await listProviderMergeRequests(server, repo, state),
+    ...result,
     repository: { id: repo.id, fullName: repo.fullName, provider: server.type },
     state,
   }
@@ -39,13 +42,18 @@ async function listMergeRequests({ store, gitServerId, projectId, userId, sessio
 
 async function getMergeRequest({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
-  const detail = await getProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber))
+  const normalizedMergeRequestNumber = normalizeMergeRequestNumber(mergeRequestNumber)
+  const [detail, availableLabels] = await Promise.all([
+    getProviderMergeRequest(server, repo, normalizedMergeRequestNumber),
+    listProviderIssueLabels(server, repo),
+  ])
   const [bodyHtml, commentHtml] = await Promise.all([
     renderProviderMarkdown(server, repo, detail.mergeRequest.body),
     Promise.all(detail.comments.map((comment) => renderProviderMarkdown(server, repo, comment.body))),
   ])
   return {
     ...detail,
+    availableLabels,
     mergeRequest: { ...detail.mergeRequest, bodyHtml },
     comments: detail.comments.map((comment, index) => ({ ...comment, bodyHtml: commentHtml[index] || "" })),
     repository: {
@@ -55,6 +63,26 @@ async function getMergeRequest({ store, gitServerId, projectId, mergeRequestNumb
       webUrl: repo.webUrl || repo.url || `${String(server.baseUrl || "").replace(/\/+$/, "")}/${String(repo.fullName || "").replace(/^\/+/, "")}`,
     },
   }
+}
+
+function normalizeLabels(input = {}) {
+  if (!Array.isArray(input.labels)) throw requestError("merge request labels are required")
+  return [...new Set(input.labels.map((label) => String(label).trim()).filter(Boolean))]
+}
+
+async function updateMergeRequestLabels({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  const labels = normalizeLabels(input)
+  return { labels: await updateProviderMergeRequestLabels(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), labels) }
+}
+
+async function updateMergeRequestWorkflow({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  const normalizedMergeRequestNumber = normalizeMergeRequestNumber(mergeRequestNumber)
+  const changes = normalizeMergeRequestLabelChanges(input)
+  const current = await getProviderMergeRequestPreview(server, repo, normalizedMergeRequestNumber, { includeFiles: false })
+  const labels = applyMergeRequestLabelChanges(current.mergeRequest.labels, changes)
+  return { labels: await updateProviderMergeRequestLabels(server, repo, normalizedMergeRequestNumber, labels) }
 }
 
 async function getMergeRequestMentionUsers({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
@@ -107,4 +135,4 @@ async function updateMergeRequestState({ store, gitServerId, projectId, mergeReq
   return { mergeRequest: await updateProviderMergeRequestState(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), action) }
 }
 
-export { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestState }
+export { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestLabels, updateMergeRequestState, updateMergeRequestWorkflow }

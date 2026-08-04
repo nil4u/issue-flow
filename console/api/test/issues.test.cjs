@@ -11,6 +11,7 @@ const {
   listProviderIssueLabels,
   listProviderIssueMentionUsers,
   listProviderIssues,
+  listProviderIssuesPage,
   updateProviderIssue,
   updateProviderIssueState,
 } = require("../src/core/issue-provider.ts")
@@ -20,7 +21,97 @@ const {
   createAutomationOptimizationIssue,
   getIssue,
   listAutomationOptimizations,
+  updateIssueWorkflow,
 } = require("../src/core/issues.ts")
+const {
+  applyWorkflowChanges,
+  normalizeWorkflowChanges,
+} = require("../src/core/managed-issue-labels.ts")
+
+test("workflow changes replace only the requested managed prefix", () => {
+  const labels = applyWorkflowChanges([
+    "type::bug",
+    "status::active",
+    "flow::triage",
+    "priority::p1",
+    "backend",
+  ], { status: "status::suspend" })
+
+  assert.deepEqual(labels, ["type::bug", "flow::triage", "priority::p1", "backend", "status::suspend"])
+})
+
+test("workflow changes repair duplicate values in a changed group", () => {
+  const labels = applyWorkflowChanges([
+    "status::active",
+    "status::suspend",
+    "type::feature",
+  ], { status: "status::done" })
+
+  assert.deepEqual(labels, ["type::feature", "status::done"])
+})
+
+test("plan and build workflow changes require exactly one size", () => {
+  assert.throws(
+    () => applyWorkflowChanges(["status::active"], { flow: "flow::build" }),
+    (error) => error.code === "workflow_size_required",
+  )
+  assert.deepEqual(
+    applyWorkflowChanges(["status::active"], { flow: "flow::build", size: "size::M" }),
+    ["status::active", "flow::build", "size::M"],
+  )
+})
+
+test("workflow changes reject unknown groups and invalid values", () => {
+  assert.throws(() => normalizeWorkflowChanges({ changes: { review: "review::off" } }), /unsupported workflow group/)
+  assert.throws(() => normalizeWorkflowChanges({ changes: { status: "status::paused" } }), /invalid status label/)
+})
+
+test("workflow status changes only labels and preserve the provider issue state", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const updates = []
+  const issue = { id: 17, iid: 17, title: "Ship it", description: "", state: "opened", labels: ["status::active", "flow::build", "size::M", "backend"], author: { id: 1, username: "alice" } }
+  global.fetch = async (url, options = {}) => {
+    const path = String(url)
+    const method = options.method || "GET"
+    if (method === "GET" && path.endsWith("/projects/43326/issues/17")) return new Response(JSON.stringify(issue), { status: 200 })
+    if (method === "GET" && path.includes("/issues/17/notes?")) return new Response("[]", { status: 200 })
+    if (method === "GET" && path.includes("/labels?")) return new Response("[]", { status: 200 })
+    if (method === "GET" && path.endsWith("/projects/43326")) return new Response(JSON.stringify({ permissions: { project_access: { access_level: 40 } } }), { status: 200 })
+    if (method === "GET" && path.endsWith("/user")) return new Response(JSON.stringify({ id: 1, username: "alice" }), { status: 200 })
+    if (method === "PUT" && path.endsWith("/projects/43326/issues/17")) {
+      const body = JSON.parse(options.body)
+      updates.push(body)
+      if (body.labels) issue.labels = body.labels.split(",")
+      return new Response(JSON.stringify(issue), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${method} ${path}`)
+  }
+  const store = {
+    findRepositoryByProject: async () => ({ id: "repo-1", gitServerId: "gitlab-1", serverRepoId: "43326", fullName: "acme/widget" }),
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }),
+  }
+
+  const doneResult = await updateIssueWorkflow({
+    store, gitServerId: "gitlab-1", projectId: "43326", issueNumber: 17, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: { changes: { status: "status::done" } },
+  })
+  issue.state = "closed"
+  const activeResult = await updateIssueWorkflow({
+    store, gitServerId: "gitlab-1", projectId: "43326", issueNumber: 17, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
+    input: { changes: { status: "status::active" } },
+  })
+
+  assert.deepEqual(updates, [
+    { labels: "flow::build,size::M,backend,status::done" },
+    { labels: "flow::build,size::M,backend,status::active" },
+  ])
+  assert.equal(doneResult.issue.state, "open")
+  assert.equal(activeResult.issue.state, "closed")
+})
 
 test("issue label picker receives every provider label page", async (t) => {
   const originalFetch = global.fetch
@@ -79,13 +170,16 @@ test("automation optimization issue template includes the source stage contract"
 test("automation insights exclude optimization analysis and generated execution issues", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
+  const requests = []
   global.fetch = async (url) => {
-    if (String(url).includes("/issues?")) return new Response(JSON.stringify([
-      { id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature"] },
+    const requestUrl = String(url)
+    requests.push(requestUrl)
+    if (requestUrl.endsWith("/issues/17")) return new Response(JSON.stringify({ id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature", "optimization::analyzing"] }), { status: 200 })
+    if (requestUrl.endsWith("/issues/82")) return new Response(JSON.stringify({ id: 82, iid: 82, title: "Generated", description: "<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->", state: "opened", labels: ["type::docs"] }), { status: 200 })
+    if (requestUrl.includes("/issues?") && requestUrl.includes("labels=type%3A%3Aoptimization")) return new Response(JSON.stringify([
       { id: 81, iid: 81, title: "Optimize", description: "<!-- issue-flow:automation-optimization source-issue=17 -->", state: "opened", labels: ["type::optimization"] },
-      { id: 82, iid: 82, title: "Generated", description: "<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->", state: "opened", labels: ["type::docs"] },
     ]), { status: 200 })
-    throw new Error(`Unexpected request: ${url}`)
+    throw new Error(`Unexpected request: ${requestUrl}`)
   }
   const sourceIssues = [
     { id: "issue-17", issueNumber: 17, type: "feature" },
@@ -107,6 +201,9 @@ test("automation insights exclude optimization analysis and generated execution 
     input: { issueNumbers: [17, 81, 82] },
   })
   assert.deepEqual(result.items.map((item) => item.sourceIssueNumber), [17])
+  assert.equal(result.items[0].issue.title, "Source")
+  assert.equal(result.items[0].optimizationIssueNumber, 81)
+  assert.equal(requests.some((url) => url.includes("/issues?") && !url.includes("labels=")), false)
 })
 
 test("automation optimization creation is blocked while the source has an optimization state", async (t) => {
@@ -127,8 +224,11 @@ test("automation optimization creation is blocked while the source has an optimi
   global.fetch = async (url, options = {}) => {
     const request = { url: String(url), method: options.method || "GET", body: options.body ? JSON.parse(options.body) : undefined }
     requests.push(request)
-    if (request.method === "GET" && request.url.includes("/issues?")) {
-      return new Response(JSON.stringify(createdIssue ? [sourceIssue, createdIssue] : [sourceIssue]), { status: 200 })
+    if (request.method === "GET" && request.url.endsWith("/issues/17")) {
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    if (request.method === "GET" && request.url.includes("/issues?") && request.url.includes("labels=type%3A%3Aoptimization")) {
+      return new Response(JSON.stringify(createdIssue ? [createdIssue] : []), { status: 200 })
     }
     if (request.method === "POST" && request.url.endsWith("/issues")) {
       createdIssue = {
@@ -192,13 +292,21 @@ test("automation optimization creation is blocked while the source has an optimi
   ])
 
   let status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
-  assert.deepEqual(status.items[0], {
+  assert.deepEqual({
+    sourceIssueNumber: status.items[0].sourceIssueNumber,
+    phases: status.items[0].phases,
+    status: status.items[0].status,
+    optimizationIssueNumber: status.items[0].optimizationIssueNumber,
+    optimizationIssueUrl: status.items[0].optimizationIssueUrl,
+  }, {
     sourceIssueNumber: 17,
     phases: [{ phase: "plan", turns: 3 }, { phase: "build", turns: 2 }],
     status: "analyzing",
     optimizationIssueNumber: 81,
     optimizationIssueUrl: "",
   })
+  assert.equal(status.items[0].issue.title, "Add checkout")
+  assert.deepEqual(status.items[0].issue.labels.map((label) => label.name), ["type::feature", "status::done", "optimization::analyzing"])
 
   sourceIssue.labels = sourceIssue.labels.map((label) => label === "optimization::analyzing" ? "optimization::analyzed" : label)
   status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
@@ -267,6 +375,40 @@ test("GitHub issue list excludes pull requests and uses the current user credent
   assert.equal(request.options.headers.Authorization, "Bearer user-token")
   assert.deepEqual(issues.map((issue) => issue.number), [7])
   assert.deepEqual(issues[0].labels[0], { name: "bug", color: "d73a4a", description: "" })
+})
+
+test("GitLab issue pages request one lookahead item", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const requests = []
+  global.fetch = async (url) => {
+    requests.push(String(url))
+    return new Response(JSON.stringify(Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      iid: index + 1,
+      title: `Issue ${index + 1}`,
+      state: "opened",
+      labels: [],
+    }))), { status: 200 })
+  }
+
+  const first = await listProviderIssuesPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    { state: "open", page: 1, perPage: 50 },
+  )
+  const second = await listProviderIssuesPage(
+    { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "user-token" },
+    { serverRepoId: "43326" },
+    { state: "open", page: 2, perPage: 50 },
+  )
+
+  assert.equal(first.issues.length, 50)
+  assert.equal(first.hasMore, true)
+  assert.equal(second.page, 2)
+  assert.match(requests[0], /per_page=51/)
+  assert.match(requests[0], /page=1/)
+  assert.match(requests[1], /page=2/)
 })
 
 test("GitHub issue detail normalizes milestone and non-zero comment reactions", async (t) => {

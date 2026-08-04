@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
 const { labelGroupsForScope, requireSingleIssueSize } = require('./labels.cjs');
+const { computeManagedLabelChanges } = require('../../../domain/index.cjs');
 const {
   listMilestoneCandidates,
   milestoneTitle,
@@ -152,16 +153,7 @@ function collectClearKeys(options) {
 }
 
 function computeLabelChanges(currentLabels, desiredByKey, clearKeys = []) {
-  const desiredLabels = Object.values(desiredByKey);
-  const managedKeys = [...new Set([...Object.keys(desiredByKey), ...clearKeys])];
-  const managedPrefixes = managedKeys.map((key) => MANAGED_LABELS[key].prefix);
-  const labelsToRemove = currentLabels.filter((label) => managedPrefixes.some((prefix) => label.startsWith(prefix)));
-  const labelsToAdd = desiredLabels.filter((label) => !currentLabels.includes(label));
-
-  return {
-    labelsToAdd: [...new Set(labelsToAdd)],
-    labelsToRemove: [...new Set(labelsToRemove.filter((label) => !desiredLabels.includes(label)))],
-  };
+  return computeManagedLabelChanges(currentLabels, desiredByKey, clearKeys);
 }
 
 function computeNextLabels(currentLabels, labelsToAdd, labelsToRemove) {

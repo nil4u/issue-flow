@@ -79,34 +79,48 @@ function gitlabMergeRequestPermissions(project = {}, currentUser = {}, mergeRequ
   return { canMerge: mergeRequest.user && typeof mergeRequest.user.can_merge === "boolean" ? mergeRequest.user.can_merge : accessLevel >= 30, canClose: accessLevel >= 30 || isAuthor, canApprove: typeof approvals.user_can_approve === "boolean" ? approvals.user_can_approve : accessLevel >= 20 && !isAuthor, hasApproved: Boolean(approvals.user_has_approved) }
 }
 
-async function listProviderMergeRequests(server, repo, state = "open") {
+async function fetchProviderMergeRequestPage(server, repo, state = "open", input = {}) {
+  const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
+  const perPage = Math.min(100, Math.max(1, Number.parseInt(String(input.perPage || "100"), 10) || 100))
   if (server.type === "github") {
     const providerState = state === "open" ? "open" : state === "closed" || state === "merged" ? "closed" : "all"
-    const result = []
-    for (let page = 1; page <= 100; page += 1) {
-      const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${providerState}&per_page=100&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
-      const pageItems = Array.isArray(entries) ? entries : []
-      result.push(...pageItems)
-      if (pageItems.length < 100) break
-    }
-    return result.map(normalizeGithubMergeRequest).filter((item) => {
+    const entries = await providerFetch(server, "GET", `${githubRepoPath(repo)}/pulls?state=${providerState}&per_page=${perPage}&sort=updated&direction=desc${page > 1 ? `&page=${page}` : ""}`)
+    const pageItems = Array.isArray(entries) ? entries : []
+    return { entries: pageItems, mergeRequests: pageItems.map(normalizeGithubMergeRequest).filter((item) => {
       if (state === "merged") return item.merged
       if (state === "closed") return !item.merged
       return true
-    })
+    }) }
   }
   if (server.type === "gitlab") {
     const providerState = state === "open" ? "opened" : state === "all" ? "all" : state
-    const result = []
-    for (let page = 1; page <= 100; page += 1) {
-      const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=100&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
-      const pageItems = Array.isArray(entries) ? entries : []
-      result.push(...pageItems)
-      if (pageItems.length < 100) break
-    }
-    return result.map(normalizeGitlabMergeRequest)
+    const entries = await providerFetch(server, "GET", `${gitlabProjectPath(repo)}/merge_requests?scope=all&state=${encodeURIComponent(providerState)}&per_page=${perPage}&order_by=updated_at&sort=desc${page > 1 ? `&page=${page}` : ""}`)
+    const pageItems = Array.isArray(entries) ? entries : []
+    return { entries: pageItems, mergeRequests: pageItems.map(normalizeGitlabMergeRequest) }
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function listProviderMergeRequests(server, repo, state = "open") {
+  const mergeRequests = []
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await fetchProviderMergeRequestPage(server, repo, state, { page, perPage: 100 })
+    mergeRequests.push(...result.mergeRequests)
+    if (result.entries.length < 100) break
+  }
+  return mergeRequests
+}
+
+async function listProviderMergeRequestsPage(server, repo, state = "open", input = {}) {
+  const page = Math.max(1, Number.parseInt(String(input.page || "1"), 10) || 1)
+  const perPage = Math.min(99, Math.max(1, Number.parseInt(String(input.perPage || "30"), 10) || 30))
+  const result = await fetchProviderMergeRequestPage(server, repo, state, { page, perPage: perPage + 1 })
+  return {
+    mergeRequests: result.mergeRequests.slice(0, perPage),
+    page,
+    perPage,
+    hasMore: result.entries.length > perPage,
+  }
 }
 
 async function listProviderMentionUsers(server, repo, mergeRequestNumber) {
@@ -156,37 +170,40 @@ function normalizeGitlabFile(file = {}, options = {}) {
   return { path: file.new_path || "", oldPath: file.old_path || file.new_path || "", status: file.new_file ? "added" : file.deleted_file ? "removed" : file.renamed_file ? "renamed" : "modified", ...countPatchChanges(patch), patch, collapsed: options.raw !== true && file.too_large !== true && (file.collapsed === true || !patch), truncated: file.too_large === true }
 }
 
-async function readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber) {
+async function readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber, input = {}) {
+  const includeFiles = input.includeFiles !== false
   if (server.type === "github") {
     const root = githubRepoPath(repo)
     const [pullRequest, files] = await Promise.all([
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}`),
-      providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/files?per_page=100`),
+      includeFiles ? providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/files?per_page=100`) : [],
     ])
     return {
       rawMergeRequest: pullRequest,
       mergeRequest: normalizeGithubMergeRequest(pullRequest),
       files: (Array.isArray(files) ? files : []).map(normalizeGithubFile),
+      filesLoaded: includeFiles,
     }
   }
   if (server.type === "gitlab") {
     const root = `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`
     const [mergeRequest, changes] = await Promise.all([
       providerFetch(server, "GET", root),
-      providerFetch(server, "GET", `${root}/changes`),
+      includeFiles ? providerFetch(server, "GET", `${root}/changes`) : undefined,
     ])
     if (!mergeRequest.diff_refs && changes && changes.diff_refs) mergeRequest.diff_refs = changes.diff_refs
     return {
       rawMergeRequest: mergeRequest,
       mergeRequest: normalizeGitlabMergeRequest(mergeRequest),
       files: (Array.isArray(changes && changes.changes) ? changes.changes : []).map(normalizeGitlabFile),
+      filesLoaded: includeFiles,
     }
   }
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-async function getProviderMergeRequestPreview(server, repo, mergeRequestNumber) {
-  const { rawMergeRequest, ...snapshot } = await readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber)
+async function getProviderMergeRequestPreview(server, repo, mergeRequestNumber, input = {}) {
+  const { rawMergeRequest, ...snapshot } = await readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber, input)
   return snapshot
 }
 
@@ -352,4 +369,17 @@ async function updateProviderMergeRequestState(server, repo, mergeRequestNumber,
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestState }
+async function updateProviderMergeRequestLabels(server, repo, mergeRequestNumber, labels = []) {
+  const uniqueLabels = [...new Set(labels.map((label) => String(label).trim()).filter(Boolean))]
+  if (server.type === "github") {
+    const result = await providerFetch(server, "PATCH", `${githubRepoPath(repo)}/issues/${mergeRequestNumber}`, { labels: uniqueLabels })
+    return normalizeLabels(result && result.labels)
+  }
+  if (server.type === "gitlab") {
+    const result = await providerFetch(server, "PUT", `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`, { labels: uniqueLabels.join(",") })
+    return normalizeLabels(result && result.labels)
+  }
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState }

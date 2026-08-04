@@ -1,50 +1,17 @@
 // @ts-nocheck
 
+import domain from "issue-flow/domain"
+
 import { issueFlowMarkers } from "./provenance-marker.js"
 
-const FLOW_VALUES = new Set(["triage", "plan", "build", "clarify", "approve", "suspend"])
-const TYPE_VALUES = new Set(["feature", "bug", "debt", "ops", "docs", "optimization"])
-const AUTOMATION_VALUES = new Set(["off", "triage", "plan", "build"])
-const STATUS_VALUES = new Set(["active", "done", "drop", "suspend"])
-const SIZE_VALUES = new Set(["XS", "S", "M", "L", "XL"])
-
-function labelName(label) {
-  if (!label) return ""
-  if (typeof label === "string") return label
-  return label.name || label.title || ""
-}
+const { issueFlow, issueStatus, managedLabelValue, normalizeLabels } = domain
 
 function labelsFromPayload(payload = {}) {
-  const labels = Array.isArray(payload.labels) ? payload.labels : []
-  return labels.map(labelName).filter(Boolean)
-}
-
-function prefixedValue(labels = [], prefix, normalize = (value) => value, allowed) {
-  for (const label of labels) {
-    if (!String(label).toLowerCase().startsWith(prefix)) continue
-    const value = normalize(String(label).slice(prefix.length))
-    if (!allowed || allowed.has(value)) return value
-  }
-  return ""
-}
-
-function issueFlow(labels = []) {
-  return prefixedValue(labels, "flow::", (value) => value.toLowerCase(), FLOW_VALUES)
+  return normalizeLabels(Array.isArray(payload.labels) ? payload.labels : [])
 }
 
 function issueState(attributes = {}) {
   return String(attributes.state || "").toLowerCase()
-}
-
-function issueStatus(attributes = {}, labels = []) {
-  const explicit = prefixedValue(labels, "status::", (value) => value.toLowerCase(), STATUS_VALUES)
-  const flow = issueFlow(labels)
-  if (issueState(attributes) === "closed") {
-    return explicit === "done" ? "done" : "drop"
-  }
-  if (explicit) return explicit
-  if (flow === "suspend") return "suspend"
-  return "active"
 }
 
 function issueSnapshot(gitEvent = {}) {
@@ -66,10 +33,10 @@ function issueSnapshot(gitEvent = {}) {
     issueNumber,
     title: attributes.title || "",
     state: issueState(attributes),
-    type: prefixedValue(labels, "type::", (value) => value.toLowerCase(), TYPE_VALUES),
-    priority: prefixedValue(labels, "priority::", (value) => value.toUpperCase()),
-    size: prefixedValue(labels, "size::", (value) => value.toUpperCase(), SIZE_VALUES),
-    automation: prefixedValue(labels, "automation::", (value) => value.toLowerCase(), AUTOMATION_VALUES) || "off",
+    type: managedLabelValue(labels, "type", (value) => value.toLowerCase()),
+    priority: managedLabelValue(labels, "priority", (value) => value.toUpperCase()),
+    size: managedLabelValue(labels, "size", (value) => value.toUpperCase()),
+    automation: managedLabelValue(labels, "automation", (value) => value.toLowerCase()) || "off",
     status,
     flow: issueFlow(labels),
     openedAt: attributes.created_at || updatedAt,
@@ -81,7 +48,7 @@ function issueSnapshot(gitEvent = {}) {
 }
 
 function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
-  const labels = Array.isArray(issue.labels) ? issue.labels : []
+  const labels = normalizeLabels(issue.labels)
   const attributes = {
     id: issue.id,
     iid: issue.iid,
@@ -103,10 +70,10 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     issueNumber: Number(attributes.iid || 0),
     title: attributes.title || "",
     state: issueState(attributes),
-    type: prefixedValue(labels, "type::", (value) => value.toLowerCase(), TYPE_VALUES),
-    priority: prefixedValue(labels, "priority::", (value) => value.toUpperCase()),
-    size: prefixedValue(labels, "size::", (value) => value.toUpperCase(), SIZE_VALUES),
-    automation: prefixedValue(labels, "automation::", (value) => value.toLowerCase(), AUTOMATION_VALUES) || "off",
+    type: managedLabelValue(labels, "type", (value) => value.toLowerCase()),
+    priority: managedLabelValue(labels, "priority", (value) => value.toUpperCase()),
+    size: managedLabelValue(labels, "size", (value) => value.toUpperCase()),
+    automation: managedLabelValue(labels, "automation", (value) => value.toLowerCase()) || "off",
     status,
     flow: issueFlow(labels),
     openedAt: attributes.created_at || updatedAt,
@@ -145,10 +112,7 @@ async function applyIssueSnapshotToFacts(store, snapshot = {}, options = {}) {
 async function applyGitEventToIssueFacts(store, gitEvent = {}, options = {}) {
   const snapshot = issueSnapshot(gitEvent)
   if (!snapshot) return undefined
-  return applyIssueSnapshotToFacts(store, snapshot, {
-    ...options,
-    projectSpan: shouldProjectSpan(snapshot, gitEvent),
-  })
+  return applyIssueSnapshotToFacts(store, snapshot, { ...options, projectSpan: shouldProjectSpan(snapshot, gitEvent) })
 }
 
 async function applyGitlabIssueSnapshotToFacts(store, repo = {}, issue = {}, options = {}) {

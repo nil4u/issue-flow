@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
-import { AlertCircle, ChevronDown, ChevronRight, CircleDot, ExternalLink, Eye, GitBranch, GitMerge, LayoutGrid, List, Loader2, MessageCircle, Plus, RefreshCw, Search } from "lucide-react"
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, CircleDot, ExternalLink, Eye, GitBranch, GitMerge, LayoutGrid, List, Loader2, MessageCircle, Plus, RefreshCw, Search } from "lucide-react"
 
 import { EmptyPanel } from "@/components/empty-panel"
 import { ProviderLabel, ProviderLabelPicker } from "@/components/issues/provider-label-picker"
@@ -11,6 +11,7 @@ import { api, formatWhen, type ProviderIssueLabel, type ProviderIssueSummary, ty
 
 type IssueState = "open" | "closed"
 type IssueViewMode = "board" | "list"
+const ISSUES_PER_PAGE = 50
 
 const stateOptions: Array<{ value: IssueState; label: string }> = [
   { value: "open", label: "Open" },
@@ -39,10 +40,13 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
   const initialState = issueStateFromLocation()
   const [state, setState] = useState<IssueState>(initialState)
   const [viewMode, setViewMode] = useState<IssueViewMode>(initialState === "open" ? "board" : "list")
+  const [page, setPage] = useState(() => Math.max(1, Number.parseInt(new URLSearchParams(window.location.search).get("page") || "1", 10) || 1))
+  const [hasMore, setHasMore] = useState(false)
   const [laneCollapseOverrides, setLaneCollapseOverrides] = useState<Record<string, boolean>>({})
   const [issues, setIssues] = useState<ProviderIssueSummary[]>([])
   const [labels, setLabels] = useState<ProviderIssueLabel[]>([])
   const [query, setQuery] = useState("")
+  const [providerSearch, setProviderSearch] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
@@ -59,13 +63,25 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
     if (!gitServerId || !projectId || !user) return
     setLoading(true); setError("")
     try {
-      const body = await api<{ issues?: ProviderIssueSummary[] }>(`${baseApi}?state=${state}`)
+      const body = await api<{ issues?: ProviderIssueSummary[]; hasMore?: boolean }>(`${baseApi}?${new URLSearchParams({ state, page: String(page), perPage: String(ISSUES_PER_PAGE), ...(providerSearch ? { search: providerSearch } : {}) })}`)
       setIssues(Array.isArray(body.issues) ? body.issues : [])
+      setHasMore(Boolean(body.hasMore))
     } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "加载 Issues 失败") }
     finally { setLoading(false) }
-  }, [baseApi, gitServerId, projectId, state, user])
+  }, [baseApi, gitServerId, page, projectId, providerSearch, state, user])
 
   useEffect(() => { void loadIssues() }, [loadIssues])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1)
+      setProviderSearch(query.trim())
+      const url = new URL(window.location.href)
+      url.searchParams.delete("page")
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [query])
 
   useEffect(() => { setLaneCollapseOverrides({}) }, [gitServerId, projectId])
 
@@ -83,15 +99,11 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
     return () => { active = false }
   }, [baseApi, gitServerId, projectId, user])
 
-  const filteredIssues = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return needle ? issues.filter((issue) => [`#${issue.number}`, issue.title, ...issue.labels.map((label) => label.name)].join(" ").toLowerCase().includes(needle)) : issues
-  }, [issues, query])
   const groupedIssues = useMemo(() => {
     const grouped = new Map(lanes.map((lane) => [lane.id, [] as ProviderIssueSummary[]]))
-    for (const issue of filteredIssues) grouped.get(laneId(issue))?.push(issue)
+    for (const issue of issues) grouped.get(laneId(issue))?.push(issue)
     return grouped
-  }, [filteredIssues])
+  }, [issues])
 
   function issueHref(issueNumber: number) { return `/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues/${issueNumber}${state === "closed" ? "?state=closed" : ""}` }
   function artifactFor(issueNumber: number) { return reviewArtifacts.find((artifact) => artifact.issueNumber === issueNumber) }
@@ -102,10 +114,21 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
   }
   function selectState(nextState: IssueState) {
     setState(nextState)
+    setPage(1)
     setViewMode(nextState === "open" ? "board" : "list")
     const url = new URL(window.location.href)
     if (nextState === "closed") url.searchParams.set("state", "closed")
     else url.searchParams.delete("state")
+    url.searchParams.delete("page")
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
+  }
+  function selectPage(nextPage: number) {
+    const normalizedPage = Math.max(1, nextPage)
+    setLoading(true)
+    setPage(normalizedPage)
+    const url = new URL(window.location.href)
+    if (normalizedPage > 1) url.searchParams.set("page", String(normalizedPage))
+    else url.searchParams.delete("page")
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
   }
   function toggleLane(lane: string, issueCount: number) {
@@ -135,7 +158,11 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
   const expandedLanes = laneViews.filter((lane) => !lane.collapsed)
   const laneGridStyle = { "--issue-lane-count": Math.max(expandedLanes.length, 1) } as CSSProperties
 
-  return <div className="provider-issues-board"><header className="provider-issues-toolbar"><div className="provider-issue-state-filter" role="group" aria-label="Issue state">{stateOptions.map((option) => <Button key={option.value} type="button" variant={state === option.value ? "secondary" : "ghost"} size="sm" aria-pressed={state === option.value} onClick={() => selectState(option.value)}>{option.label}</Button>)}</div><label className="provider-issues-search"><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search issues…" /></label><div className="provider-issues-actions">{state === "open" ? <div className="issue-view-switch"><Button variant={viewMode === "list" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("list")}><List className="size-4" />列表</Button><Button variant={viewMode === "board" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("board")}><LayoutGrid className="size-4" />看板</Button></div> : null}<Button variant="secondary" onClick={() => void loadIssues()} disabled={loading}>{loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}刷新</Button><Button onClick={() => setCreateOpen(true)}><Plus className="size-4" />New issue</Button></div></header>{error ? <div className="provider-issues-error"><AlertCircle className="size-4" />{error}</div> : null}{loading && !issues.length ? <div className="provider-issues-empty"><Loader2 className="size-5 animate-spin" />正在读取 Issues…</div> : !filteredIssues.length ? <div className="provider-issues-empty"><CircleDot className="size-5" />当前筛选条件下没有 Issue</div> : viewMode === "board" && state === "open" ? <div className="issue-board-shell">{collapsedLanes.length ? <div className="issue-board-collapsed-lanes"><span>已收起</span>{collapsedLanes.map((lane) => <button key={lane.id} type="button" className="issue-lane-collapsed" aria-label={`展开 ${lane.title}`} aria-expanded={false} onClick={() => toggleLane(lane.id, lane.issues.length)}><span>{lane.title}</span><b>{lane.issues.length}</b><ChevronRight className="size-4" /></button>)}</div> : null}<div className="issue-board-lanes" style={laneGridStyle}>{expandedLanes.map((lane) => <section key={lane.id} className="issue-lane"><header><button type="button" className="issue-lane-toggle" aria-expanded onClick={() => toggleLane(lane.id, lane.issues.length)}><span><strong>{lane.title}</strong><small>{lane.id === "untriaged" ? "无 flow:: 标签" : `flow::${lane.id}`}</small></span><span className="issue-lane-toggle-meta"><b>{lane.issues.length}</b><ChevronDown className="size-4" /></span></button></header><div className="issue-lane-list">{lane.issues.map((issue) => <IssueBoardCard key={issue.id} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div></section>)}</div></div> : <div className="provider-issue-list">{filteredIssues.map((issue) => <IssueListRow key={issue.id || issue.number} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div>}<Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="provider-issue-dialog"><DialogHeader><DialogTitle>Create new issue</DialogTitle></DialogHeader><label className="provider-issue-field"><span>Title</span><Input value={newTitle} onChange={(event) => setNewTitle(event.currentTarget.value)} placeholder="Issue title" autoFocus /></label><label className="provider-issue-field"><span>Description</span><ProviderMarkdownEditor endpoint={`${baseApi}/markdown`} value={newBody} onChange={setNewBody} placeholder="Describe the issue…" /></label><div className="provider-issue-field"><span>Labels</span><ProviderLabelPicker labels={labels} selected={newLabels} onChange={setNewLabels} /></div><div className="provider-issue-dialog-actions"><Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</Button><Button onClick={() => void createIssue()} disabled={creating || !newTitle.trim()}>{creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{creating ? "Creating…" : "Create issue"}</Button></div></DialogContent></Dialog></div>
+  return <div className="provider-issues-board"><header className="provider-issues-toolbar"><div className="provider-issue-state-filter" role="group" aria-label="Issue state">{stateOptions.map((option) => <Button key={option.value} type="button" variant={state === option.value ? "secondary" : "ghost"} size="sm" aria-pressed={state === option.value} onClick={() => selectState(option.value)}>{option.label}</Button>)}</div><label className="provider-issues-search"><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search issues…" /></label><div className="provider-issues-actions">{state === "open" ? <div className="issue-view-switch"><Button variant={viewMode === "list" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("list")}><List className="size-4" />列表</Button><Button variant={viewMode === "board" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("board")}><LayoutGrid className="size-4" />看板</Button></div> : null}<Button variant="secondary" onClick={() => void loadIssues()} disabled={loading}>{loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}刷新</Button><Button onClick={() => setCreateOpen(true)}><Plus className="size-4" />New issue</Button></div></header>{error ? <div className="provider-issues-error"><AlertCircle className="size-4" />{error}</div> : null}{loading && !issues.length ? <div className="provider-issues-empty"><Loader2 className="size-5 animate-spin" />正在读取 Issues…</div> : !issues.length ? <div className="provider-issues-empty"><CircleDot className="size-5" />当前筛选条件下没有 Issue</div> : viewMode === "board" && state === "open" ? <div className="issue-board-shell">{collapsedLanes.length ? <div className="issue-board-collapsed-lanes"><span>已收起</span>{collapsedLanes.map((lane) => <button key={lane.id} type="button" className="issue-lane-collapsed" aria-label={`展开 ${lane.title}`} aria-expanded={false} onClick={() => toggleLane(lane.id, lane.issues.length)}><span>{lane.title}</span><b>{lane.issues.length}</b><ChevronRight className="size-4" /></button>)}</div> : null}<div className="issue-board-lanes" style={laneGridStyle}>{expandedLanes.map((lane) => <section key={lane.id} className="issue-lane"><header><button type="button" className="issue-lane-toggle" aria-expanded onClick={() => toggleLane(lane.id, lane.issues.length)}><span><strong>{lane.title}</strong><small>{lane.id === "untriaged" ? "无 flow:: 标签" : `flow::${lane.id}`}</small></span><span className="issue-lane-toggle-meta"><b>{lane.issues.length}</b><ChevronDown className="size-4" /></span></button></header><div className="issue-lane-list">{lane.issues.map((issue) => <IssueBoardCard key={issue.id} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div></section>)}</div></div> : <div className="provider-issue-list">{issues.map((issue) => <IssueListRow key={issue.id || issue.number} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div>}<ListPagination page={page} hasMore={hasMore} loading={loading} onPage={selectPage} /><Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="provider-issue-dialog"><DialogHeader><DialogTitle>Create new issue</DialogTitle></DialogHeader><label className="provider-issue-field"><span>Title</span><Input value={newTitle} onChange={(event) => setNewTitle(event.currentTarget.value)} placeholder="Issue title" autoFocus /></label><label className="provider-issue-field"><span>Description</span><ProviderMarkdownEditor endpoint={`${baseApi}/markdown`} value={newBody} onChange={setNewBody} placeholder="Describe the issue…" /></label><div className="provider-issue-field"><span>Labels</span><ProviderLabelPicker labels={labels} selected={newLabels} onChange={setNewLabels} /></div><div className="provider-issue-dialog-actions"><Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</Button><Button onClick={() => void createIssue()} disabled={creating || !newTitle.trim()}>{creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{creating ? "Creating…" : "Create issue"}</Button></div></DialogContent></Dialog></div>
+}
+
+function ListPagination({ page, hasMore, loading, onPage }: { page: number; hasMore: boolean; loading: boolean; onPage: (page: number) => void }) {
+  return <footer className="provider-list-pagination" aria-label="Issue pagination"><span>第 {page} 页</span><div><Button variant="secondary" size="sm" disabled={loading || page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft className="size-4" />上一页</Button><Button variant="secondary" size="sm" disabled={loading || !hasMore} onClick={() => onPage(page + 1)}>下一页<ChevronRight className="size-4" /></Button></div></footer>
 }
 
 function IssueListRow({ issue, href, artifact, reviewHref }: { issue: ProviderIssueSummary; href: string; artifact?: ReviewablePlanArtifact; reviewHref: string }) {
