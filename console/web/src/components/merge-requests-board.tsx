@@ -75,7 +75,7 @@ export function MergeRequestsBoard({ gitServer, user, project, repository, onLog
         <div className="merge-requests-actions">
           <div className="merge-request-state-filter" role="group" aria-label="Merge request state">
             {stateOptions.map((option) => (
-              <Button key={option.value} type="button" variant={state === option.value ? "secondary" : "ghost"} size="sm" aria-pressed={state === option.value} onClick={() => {
+              <Button key={option.value} type="button" variant={state === option.value ? "default" : "ghost"} size="sm" aria-pressed={state === option.value} onClick={() => {
                 if (state === option.value) return
                 setLoading(true)
                 setError("")
