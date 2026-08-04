@@ -107,18 +107,11 @@
   .issue-control-option small { color: var(--muted-foreground); font-size: .66rem; }
   .issue-control-readonly { min-height: 1.45rem; display: inline-flex; align-items: center; padding: 0 .45rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .68rem; font-weight: 600; }
   .issue-unmanaged-labels { margin-top: .35rem; padding-top: .7rem; border-top: 1px solid var(--border); }
-  .issue-status-control { min-height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .65rem; padding: .3rem 0; }
-  .issue-status-control .issue-control-title > span { display: grid; gap: .02rem; }
-  .issue-status-control .issue-control-title small { color: var(--muted-foreground); font-size: .65rem; font-weight: 500; }
-  .issue-status-value { position: relative; padding-left: .65rem; color: var(--foreground); font-size: .78rem; }
-  .issue-status-value::before { content: ""; position: absolute; top: 50%; left: 0; width: .42rem; height: .42rem; border-radius: 999px; background: var(--muted-foreground); transform: translateY(-50%); }
-  .issue-status-value.active::before { background: var(--success); }
-  .issue-status-value.suspend::before { background: var(--warning); }
-  .issue-status-value.done::before { background: var(--success); }
-  .issue-status-value.drop::before { background: var(--muted-foreground); }
-  .issue-status-actions { display: flex; align-items: center; gap: .1rem; }
-  .issue-status-actions button { transition-property: transform, background-color, opacity; transition-duration: 120ms; }
-  .issue-status-actions button:active:not(:disabled) { transform: scale(.96); }
+  .issue-status-trigger { gap: .4rem; }
+  .issue-status-option { min-width: 9.75rem; display: flex; align-items: center; gap: .5rem; }
+  .issue-status-dot { width: .42rem; height: .42rem; flex: 0 0 auto; border-radius: 999px; background: var(--muted-foreground); }
+  .issue-status-dot.active, .issue-status-dot.done { background: var(--success); }
+  .issue-status-dot.suspend { background: var(--warning); }
   .issue-confirm-dialog, .issue-size-gate-dialog { max-width: 25rem; }
   .issue-size-gate-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .4rem; }
   .issue-size-gate-options button { min-width: 0; display: grid; gap: .12rem; padding: .65rem .3rem; border-radius: 7px; background: var(--muted); text-align: center; transition-property: transform, background-color; transition-duration: 120ms; }
