@@ -28,6 +28,10 @@ const {
   applyWorkflowChanges,
   normalizeWorkflowChanges,
 } = require("../src/core/managed-issue-labels.ts")
+const {
+  applyOptimizationIssueLifecycle,
+  optimizationIssueLifecycleFromGitlabPayload,
+} = require("../src/core/optimization-lifecycle.ts")
 
 test("workflow changes replace only the requested managed prefix", () => {
   const labels = applyWorkflowChanges([
@@ -176,6 +180,43 @@ test("automation optimization issue template includes the source stage contract"
   assert.match(body, /`build`：2 Turns/)
 })
 
+test("optimization lifecycle derives source state from the optimization issue", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  const sourceIssue = { id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature"] }
+  global.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/projects/43326/issues/17") && (!options.method || options.method === "GET")) {
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    if (String(url).endsWith("/projects/43326/issues/17") && options.method === "PUT") {
+      sourceIssue.labels = JSON.parse(options.body).labels.split(",")
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${options.method || "GET"} ${url}`)
+  }
+  const context = {
+    server: { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "token" },
+    repo: { serverRepoId: "43326" },
+  }
+  const body = "<!-- issue-flow:automation-optimization source-issue=17 -->"
+
+  await applyOptimizationIssueLifecycle({ ...context, issue: { number: 81, body, state: "open", labels: ["type::optimization", "status::active"] } })
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "optimization::analyzing"])
+
+  await applyOptimizationIssueLifecycle({ ...context, issue: { number: 81, body, state: "closed", labels: ["type::optimization", "status::active"] } })
+  assert.deepEqual(sourceIssue.labels, ["type::feature"])
+
+  await applyOptimizationIssueLifecycle({ ...context, issue: { number: 81, body, state: "closed", labels: ["type::optimization", "status::done"] } })
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "optimization::analyzed"])
+
+  const lifecycle = optimizationIssueLifecycleFromGitlabPayload({
+    object_kind: "issue",
+    object_attributes: { iid: 81, action: "reopen", state: "opened", description: body },
+    labels: [{ title: "type::optimization" }, { title: "status::active" }],
+  })
+  assert.deepEqual(lifecycle, { issueNumber: 81, sourceIssueNumber: 17, state: "open", completed: false })
+})
+
 test("automation insights use only synchronized issue projections", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
@@ -235,7 +276,7 @@ test("automation optimization creation is blocked only while analysis is active 
       return new Response(JSON.stringify(sourceIssue), { status: 200 })
     }
     if (request.method === "GET" && request.url.includes("/issues?") && request.url.includes("labels=type%3A%3Aoptimization")) {
-      return new Response(JSON.stringify(createdIssue ? [createdIssue] : []), { status: 200 })
+      return new Response(JSON.stringify(createdIssue?.state === "opened" ? [createdIssue] : []), { status: 200 })
     }
     if (request.method === "POST" && request.url.endsWith("/issues")) {
       createdIssue = {
@@ -269,6 +310,21 @@ test("automation optimization creation is blocked only while analysis is active 
         findMany: async () => [{ id: "issue-row-17", planTaskTurns: 3, buildTaskTurns: 2 }],
       },
     },
+    upsertIssueSnapshot: async (snapshot) => {
+      const issue = {
+        id: `issue-row-${snapshot.issueNumber}`,
+        issueId: snapshot.issueId,
+        issueNumber: snapshot.issueNumber,
+        title: snapshot.title,
+        author: snapshot.author,
+        state: snapshot.state,
+        type: snapshot.type,
+        optimizationState: snapshot.optimizationState,
+        optimizationSourceIssueNumber: snapshot.optimizationSourceIssueNumber,
+      }
+      optimizationRows.push(issue)
+      return { issue, applied: false }
+    },
     getIssueStats: async () => ({ planTaskTurns: 3, buildTaskTurns: 2 }),
   }
   const input = {
@@ -286,7 +342,9 @@ test("automation optimization creation is blocked only while analysis is active 
 
   assert.equal(created.created, true)
   assert.equal(requests.filter((request) => request.method === "POST").length, 1)
-  assert.deepEqual(sourceIssue.labels, ["type::feature", "status::done", "optimization::analyzing"])
+  assert.equal(requests.some((request) => request.method === "GET" && request.url.includes("/issues?")), false)
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "status::done"])
+  assert.equal(optimizationRows[0].optimizationSourceIssueNumber, 17)
   assert.match(created.issue.body, /`plan`：3 Turns/)
   assert.match(created.issue.body, /`build`：2 Turns/)
   assert.deepEqual(created.issue.labels.map((label) => label.name), [

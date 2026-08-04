@@ -3,7 +3,9 @@ import fs from "node:fs"
 import path from "node:path"
 import domain from "issue-flow/domain"
 import { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listProviderIssueComments, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssuesPage, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { applyProviderIssueSnapshotToFacts } from "./issue-projection.js"
 import { applyWorkflowChanges, normalizeWorkflowChanges } from "./managed-issue-labels.js"
+import { applyOptimizationIssueLifecycle } from "./optimization-lifecycle.js"
 import { parseProposalMarker } from "./optimization-artifact.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
 import { renderProviderMarkdown } from "./provider-api.js"
@@ -73,24 +75,12 @@ function automationOptimizationPhases(issue, stats) {
     .filter((item) => item.turns > 1)
 }
 
-function automationOptimizationSourceIssue(body) {
-  return domain.optimizationSourceIssueNumber(body)
-}
-
 function isOpenIssueState(state) {
   return state === "open" || state === "opened"
 }
 
 function optimizationStateFromLabels(labels = []) {
   return domain.managedLabelValue(labels, "optimizationState", (value) => value.toLowerCase())
-}
-
-function labelsWithOptimizationState(labels = [], state) {
-  return domain.applyManagedLabels(labels, { optimizationState: state })
-}
-
-function labelsWithoutOptimizationState(labels = []) {
-  return domain.applyManagedLabels(labels, {}, ["optimizationState"])
 }
 
 function automationOptimizationTemplatePath() {
@@ -150,25 +140,23 @@ async function createAutomationOptimizationIssue({ store, gitServerId, projectId
   const sourceIssue = await getProviderIssueSnapshot(server, repo, normalizedIssueNumber)
   if (parseProposalMarker(sourceIssue.body)) throw requestError("optimization-generated issue is not eligible for automation optimization", 409, "automation_optimization_not_eligible")
   const optimizationState = optimizationStateFromLabels(sourceIssue.labels)
-  const existingOptimizationIssues = optimizationState === "analyzing"
-    ? await store.db.issue.findMany({
-        where: {
-          gitServerId: repo.gitServerId,
-          repositoryId: repo.serverRepoId,
-          type: "optimization",
-          optimizationSourceIssueNumber: normalizedIssueNumber,
-        },
-      })
-    : []
+  const existingOptimizationIssues = await store.db.issue.findMany({
+    where: {
+      gitServerId: repo.gitServerId,
+      repositoryId: repo.serverRepoId,
+      type: "optimization",
+      optimizationSourceIssueNumber: normalizedIssueNumber,
+    },
+  })
   const optimizationIsActive = optimizationState === "analyzed"
-    || optimizationState === "analyzing" && (!existingOptimizationIssues.length || existingOptimizationIssues.some((issue) => isOpenIssueState(issue.state)))
+    || existingOptimizationIssues.some((issue) => isOpenIssueState(issue.state))
+    || optimizationState === "analyzing" && !existingOptimizationIssues.length
   if (optimizationIsActive) throw requestError(`issue automation optimization is ${optimizationState}`, 409, "automation_optimization_already_started")
   const title = `优化任务自动化：#${normalizedIssueNumber} ${local.issue.title || ""}`.trim()
   const body = automationOptimizationIssueBody({ sourceIssue: local.issue, phases })
   const issue = await createProviderIssue(server, repo, { title, body, labels: AUTOMATION_OPTIMIZATION_LABELS })
-  await updateProviderIssue(server, repo, normalizedIssueNumber, {
-    labels: labelsWithOptimizationState(sourceIssue.labels, "optimization::analyzing"),
-  })
+  await applyProviderIssueSnapshotToFacts(store, repo, issue)
+  if (server.type !== "gitlab") await applyOptimizationIssueLifecycle({ server, repo, issue })
   return { issue, created: true }
 }
 
@@ -275,13 +263,7 @@ async function updateIssueState({ store, gitServerId, projectId, issueNumber, us
   const action = input.action === "close" || input.action === "reopen" ? input.action : ""
   if (!action) throw requestError("issue state action must be close or reopen")
   const issue = await updateProviderIssueState(server, repo, normalizedIssueNumber, action)
-  if (action === "close" && issue.labels.some((label) => label.name === "type::optimization")) {
-    const sourceIssueNumber = automationOptimizationSourceIssue(issue.body)
-    if (sourceIssueNumber) {
-      const sourceIssue = (await getProviderIssue(server, repo, sourceIssueNumber)).issue
-      await updateProviderIssue(server, repo, sourceIssueNumber, { labels: labelsWithoutOptimizationState(sourceIssue.labels) })
-    }
-  }
+  if (server.type !== "gitlab") await applyOptimizationIssueLifecycle({ server, repo, issue })
   return { issue }
 }
 
@@ -293,7 +275,6 @@ async function renderIssueMarkdown({ store, gitServerId, projectId, userId, sess
 export {
   automationOptimizationIssueBody,
   automationOptimizationPhases,
-  labelsWithOptimizationState,
   createAutomationOptimizationIssue,
   createIssue,
   getIssue,

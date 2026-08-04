@@ -6,6 +6,7 @@ import domain from "issue-flow/domain"
 import { createProviderIssue, getProviderIssueSnapshot, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
 import { getProviderMergeRequestPreview } from "./merge-request-provider.js"
 import { allOptimizationProposalsTerminal, deriveOptimizationProposalStates, optimizationSourceIssueNumber, parseProposalMarker, proposalMarker, validateOptimizationArtifact } from "./optimization-artifact.js"
+import { applyOptimizationIssueLifecycle } from "./optimization-lifecycle.js"
 import { normalizePreviewPath, previewDescriptorForPath, previewableChangedFiles } from "./preview/registry.js"
 import { issueFlowMarkers } from "./provenance-marker.js"
 import { listIssuePullRequestSummaries } from "./pull-request-facts.js"
@@ -691,11 +692,8 @@ async function finalizeOptimizationIfComplete({ server, repo, artifact, data, ru
   await updateProviderIssue(server, repo, artifact.issueNumber, {
     labels: domain.applyManagedLabels(parentLabels, { status: "status::done" }, ["flow"]),
   })
-  await updateProviderIssueState(server, repo, artifact.issueNumber, "close")
-  const sourceLabels = (source && source.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
-  await updateProviderIssue(server, repo, runtime.sourceIssueNumber, {
-    labels: domain.applyManagedLabels(sourceLabels, { optimizationState: "optimization::analyzed" }),
-  })
+  const closedIssue = await updateProviderIssueState(server, repo, artifact.issueNumber, "close")
+  if (server.type !== "gitlab") await applyOptimizationIssueLifecycle({ server, repo, issue: closedIssue })
   return { completed: true, proposals: states }
 }
 

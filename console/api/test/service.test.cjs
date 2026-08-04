@@ -1652,6 +1652,98 @@ test('GitLab webhook bridge ignores trigger-source pipeline fanout', async () =>
   }
 });
 
+test('GitLab optimization issue close webhook clears the source optimization state', async () => {
+  const { dir, store } = tempStore();
+  let sourceLabels = ['type::feature', 'optimization::analyzing'];
+  const gitlab = http.createServer((req, res) => {
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/triggers' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 501, token: 'pipeline-trigger-token-1234567890' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/trigger/pipeline' && req.method === 'POST') {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 8001, status: 'created' }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/issues/17' && req.method === 'GET') {
+      assert.equal(req.headers.authorization, 'Bearer gl-admin-pat');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 17, iid: 17, title: 'Source', description: '', state: 'closed', labels: sourceLabels }));
+      return;
+    }
+    if (req.url === '/api/v4/projects/42/issues/17' && req.method === 'PUT') {
+      assert.equal(req.headers.authorization, 'Bearer gl-admin-pat');
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        sourceLabels = String(JSON.parse(raw).labels || '').split(',').filter(Boolean);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 17, iid: 17, title: 'Source', description: '', state: 'closed', labels: sourceLabels }));
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const gitlabBase = await listen(gitlab);
+  try {
+    await seedGitlabServer(store, gitlabBase, {
+      adminPat: 'gl-admin-pat',
+      agentrixGitServerId: 'agentrix-gitlab-main',
+      webhookSecret: 'backend-webhook-secret',
+    });
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      baseUrl: gitlabBase,
+      projectPath: 'team/app',
+      automation: { reviewEnabled: false },
+    }, { status: 'unchecked', projectId: '42' });
+
+    const accepted = await handleGitlabWebhook({
+      store,
+      repoId: created.repo.id,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'backend-webhook-secret',
+        'X-Gitlab-Event': 'Issue Hook',
+        'X-Gitlab-Event-UUID': 'delivery-optimization-close-1',
+      },
+      rawBody: JSON.stringify({
+        object_kind: 'issue',
+        project: { id: 42, path_with_namespace: 'team/app' },
+        user: { id: 7, username: 'alice' },
+        labels: [{ title: 'type::optimization' }, { title: 'status::active' }],
+        object_attributes: {
+          id: 1081,
+          iid: 81,
+          action: 'close',
+          state: 'closed',
+          title: 'Optimize automation',
+          description: '<!-- issue-flow:automation-optimization source-issue=17 -->',
+        },
+      }),
+    });
+
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.deliveries.some((delivery) => {
+      return delivery.target === 'optimization-lifecycle'
+        && delivery.status === 'delivered'
+        && delivery.handled.includes('optimization_source_cleared');
+    }), true);
+    assert.deepEqual(sourceLabels, ['type::feature']);
+  } finally {
+    await close(gitlab);
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('GitLab merge request close webhook clears pending plugin MR', async () => {
   const { dir, store } = tempStore();
   const gitlab = http.createServer((req, res) => {
