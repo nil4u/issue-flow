@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { applyManagedLabelChanges, managedLabelError, managedLabelGroupsForScope, normalizeManagedLabelChanges } from "./managed-labels.js"
 
-const EDITABLE_CATALOG_GROUPS = Object.freeze({ type: "type", status: "status", flow: "flow", visualPlan: "visualPlanFeature", automation: "automation", priority: "priority", size: "size" })
+const EDITABLE_CATALOG_GROUPS = Object.freeze({ type: "type", status: "status", flow: "flow", visualPlan: "visualPlanFeature", automation: "automation", optimization: "optimizationState", priority: "priority", size: "size" })
 
 const MANAGED_ISSUE_LABEL_GROUPS = managedLabelGroupsForScope("issue", EDITABLE_CATALOG_GROUPS)
 

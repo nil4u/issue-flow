@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { listProviderIssueLabels } from "./issue-provider.js"
 import { applyMergeRequestLabelChanges, normalizeMergeRequestLabelChanges } from "./managed-merge-request-labels.js"
-import { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequestsPage, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState } from "./merge-request-provider.js"
+import { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestFiles, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequestsPage, mergeProviderMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState } from "./merge-request-provider.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 
 function requestError(message, status = 400, code = "merge_request_error") {
@@ -44,7 +44,7 @@ async function getMergeRequest({ store, gitServerId, projectId, mergeRequestNumb
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
   const normalizedMergeRequestNumber = normalizeMergeRequestNumber(mergeRequestNumber)
   const [detail, availableLabels] = await Promise.all([
-    getProviderMergeRequest(server, repo, normalizedMergeRequestNumber),
+    getProviderMergeRequest(server, repo, normalizedMergeRequestNumber, { includeFiles: false }),
     listProviderIssueLabels(server, repo),
   ])
   const [bodyHtml, commentHtml] = await Promise.all([
@@ -85,6 +85,11 @@ async function updateMergeRequestWorkflow({ store, gitServerId, projectId, merge
   return { labels: await updateProviderMergeRequestLabels(server, repo, normalizedMergeRequestNumber, labels) }
 }
 
+async function getMergeRequestFiles({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
+  const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
+  return getProviderMergeRequestFiles(server, repo, normalizeMergeRequestNumber(mergeRequestNumber))
+}
+
 async function getMergeRequestMentionUsers({ store, gitServerId, projectId, mergeRequestNumber, userId, session }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
   return { users: await listProviderMentionUsers(server, repo, normalizeMergeRequestNumber(mergeRequestNumber)) }
@@ -99,7 +104,7 @@ async function getMergeRequestFileDiff({ store, gitServerId, projectId, mergeReq
 
 async function submitMergeRequestReview({ store, gitServerId, projectId, mergeRequestNumber, userId, session, input = {} }) {
   const { repo, server } = await requireMergeRequestContext(store, gitServerId, projectId, userId, session)
-  const detail = await getProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber))
+  const detail = await getProviderMergeRequest(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), { includeFiles: false })
   if (detail.mergeRequest.state !== "open") throw requestError("merge request is not open", 409)
   return { review: await submitProviderMergeRequestReview(server, repo, detail.mergeRequest, input) }
 }
@@ -135,4 +140,4 @@ async function updateMergeRequestState({ store, gitServerId, projectId, mergeReq
   return { mergeRequest: await updateProviderMergeRequestState(server, repo, normalizeMergeRequestNumber(mergeRequestNumber), action) }
 }
 
-export { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestLabels, updateMergeRequestState, updateMergeRequestWorkflow }
+export { getMergeRequest, getMergeRequestFileDiff, getMergeRequestFiles, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestLabels, updateMergeRequestState, updateMergeRequestWorkflow }

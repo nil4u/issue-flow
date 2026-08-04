@@ -244,11 +244,19 @@ async function hydrateGitlabAvatars(server, detail) {
   }
 }
 
-async function getProviderMergeRequest(server, repo, mergeRequestNumber) {
+async function getProviderMergeRequestFiles(server, repo, mergeRequestNumber) {
+  const snapshot = await readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber)
+  return {
+    files: snapshot.files,
+    previewable: snapshot.mergeRequest.sourceIssueNumber > 0 && previewableChangedFiles(snapshot.files).length > 0,
+  }
+}
+
+async function getProviderMergeRequest(server, repo, mergeRequestNumber, input = {}) {
   if (server.type === "github") {
     const root = githubRepoPath(repo)
     const [snapshot, issueComments, reviews, inlineComments, repository, currentUser] = await Promise.all([
-      readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber),
+      readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber, input),
       providerFetch(server, "GET", `${root}/issues/${mergeRequestNumber}/comments?per_page=100`),
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/reviews?per_page=100`),
       providerFetch(server, "GET", `${root}/pulls/${mergeRequestNumber}/comments?per_page=100`),
@@ -267,7 +275,7 @@ async function getProviderMergeRequest(server, repo, mergeRequestNumber) {
   if (server.type === "gitlab") {
     const root = `${gitlabProjectPath(repo)}/merge_requests/${mergeRequestNumber}`
     const [snapshot, discussions, approvals, project, currentUser] = await Promise.all([
-      readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber),
+      readProviderMergeRequestSnapshot(server, repo, mergeRequestNumber, input),
       providerFetch(server, "GET", `${root}/discussions?per_page=100`),
       providerFetch(server, "GET", `${root}/approvals`).catch(() => undefined),
       providerFetch(server, "GET", gitlabProjectPath(repo)).catch(() => ({})),
@@ -382,4 +390,4 @@ async function updateProviderMergeRequestLabels(server, repo, mergeRequestNumber
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState }
+export { getProviderMergeRequest, getProviderMergeRequestFileDiff, getProviderMergeRequestFiles, getProviderMergeRequestPreview, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState }

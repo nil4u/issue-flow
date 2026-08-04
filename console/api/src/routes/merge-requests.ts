@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { getMergeRequest, getMergeRequestFileDiff, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestLabels, updateMergeRequestState, updateMergeRequestWorkflow } from "../core/merge-requests.js"
+import { getMergeRequest, getMergeRequestFileDiff, getMergeRequestFiles, getMergeRequestMentionUsers, listMergeRequests, mergeMergeRequest, renderMergeRequestMarkdown, submitMergeRequestComment, submitMergeRequestReply, submitMergeRequestReview, updateMergeRequestLabels, updateMergeRequestState, updateMergeRequestWorkflow } from "../core/merge-requests.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function providerSession(request: FastifyRequest, gitServerId: string) {
@@ -22,6 +22,11 @@ export async function mergeRequestRoutes(app: FastifyInstance) {
   app.get("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/files/diff", async (request) => {
     const { gitServerId, projectId, mergeRequestNumber } = request.params as Record<string, string>
     return getMergeRequestFileDiff({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId), input: request.query || {} })
+  })
+
+  app.get("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/files", async (request) => {
+    const { gitServerId, projectId, mergeRequestNumber } = request.params as Record<string, string>
+    return getMergeRequestFiles({ ...contextFromRequest(request), gitServerId, projectId, mergeRequestNumber, ...await providerSession(request, gitServerId) })
   })
 
   app.get("/api/merge-requests/:gitServerId/:projectId/:mergeRequestNumber/mentions", async (request) => {

@@ -175,19 +175,36 @@ async function listProviderIssueLabels(server, repo) {
   return normalizeLabels(labels).sort((left, right) => left.name.localeCompare(right.name))
 }
 
-async function getProviderIssue(server, repo, issueNumber) {
+async function listProviderIssueComments(server, repo, issueNumber) {
+  if (server.type === "github") {
+    const result = await providerFetch(server, "GET", `${githubRepoPath(repo)}/issues/${issueNumber}/comments?per_page=100`)
+    return (Array.isArray(result) ? result : []).map(normalizeGithubComment)
+  }
+  if (server.type === "gitlab") {
+    const root = `${gitlabProjectPath(repo)}/issues/${issueNumber}`
+    const result = await providerFetch(server, "GET", `${root}/notes?per_page=100&sort=asc`)
+    const comments = (Array.isArray(result) ? result : []).filter((note) => !note.system)
+    const awards = await Promise.all(comments.map((note) => listGitlabNoteAwards(server, root, note.id)))
+    return comments.map((note, index) => normalizeGitlabComment(note, awards[index]))
+  }
+  throw providerApiError(`unsupported git provider: ${server.type}`, 400)
+}
+
+async function getProviderIssue(server, repo, issueNumber, input = {}) {
+  const includeComments = input.includeComments !== false
+  const includeLabels = input.includeLabels !== false
   if (server.type === "github") {
     const root = githubRepoPath(repo)
     const [issue, comments, labels, repository, currentUser] = await Promise.all([
       providerFetch(server, "GET", `${root}/issues/${issueNumber}`),
-      providerFetch(server, "GET", `${root}/issues/${issueNumber}/comments?per_page=100`),
-      listProviderIssueLabels(server, repo),
+      includeComments ? listProviderIssueComments(server, repo, issueNumber) : [],
+      includeLabels ? listProviderIssueLabels(server, repo) : [],
       providerFetch(server, "GET", root).catch(() => ({})),
       providerFetch(server, "GET", "/user").catch(() => ({})),
     ])
     return {
       issue: { ...normalizeGithubIssue(issue), permissions: githubIssuePermissions(repository, currentUser, issue) },
-      comments: (Array.isArray(comments) ? comments : []).map(normalizeGithubComment),
+      comments,
       availableLabels: labels,
     }
   }
@@ -196,16 +213,14 @@ async function getProviderIssue(server, repo, issueNumber) {
     const root = `${projectRoot}/issues/${issueNumber}`
     const [issue, notes, labels, project, currentUser] = await Promise.all([
       providerFetch(server, "GET", root),
-      providerFetch(server, "GET", `${root}/notes?per_page=100&sort=asc`),
-      listProviderIssueLabels(server, repo),
+      includeComments ? listProviderIssueComments(server, repo, issueNumber) : [],
+      includeLabels ? listProviderIssueLabels(server, repo) : [],
       providerFetch(server, "GET", projectRoot).catch(() => ({})),
       providerFetch(server, "GET", "/user").catch(() => ({})),
     ])
-    const comments = (Array.isArray(notes) ? notes : []).filter((note) => !note.system)
-    const awards = await Promise.all(comments.map((note) => listGitlabNoteAwards(server, root, note.id)))
     return {
       issue: { ...normalizeGitlabIssue(issue), permissions: gitlabIssuePermissions(project, currentUser, issue) },
-      comments: comments.map((note, index) => normalizeGitlabComment(note, awards[index])),
+      comments: notes,
       availableLabels: labels,
     }
   }
@@ -290,4 +305,4 @@ async function updateProviderIssueState(server, repo, issueNumber, action) {
   throw providerApiError(`unsupported git provider: ${server.type}`, 400)
 }
 
-export { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, listProviderIssuesPage, updateProviderIssue, updateProviderIssueState }
+export { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listAllProviderIssues, listProviderIssueComments, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssues, listProviderIssuesPage, updateProviderIssue, updateProviderIssueState }

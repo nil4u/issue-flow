@@ -147,6 +147,7 @@ function normalizeIssue(issue = {}) {
     id: issue.id !== undefined ? String(issue.id) : '',
     iid: Number(issue.iid || issue.number || 0),
     title: issue.title || '',
+    author: issue.author && (issue.author.name || issue.author.username) || '',
     state: issue.state || '',
     labels: Array.isArray(issue.labels) ? issue.labels.map((label) => String(label || '')).filter(Boolean) : [],
     description: issue.description || '',

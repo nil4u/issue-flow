@@ -54,6 +54,50 @@ test('issue projection persists docs labels as a first-class type', () => {
   assert.equal(gitlabSnapshot.type, 'docs');
 });
 
+test('issue projection stores only normalized Insights metadata', () => {
+  const eventSnapshot = issueSnapshot({
+    eventName: 'issue',
+    action: 'open',
+    gitServerId: 'gitlab-main',
+    repositoryId: '42',
+    repositoryFullName: 'acme/app',
+    receivedAt: '2026-08-04T00:00:00.000Z',
+    payload: {
+      user: { name: 'Alice', username: 'alice' },
+      labels: [{ title: 'type::feature' }, { title: 'optimization::analyzing' }],
+      object_attributes: {
+        id: 117,
+        iid: 17,
+        title: 'Source issue',
+        description: '',
+        state: 'opened',
+        created_at: '2026-08-04T00:00:00.000Z',
+      },
+    },
+  });
+  const generatedSnapshot = issueSnapshotFromGitlabIssue(
+    { gitServerId: 'gitlab-main', projectId: '42', projectPath: 'acme/app' },
+    {
+      id: 182,
+      iid: 82,
+      title: 'Generated issue',
+      author: 'Alice',
+      description: '<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->',
+      state: 'opened',
+      labels: ['type::docs'],
+      createdAt: '2026-08-04T00:00:00.000Z',
+    },
+  );
+
+  assert.equal(eventSnapshot.author, 'Alice');
+  assert.equal(eventSnapshot.optimizationState, 'analyzing');
+  assert.equal(eventSnapshot.optimizationSourceIssueNumber, 0);
+  assert.equal(generatedSnapshot.author, 'Alice');
+  assert.equal(generatedSnapshot.optimizationSourceIssueNumber, 17);
+  assert.equal('body' in generatedSnapshot, false);
+  assert.equal('labels' in generatedSnapshot, false);
+});
+
 const STARTED_ISSUE_DISTRIBUTION_SQL = `select
   week,
   done_bucket,

@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import { Switch } from "@/components/ui/switch"
 import type { ProviderIssueLabel } from "@/issue-flow-model"
 
-type WorkflowGroup = "type" | "status" | "flow" | "visualPlan" | "automation" | "priority" | "size"
+type WorkflowGroup = "type" | "status" | "flow" | "visualPlan" | "automation" | "optimization" | "priority" | "size"
 type WorkflowChanges = Partial<Record<WorkflowGroup, string | null>>
 type Option = { value: string; label: string; detail?: string }
 
@@ -29,6 +29,11 @@ const AUTOMATION_OPTIONS: Option[] = [
   { value: "automation::off", label: "Off" },
   { value: "automation::plan", label: "Plan", detail: "自动推进至 Plan" },
   { value: "automation::build", label: "Build", detail: "自动推进至 Build" },
+]
+const OPTIMIZATION_OPTIONS: Option[] = [
+  { value: "__none__", label: "未设置" },
+  { value: "optimization::analyzing", label: "Analyzing" },
+  { value: "optimization::analyzed", label: "Analyzed" },
 ]
 const TYPE_OPTIONS: Option[] = [
   { value: "type::feature", label: "Feature" }, { value: "type::bug", label: "Bug" },
@@ -75,7 +80,7 @@ export function IssueWorkflowControls({ labels, canEdit, busyGroup, headerAction
       <StatusControl status={status} invalid={statusLabels.length > 1} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "status"} onChange={(value) => void onChange({ status: value })} onConfirm={confirmStatus} />
       <ControlMenu title="Flow" icon={GitBranch} value={flow} options={FLOW_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "flow"} onChange={selectFlow} />
       <ControlMenu title="Automation" icon={Bot} value={automation || "__default__"} options={AUTOMATION_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "automation"} onChange={(value) => void onChange({ automation: value === "__default__" ? null : value })} />
-      {optimization ? <ReadOnlyControl title="Optimization" icon={Sparkles} value={optimization === "optimization::analyzing" ? "Analyzing" : "Analyzed"} /> : null}
+      <ControlMenu title="Optimization" icon={Sparkles} value={optimization || "__none__"} options={OPTIMIZATION_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "optimization"} onChange={(value) => void onChange({ optimization: value === "__none__" ? null : value })} />
       <ControlMenu title="Type" icon={Boxes} value={singleValue(names, "type::")} options={TYPE_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "type"} onChange={(value) => void onChange({ type: value })} />
       <ControlMenu title="Priority" icon={Gauge} value={singleValue(names, "priority::")} options={PRIORITY_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "priority"} onChange={(value) => void onChange({ priority: value })} />
       <ControlMenu title="Size" icon={Ruler} value={size} options={SIZE_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "size"} onChange={(value) => void onChange({ size: value })} />
@@ -115,10 +120,6 @@ function StatusDot({ value }: { value: string }) { return <span className={`issu
 
 function ControlMenu({ title, icon: Icon, value, options, disabled, busy, onChange }: { title: string; icon: ComponentType<{ className?: string }>; value: string; options: Option[]; disabled: boolean; busy: boolean; onChange: (value: string) => void }) {
   return <div className="issue-control-row"><span className="issue-control-title"><Icon className="size-3.5" />{title}</span><DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="issue-control-trigger" disabled={disabled}>{busy ? <Loader2 className="size-3.5 animate-spin" /> : null}<span>{busy ? "更新中" : optionLabel(options, value) || "未设置"}</span><ChevronDown className="size-3.5" /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={value} onValueChange={onChange}>{options.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value}><span className="issue-control-option"><strong>{option.label}</strong>{option.detail ? <small>{option.detail}</small> : null}</span></DropdownMenuRadioItem>)}</DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu></div>
-}
-
-function ReadOnlyControl({ title, icon: Icon, value }: { title: string; icon: ComponentType<{ className?: string }>; value: string }) {
-  return <div className="issue-control-row"><span className="issue-control-title"><Icon className="size-3.5" />{title}</span><span className="issue-control-readonly">{value}</span></div>
 }
 
 function valuesFor(labels: string[], prefix: string) { return labels.filter((label) => label.startsWith(prefix)) }
