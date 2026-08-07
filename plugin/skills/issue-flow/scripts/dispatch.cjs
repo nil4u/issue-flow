@@ -773,7 +773,7 @@ function listResumableIssueTasks(comments, runtime) {
     .filter(Boolean);
 }
 
-function shouldSkipPullRequestReview(pr) {
+function shouldSkipPullRequest(pr) {
   if (!pr || !pr.number) {
     return 'not_pull_request';
   }
@@ -785,6 +785,14 @@ function shouldSkipPullRequestReview(pr) {
   }
   if (pr.state && pr.state !== 'open' && pr.state !== 'opened') {
     return 'pull_request_not_open';
+  }
+  return '';
+}
+
+function shouldSkipPullRequestReview(pr) {
+  const reason = shouldSkipPullRequest(pr);
+  if (reason) {
+    return reason;
   }
   if (normalizeLabels(pr.labels).includes('review::off')) {
     return 'pull_request_review_disabled';
@@ -1145,14 +1153,6 @@ async function runReviewComment(options = {}, provided = {}) {
     };
   }
 
-  if (!resolveReviewEnabled(options)) {
-    logIssueFlow('PR/MR review comment skipped', { reason: 'review_disabled' });
-    return {
-      action: 'skipped',
-      reason: 'review_disabled',
-    };
-  }
-
   const reviewComment = provided.reviewComment || getReviewCommentContext(payload, options);
   const source = parseSourceMarker(reviewComment.body);
   if (source.source_task_id || source.source_agent) {
@@ -1171,7 +1171,7 @@ async function runReviewComment(options = {}, provided = {}) {
     };
   }
   const currentPr = await fetchCurrentPullRequest(pr, options);
-  const skipReason = shouldSkipPullRequestReview(currentPr);
+  const skipReason = shouldSkipPullRequest(currentPr);
   if (skipReason) {
     logIssueFlow('PR/MR review comment skipped', {
       pr: currentPr.number ? `#${currentPr.number}` : '',

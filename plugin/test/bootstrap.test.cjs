@@ -127,7 +127,7 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     assert.match(reviewCommentWorkflow, /contains\(github\.event\.pull_request\.body, 'source_runtime=agentrix'\)/);
     assert.match(reviewCommentWorkflow, /github\.event\.comment\.pull_request_review_id \|\| github\.event\.comment\.id/);
     assert.match(reviewCommentWorkflow, /cli\.cjs dispatch review-comment/);
-    assert.match(reviewCommentWorkflow, /ISSUE_FLOW_REVIEW_ENABLED: \$\{\{ vars\.ISSUE_FLOW_REVIEW_ENABLED \}\}/);
+    assert.doesNotMatch(reviewCommentWorkflow, /ISSUE_FLOW_REVIEW_ENABLED/);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/config.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.issue-flow/install-manifest.json')), true);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, '.issue-flow/install-manifest.json'), 'utf8'));

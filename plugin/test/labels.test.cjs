@@ -158,7 +158,7 @@ test('catalog exposes lookup by label name', () => {
   assert.deepEqual(labelDefinitionFor('review::off'), {
     name: 'review::off',
     color: '6A737D',
-    description: 'Automatic review and review-comment task resume are disabled for this PR or MR',
+    description: 'Automatic review is disabled for this PR or MR',
     scope: 'merge_request',
     group: 'review',
     prefix: 'review::',

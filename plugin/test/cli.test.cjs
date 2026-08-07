@@ -310,7 +310,7 @@ test('dispatch review-comment dry-run returns structured JSON envelope', () => {
   }
 });
 
-test('dispatch review-comment defaults to disabled when the switch is unset', () => {
+test('dispatch review-comment resumes the original task when the reviewer switch is unset', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-cli-review-comment-'));
   const eventPath = path.join(dir, 'event.json');
   fs.writeFileSync(
@@ -343,8 +343,8 @@ test('dispatch review-comment defaults to disabled when the switch is unset', ()
     );
     assert.equal(result.status, 0, result.stderr);
     const parsed = JSON.parse(result.stdout);
-    assert.equal(parsed.data.action, 'skipped');
-    assert.equal(parsed.data.reason, 'review_disabled');
+    assert.equal(parsed.data.action, 'task_resume');
+    assert.equal(parsed.data.taskId, 'task-123');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

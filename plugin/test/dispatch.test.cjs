@@ -360,24 +360,24 @@ test('dispatch review-comment resumes GitHub PR ordinary issue comments', async 
   assert.equal(result.reviewComment, '101');
 });
 
-test('dispatch review-comment respects repository and PR review switches', async () => {
+test('dispatch review-comment ignores reviewer switches', async () => {
   const globallyDisabled = await runReviewComment(
     { dryRun: true, reviewEnabled: 'false' },
     { payload: githubReviewCommentPayload() }
   );
-  assert.equal(globallyDisabled.action, 'skipped');
-  assert.equal(globallyDisabled.reason, 'review_disabled');
+  assert.equal(globallyDisabled.action, 'task_resume');
+  assert.equal(globallyDisabled.taskId, 'task-123');
 
   const pullRequestDisabled = await runReviewComment(
     { dryRun: true, reviewEnabled: 'true' },
     { payload: githubReviewCommentPayload({ labels: [{ name: 'mr-by::build' }, { name: 'review::off' }] }) }
   );
-  assert.equal(pullRequestDisabled.action, 'skipped');
-  assert.equal(pullRequestDisabled.reason, 'pull_request_review_disabled');
+  assert.equal(pullRequestDisabled.action, 'task_resume');
+  assert.equal(pullRequestDisabled.taskId, 'task-123');
   assert.equal(pullRequestDisabled.reviewComment, '101');
 });
 
-test('dispatch review-comment pause has no acknowledgement or task resume side effects', async () => {
+test('dispatch review-comment resumes builder when automatic review is paused', async () => {
   const originalReaction = providers.github.addReviewCommentReaction;
   const originalResume = agentrix.resumeTask;
   let reactions = 0;
@@ -395,9 +395,10 @@ test('dispatch review-comment pause has no acknowledgement or task resume side e
       { payload: githubReviewCommentPayload({ labels: [{ name: 'review::off' }] }) }
     );
 
-    assert.equal(result.reason, 'pull_request_review_disabled');
-    assert.equal(reactions, 0);
-    assert.equal(resumes, 0);
+    assert.equal(result.action, 'task_resume');
+    assert.equal(result.taskId, 'task-123');
+    assert.equal(reactions, 1);
+    assert.equal(resumes, 1);
   } finally {
     providers.github.addReviewCommentReaction = originalReaction;
     agentrix.resumeTask = originalResume;
