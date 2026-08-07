@@ -68,7 +68,10 @@ function diffContext(files: MergeRequestFile[], comment: MergeRequestComment) {
 export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }: { gitServerId: string; projectId: string; mergeRequestNumber: number }) {
   const baseApi = `/api/merge-requests/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/${mergeRequestNumber}`
   const [detail, setDetail] = useState<MergeRequestDetail>()
+  const [files, setFiles] = useState<MergeRequestFile[]>([])
   const [loading, setLoading] = useState(true)
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [filesLoaded, setFilesLoaded] = useState(false)
   const [error, setError] = useState("")
   const [view, setView] = useState<ReviewView>("conversation")
   const [fileFilter, setFileFilter] = useState("")
@@ -97,11 +100,26 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     finally { setLoading(false) }
   }, [baseApi])
 
+  const loadFiles = useCallback(async () => {
+    setFilesLoading(true); setError("")
+    try {
+      const body = await api<{ files?: MergeRequestFile[]; previewable?: boolean }>(`${baseApi}/files`)
+      setFiles(Array.isArray(body.files) ? body.files : [])
+      setFilesLoaded(true)
+      if (body.previewable) setDetail((current) => current ? { ...current, mergeRequest: { ...current.mergeRequest, previewable: true } } : current)
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "加载文件变更失败") }
+    finally { setFilesLoading(false) }
+  }, [baseApi])
+
   useEffect(() => {
     let active = true
     void api<MergeRequestDetail>(baseApi).then((body) => { if (active) setDetail(body) }).catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "加载 Merge Request 失败") }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [baseApi])
+
+  useEffect(() => {
+    if (view === "files" && !filesLoaded && !filesLoading) void loadFiles()
+  }, [filesLoaded, filesLoading, loadFiles, view])
 
   useEffect(() => {
     if (!previewExpanded) return
@@ -127,10 +145,10 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
   const conversationComments = useMemo(() => detail?.comments || [], [detail?.comments])
   const visibleFiles = useMemo(() => {
     const query = fileFilter.trim().toLowerCase()
-    return query ? (detail?.files || []).filter((file) => file.path.toLowerCase().includes(query)) : detail?.files || []
-  }, [detail?.files, fileFilter])
+    return query ? files.filter((file) => file.path.toLowerCase().includes(query)) : files
+  }, [fileFilter, files])
   const fileTreeItems = useMemo(() => visibleFiles.map((file) => ({ path: file.path, badge: file.status })), [visibleFiles])
-  const diffTotals = useMemo(() => (detail?.files || []).reduce((totals, file) => ({ additions: totals.additions + file.additions, deletions: totals.deletions + file.deletions }), { additions: 0, deletions: 0 }), [detail?.files])
+  const diffTotals = useMemo(() => files.reduce((totals, file) => ({ additions: totals.additions + file.additions, deletions: totals.deletions + file.deletions }), { additions: 0, deletions: 0 }), [files])
   const isOpen = detail?.mergeRequest.state === "open"
   const canMerge = Boolean(detail?.mergeRequest.permissions?.canMerge)
   const canClose = Boolean(detail?.mergeRequest.permissions?.canClose)
@@ -210,7 +228,7 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
     setError("")
     try {
       const result = await api<{ file: MergeRequestFile }>(`${baseApi}/files/diff?path=${encodeURIComponent(path)}`)
-      setDetail((current) => current ? { ...current, files: current.files.map((file) => file.path === path ? result.file : file) } : current)
+      setFiles((current) => current.map((file) => file.path === path ? result.file : file))
     } catch (expandError) {
       setError(expandError instanceof Error ? expandError.message : "加载文件 Diff 失败")
       throw expandError
@@ -274,21 +292,21 @@ export function MergeRequestPage({ gitServerId, projectId, mergeRequestNumber }:
         <nav className="gh-pr-tabs" aria-label="Merge request views">
           <button type="button" className={view === "conversation" ? "is-active" : ""} onClick={() => setView("conversation")}><MessageCircle className="size-4" />Conversation <span>{conversationComments.length}</span></button>
           {previewHref ? <button type="button" className={view === "preview" ? "is-active" : ""} onClick={() => setView("preview")}><Eye className="size-4" />Preview</button> : null}
-          <button type="button" className={view === "files" ? "is-active" : ""} onClick={() => setView("files")}><FileCode2 className="size-4" />Changes <span>{detail?.files.length || 0}</span></button>
+          <button type="button" className={view === "files" ? "is-active" : ""} onClick={() => setView("files")}><FileCode2 className="size-4" />Changes <span>{filesLoaded ? files.length : detail?.mergeRequest.changedFilesCount || 0}</span></button>
           {view === "files" ? <div className="gh-pr-diff-stat"><b>+{diffTotals.additions}</b><span>-{diffTotals.deletions}</span></div> : null}
         </nav>
       </header>
 
       {error ? <div className="gh-pr-error"><AlertCircle className="size-4" />{error}</div> : null}
       {view === "conversation" ? (
-        <ConversationView detail={detail} comments={conversationComments} issueHref={issueHref} sourceIssueNumber={sourceIssueNumber} comment={conversationComment} submitting={commentSubmitting} baseApi={baseApi} onCommentChange={setConversationComment} onSubmitComment={() => void submitConversationComment()} onUpdated={loadDetail} onError={setError} />
+        <ConversationView detail={detail} comments={conversationComments} files={files} issueHref={issueHref} sourceIssueNumber={sourceIssueNumber} comment={conversationComment} submitting={commentSubmitting} baseApi={baseApi} onCommentChange={setConversationComment} onSubmitComment={() => void submitConversationComment()} onUpdated={loadDetail} onError={setError} />
       ) : view === "preview" && previewHref ? (
         <section className={`gh-preview-view ${previewExpanded ? "is-expanded" : ""}`}>
           <Button className="gh-preview-expand" variant="secondary" size="icon" onClick={() => setPreviewExpanded((expanded) => !expanded)} aria-label={previewExpanded ? "退出全屏预览" : "全屏预览"} title={previewExpanded ? "退出全屏" : "全屏预览"}>{previewExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</Button>
           <iframe src={previewHref} title={`Preview MR #${mergeRequestNumber}`} />
         </section>
       ) : (
-        <section className="gh-files-view">
+        filesLoading ? <section className="gh-files-view"><div className="gh-pr-loading"><Loader2 className="size-5 animate-spin" />正在加载文件变更…</div></section> : <section className="gh-files-view">
           <div className="gh-files-toolbar">
             <span>{visibleFiles.length} changed files</span>
             <div><span className="gh-review-progress">{draftComments.length} pending comments</span><Button onClick={() => setReviewOpen(true)} disabled={!isOpen}><Send className="size-4" />Submit review</Button></div>
@@ -316,9 +334,9 @@ function mergeRequestReturnTo(gitServerId: string, projectId: string) {
   return returnTo.startsWith(`${repositoryPath}/issues/`) ? returnTo : ""
 }
 
-function ConversationView({ detail, comments, issueHref, sourceIssueNumber, comment, submitting, baseApi, onCommentChange, onSubmitComment, onUpdated, onError }: { detail?: MergeRequestDetail; comments: MergeRequestComment[]; issueHref: string; sourceIssueNumber: number; comment: string; submitting: boolean; baseApi: string; onCommentChange: (value: string) => void; onSubmitComment: () => void; onUpdated: () => Promise<void>; onError: (message: string) => void }) {
+function ConversationView({ detail, comments, files, issueHref, sourceIssueNumber, comment, submitting, baseApi, onCommentChange, onSubmitComment, onUpdated, onError }: { detail?: MergeRequestDetail; comments: MergeRequestComment[]; files: MergeRequestFile[]; issueHref: string; sourceIssueNumber: number; comment: string; submitting: boolean; baseApi: string; onCommentChange: (value: string) => void; onSubmitComment: () => void; onUpdated: () => Promise<void>; onError: (message: string) => void }) {
   const threads = groupConversationComments(comments)
-  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={detail?.files || []} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection>{detail ? <MergeRequestLabelControls baseApi={baseApi} labels={detail.mergeRequest.labels} availableLabels={detail.availableLabels} onUpdated={onUpdated} onError={onError} /> : null}<MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref}><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
+  return <section className="gh-conversation-view"><div className="gh-timeline"><TimelineCard author={detail?.mergeRequest.author} createdAt={detail?.mergeRequest.createdAt} label="opened this merge request"><MarkdownContent html={detail?.mergeRequest.bodyHtml} fallback={detail?.mergeRequest.body || "No description provided."} /></TimelineCard>{threads.map((thread) => <DiscussionCard key={thread.id} thread={thread} files={files} baseApi={baseApi} onUpdated={onUpdated} onError={onError} />)}<article className="gh-timeline-entry gh-comment-composer"><div className="gh-timeline-avatar"><MessageCircle className="size-5" /></div><div className="gh-comment-editor"><strong>Add a comment</strong><CommentEditor baseApi={baseApi} value={comment} submitting={submitting} placeholder="Add your comment here…" submitLabel="Comment" onChange={onCommentChange} onSubmit={onSubmitComment} /></div></article></div><aside className="gh-pr-meta"><MetaSection title="Reviewers"><p>{detail?.mergeRequest.approvedBy?.length ? detail.mergeRequest.approvedBy.map((user) => user.name || user.username).join(", ") : "No reviews"}</p></MetaSection>{detail ? <MergeRequestLabelControls baseApi={baseApi} labels={detail.mergeRequest.labels} availableLabels={detail.availableLabels} onUpdated={onUpdated} onError={onError} /> : null}<MetaSection title="Development">{sourceIssueNumber > 0 ? issueHref ? <a href={issueHref}><CircleDot className="size-4" />Mentions issue #{sourceIssueNumber}</a> : <p>Mentions issue #{sourceIssueNumber}</p> : <p>No linked issue</p>}</MetaSection></aside></section>
 }
 
 function DiscussionCard({ thread, files, baseApi, onUpdated, onError }: { thread: ConversationThread; files: MergeRequestFile[]; baseApi: string; onUpdated: () => Promise<void>; onError: (message: string) => void }) {

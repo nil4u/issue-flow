@@ -20,6 +20,7 @@ const {
   automationOptimizationPhases,
   createAutomationOptimizationIssue,
   getIssue,
+  getIssueComments,
   listAutomationOptimizations,
   updateIssueWorkflow,
 } = require("../src/core/issues.ts")
@@ -27,6 +28,10 @@ const {
   applyWorkflowChanges,
   normalizeWorkflowChanges,
 } = require("../src/core/managed-issue-labels.ts")
+const {
+  applyOptimizationIssueLifecycle,
+  optimizationIssueLifecycleFromGitlabPayload,
+} = require("../src/core/optimization-lifecycle.ts")
 
 test("workflow changes replace only the requested managed prefix", () => {
   const labels = applyWorkflowChanges([
@@ -48,6 +53,14 @@ test("workflow changes repair duplicate values in a changed group", () => {
   ], { status: "status::done" })
 
   assert.deepEqual(labels, ["type::feature", "status::done"])
+})
+
+test("workflow changes can clear the automation optimization state", () => {
+  const changes = normalizeWorkflowChanges({ changes: { optimization: null } })
+  assert.deepEqual(
+    applyWorkflowChanges(["type::feature", "optimization::analyzing", "backend"], changes),
+    ["type::feature", "backend"],
+  )
 })
 
 test("plan and build workflow changes require exactly one size", () => {
@@ -167,31 +180,61 @@ test("automation optimization issue template includes the source stage contract"
   assert.match(body, /`build`：2 Turns/)
 })
 
-test("automation insights exclude optimization analysis and generated execution issues", async (t) => {
+test("optimization lifecycle derives source state from the optimization issue", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
-  const requests = []
-  global.fetch = async (url) => {
-    const requestUrl = String(url)
-    requests.push(requestUrl)
-    if (requestUrl.endsWith("/issues/17")) return new Response(JSON.stringify({ id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature", "optimization::analyzing"] }), { status: 200 })
-    if (requestUrl.endsWith("/issues/82")) return new Response(JSON.stringify({ id: 82, iid: 82, title: "Generated", description: "<!-- issue-flow:optimization-proposal optimization-issue=81 source-issue=17 proposal=docs -->", state: "opened", labels: ["type::docs"] }), { status: 200 })
-    if (requestUrl.includes("/issues?") && requestUrl.includes("labels=type%3A%3Aoptimization")) return new Response(JSON.stringify([
-      { id: 81, iid: 81, title: "Optimize", description: "<!-- issue-flow:automation-optimization source-issue=17 -->", state: "opened", labels: ["type::optimization"] },
-    ]), { status: 200 })
-    throw new Error(`Unexpected request: ${requestUrl}`)
+  const sourceIssue = { id: 17, iid: 17, title: "Source", description: "", state: "closed", labels: ["type::feature"] }
+  global.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/projects/43326/issues/17") && (!options.method || options.method === "GET")) {
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    if (String(url).endsWith("/projects/43326/issues/17") && options.method === "PUT") {
+      sourceIssue.labels = JSON.parse(options.body).labels.split(",")
+      return new Response(JSON.stringify(sourceIssue), { status: 200 })
+    }
+    throw new Error(`Unexpected request: ${options.method || "GET"} ${url}`)
   }
+  const context = {
+    server: { type: "gitlab", apiUrl: "https://gitlab.test/api/v4", userToken: "token" },
+    repo: { serverRepoId: "43326" },
+  }
+  const body = "<!-- issue-flow:automation-optimization source-issue=17 -->"
+
+  await applyOptimizationIssueLifecycle({ ...context, issue: { number: 81, body, state: "open", labels: ["type::optimization", "status::active"] } })
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "optimization::analyzing"])
+
+  await applyOptimizationIssueLifecycle({ ...context, issue: { number: 81, body, state: "closed", labels: ["type::optimization", "status::active"] } })
+  assert.deepEqual(sourceIssue.labels, ["type::feature"])
+
+  await applyOptimizationIssueLifecycle({ ...context, issue: { number: 81, body, state: "closed", labels: ["type::optimization", "status::done"] } })
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "optimization::analyzed"])
+
+  const lifecycle = optimizationIssueLifecycleFromGitlabPayload({
+    object_kind: "issue",
+    object_attributes: { iid: 81, action: "reopen", state: "opened", description: body },
+    labels: [{ title: "type::optimization" }, { title: "status::active" }],
+  })
+  assert.deepEqual(lifecycle, { issueNumber: 81, sourceIssueNumber: 17, state: "open", completed: false })
+})
+
+test("automation insights use only synchronized issue projections", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async (url) => { throw new Error(`Unexpected Provider request: ${url}`) }
   const sourceIssues = [
-    { id: "issue-17", issueNumber: 17, type: "feature" },
-    { id: "issue-81", issueNumber: 81, type: "optimization" },
-    { id: "issue-82", issueNumber: 82, type: "docs" },
+    { id: "issue-17", issueId: "17", issueNumber: 17, title: "Source", author: "Alice", state: "closed", type: "feature", optimizationState: "analyzing", optimizationSourceIssueNumber: 0 },
+    { id: "issue-82", issueId: "82", issueNumber: 82, title: "Generated", author: "Alice", state: "opened", type: "docs", optimizationState: "", optimizationSourceIssueNumber: 17 },
+    { id: "issue-83", issueId: "83", issueNumber: 83, title: "Legacy", author: "", state: "opened", type: "feature", optimizationState: "", optimizationSourceIssueNumber: 0 },
+  ]
+  const optimizationIssues = [
+    { id: "issue-81", issueId: "81", issueNumber: 81, title: "Optimize", author: "Alice", state: "opened", type: "optimization", optimizationState: "", optimizationSourceIssueNumber: 17 },
   ]
   const store = {
     findRepositoryByProject: async () => ({ id: "repo-1", gitServerId: "gitlab-1", serverRepoId: "43326", fullName: "acme/widget" }),
     userCanAccessRepo: async () => true,
-    getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }),
+    getGitServer: async () => { throw new Error("Insights must not resolve Provider config") },
     db: {
-      issue: { findMany: async () => sourceIssues },
+      issue: { findMany: async ({ where }) => where.type === "optimization" ? optimizationIssues : sourceIssues },
       issueStat: { findMany: async () => sourceIssues.map((issue) => ({ id: issue.id, buildTaskTurns: 2 })) },
     },
   }
@@ -200,18 +243,23 @@ test("automation insights exclude optimization analysis and generated execution 
     session: { userId: "user-1", gitServerId: "gitlab-1", token: "user-token" },
     input: { issueNumbers: [17, 81, 82] },
   })
-  assert.deepEqual(result.items.map((item) => item.sourceIssueNumber), [17])
+  assert.deepEqual(result.items.map((item) => item.sourceIssueNumber), [17, 83])
   assert.equal(result.items[0].issue.title, "Source")
+  assert.equal(result.items[0].issue.author.name, "Alice")
+  assert.equal(result.items[0].status, "analyzing")
   assert.equal(result.items[0].optimizationIssueNumber, 81)
-  assert.equal(requests.some((url) => url.includes("/issues?") && !url.includes("labels=")), false)
+  assert.equal(result.items[1].issue.title, "Legacy")
+  assert.equal(result.items[1].issue.author.name, "")
 })
 
-test("automation optimization creation is blocked while the source has an optimization state", async (t) => {
+test("automation optimization creation is blocked only while analysis is active or complete", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
   const requests = []
   let createdIssue
   let nextIssueNumber = 81
+  const sourceRow = { id: "issue-row-17", issueId: "17", issueNumber: 17, title: "Add checkout", author: "alice", state: "closed", type: "feature", optimizationState: "", optimizationSourceIssueNumber: 0 }
+  let optimizationRows = []
   const sourceIssue = {
     id: 17,
     iid: 17,
@@ -228,7 +276,7 @@ test("automation optimization creation is blocked while the source has an optimi
       return new Response(JSON.stringify(sourceIssue), { status: 200 })
     }
     if (request.method === "GET" && request.url.includes("/issues?") && request.url.includes("labels=type%3A%3Aoptimization")) {
-      return new Response(JSON.stringify(createdIssue ? [createdIssue] : []), { status: 200 })
+      return new Response(JSON.stringify(createdIssue?.state === "opened" ? [createdIssue] : []), { status: 200 })
     }
     if (request.method === "POST" && request.url.endsWith("/issues")) {
       createdIssue = {
@@ -255,12 +303,27 @@ test("automation optimization creation is blocked while the source has an optimi
     getGitServer: async () => ({ id: "gitlab-1", type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }),
     db: {
       issue: {
-        findUnique: async () => ({ id: "issue-row-17", issueNumber: 17, title: "Add checkout", type: "feature" }),
-        findMany: async () => [{ id: "issue-row-17", issueNumber: 17, title: "Add checkout", type: "feature" }],
+        findUnique: async () => sourceRow,
+        findMany: async ({ where }) => where.type === "optimization" ? optimizationRows : [sourceRow],
       },
       issueStat: {
         findMany: async () => [{ id: "issue-row-17", planTaskTurns: 3, buildTaskTurns: 2 }],
       },
+    },
+    upsertIssueSnapshot: async (snapshot) => {
+      const issue = {
+        id: `issue-row-${snapshot.issueNumber}`,
+        issueId: snapshot.issueId,
+        issueNumber: snapshot.issueNumber,
+        title: snapshot.title,
+        author: snapshot.author,
+        state: snapshot.state,
+        type: snapshot.type,
+        optimizationState: snapshot.optimizationState,
+        optimizationSourceIssueNumber: snapshot.optimizationSourceIssueNumber,
+      }
+      optimizationRows.push(issue)
+      return { issue, applied: false }
     },
     getIssueStats: async () => ({ planTaskTurns: 3, buildTaskTurns: 2 }),
   }
@@ -279,7 +342,9 @@ test("automation optimization creation is blocked while the source has an optimi
 
   assert.equal(created.created, true)
   assert.equal(requests.filter((request) => request.method === "POST").length, 1)
-  assert.deepEqual(sourceIssue.labels, ["type::feature", "status::done", "optimization::analyzing"])
+  assert.equal(requests.some((request) => request.method === "GET" && request.url.includes("/issues?")), false)
+  assert.deepEqual(sourceIssue.labels, ["type::feature", "status::done"])
+  assert.equal(optimizationRows[0].optimizationSourceIssueNumber, 17)
   assert.match(created.issue.body, /`plan`：3 Turns/)
   assert.match(created.issue.body, /`build`：2 Turns/)
   assert.deepEqual(created.issue.labels.map((label) => label.name), [
@@ -291,6 +356,9 @@ test("automation optimization creation is blocked while the source has an optimi
     "size::M",
   ])
 
+  sourceRow.optimizationState = "analyzing"
+  optimizationRows = [{ id: "issue-row-81", issueId: "81", issueNumber: 81, title: "Optimize", author: "alice", state: "opened", type: "optimization", optimizationState: "", optimizationSourceIssueNumber: 17 }]
+  const providerRequestCount = requests.length
   let status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
   assert.deepEqual({
     sourceIssueNumber: status.items[0].sourceIssueNumber,
@@ -306,9 +374,17 @@ test("automation optimization creation is blocked while the source has an optimi
     optimizationIssueUrl: "",
   })
   assert.equal(status.items[0].issue.title, "Add checkout")
-  assert.deepEqual(status.items[0].issue.labels.map((label) => label.name), ["type::feature", "status::done", "optimization::analyzing"])
+  assert.equal(requests.length, providerRequestCount)
 
-  sourceIssue.labels = sourceIssue.labels.map((label) => label === "optimization::analyzing" ? "optimization::analyzed" : label)
+  optimizationRows[0].state = "closed"
+  status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
+  assert.equal(status.items[0].status, "available")
+  assert.equal(status.items[0].optimizationIssueNumber, 0)
+  const restarted = await createAutomationOptimizationIssue(input)
+  assert.equal(restarted.issue.number, 82)
+  assert.equal(requests.filter((request) => request.method === "POST").length, 2)
+
+  sourceRow.optimizationState = "analyzed"
   status = await listAutomationOptimizations({ ...input, input: { issueNumbers: [17] } })
   assert.equal(status.items[0].status, "analyzed")
 })
@@ -465,8 +541,10 @@ test("GitLab issue detail includes comments, labels, and current user permission
 test("Issue detail reads associated merge requests from synchronized pull request facts", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
+  const requests = []
   global.fetch = async (url, options = {}) => {
     const path = String(url)
+    requests.push(path)
     if (path.endsWith("/projects/43326/issues/15")) return new Response(JSON.stringify({ id: 15, iid: 15, title: "Plan", state: "opened", description: "Body", author: { id: 8, username: "author" }, labels: [] }), { status: 200 })
     if (path.includes("/issues/15/notes?")) return new Response(JSON.stringify([]), { status: 200 })
     if (path.endsWith("/projects/43326/labels?per_page=100")) return new Response(JSON.stringify([]), { status: 200 })
@@ -494,6 +572,17 @@ test("Issue detail reads associated merge requests from synchronized pull reques
   })
   assert.deepEqual(detail.mergeRequests.map((mergeRequest) => mergeRequest.number), [21, 22])
   assert.deepEqual(detail.mergeRequests.map((mergeRequest) => mergeRequest.labels), [["mr-by::plan"], ["mr-by::build"]])
+  assert.deepEqual(detail.comments, [])
+  assert.deepEqual(detail.availableLabels, [])
+  assert.equal(requests.some((path) => path.includes("/issues/15/notes?")), false)
+  assert.equal(requests.some((path) => path.includes("/labels?")), false)
+
+  const comments = await getIssueComments({
+    store, gitServerId: "gitlab-main", projectId: "43326", issueNumber: 15, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-main", token: "user-token" },
+  })
+  assert.deepEqual(comments.comments, [])
+  assert.equal(requests.some((path) => path.includes("/issues/15/notes?")), true)
 })
 
 test("GitHub issue create, edit, comment, close, and reopen use provider APIs", async (t) => {

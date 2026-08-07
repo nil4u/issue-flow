@@ -2,8 +2,10 @@
 import fs from "node:fs"
 import path from "node:path"
 import domain from "issue-flow/domain"
-import { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listAllProviderIssues, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssuesPage, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { createProviderIssue, createProviderIssueComment, getProviderIssue, getProviderIssueSnapshot, listProviderIssueComments, listProviderIssueLabels, listProviderIssueMentionUsers, listProviderIssuesPage, updateProviderIssue, updateProviderIssueState } from "./issue-provider.js"
+import { applyProviderIssueSnapshotToFacts } from "./issue-projection.js"
 import { applyWorkflowChanges, normalizeWorkflowChanges } from "./managed-issue-labels.js"
+import { applyOptimizationIssueLifecycle } from "./optimization-lifecycle.js"
 import { parseProposalMarker } from "./optimization-artifact.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
 import { renderProviderMarkdown } from "./provider-api.js"
@@ -38,13 +40,18 @@ function normalizeIssueNumber(value) {
 }
 
 async function requireIssueContext(store, gitServerId, projectId, userId, session) {
-  if (!userId) throw requestError("login required", 401, "login_required")
+  const repo = await requireIssueRepository(store, gitServerId, projectId, userId)
   if (!session || !session.token || session.userId !== userId || session.gitServerId !== gitServerId) throw requestError("current Git credential is required", 401, "git_credential_required")
-  const repo = await store.findRepositoryByProject({ gitServerId, projectId })
-  if (!repo || !await store.userCanAccessRepo(userId, repo.id)) throw requestError("repository not found", 404, "repository_not_found")
   const server = await store.getGitServer(repo.gitServerId, { includeSecret: true })
   if (!server) throw requestError("git server not found", 404, "git_server_not_found")
   return { repo, server: { ...server, userToken: session.token } }
+}
+
+async function requireIssueRepository(store, gitServerId, projectId, userId) {
+  if (!userId) throw requestError("login required", 401, "login_required")
+  const repo = await store.findRepositoryByProject({ gitServerId, projectId })
+  if (!repo || !await store.userCanAccessRepo(userId, repo.id)) throw requestError("repository not found", 404, "repository_not_found")
+  return repo
 }
 
 async function localIssueWithStats(store, repo, issueNumber) {
@@ -68,20 +75,12 @@ function automationOptimizationPhases(issue, stats) {
     .filter((item) => item.turns > 1)
 }
 
-function automationOptimizationSourceIssue(body) {
-  return domain.optimizationSourceIssueNumber(body)
+function isOpenIssueState(state) {
+  return state === "open" || state === "opened"
 }
 
 function optimizationStateFromLabels(labels = []) {
   return domain.managedLabelValue(labels, "optimizationState", (value) => value.toLowerCase())
-}
-
-function labelsWithOptimizationState(labels = [], state) {
-  return domain.applyManagedLabels(labels, { optimizationState: state })
-}
-
-function labelsWithoutOptimizationState(labels = []) {
-  return domain.applyManagedLabels(labels, {}, ["optimizationState"])
 }
 
 function automationOptimizationTemplatePath() {
@@ -112,20 +111,23 @@ async function getIssue({ store, gitServerId, projectId, issueNumber, userId, se
   const { repo, server } = await requireIssueContext(store, gitServerId, projectId, userId, session)
   const normalizedIssueNumber = normalizeIssueNumber(issueNumber)
   const [detail, mergeRequests] = await Promise.all([
-    getProviderIssue(server, repo, normalizedIssueNumber),
+    getProviderIssue(server, repo, normalizedIssueNumber, { includeComments: false, includeLabels: false }),
     listIssuePullRequestSummaries(store, repo, normalizedIssueNumber),
   ])
-  const [bodyHtml, commentHtml] = await Promise.all([
-    renderProviderMarkdown(server, repo, detail.issue.body),
-    Promise.all(detail.comments.map((comment) => renderProviderMarkdown(server, repo, comment.body))),
-  ])
+  const bodyHtml = await renderProviderMarkdown(server, repo, detail.issue.body)
   return {
     ...detail,
     issue: { ...detail.issue, bodyHtml },
-    comments: detail.comments.map((comment, index) => ({ ...comment, bodyHtml: commentHtml[index] || "" })),
     mergeRequests,
     repository: { id: repo.id, fullName: repo.fullName, provider: server.type, webUrl: repo.webUrl || repo.url || "" },
   }
+}
+
+async function getIssueComments({ store, gitServerId, projectId, issueNumber, userId, session }) {
+  const { repo, server } = await requireIssueContext(store, gitServerId, projectId, userId, session)
+  const comments = await listProviderIssueComments(server, repo, normalizeIssueNumber(issueNumber))
+  const commentHtml = await Promise.all(comments.map((comment) => renderProviderMarkdown(server, repo, comment.body)))
+  return { comments: comments.map((comment, index) => ({ ...comment, bodyHtml: commentHtml[index] || "" })) }
 }
 
 async function createAutomationOptimizationIssue({ store, gitServerId, projectId, issueNumber, userId, session, input = {} }) {
@@ -138,18 +140,28 @@ async function createAutomationOptimizationIssue({ store, gitServerId, projectId
   const sourceIssue = await getProviderIssueSnapshot(server, repo, normalizedIssueNumber)
   if (parseProposalMarker(sourceIssue.body)) throw requestError("optimization-generated issue is not eligible for automation optimization", 409, "automation_optimization_not_eligible")
   const optimizationState = optimizationStateFromLabels(sourceIssue.labels)
-  if (optimizationState) throw requestError(`issue automation optimization is ${optimizationState}`, 409, "automation_optimization_already_started")
+  const existingOptimizationIssues = await store.db.issue.findMany({
+    where: {
+      gitServerId: repo.gitServerId,
+      repositoryId: repo.serverRepoId,
+      type: "optimization",
+      optimizationSourceIssueNumber: normalizedIssueNumber,
+    },
+  })
+  const optimizationIsActive = optimizationState === "analyzed"
+    || existingOptimizationIssues.some((issue) => isOpenIssueState(issue.state))
+    || optimizationState === "analyzing" && !existingOptimizationIssues.length
+  if (optimizationIsActive) throw requestError(`issue automation optimization is ${optimizationState}`, 409, "automation_optimization_already_started")
   const title = `优化任务自动化：#${normalizedIssueNumber} ${local.issue.title || ""}`.trim()
   const body = automationOptimizationIssueBody({ sourceIssue: local.issue, phases })
   const issue = await createProviderIssue(server, repo, { title, body, labels: AUTOMATION_OPTIMIZATION_LABELS })
-  await updateProviderIssue(server, repo, normalizedIssueNumber, {
-    labels: labelsWithOptimizationState(sourceIssue.labels, "optimization::analyzing"),
-  })
+  await applyProviderIssueSnapshotToFacts(store, repo, issue)
+  if (server.type !== "gitlab") await applyOptimizationIssueLifecycle({ server, repo, issue })
   return { issue, created: true }
 }
 
 async function listAutomationOptimizations({ store, gitServerId, projectId, userId, session, input = {} }) {
-  const { repo, server } = await requireIssueContext(store, gitServerId, projectId, userId, session)
+  const repo = await requireIssueRepository(store, gitServerId, projectId, userId)
   const issueNumbers = [...new Set((Array.isArray(input.issueNumbers) ? input.issueNumbers : [])
     .map((value) => Number(value))
     .filter((value) => Number.isInteger(value) && value > 0))]
@@ -163,20 +175,24 @@ async function listAutomationOptimizations({ store, gitServerId, projectId, user
   })
   const stats = await store.db.issueStat.findMany({ where: { id: { in: sourceIssues.map((issue) => issue.id) } } })
   const statsById = new Map(stats.map((item) => [item.id, item]))
-  const candidates = sourceIssues.filter((issue) => issue.type !== "optimization" && automationOptimizationPhases(issue, statsById.get(issue.id)).length)
-  const providerIssues = await Promise.all(candidates.map((issue) => getProviderIssueSnapshot(server, repo, issue.issueNumber)))
-  const providerIssueByNumber = new Map(providerIssues.map((issue) => [issue.number, issue]))
-  const eligibleIssues = candidates.filter((issue) => !parseProposalMarker(providerIssueByNumber.get(issue.issueNumber)?.body))
-  const hasOptimizationState = eligibleIssues.some((issue) => optimizationStateFromLabels(providerIssueByNumber.get(issue.issueNumber)?.labels || []))
-  const optimizationIssues = hasOptimizationState
-    ? await listAllProviderIssues(server, repo, { state: "all", labels: ["type::optimization"] })
+  const eligibleIssues = sourceIssues.filter((issue) => issue.type !== "optimization" && !issue.optimizationSourceIssueNumber && automationOptimizationPhases(issue, statsById.get(issue.id)).length)
+  const optimizationIssues = eligibleIssues.length
+    ? await store.db.issue.findMany({
+        where: {
+          gitServerId: repo.gitServerId,
+          repositoryId: repo.serverRepoId,
+          type: "optimization",
+          optimizationSourceIssueNumber: { in: eligibleIssues.map((issue) => issue.issueNumber) },
+        },
+        orderBy: { issueNumber: "asc" },
+      })
     : []
   const optimizationBySource = new Map()
   for (const issue of optimizationIssues) {
-    const sourceIssueNumber = automationOptimizationSourceIssue(issue.body)
+    const sourceIssueNumber = issue.optimizationSourceIssueNumber
     if (!sourceIssueNumber) continue
     const current = optimizationBySource.get(sourceIssueNumber)
-    if (!current || issue.state === "open" || current.state !== "open" && Number(issue.number) > Number(current.number)) {
+    if (!current || isOpenIssueState(issue.state) || !isOpenIssueState(current.state) && Number(issue.issueNumber) > Number(current.issueNumber)) {
       optimizationBySource.set(sourceIssueNumber, issue)
     }
   }
@@ -185,14 +201,25 @@ async function listAutomationOptimizations({ store, gitServerId, projectId, user
     items: eligibleIssues.map((issue) => {
       const phases = automationOptimizationPhases(issue, statsById.get(issue.id))
       const optimizationIssue = optimizationBySource.get(issue.issueNumber)
-      const optimizationState = optimizationStateFromLabels(providerIssueByNumber.get(issue.issueNumber)?.labels || [])
+      const optimizationIssueIsOpen = optimizationIssue && isOpenIssueState(optimizationIssue.state)
+      const status = issue.optimizationState === "analyzed"
+        ? "analyzed"
+        : optimizationIssueIsOpen || issue.optimizationState === "analyzing" && !optimizationIssue
+          ? "analyzing"
+          : phases.length ? "available" : "unavailable"
       return {
-        issue: providerIssueByNumber.get(issue.issueNumber),
+        issue: {
+          id: issue.issueId || issue.id,
+          number: issue.issueNumber,
+          title: issue.title,
+          state: issue.state === "closed" ? "closed" : "open",
+          author: { id: "", username: "", name: issue.author, avatarUrl: "", url: "" },
+        },
         sourceIssueNumber: issue.issueNumber,
         phases,
-        status: optimizationState || (phases.length ? "available" : "unavailable"),
-        optimizationIssueNumber: optimizationIssue?.number || 0,
-        optimizationIssueUrl: optimizationIssue?.webUrl || "",
+        status,
+        optimizationIssueNumber: status === "available" ? 0 : optimizationIssue?.issueNumber || 0,
+        optimizationIssueUrl: "",
       }
     }),
   }
@@ -236,13 +263,7 @@ async function updateIssueState({ store, gitServerId, projectId, issueNumber, us
   const action = input.action === "close" || input.action === "reopen" ? input.action : ""
   if (!action) throw requestError("issue state action must be close or reopen")
   const issue = await updateProviderIssueState(server, repo, normalizedIssueNumber, action)
-  if (action === "close" && issue.labels.some((label) => label.name === "type::optimization")) {
-    const sourceIssueNumber = automationOptimizationSourceIssue(issue.body)
-    if (sourceIssueNumber) {
-      const sourceIssue = (await getProviderIssue(server, repo, sourceIssueNumber)).issue
-      await updateProviderIssue(server, repo, sourceIssueNumber, { labels: labelsWithoutOptimizationState(sourceIssue.labels) })
-    }
-  }
+  if (server.type !== "gitlab") await applyOptimizationIssueLifecycle({ server, repo, issue })
   return { issue }
 }
 
@@ -254,10 +275,10 @@ async function renderIssueMarkdown({ store, gitServerId, projectId, userId, sess
 export {
   automationOptimizationIssueBody,
   automationOptimizationPhases,
-  labelsWithOptimizationState,
   createAutomationOptimizationIssue,
   createIssue,
   getIssue,
+  getIssueComments,
   getIssueMentionUsers,
   listIssueLabels,
   listIssues,

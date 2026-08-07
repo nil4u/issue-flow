@@ -5,7 +5,7 @@ process.env.DATABASE_URL ||= "postgresql://issue-flow:test@127.0.0.1:5432/issue_
 require("tsx/cjs")
 
 const { getProviderMergeRequest, getProviderMergeRequestFileDiff, listProviderMentionUsers, listProviderMergeRequests, listProviderMergeRequestsPage, mergeProviderMergeRequest, normalizeGithubMergeRequest, normalizeGitlabMergeRequest, submitProviderMergeRequestComment, submitProviderMergeRequestReply, submitProviderMergeRequestReview, updateProviderMergeRequestLabels, updateProviderMergeRequestState } = require("../src/core/merge-request-provider.ts")
-const { getMergeRequest, updateMergeRequestWorkflow } = require("../src/core/merge-requests.ts")
+const { getMergeRequest, getMergeRequestFiles, updateMergeRequestWorkflow } = require("../src/core/merge-requests.ts")
 const { applyMergeRequestLabelChanges, normalizeMergeRequestLabelChanges } = require("../src/core/managed-merge-request-labels.ts")
 
 test("merge request label changes replace only the requested managed prefix", () => {
@@ -258,13 +258,15 @@ test("GitLab detail hydrates missing conversation avatars from user profiles", a
   assert.equal(detail.comments[1].line, 12)
 })
 
-test("merge request detail renders summary and comments as provider Markdown", async (t) => {
+test("merge request detail defers file changes until requested", async (t) => {
   const originalFetch = global.fetch
   t.after(() => { global.fetch = originalFetch })
+  const requests = []
   global.fetch = async (url, options = {}) => {
     const path = String(url)
+    requests.push(path)
     if (path.endsWith("/merge_requests/54")) return new Response(JSON.stringify({ id: 54, iid: 54, title: "Plan", state: "opened", description: "## Summary\n\n**Done**", source_branch: "plan", target_branch: "main" }), { status: 200 })
-    if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ changes: [] }), { status: 200 })
+    if (path.endsWith("/merge_requests/54/changes")) return new Response(JSON.stringify({ changes: [{ old_path: "src/api.ts", new_path: "src/api.ts", diff: "@@ -1 +1 @@\n-old\n+new" }] }), { status: 200 })
     if (path.includes("/discussions?")) return new Response(JSON.stringify([{ notes: [{ id: 8, body: "[Open task](https://example.test/task)", author: { username: "agentrix" } }] }]), { status: 200 })
     if (path.endsWith("/approvals")) return new Response(JSON.stringify({ approved_by: [] }), { status: 200 })
     if (path.endsWith("/projects/43326/labels?per_page=100")) return new Response(JSON.stringify([{ name: "mr-by::plan", color: "0052CC", description: "Plan" }]), { status: 200 })
@@ -283,6 +285,16 @@ test("merge request detail renders summary and comments as provider Markdown", a
   assert.match(detail.mergeRequest.bodyHtml, /## Summary/)
   assert.match(detail.comments[0].bodyHtml, /Open task/)
   assert.equal(detail.availableLabels[0].name, "mr-by::plan")
+  assert.deepEqual(detail.files, [])
+  assert.equal(requests.some((path) => path.endsWith("/merge_requests/54/changes")), false)
+
+  const files = await getMergeRequestFiles({
+    store: { findRepositoryByProject: async () => repo, userCanAccessRepo: async () => true, getGitServer: async () => ({ type: "gitlab", apiUrl: "https://gitlab.test/api/v4" }) },
+    gitServerId: "gitlab-main", projectId: "43326", mergeRequestNumber: 54, userId: "user-1",
+    session: { userId: "user-1", gitServerId: "gitlab-main", token: "user-token" },
+  })
+  assert.equal(files.files[0].path, "src/api.ts")
+  assert.equal(requests.some((path) => path.endsWith("/merge_requests/54/changes")), true)
 })
 
 test("GitLab diff review submits inline comments, summary, and approval", async (t) => {

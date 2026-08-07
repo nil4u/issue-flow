@@ -14,6 +14,17 @@ function issueState(attributes = {}) {
   return String(attributes.state || "").toLowerCase()
 }
 
+function issueAuthor(payload = {}, attributes = {}, action = "") {
+  const issueUser = payload.issue && payload.issue.user
+  const author = issueUser || attributes.author || (["open", "create"].includes(String(action).toLowerCase()) ? payload.user : undefined) || {}
+  return String(author.name || author.username || author.login || "")
+}
+
+function optimizationSourceIssueNumber(description = "") {
+  return domain.optimizationSourceIssueNumber(description)
+    || Number(domain.parseOptimizationProposalMarker(description)?.sourceIssueNumber || 0)
+}
+
 function issueSnapshot(gitEvent = {}) {
   if (gitEvent.eventName !== "issue" && gitEvent.eventName !== "issues") return undefined
   const payload = gitEvent.payload || {}
@@ -25,6 +36,7 @@ function issueSnapshot(gitEvent = {}) {
   if (!issueId || !issueNumber) return undefined
   const status = issueStatus(attributes, labels)
   const updatedAt = attributes.updated_at || attributes.created_at || gitEvent.receivedAt
+  const description = attributes.description
   return {
     gitServerId: gitEvent.gitServerId,
     repositoryId: gitEvent.repositoryId,
@@ -32,6 +44,7 @@ function issueSnapshot(gitEvent = {}) {
     issueId,
     issueNumber,
     title: attributes.title || "",
+    author: issueAuthor(payload, attributes, gitEvent.action || attributes.action),
     state: issueState(attributes),
     type: managedLabelValue(labels, "type", (value) => value.toLowerCase()),
     priority: managedLabelValue(labels, "priority", (value) => value.toUpperCase()),
@@ -39,10 +52,13 @@ function issueSnapshot(gitEvent = {}) {
     automation: managedLabelValue(labels, "automation", (value) => value.toLowerCase()) || "off",
     status,
     flow: issueFlow(labels),
+    optimizationState: managedLabelValue(labels, "optimizationState", (value) => value.toLowerCase()),
+    optimizationSourceIssueNumber: optimizationSourceIssueNumber(description),
     openedAt: attributes.created_at || updatedAt,
     closedAt: status === "done" || status === "drop" ? attributes.closed_at || updatedAt : "",
     updatedAt,
     hasLabelSnapshot: Array.isArray(payload.labels),
+    hasDescriptionSnapshot: typeof description === "string",
     createdByTaskId: markers.sourceRuntime === "agentrix" ? markers.taskId : "",
   }
 }
@@ -53,6 +69,7 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     id: issue.id,
     iid: issue.iid,
     title: issue.title,
+    author: issue.author,
     state: issue.state,
     created_at: issue.createdAt,
     updated_at: issue.updatedAt,
@@ -69,6 +86,7 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     issueId: String(attributes.id || attributes.iid || ""),
     issueNumber: Number(attributes.iid || 0),
     title: attributes.title || "",
+    author: attributes.author || "",
     state: issueState(attributes),
     type: managedLabelValue(labels, "type", (value) => value.toLowerCase()),
     priority: managedLabelValue(labels, "priority", (value) => value.toUpperCase()),
@@ -76,10 +94,54 @@ function issueSnapshotFromGitlabIssue(repo = {}, issue = {}) {
     automation: managedLabelValue(labels, "automation", (value) => value.toLowerCase()) || "off",
     status,
     flow: issueFlow(labels),
+    optimizationState: managedLabelValue(labels, "optimizationState", (value) => value.toLowerCase()),
+    optimizationSourceIssueNumber: optimizationSourceIssueNumber(attributes.description),
     openedAt: attributes.created_at || updatedAt,
     closedAt: status === "done" || status === "drop" ? attributes.closed_at || updatedAt : "",
     updatedAt,
     hasLabelSnapshot: true,
+    hasDescriptionSnapshot: true,
+    createdByTaskId: markers.sourceRuntime === "agentrix" ? markers.taskId : "",
+  }
+}
+
+function issueSnapshotFromProviderIssue(repo = {}, issue = {}) {
+  const labels = normalizeLabels(issue.labels)
+  const description = issue.body || ""
+  const markers = issueFlowMarkers(description)
+  const attributes = {
+    id: issue.id,
+    number: issue.number,
+    title: issue.title,
+    state: issue.state,
+    created_at: issue.createdAt,
+    updated_at: issue.updatedAt,
+    closed_at: issue.closedAt,
+  }
+  const status = issueStatus(attributes, labels)
+  const updatedAt = attributes.updated_at || attributes.created_at || new Date().toISOString()
+  return {
+    gitServerId: repo.gitServerId,
+    repositoryId: repo.serverRepoId || repo.projectId,
+    repositoryFullName: repo.fullName || repo.projectPath,
+    issueId: String(attributes.id || attributes.number || ""),
+    issueNumber: Number(attributes.number || 0),
+    title: attributes.title || "",
+    author: issue.author && (issue.author.name || issue.author.username) || "",
+    state: issueState(attributes),
+    type: managedLabelValue(labels, "type", (value) => value.toLowerCase()),
+    priority: managedLabelValue(labels, "priority", (value) => value.toUpperCase()),
+    size: managedLabelValue(labels, "size", (value) => value.toUpperCase()),
+    automation: managedLabelValue(labels, "automation", (value) => value.toLowerCase()) || "off",
+    status,
+    flow: issueFlow(labels),
+    optimizationState: managedLabelValue(labels, "optimizationState", (value) => value.toLowerCase()),
+    optimizationSourceIssueNumber: optimizationSourceIssueNumber(description),
+    openedAt: attributes.created_at || updatedAt,
+    closedAt: status === "done" || status === "drop" ? attributes.closed_at || updatedAt : "",
+    updatedAt,
+    hasLabelSnapshot: true,
+    hasDescriptionSnapshot: true,
     createdByTaskId: markers.sourceRuntime === "agentrix" ? markers.taskId : "",
   }
 }
@@ -119,12 +181,18 @@ async function applyGitlabIssueSnapshotToFacts(store, repo = {}, issue = {}, opt
   return applyIssueSnapshotToFacts(store, issueSnapshotFromGitlabIssue(repo, issue), options)
 }
 
+async function applyProviderIssueSnapshotToFacts(store, repo = {}, issue = {}, options = {}) {
+  return applyIssueSnapshotToFacts(store, issueSnapshotFromProviderIssue(repo, issue), options)
+}
+
 export {
   applyGitlabIssueSnapshotToFacts,
   applyGitEventToIssueFacts,
   applyIssueSnapshotToFacts,
+  applyProviderIssueSnapshotToFacts,
   issueFlow,
   issueSnapshot,
   issueSnapshotFromGitlabIssue,
+  issueSnapshotFromProviderIssue,
   labelsFromPayload,
 }

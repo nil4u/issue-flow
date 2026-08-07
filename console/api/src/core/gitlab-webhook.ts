@@ -14,6 +14,7 @@ import {
   ISSUE_FLOW_PLUGIN_KEY,
   pluginCacheFromMergedPending,
 } from './issue-flow-plugin.js'
+import { applyOptimizationIssueLifecycle, optimizationIssueLifecycleFromGitlabPayload } from './optimization-lifecycle.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
 
@@ -100,6 +101,36 @@ function createIssueFlowBusinessTarget(store, repo, secrets) {
   }, { onError: 'ignore' });
 }
 
+function createOptimizationLifecycleTarget(repo, secrets) {
+  return deliveryTarget('optimization-lifecycle', async (input) => {
+    const handled = []
+    for (const event of input.events || []) {
+      const payload = event && event.raw && event.raw.body || {}
+      const lifecycle = optimizationIssueLifecycleFromGitlabPayload(payload)
+      if (!lifecycle) continue
+      const result = await applyOptimizationIssueLifecycle({
+        server: {
+          type: 'gitlab',
+          baseUrl: repo.baseUrl,
+          apiUrl: repo.apiUrl,
+          adminPat: secrets.providerToken,
+          tokenAuth: secrets.providerAuthType,
+        },
+        repo: { ...repo, serverRepoId: repo.serverRepoId || repo.projectId },
+        lifecycle,
+      })
+      if (result) handled.push(result)
+    }
+    return {
+      target: 'optimization-lifecycle',
+      eventId: input.deliveryId,
+      status: handled.length ? 'delivered' : 'ignored',
+      reason: handled.length ? 'optimization_lifecycle_handled' : 'not_optimization_issue_event',
+      handled,
+    }
+  })
+}
+
 function createGitLabWebhookBridge({ store, repo, secrets }) {
   return new GitLabWebhookBridge({
     gitlab: {
@@ -111,6 +142,7 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
     store: createWebhookBridgeStore(store, repo.id),
     targets: [
       createGitEventTarget(store, repo),
+      createOptimizationLifecycleTarget(repo, secrets),
       createIssueFlowBusinessTarget(store, repo, secrets),
       gitlabPipelineTarget({
         variables: composeVariables([

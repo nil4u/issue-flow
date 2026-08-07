@@ -1,21 +1,21 @@
 import { useMemo, useState, type ComponentType, type ReactNode } from "react"
-import { Bot, Boxes, Check, ChevronDown, CircleDot, Gauge, GitBranch, Loader2, MoreHorizontal, Pause, Play, Ruler, Sparkles } from "lucide-react"
+import { Bot, Boxes, ChevronDown, CircleDot, Gauge, GitBranch, Loader2, Ruler, Sparkles } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Switch } from "@/components/ui/switch"
 import type { ProviderIssueLabel } from "@/issue-flow-model"
 
-type WorkflowGroup = "type" | "status" | "flow" | "visualPlan" | "automation" | "priority" | "size"
+type WorkflowGroup = "type" | "status" | "flow" | "visualPlan" | "automation" | "optimization" | "priority" | "size"
 type WorkflowChanges = Partial<Record<WorkflowGroup, string | null>>
 type Option = { value: string; label: string; detail?: string }
 
 const STATUS_OPTIONS: Option[] = [
-  { value: "status::active", label: "Active" },
-  { value: "status::suspend", label: "Suspend" },
-  { value: "status::done", label: "Done" },
-  { value: "status::drop", label: "Drop" },
+  { value: "status::active", label: "Active", detail: "正常推进" },
+  { value: "status::suspend", label: "Suspend", detail: "暂停自动推进" },
+  { value: "status::done", label: "Done", detail: "标记为已完成" },
+  { value: "status::drop", label: "Drop", detail: "标记为已放弃" },
 ]
 const FLOW_OPTIONS: Option[] = [
   { value: "flow::triage", label: "Triage", detail: "等待分类和规范化" },
@@ -29,6 +29,11 @@ const AUTOMATION_OPTIONS: Option[] = [
   { value: "automation::off", label: "Off" },
   { value: "automation::plan", label: "Plan", detail: "自动推进至 Plan" },
   { value: "automation::build", label: "Build", detail: "自动推进至 Build" },
+]
+const OPTIMIZATION_OPTIONS: Option[] = [
+  { value: "__none__", label: "未设置" },
+  { value: "optimization::analyzing", label: "Analyzing" },
+  { value: "optimization::analyzed", label: "Analyzed" },
 ]
 const TYPE_OPTIONS: Option[] = [
   { value: "type::feature", label: "Feature" }, { value: "type::bug", label: "Bug" },
@@ -75,7 +80,7 @@ export function IssueWorkflowControls({ labels, canEdit, busyGroup, headerAction
       <StatusControl status={status} invalid={statusLabels.length > 1} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "status"} onChange={(value) => void onChange({ status: value })} onConfirm={confirmStatus} />
       <ControlMenu title="Flow" icon={GitBranch} value={flow} options={FLOW_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "flow"} onChange={selectFlow} />
       <ControlMenu title="Automation" icon={Bot} value={automation || "__default__"} options={AUTOMATION_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "automation"} onChange={(value) => void onChange({ automation: value === "__default__" ? null : value })} />
-      {optimization ? <ReadOnlyControl title="Optimization" icon={Sparkles} value={optimization === "optimization::analyzing" ? "Analyzing" : "Analyzed"} /> : null}
+      <ControlMenu title="Optimization" icon={Sparkles} value={optimization || "__none__"} options={OPTIMIZATION_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "optimization"} onChange={(value) => void onChange({ optimization: value === "__none__" ? null : value })} />
       <ControlMenu title="Type" icon={Boxes} value={singleValue(names, "type::")} options={TYPE_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "type"} onChange={(value) => void onChange({ type: value })} />
       <ControlMenu title="Priority" icon={Gauge} value={singleValue(names, "priority::")} options={PRIORITY_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "priority"} onChange={(value) => void onChange({ priority: value })} />
       <ControlMenu title="Size" icon={Ruler} value={size} options={SIZE_OPTIONS} disabled={!canEdit || Boolean(busyGroup)} busy={busyGroup === "size"} onChange={(value) => void onChange({ size: value })} />
@@ -99,25 +104,22 @@ export function IssueWorkflowControls({ labels, canEdit, busyGroup, headerAction
 
 function StatusControl({ status, invalid, disabled, busy, onChange, onConfirm }: { status: string; invalid: boolean; disabled: boolean; busy: boolean; onChange: (value: string) => void; onConfirm: (value: string, title: string, description: string, action: string, destructive?: boolean) => void }) {
   const value = invalid ? "状态异常" : optionLabel(STATUS_OPTIONS, status) || "未设置"
-  const action = status === "status::active" ? { label: "暂停", value: "status::suspend", icon: Pause }
-    : status === "status::suspend" ? { label: "恢复", value: "status::active", icon: Play }
-      : status === "status::done" || status === "status::drop" ? { label: "Active", value: "status::active", icon: Play }
-        : { label: "启用", value: "status::active", icon: Play }
-  return <div className="issue-status-control">
-    <div className="issue-control-title"><CircleDot className="size-3.5" /><span><small>Status</small><strong className={`issue-status-value ${status.replace("status::", "") || "unset"}`}>{busy ? "更新中" : value}</strong></span></div>
-    <div className="issue-status-actions">
-      <Button size="xs" variant="secondary" disabled={disabled} onClick={() => onChange(action.value)}>{busy ? <Loader2 className="animate-spin" /> : <action.icon />}{action.label}</Button>
-      {(status === "status::active" || status === "status::suspend") ? <DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-xs" variant="ghost" disabled={disabled} aria-label="更多 Status 操作"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => onConfirm("status::done", "设为 Done？", "只会将 Status Label 切换为 Done，不会关闭 Issue。", "完成")}><Check />完成</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={() => onConfirm("status::drop", "设为 Drop？", "只会将 Status Label 切换为 Drop，不会关闭 Issue。", "放弃", true)}>放弃</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
-    </div>
+  function selectStatus(nextValue: string) {
+    if (nextValue === status) return
+    if (nextValue === "status::done") return onConfirm(nextValue, "设为 Done？", "只会将 Status Label 切换为 Done，不会关闭 Issue。", "完成")
+    if (nextValue === "status::drop") return onConfirm(nextValue, "设为 Drop？", "只会将 Status Label 切换为 Drop，不会关闭 Issue。", "放弃", true)
+    onChange(nextValue)
+  }
+  return <div className="issue-control-row">
+    <span className="issue-control-title"><CircleDot className="size-3.5" />Status</span>
+    <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="issue-control-trigger issue-status-trigger" disabled={disabled}>{busy ? <Loader2 className="size-3.5 animate-spin" /> : <StatusDot value={status} />}<span>{busy ? "更新中" : value}</span><ChevronDown className="size-3.5" /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={status} onValueChange={selectStatus}>{STATUS_OPTIONS.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value}><span className="issue-status-option"><StatusDot value={option.value} /><span className="issue-control-option"><strong>{option.label}</strong><small>{option.detail}</small></span></span></DropdownMenuRadioItem>)}</DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu>
   </div>
 }
 
+function StatusDot({ value }: { value: string }) { return <span className={`issue-status-dot ${value.replace("status::", "") || "unset"}`} /> }
+
 function ControlMenu({ title, icon: Icon, value, options, disabled, busy, onChange }: { title: string; icon: ComponentType<{ className?: string }>; value: string; options: Option[]; disabled: boolean; busy: boolean; onChange: (value: string) => void }) {
   return <div className="issue-control-row"><span className="issue-control-title"><Icon className="size-3.5" />{title}</span><DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="issue-control-trigger" disabled={disabled}>{busy ? <Loader2 className="size-3.5 animate-spin" /> : null}<span>{busy ? "更新中" : optionLabel(options, value) || "未设置"}</span><ChevronDown className="size-3.5" /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={value} onValueChange={onChange}>{options.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value}><span className="issue-control-option"><strong>{option.label}</strong>{option.detail ? <small>{option.detail}</small> : null}</span></DropdownMenuRadioItem>)}</DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu></div>
-}
-
-function ReadOnlyControl({ title, icon: Icon, value }: { title: string; icon: ComponentType<{ className?: string }>; value: string }) {
-  return <div className="issue-control-row"><span className="issue-control-title"><Icon className="size-3.5" />{title}</span><span className="issue-control-readonly">{value}</span></div>
 }
 
 function valuesFor(labels: string[], prefix: string) { return labels.filter((label) => label.startsWith(prefix)) }

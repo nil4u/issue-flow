@@ -155,6 +155,7 @@ model Issue {
   issueNumber        Int       @map("issue_number")
   createdByTaskId    String    @default("") @map("created_by_task_id")
   title              String
+  author             String    @default("")
   state              String    @default("")
   type               String    @default("")
   priority           String    @default("")
@@ -162,6 +163,8 @@ model Issue {
   automation         String    @default("off")
   status             String    @default("active")
   flow               String    @default("")
+  optimizationState  String    @default("") @map("optimization_state")
+  optimizationSourceIssueNumber Int @default(0) @map("optimization_source_issue_number")
   openedAt           DateTime  @map("opened_at")
   closedAt           DateTime? @map("closed_at")
   updatedAt          DateTime  @map("updated_at")
@@ -170,6 +173,7 @@ model Issue {
   @@unique([gitServerId, repositoryId, issueNumber])
   @@index([createdByTaskId])
   @@index([gitServerId, repositoryId, state, updatedAt])
+  @@index([gitServerId, repositoryId, optimizationSourceIssueNumber], map: "issues_optimization_source_idx")
   @@map("issues")
 }
 

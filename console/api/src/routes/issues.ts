@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify"
 
-import { createAutomationOptimizationIssue, createIssue, getIssue, getIssueMentionUsers, listAutomationOptimizations, listIssueLabels, listIssues, renderIssueMarkdown, submitIssueComment, updateIssue, updateIssueState, updateIssueWorkflow } from "../core/issues.js"
+import { createAutomationOptimizationIssue, createIssue, getIssue, getIssueComments, getIssueMentionUsers, listAutomationOptimizations, listIssueLabels, listIssues, renderIssueMarkdown, submitIssueComment, updateIssue, updateIssueState, updateIssueWorkflow } from "../core/issues.js"
 import { contextFromRequest, currentUserIdFromRequest, sessionFromRequest } from "../services/issue-flow.js"
 
 async function providerSession(request: FastifyRequest, gitServerId: string) {
@@ -43,6 +43,11 @@ export async function issueRoutes(app: FastifyInstance) {
   app.get("/api/issues/:gitServerId/:projectId/:issueNumber/mentions", async (request) => {
     const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
     return getIssueMentionUsers({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId) })
+  })
+
+  app.get("/api/issues/:gitServerId/:projectId/:issueNumber/comments", async (request) => {
+    const { gitServerId, projectId, issueNumber } = request.params as Record<string, string>
+    return getIssueComments({ ...contextFromRequest(request), gitServerId, projectId, issueNumber, ...await providerSession(request, gitServerId) })
   })
 
   app.patch("/api/issues/:gitServerId/:projectId/:issueNumber", async (request) => {
