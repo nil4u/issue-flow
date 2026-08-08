@@ -137,7 +137,7 @@ Weighted Throughput 按完成 issue 的唯一 `size::` label 求和：`size::XS=
 | Issue state | 不读取 source issue state，不修改 label |
 | Task target | 从 PR/MR body 的 `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->` marker 解析 |
 | Acknowledge | 给触发 comment 加 `eyes` reaction |
-| Close loop | task 处理后用 `issue-flow pr comments create` 在 PR/MR 下发一条普通总结 comment |
+| Close loop | 仅 resume 原 task；不要求 task 处理后再发布普通总结 comment |
 | Skip | 非 open/draft/merged PR、缺少 PR/MR task marker、非 review comment created event |
 
 旧脚本仍作为兼容入口和内部实现保留；新的 agent-facing 文档和 prompt 使用 `issue-flow` 总入口。
