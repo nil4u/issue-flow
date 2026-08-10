@@ -29,6 +29,7 @@ const {
   publishVisualArtifactComment,
   pullRequestNumberFromUrl,
   resolveBaseBranch,
+  resolveRemoveSourceBranch,
   resolveIssueFlowBaseUrl,
   resolvePlanReviewContext,
   resolveVisualPlanFeatureMode,
@@ -211,6 +212,30 @@ test('submit base branch fails fast when no Agentrix worker env or explicit base
       );
     }
   );
+});
+
+test('resolveRemoveSourceBranch defaults to true and honors CLI flags and config', () => {
+  const previousCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-submit-remove-source-'));
+  try {
+    process.chdir(root);
+
+    assert.equal(resolveRemoveSourceBranch({}), true);
+    assert.equal(resolveRemoveSourceBranch({ removeSourceBranch: 'true' }), true);
+    assert.equal(resolveRemoveSourceBranch({ removeSourceBranch: 'false' }), false);
+    assert.equal(resolveRemoveSourceBranch({ noRemoveSourceBranch: true }), false);
+
+    fs.mkdirSync(path.join(root, '.issue-flow'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.issue-flow/config.json'), JSON.stringify({ removeSourceBranch: false }), 'utf8');
+    assert.equal(resolveRemoveSourceBranch({}), false);
+
+    fs.writeFileSync(path.join(root, '.issue-flow/config.json'), JSON.stringify({ removeSourceBranch: true }), 'utf8');
+    assert.equal(resolveRemoveSourceBranch({}), true);
+    assert.equal(resolveRemoveSourceBranch({ noRemoveSourceBranch: true }), false);
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('PR title normalization keeps existing issue number', () => {

@@ -99,6 +99,8 @@ node .issue-flow/cli.cjs pr merged --event <event-json-file>
 
 `pr submit plan` 会读取 source issue 的类型与特性开关。`type::optimization` 固定发布 Automation Optimizer Skill 定义的 Optimization JSON；其他 Issue 默认提交 Markdown Plan，`feature:visual-plan:on` 发布 Decision 或 Visual Plan。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
+PR/MR 创建时默认在合并后删除源分支（GitLab `remove_source_branch`、GitHub `delete_branch_on_merge`）。可通过 `--no-remove-source-branch` 或 `.issue-flow/config.json` 的 `removeSourceBranch: false` 关闭。
+
 ### Milestone、Labels
 
 ```bash

@@ -1952,6 +1952,9 @@ async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, b
     if (draft) {
       args.push('--draft');
     }
+    if (options.removeSourceBranch !== false) {
+      args.push('--delete-branch');
+    }
     console.log(JSON.stringify({ dryRun: true, command: 'gh', args }, null, 2));
     return `https://github.com/${repo.fullName}/pulls/dry-run`;
   }
@@ -1991,6 +1994,9 @@ async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, b
     if (draft) {
       args.push('--draft');
     }
+    if (options.removeSourceBranch !== false) {
+      args.push('--delete-branch');
+    }
 
     try {
       return runProviderChecked('gh', args);
@@ -2018,6 +2024,7 @@ async function createOrUpdateGithubPullRequest({ repo, title, bodyFile, label, b
       base: baseBranch,
       head: headBranch,
       draft: Boolean(draft),
+      delete_branch_on_merge: options.removeSourceBranch !== false,
     });
     await addGithubPullRequestLabel(repo, created.number, label);
     return created.html_url || '';
@@ -2093,6 +2100,7 @@ async function createOrUpdateGitlabMergeRequest({ repo, title, bodyFile, label, 
     return updated.web_url || existing.web_url || '';
   }
 
+  const removeSourceBranch = options.removeSourceBranch !== false;
   const created = await requestGitlab(
     'POST',
     gitlabMergeRequestsApiPath(repo),
@@ -2102,6 +2110,7 @@ async function createOrUpdateGitlabMergeRequest({ repo, title, bodyFile, label, 
       title: mrTitle,
       description,
       labels: label,
+      remove_source_branch: removeSourceBranch,
     },
     options
   );

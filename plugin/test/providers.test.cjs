@@ -210,6 +210,7 @@ test('github submit operations use token API without gh CLI', async () => {
   );
   assert.equal(calls[3].body.draft, true);
   assert.equal(calls[3].body.body, 'Token body');
+  assert.equal(calls[3].body.delete_branch_on_merge, true);
 });
 
 test('github submit operations fallback to gh CLI only when token is missing', async () => {
@@ -1532,4 +1533,114 @@ test('gitlab issue payload normalizes to issue-flow context', () => {
     author: 'alice',
     labels: ['flow::build', 'automation::build'],
   });
+});
+
+test('gitlab create merge request sets remove_source_branch by default', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'group', repo: 'sub-project', repoFullName: 'group/sub/project', projectId: '42' };
+  const bodyFile = createBodyFile('Build body');
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await withTemporaryEnv(
+    {
+      GITLAB_TOKEN: 'token-123',
+      GL_TOKEN: undefined,
+      GITLAB_PRIVATE_TOKEN: undefined,
+      CI_JOB_TOKEN: undefined,
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const body = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body });
+        const parsed = new URL(String(url));
+
+        if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'GET') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([]) };
+        }
+        if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'POST') {
+          return {
+            ok: true,
+            status: 201,
+            text: async () => JSON.stringify({ iid: 7, web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/7' }),
+          };
+        }
+        throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+      };
+
+      const url = await provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #7: remove source',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'main',
+        headBranch: '7-remove-source/build',
+        draft: false,
+        options: {},
+      });
+
+      assert.equal(url, 'https://gitlab.com/group/sub/project/-/merge_requests/7');
+    }
+  );
+
+  global.fetch = previousFetch;
+  bodyFile.cleanup();
+
+  const createCall = calls.find((call) => call.method === 'POST');
+  assert.equal(createCall.body.remove_source_branch, true);
+});
+
+test('gitlab create merge request omits remove_source_branch when disabled', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'group', repo: 'sub-project', repoFullName: 'group/sub/project', projectId: '42' };
+  const bodyFile = createBodyFile('Build body');
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  await withTemporaryEnv(
+    {
+      GITLAB_TOKEN: 'token-123',
+      GL_TOKEN: undefined,
+      GITLAB_PRIVATE_TOKEN: undefined,
+      CI_JOB_TOKEN: undefined,
+    },
+    async () => {
+      global.fetch = async (url, init = {}) => {
+        const body = init.body ? JSON.parse(init.body) : undefined;
+        calls.push({ url: String(url), method: init.method, body });
+        const parsed = new URL(String(url));
+
+        if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'GET') {
+          return { ok: true, status: 200, text: async () => JSON.stringify([]) };
+        }
+        if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'POST') {
+          return {
+            ok: true,
+            status: 201,
+            text: async () => JSON.stringify({ iid: 8, web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/8' }),
+          };
+        }
+        throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+      };
+
+      const url = await provider.createOrUpdatePullRequest({
+        repo,
+        title: 'Build #7: keep source',
+        bodyFile: bodyFile.path,
+        label: 'mr-by::build',
+        baseBranch: 'main',
+        headBranch: '7-keep-source/build',
+        draft: false,
+        options: { removeSourceBranch: false },
+      });
+
+      assert.equal(url, 'https://gitlab.com/group/sub/project/-/merge_requests/8');
+    }
+  );
+
+  global.fetch = previousFetch;
+  bodyFile.cleanup();
+
+  const createCall = calls.find((call) => call.method === 'POST');
+  assert.equal(createCall.body.remove_source_branch, false);
 });

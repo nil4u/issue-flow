@@ -216,6 +216,8 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 | `--label <label>` | PR label 覆盖（默认由 kind 决定） |
 | `--draft` | 创建 draft PR/MR |
 | `--no-push` | 不 push 分支 |
+| `--remove-source-branch <bool>` | 合并后删除源分支（默认：true）。也可在 `.issue-flow/config.json` 配置 `removeSourceBranch` |
+| `--no-remove-source-branch` | 合并后不删除源分支 |
 
 ### 行为
 

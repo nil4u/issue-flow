@@ -65,6 +65,8 @@ function usage() {
     '  --label <mr-by::...>    PR/MR label override. Defaults by kind.',
     '  --draft                Create the PR as draft.',
     '  --no-push              Do not push the current branch before creating the PR.',
+    '  --remove-source-branch <bool>  Delete the source branch after merge (default: true). Also configurable via removeSourceBranch in .issue-flow/config.json.',
+    '  --no-remove-source-branch      Do not delete the source branch after merge.',
     '  --dry-run              Print intended behavior without changing remote state.',
     '  --help',
   ].join('\n');
@@ -102,6 +104,10 @@ function parseArgs(argv) {
     }
     if (arg === '--no-push') {
       options.noPush = true;
+      continue;
+    }
+    if (arg === '--no-remove-source-branch') {
+      options.noRemoveSourceBranch = true;
       continue;
     }
     if (!arg.startsWith('--')) {
@@ -435,6 +441,20 @@ function resolveBaseBranch(options) {
   }
 
   throw new Error('Unable to resolve PR/MR base branch. Set AGENTRIX_BASE_REF/GITLAB_BRIDGE_BASE_REF in the worker environment or pass --base <branch>.');
+}
+
+function resolveRemoveSourceBranch(options) {
+  if (options.noRemoveSourceBranch) {
+    return false;
+  }
+  if (options.removeSourceBranch !== undefined) {
+    return String(options.removeSourceBranch).toLowerCase() !== 'false';
+  }
+  const config = readIssueFlowProjectConfig();
+  if (config.removeSourceBranch !== undefined) {
+    return config.removeSourceBranch !== false;
+  }
+  return true;
 }
 
 function assertCleanWorktree(options) {
@@ -870,6 +890,7 @@ async function main(argv = process.argv.slice(2)) {
   options.provider = provider.name;
   const headBranch = resolveHeadBranch(options);
   const baseBranch = resolveBaseBranch(options);
+  options.removeSourceBranch = resolveRemoveSourceBranch(options);
 
   assertCleanWorktree(options);
   assertPublishBranch(headBranch, baseBranch, options);
@@ -954,6 +975,7 @@ module.exports = {
   resolveAgentrixTaskId,
   resolveAgentrixWorkerBaseBranch,
   resolveBaseBranch,
+  resolveRemoveSourceBranch,
   SUBMIT_KINDS,
   validateSourceIssueSize,
 };
