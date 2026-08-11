@@ -539,11 +539,7 @@ function extractAgentrixTaskIdFromPullRequest(pr = {}) {
 }
 
 function buildReviewCommentResumeInstruction() {
-  return [
-    'PR/MR 有新的 review comment，请查看并处理。',
-    '',
-    '处理完成后，请使用 issue-flow CLI 在 PR/MR 下回复一条普通总结 comment；不要创建新的 inline review comment。',
-  ].join('\n');
+  return 'PR/MR 有新的 review comment，请查看并处理。';
 }
 
 function buildIssueCommentResumeInstruction() {

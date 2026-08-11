@@ -16,7 +16,7 @@ const MR_BY_OPTIONS = [
 ]
 const REVIEW_OPTIONS = [
   { value: "__default__", label: "Default", detail: "跟随仓库配置" },
-  { value: "review::off", label: "Off", detail: "暂停自动 Review 与评论唤醒" },
+  { value: "review::off", label: "Off", detail: "暂停自动 Review" },
 ]
 
 export function MergeRequestLabelControls({ baseApi, labels, availableLabels, onUpdated, onError }: { baseApi: string; labels: string[]; availableLabels: ProviderIssueLabel[]; onUpdated: () => Promise<void>; onError: (message: string) => void }) {

@@ -1533,3 +1533,121 @@ test('gitlab issue payload normalizes to issue-flow context', () => {
     labels: ['flow::build', 'automation::build'],
   });
 });
+
+test('gitlab create merge request enables source branch deletion', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'group', repo: 'sub-project', repoFullName: 'group/sub/project', projectId: '42' };
+  const bodyFile = createBodyFile('Build body');
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  try {
+    await withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+      },
+      async () => {
+        global.fetch = async (url, init = {}) => {
+          const body = init.body ? JSON.parse(init.body) : undefined;
+          calls.push({ url: String(url), method: init.method, body });
+          const parsed = new URL(String(url));
+
+          if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'GET') {
+            return { ok: true, status: 200, text: async () => JSON.stringify([]) };
+          }
+          if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'POST') {
+            return {
+              ok: true,
+              status: 201,
+              text: async () => JSON.stringify({ iid: 7, web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/7' }),
+            };
+          }
+          throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+        };
+
+        const url = await provider.createOrUpdatePullRequest({
+          repo,
+          title: 'Build #7: remove source',
+          bodyFile: bodyFile.path,
+          label: 'mr-by::build',
+          baseBranch: 'main',
+          headBranch: '7-remove-source/build',
+          draft: false,
+          options: {},
+        });
+
+        assert.equal(url, 'https://gitlab.com/group/sub/project/-/merge_requests/7');
+      }
+    );
+  } finally {
+    global.fetch = previousFetch;
+    bodyFile.cleanup();
+  }
+
+  const createCall = calls.find((call) => call.method === 'POST');
+  assert.equal(createCall.body.remove_source_branch, true);
+});
+
+test('gitlab update merge request leaves source branch deletion unchanged', async () => {
+  const provider = resolveProvider({ provider: 'gitlab' }, {});
+  const repo = { owner: 'group', repo: 'sub-project', repoFullName: 'group/sub/project', projectId: '42' };
+  const bodyFile = createBodyFile('Updated body');
+  const previousFetch = global.fetch;
+  const calls = [];
+
+  try {
+    await withTemporaryEnv(
+      {
+        GITLAB_TOKEN: 'token-123',
+        GL_TOKEN: undefined,
+        GITLAB_PRIVATE_TOKEN: undefined,
+        CI_JOB_TOKEN: undefined,
+      },
+      async () => {
+        global.fetch = async (url, init = {}) => {
+          const body = init.body ? JSON.parse(init.body) : undefined;
+          calls.push({ url: String(url), method: init.method, body });
+          const parsed = new URL(String(url));
+
+          if (parsed.pathname === '/api/v4/projects/42/merge_requests' && init.method === 'GET') {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => JSON.stringify([{ iid: 7, target_branch: 'main', web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/7' }]),
+            };
+          }
+          if (parsed.pathname === '/api/v4/projects/42/merge_requests/7' && init.method === 'PUT') {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => JSON.stringify({ iid: 7, web_url: 'https://gitlab.com/group/sub/project/-/merge_requests/7' }),
+            };
+          }
+          throw new Error(`Unexpected GitLab API call: ${init.method} ${url}`);
+        };
+
+        const url = await provider.createOrUpdatePullRequest({
+          repo,
+          title: 'Build #7: update existing',
+          bodyFile: bodyFile.path,
+          label: 'mr-by::build',
+          baseBranch: 'main',
+          headBranch: '7-remove-source/build',
+          draft: false,
+          options: {},
+        });
+
+        assert.equal(url, 'https://gitlab.com/group/sub/project/-/merge_requests/7');
+      }
+    );
+  } finally {
+    global.fetch = previousFetch;
+    bodyFile.cleanup();
+  }
+
+  const updateCall = calls.find((call) => call.method === 'PUT');
+  assert.equal(Object.hasOwn(updateCall.body, 'remove_source_branch'), false);
+});

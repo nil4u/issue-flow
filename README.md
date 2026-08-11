@@ -161,19 +161,21 @@ Set these repository variables/secrets as needed:
 - `AGENTRIX_RUNNER_ID` - optional runner id
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
-- `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review switch, defaults to off; set to `true` or `1` to run automatic review and review-comment task resume
+- `ISSUE_FLOW_REVIEW_ENABLED` - optional automatic PR/MR reviewer switch, defaults to off; set to `true` or `1` to run automatic review
 
 GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`. Provider tokens are only for issue-flow routing jobs; when issue-flow starts or resumes an Agentrix task, it does not forward `GITHUB_TOKEN`/`GH_TOKEN` into the Agentrix task environment.
 
-When review is enabled and an open issue-flow PR/MR body contains `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, adds an `eyes` reaction to acknowledge the trigger, and resumes that existing Agentrix task with the comment link. The task should reply through `issue-flow pr review-comments reply` and resolve the thread when supported.
+When an open issue-flow PR/MR body contains `<!-- issue-flow:source source_task_id=<id> source_runtime=agentrix -->`, a new GitHub review comment triggers `issue-flow dispatch review-comment`, adds an `eyes` reaction to acknowledge the trigger, and resumes that existing Agentrix task. This feedback delivery is independent of the automatic reviewer switch and does not require a follow-up summary comment.
 
-Add the managed label `review::off` to pause automatic review and review-comment task resume for one PR/MR without changing its source issue. Remove the label to restore the repository default; use the existing manual review dispatch if review should resume immediately. The label cannot override a repository-level disabled switch, does not cancel tasks already running, and does not replay events missed while paused. `labels sync` or an installer upgrade provides the label, and `labels check` diagnoses missing or drifted metadata.
+Add the managed label `review::off` to pause automatic review for one PR/MR without changing its source issue or blocking comments from resuming the original Plan/Build task. Remove the label to restore the repository default; use the existing manual review dispatch if review should resume immediately. The label cannot override a repository-level disabled switch, does not cancel reviewer tasks already running, and does not replay review events missed while paused. `labels sync` or an installer upgrade provides the label, and `labels check` diagnoses missing or drifted metadata.
 
-| Repository review switch | PR/MR `review::off` | Result |
+| Repository review switch | PR/MR `review::off` | Automatic reviewer |
 |---|---|---|
-| Disabled | Either | All review creation and comment resume are disabled |
-| Enabled | Present | Review is paused only for that PR/MR |
-| Enabled | Absent | Existing automatic review behavior applies |
+| Disabled | Either | Disabled |
+| Enabled | Present | Disabled for that PR/MR |
+| Enabled | Absent | Enabled |
+
+Review-comment task resume remains enabled in all three cases.
 
 Automatic pipeline failure intake is currently disabled. The low-level `dispatch pipeline-failed` command and its dedicated build prompt remain available, but the installer does not create a GitHub `workflow_run` trigger for it.
 
@@ -371,13 +373,13 @@ Set these CI variables as needed:
 - `AGENTRIX_RUNNER_ID` - optional runner id
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
-- `ISSUE_FLOW_REVIEW_ENABLED` - optional PR/MR review switch, defaults to off; set to `true` or `1` to run automatic review and review-comment task resume
+- `ISSUE_FLOW_REVIEW_ENABLED` - optional automatic PR/MR reviewer switch, defaults to off; set to `true` or `1` to run automatic review
 
 GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `GITLAB_TOKEN`, `GL_TOKEN`, `GITLAB_PRIVATE_TOKEN`, or `CI_JOB_TOKEN`. Provider tokens are only for issue-flow routing jobs; when issue-flow starts or resumes an Agentrix task, it does not forward GitLab provider token env vars into the Agentrix task environment.
 
 Automatic GitLab failure intake through the generated CI include is currently disabled because the include has no failure-intake job. Console webhook ingestion and the low-level dispatch implementation remain unchanged.
 
-GitLab review comment resume is handled by the `issue-flow-review-comment` job for GitLab bridge `pull_request_review_comment` events and native MR note events when repository review is enabled. The dispatch command safely skips non-MR notes, closed MRs, missing task markers, and MRs labeled `review::off`, then acknowledges accepted triggers with an `eyes` reaction before resuming the existing Agentrix task.
+GitLab review comment resume is handled by the `issue-flow-review-comment` job for GitLab bridge `pull_request_review_comment` events and native MR note events, independently of the automatic reviewer switch and `review::off` label. The dispatch command safely skips non-MR notes, closed MRs, and missing task markers, then acknowledges accepted triggers with an `eyes` reaction before resuming the existing Agentrix task.
 
 ## Development Install
 

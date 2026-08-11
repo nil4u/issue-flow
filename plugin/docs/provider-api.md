@@ -240,13 +240,7 @@ Engine 从 `mr-by::plan` PR/MR 发现当前产物；JSON 使用固定组件渲�
 
 ## PR/MR review comments
 
-`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:source source_task_id=<id> source_runtime=agentrix` marker 时，它会给触发 comment 加 `eyes` reaction，然后 resume 该 Agentrix task。该路径不再创建 PR/MR 顶层排队 comment。
-
-被 resume 的 agent 处理完成后，应使用受控入口在 PR/MR 下发布一条普通总结 comment：
-
-```bash
-issue-flow pr comments create --pr 45 --body-file /tmp/body.md
-```
+`issue-flow pr review-comments list` 读取历史 review comments。`issue-flow dispatch review-comment --event <event>` 只路由单个新 review comment 事件：当 PR/MR open 且 body 带 `issue-flow:source source_task_id=<id> source_runtime=agentrix` marker 时，它会给触发 comment 加 `eyes` reaction，然后 resume 该 Agentrix task。该路径不创建 PR/MR 顶层排队 comment，也不要求 task 完成后再发布普通总结 comment。
 
 ## create-issue.cjs
 

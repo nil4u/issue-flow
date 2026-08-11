@@ -1,6 +1,6 @@
 ---
 name: issue-flow
-version: 0.9.3
+version: 0.9.4
 description: "标签驱动的 issue 状态机与 provider 操作工具。通过统一 issue-flow CLI 操作 GitHub/GitLab 的 issue、label、comment、PR/MR 与 review。在含 `.issue-flow/` 目录或使用 issue-flow managed label（type::/status::/flow:: 等）的仓库中处理 issue/PR、提交 Plan/Build PR/MR 或进行 review 时使用。"
 metadata:
   requires:
@@ -44,7 +44,7 @@ issue-flow <resource> <action> [options]
 | `priority::` | Issue | 处理优先级 | `p0`, `p1`, `p2`, `p3` |
 | `size::` | Issue | 工作量规模与 Weighted Throughput 权重 | `XS`, `S`, `M`, `L`, `XL` |
 | `mr-by::` | PR/MR | 标记 Decision、Visual/Markdown Plan 或 Build PR/MR 的来源动作 | `plan`, `build` |
-| `review::` | PR/MR | 暂停自动 review 与 review-comment task resume | `off` |
+| `review::` | PR/MR | 暂停自动 review | `off` |
 
 详情请参考：`references/labels.md`。
 

@@ -1010,8 +1010,8 @@ test('agentrix review comment resume instruction stays minimal', () => {
   );
 
   assert.match(prompt, /PR\/MR 有新的 review comment/);
-  assert.match(prompt, /普通总结 comment/);
-  assert.match(prompt, /不要创建新的 inline review comment/);
+  assert.doesNotMatch(prompt, /普通总结 comment/);
+  assert.doesNotMatch(prompt, /inline review comment/);
   assert.doesNotMatch(prompt, /https:\/\/github\.com\/example\/platform\/pull\/9/);
   assert.doesNotMatch(prompt, /src\/app\.js/);
   assert.doesNotMatch(prompt, /Please handle this edge case/);
