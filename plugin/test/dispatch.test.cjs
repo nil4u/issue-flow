@@ -171,6 +171,48 @@ test('dispatch review queues runtime review when enabled', async () => {
   assert.equal(result.result.status, 'dry-run');
 });
 
+test('dispatch review passes current pull request head as checkout data', async () => {
+  const originalRun = agentrix.run;
+  let capturedData;
+  agentrix.run = (_action, _issue, _options, data) => {
+    capturedData = data;
+    return { runId: 'review-task', status: 'dry-run' };
+  };
+
+  try {
+    const result = await runReview(
+      {
+        dryRun: true,
+        reviewEnabled: '1',
+      },
+      {
+        payload: {
+          pull_request: {
+            number: 9,
+            state: 'open',
+            draft: false,
+            merged: false,
+            title: 'Build #42: Add widget support',
+            body: '<!-- issue-flow:source-issue=42 -->',
+            html_url: 'https://github.com/example/platform/pull/9',
+            base: { ref: 'main' },
+            head: { ref: '42-add-widget-support/build', sha: 'abc123' },
+            labels: [{ name: 'mr-by::build' }],
+            user: { login: 'alice' },
+          },
+          repository: { full_name: 'example/platform' },
+        },
+      }
+    );
+
+    assert.equal(result.action, 'review');
+    assert.equal(capturedData.checkoutRef, '42-add-widget-support/build');
+    assert.equal(capturedData.checkoutSha, 'abc123');
+  } finally {
+    agentrix.run = originalRun;
+  }
+});
+
 test('dispatch review skips a PR with review::off and resumes after removal', async () => {
   const payload = {
     pull_request: {
