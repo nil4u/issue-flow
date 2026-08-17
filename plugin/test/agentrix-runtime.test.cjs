@@ -548,15 +548,11 @@ test('agentrix review run args checkout the current pull request head', () => {
       repoFullName: 'example/platform',
       number: 9,
       title: 'Build #42: Add export button',
-      headRef: 'target-branch',
-      headSha: 'target-sha',
     },
     {},
     {
-      pullRequest: {
-        headRef: '42-add-export-button/build',
-        headSha: 'current-head-sha',
-      },
+      checkoutRef: '42-add-export-button/build',
+      checkoutSha: 'current-head-sha',
     },
     'prompt',
     '/tmp/result.json'

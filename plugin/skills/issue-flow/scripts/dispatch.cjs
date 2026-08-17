@@ -590,6 +590,8 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   const taskData = {
     ...data,
     pullRequest: currentPr,
+    checkoutRef: currentPr.headRef,
+    checkoutSha: currentPr.headSha,
     sourceIssueNumber: options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr),
   };
   const existingReviewTask = findActionTaskComment(await listPullRequestComments(currentPr, options), action, runtime, taskData);
