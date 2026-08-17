@@ -540,6 +540,32 @@ test('agentrix review run args include source issue number', () => {
   assert.ok(args.includes('issue_flow_source_issue=example/platform#42'));
 });
 
+test('agentrix review run args checkout the current pull request head', () => {
+  const args = agentrix.buildRunArgs(
+    'review',
+    {
+      provider: 'github',
+      repoFullName: 'example/platform',
+      number: 9,
+      title: 'Build #42: Add export button',
+      headRef: 'target-branch',
+      headSha: 'target-sha',
+    },
+    {},
+    {
+      pullRequest: {
+        headRef: '42-add-export-button/build',
+        headSha: 'current-head-sha',
+      },
+    },
+    'prompt',
+    '/tmp/result.json'
+  );
+
+  assert.equal(args[args.indexOf('--checkout-ref') + 1], '42-add-export-button/build');
+  assert.equal(args[args.indexOf('--checkout-sha') + 1], 'current-head-sha');
+});
+
 test('agentrix default prompts delegate script details to the issue-flow skill', () => {
   const promptsDir = path.resolve(__dirname, '..', 'skills', 'issue-flow', 'assets', 'agentrix', 'runtime', 'prompts');
   for (const entry of fs.readdirSync(promptsDir, { withFileTypes: true })) {

@@ -753,6 +753,7 @@ function buildRepoArg(issue = {}, options = {}) {
 }
 
 function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resultFile = '') {
+  const reviewPullRequest = data.pullRequest || {};
   const metadataSubject = action === 'review'
     ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
     : ['--issue-number', String(issue.number), '--metadata', `issue_flow_issue=${issue.repoFullName}#${issue.number}`];
@@ -786,7 +787,16 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
   appendOptionalArg(args, '--api-key', options.apiKey || process.env.AGENTRIX_API_KEY);
   appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
   appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
-  appendOptionalArg(args, '--checkout-ref', data.checkoutRef);
+  appendOptionalArg(
+    args,
+    '--checkout-ref',
+    action === 'review'
+      ? reviewPullRequest.headRef || issue.headRef || data.checkoutRef
+      : data.checkoutRef
+  );
+  if (action === 'review') {
+    appendOptionalArg(args, '--checkout-sha', reviewPullRequest.headSha || issue.headSha || data.checkoutSha);
+  }
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
 }
