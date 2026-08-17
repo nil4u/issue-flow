@@ -787,6 +787,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
   appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
   appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--checkout-ref', data.checkoutRef);
+  appendOptionalArg(args, '--checkout-sha', data.checkoutSha);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
   return args;
 }
