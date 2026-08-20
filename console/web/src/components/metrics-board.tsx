@@ -21,6 +21,7 @@ import {
   type Repository,
 } from "@/issue-flow-model"
 import { notifyError } from "@/lib/errors"
+import { drillParamsFromChartEvent } from "@/lib/metrics-drill-selection"
 
 const OVERVIEW_DASHBOARD_SLUG = "agent-first-overview"
 const DEFAULT_WEEK_OPTIONS = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]
@@ -125,7 +126,7 @@ export function MetricsBoard({ repository }: { repository: Repository }) {
       </div>
       {drillSelection && (
         <MetricsDrillDrawer
-          key={`${drillSelection.panel.id}:${drillSelection.params.week}:${drillSelection.params.bucket}`}
+          key={`${drillSelection.panel.id}:${JSON.stringify(drillSelection.params)}`}
           repository={repository}
           slug={dashboard.slug}
           selection={drillSelection}
@@ -258,13 +259,8 @@ function PanelContent({
     <EChart
       option={buildChartOption(panel, result, sharedXs)}
       onDataClick={panel.drillQuerySql ? (event) => {
-        const seriesId = String(event.seriesId || "")
-        const xParam = panel.drillConfig?.xParam || ""
-        const seriesParam = panel.drillConfig?.seriesParam || ""
-        const xValue = String(event.name || "")
-        const seriesValue = String(event.seriesName || "")
-        if (!seriesId.startsWith("bar:") || !xParam || !seriesParam || !xValue || !seriesValue) return
-        onDrill({ panel, params: { [xParam]: xValue, [seriesParam]: seriesValue } })
+        const params = drillParamsFromChartEvent(panel, event)
+        if (params) onDrill({ panel, params })
       } : undefined}
     />
   )

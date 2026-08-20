@@ -514,6 +514,7 @@ function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResu
       .filter((entry) => entry.value > 0)
     breakdown.set(breakdownKey(x, "percent"), entries)
   }
+  const allowedSeries = panel.drillConfig?.allowedSeries || []
   const series: SeriesEntry[] = stacks.map((stackValue) => ({
     id: `percent:${field}:${stackValue}`,
     name: stackValue,
@@ -522,6 +523,7 @@ function percentStackedBarOption(panel: DashboardPanel, result: MetricsQueryResu
     barMaxWidth: 32,
     color: stackColor(stackValue),
     emphasis: { focus: "series" },
+    cursor: panel.drillQuerySql && (!allowedSeries.length || allowedSeries.includes(stackValue)) ? "pointer" : "default",
     data: xs.map((x) => {
       const entries = breakdown.get(breakdownKey(x, "percent")) || []
       const total = entries.reduce((sum, entry) => sum + entry.value, 0)

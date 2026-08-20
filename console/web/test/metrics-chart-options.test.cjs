@@ -42,3 +42,29 @@ test("docs issue type keeps its configured order, color, and tooltip identity", 
   assert.match(tooltip, /type::docs/)
   assert.match(tooltip, /background:#d97706/)
 });
+
+test("only the allowed percent-stacked segment advertises drilldown", () => {
+  const option = buildChartOption(
+    {
+      chartType: "percent_stacked_bar_with_lines",
+      xField: "week",
+      yFields: ["seconds"],
+      y2Fields: ["task_share_pct"],
+      stackField: "component",
+      visualConfig: { stackOrder: ["agent", "wait"] },
+      drillQuerySql: "select 1",
+      drillConfig: { allowedSeries: ["wait"] },
+    },
+    {
+      columns: [],
+      rows: [
+        { week: "2026-08-17", component: "agent", seconds: 10, task_share_pct: 10 },
+        { week: "2026-08-17", component: "wait", seconds: 90, task_share_pct: 10 },
+      ],
+    },
+  )
+  const bars = option.series.filter((series) => String(series.id).startsWith("percent:"))
+
+  assert.equal(bars.find((series) => series.name === "agent").cursor, "default")
+  assert.equal(bars.find((series) => series.name === "wait").cursor, "pointer")
+})

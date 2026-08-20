@@ -654,6 +654,7 @@ export type DashboardPanel = {
     params?: string[]
     xParam?: string
     seriesParam?: string
+    allowedSeries?: string[]
   }
   position?: DashboardPanelPosition
   refreshInterval?: number

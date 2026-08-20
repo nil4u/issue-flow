@@ -1263,6 +1263,14 @@ test('metric views and the read-only executor answer the seeded panel queries', 
     const taskTimeShare = dashboard.panels.find((panel) => panel.id === 'dashpanel_task_time_share');
     assert.match(taskTimeShare.querySql, /issue_stats/);
     assert.doesNotMatch(taskTimeShare.querySql, /issue_flow_metrics/);
+    assert.deepEqual(taskTimeShare.drillConfig, {
+      kind: 'issue_wait',
+      params: ['week', 'component'],
+      xParam: 'week',
+      seriesParam: 'component',
+      allowedSeries: ['wait'],
+    });
+    assert.match(taskTimeShare.drillQuerySql, /issue_stage_time_metrics/);
     const taskTimeShareResult = await store.runMetricsQuery(taskTimeShare.querySql, {
       ...repoParams,
       from: at(-30 * DAY_MS),
@@ -1278,6 +1286,37 @@ test('metric views and the read-only executor answer the seeded panel queries', 
       ) < 0.001,
       'agent execution share uses issue lifecycle seconds as its denominator',
     );
+
+    const stageTotals = await store.runMetricsQuery(`select
+  issue_row_id,
+  sum(wait_seconds) as stage_wait_seconds,
+  max(total_wait_seconds) as total_wait_seconds
+from issue_stage_time_metrics
+where git_server_id = :git_server_id
+  and repository_id = :repository_id
+  and week = :week::date
+group by issue_row_id`, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+    });
+    assert.ok(stageTotals.rows.length > 0);
+    for (const row of stageTotals.rows) {
+      assert.ok(
+        Math.abs(Number(row.stage_wait_seconds) - Number(row.total_wait_seconds)) < 0.001,
+        'stage waits reconcile to the issue lifecycle remainder',
+      );
+    }
+
+    const waitDrill = await store.runMetricsQuery(taskTimeShare.drillQuerySql, {
+      ...repoParams,
+      week: String(completedWeek).slice(0, 10),
+      component: 'wait',
+    });
+    assert.ok(waitDrill.rows.length > 0);
+    assert.equal(waitDrill.rows[0].total_count, waitDrill.rows.length);
+    assert.ok(Number(waitDrill.rows[0].total_wait_seconds) > 0);
+    assert.ok(String(waitDrill.rows[0].bottleneck_flow));
+    assert.ok(Number(waitDrill.rows[0].bottleneck_wait_seconds) > 0);
 
     const flowWaitSql = `select
   flow,
@@ -1390,6 +1429,16 @@ test('dashboard routes require login and serve repo-scoped panel queries', async
       );
       assert.equal(enabledDrill.status, 200, `${panelId} exposes drilldown`);
     }
+
+    const waitDrillResponse = await fetch(
+      `${baseUrl}/api/repositories/${repoRow.id}/dashboards/agent-first-overview/panels/dashpanel_task_time_share/drill`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ params: { week: '2026-07-06', component: 'wait' } }),
+      },
+    );
+    assert.equal(waitDrillResponse.status, 200, 'task time share exposes wait drilldown');
 
     const outsider = await store.createUser({ displayName: 'Metrics Outsider' });
     const { token: outsiderToken } = await store.createConsoleSession({ userId: outsider.id });
