@@ -275,7 +275,9 @@
   }
 
   .metrics-drill-columns[data-kind="issue_turns"],
-  .metrics-drill-item[data-kind="issue_turns"] {
+  .metrics-drill-item[data-kind="issue_turns"],
+  .metrics-drill-columns[data-kind="issue_wait"],
+  .metrics-drill-item[data-kind="issue_wait"] {
     grid-template-columns: minmax(10rem, 1fr) minmax(18rem, 1.35fr) 9.5rem;
     column-gap: 0.875rem;
   }
@@ -488,7 +490,8 @@
       padding-inline: 0.9rem;
     }
 
-    .metrics-drill-item[data-kind="issue_turns"] {
+    .metrics-drill-item[data-kind="issue_turns"],
+    .metrics-drill-item[data-kind="issue_wait"] {
       grid-template-columns: minmax(0, 1fr);
       column-gap: 1rem;
     }

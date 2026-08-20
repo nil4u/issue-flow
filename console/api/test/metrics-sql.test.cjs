@@ -287,6 +287,13 @@ test('assertReadOnlyMetricsSql allows the seeded panel queries', () => {
     and started_at < :to
   group by flow
   order by wait_total_seconds desc`));
+  assert.ok(assertReadOnlyMetricsSql(`select flow, sum(wait_seconds)
+  from issue_stage_time_metrics
+  where git_server_id = :git_server_id
+    and repository_id = :repository_id
+    and week = :week::date
+    and :component = 'wait'
+  group by flow`));
   assert.ok(assertReadOnlyMetricsSql('select repository_full_name, aging_seconds from wip_aging_metrics order by aging_seconds desc limit 50'));
 });
 

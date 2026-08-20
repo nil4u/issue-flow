@@ -23,7 +23,7 @@ type DrillState = {
   optimizations: Record<number, AutomationOptimizationItem>
 }
 
-type DrillKind = "issues" | "issue_type" | "issue_turns"
+type DrillKind = "issues" | "issue_type" | "issue_turns" | "issue_wait"
 type SummaryItem = { label: string; value: string }
 
 export function MetricsDrillDrawer({
@@ -97,7 +97,7 @@ export function MetricsDrillDrawer({
   }
 
   const rows = state.result?.rows || []
-  const bucket = selection.params.bucket || ""
+  const bucket = selection.params.bucket || selection.params.component || ""
   const week = selection.params.week || ""
   const kind = (selection.panel.drillConfig?.kind || "issues") as DrillKind
   const first = rows[0] || {}
@@ -210,7 +210,9 @@ function IssueEvidenceList({
               <IssueSecondaryFacts row={row} kind={kind} />
               {kind === "issue_type"
                 ? <IssueComplexity row={row} />
-                : <IssueDuration row={row} />}
+                : kind === "issue_wait"
+                  ? <IssueWaitDuration row={row} />
+                  : <IssueDuration row={row} />}
             </li>
           )
         })}
@@ -259,6 +261,19 @@ function IssueSecondaryFacts({ row, kind }: { row: Record<string, unknown>; kind
       </dl>
     )
   }
+  if (kind === "issue_wait") {
+    return (
+      <dl className="metrics-drill-stage-turns">
+        <div><dt>Triage</dt><dd>{formatCompactDuration(row.triage_wait_seconds)}</dd></div>
+        <div><dt>Plan</dt><dd>{formatCompactDuration(row.plan_wait_seconds)}</dd></div>
+        <div><dt>Build</dt><dd>{formatCompactDuration(row.build_wait_seconds)}</dd></div>
+        <div><dt>Clarify</dt><dd>{formatCompactDuration(row.clarify_wait_seconds)}</dd></div>
+        <div><dt>Approve</dt><dd>{formatCompactDuration(row.approve_wait_seconds)}</dd></div>
+        <div><dt>Suspend</dt><dd>{formatCompactDuration(row.suspend_wait_seconds)}</dd></div>
+        <div><dt>Other</dt><dd>{formatCompactDuration(row.unassigned_wait_seconds)}</dd></div>
+      </dl>
+    )
+  }
   return <IssueComplexity row={row} />
 }
 
@@ -280,6 +295,15 @@ function IssueDuration({ row }: { row: Record<string, unknown> }) {
   )
 }
 
+function IssueWaitDuration({ row }: { row: Record<string, unknown> }) {
+  return (
+    <div className="metrics-drill-duration">
+      <strong>{formatDuration(metricNumber(row.total_wait_seconds))}</strong>
+      <small>{String(row.bottleneck_flow || "unassigned")} · {formatDuration(metricNumber(row.bottleneck_wait_seconds))}</small>
+    </div>
+  )
+}
+
 function EvidenceTag({ value, prefix, fallback = "" }: { value: unknown; prefix: string; fallback?: string }) {
   const text = String(value || "").trim() || fallback
   if (!text) return null
@@ -295,6 +319,7 @@ function drillTitle(kind: DrillKind, bucket: string) {
     return bucket === "未分类" ? "未分类 issues" : `${bucket.replace(/^type::/, "")} issues`
   }
   if (kind === "issue_turns") return bucket === "0" ? "0 turns" : `${bucket} turns`
+  if (kind === "issue_wait") return "等待时间最多的 issues"
   if (bucket === "open") return "仍未完成"
   if (bucket === "drop") return "已丢弃"
   if (bucket === "7d+") return "超过 7d 完成"
@@ -304,6 +329,7 @@ function drillTitle(kind: DrillKind, bucket: string) {
 function drillColumns(kind: DrillKind) {
   if (kind === "issue_type") return ["Issue", "状态", "复杂度"]
   if (kind === "issue_turns") return ["Issue", "阶段 Turns", "生命周期"]
+  if (kind === "issue_wait") return ["Issue", "阶段等待", "总等待"]
   return ["Issue", "复杂度", "生命周期"]
 }
 
@@ -330,6 +356,14 @@ function buildSummaryItems(
         : [formatShare(total, weekly), formatTurns(row.task_turns_p50), formatTurns(row.task_turns_p80)],
     )
   }
+  if (kind === "issue_wait") {
+    return summaryItems(
+      ["Issues", "等待中位数", "最长等待"],
+      loading
+        ? ["-", "-", "-"]
+        : [String(total), formatDuration(metricNumber(row.wait_p50_seconds)), formatDuration(metricNumber(row.wait_max_seconds))],
+    )
+  }
   return summaryItems(
     ["本周占比", "中位耗时", "最长耗时"],
     loading
@@ -340,6 +374,11 @@ function buildSummaryItems(
           formatDuration(metricNumber(row.duration_max_seconds)),
         ],
   )
+}
+
+function formatCompactDuration(value: unknown) {
+  const seconds = metricNumber(value)
+  return seconds && seconds > 0 ? formatDuration(seconds) : "-"
 }
 
 function summaryItems(labels: string[], values: string[]) {
