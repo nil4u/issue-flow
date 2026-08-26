@@ -30,12 +30,39 @@ test('cli help is discoverable by resource and nested action', async () => {
   assert.match(await cli.run(['--help']), /Usage: issue-flow <resource> <action>/);
   assert.match(await cli.run(['issue', '--help']), /comments create --issue <num>/);
   assert.match(await cli.run(['issue', 'comments', '--help']), /Usage: issue-flow issue comments <action>/);
-  assert.match(await cli.run(['pr', 'submit', '--help']), /Usage: issue-flow pr submit <plan\|build>/);
+  const submitHelp = await cli.run(['pr', 'submit', '--help']);
+  assert.match(submitHelp, /Usage: issue-flow pr submit <plan\|build>/);
+  assert.match(submitHelp, /--force-with-lease/);
   assert.match(await cli.run(['pr', 'review-comments', '--help']), /Usage: issue-flow pr review-comments <action>/);
   assert.match(await cli.run(['pr', 'review-comments', '--help']), /list --pr <num>/);
   assert.doesNotMatch(await cli.run(['pr', 'review-comments', '--help']), /reply --pr <num>/);
   assert.doesNotMatch(await cli.run(['pr', 'review-comments', '--help']), /resolve --pr <num>/);
   assert.match(await cli.run(['dispatch', '--help']), /review-comment/);
+});
+
+test('pr submit passes force-with-lease through to the submit command', () => {
+  assert.deepEqual(
+    cli.buildPrSubmitArgs(['submit', 'build', '--issue', '42', '--force-with-lease', '--dry-run']),
+    ['build', '--issue-number', '42', '--force-with-lease', '--dry-run']
+  );
+});
+
+test('unrelated commands do not accept force-with-lease as a global boolean option', async () => {
+  await assert.rejects(
+    cli.run([
+      'issue',
+      'get',
+      '--provider',
+      'github',
+      '--repo',
+      'acme/webapp',
+      '--issue',
+      '15',
+      '--force-with-lease',
+      '--dry-run',
+    ]),
+    /Missing value for --force-with-lease/
+  );
 });
 
 test('issue get dry-run outputs a single stable JSON envelope', () => {

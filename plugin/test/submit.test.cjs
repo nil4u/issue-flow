@@ -10,6 +10,7 @@ const {
   assertDecisionArtifactsRemoved,
   assertVisualArtifactData,
   assertVisualBriefNotInIssueArtifacts,
+  buildPushArgs,
   buildPrBodyWithMarkers,
   buildVisualArtifactComment,
   buildVisualArtifactPublishedComment,
@@ -26,6 +27,7 @@ const {
   normalizeOptionalUrl,
   normalizePrTitle,
   planSubmissionIssueState,
+  parseArgs,
   publishVisualArtifactComment,
   pullRequestNumberFromUrl,
   resolveBaseBranch,
@@ -61,6 +63,34 @@ function withTemporaryEnv(values, fn) {
     }
   }
 }
+
+test('submit parses force-with-lease as an explicit boolean option', () => {
+  assert.deepEqual(parseArgs(['build', '--issue-number', '42', '--force-with-lease']), {
+    kind: 'build',
+    options: {
+      _: [],
+      issueNumber: '42',
+      forceWithLease: true,
+    },
+  });
+});
+
+test('submit push remains non-forced unless force-with-lease is explicit', () => {
+  assert.deepEqual(buildPushArgs('issue-42/build'), [
+    'push',
+    '-u',
+    'origin',
+    'HEAD:issue-42/build',
+  ]);
+  assert.deepEqual(buildPushArgs('issue-42/build', { forceWithLease: true }), [
+    'push',
+    '--force-with-lease',
+    '--force-if-includes',
+    '-u',
+    'origin',
+    'HEAD:issue-42/build',
+  ]);
+});
 
 test('submit body wrapper inserts stable source issue marker', () => {
   withTemporaryEnv({ AGENTRIX_TASK_ID: undefined }, () => {

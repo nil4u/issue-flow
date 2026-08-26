@@ -216,6 +216,7 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 | `--label <label>` | PR label 覆盖（默认由 kind 决定） |
 | `--draft` | 创建 draft PR/MR |
 | `--no-push` | 不 push 分支 |
+| `--force-with-lease` | rebase 等改写历史后，使用 `--force-with-lease --force-if-includes`，仅在远端更新已整合到本地时强制 push |
 
 ### 行为
 

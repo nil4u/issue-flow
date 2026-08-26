@@ -99,6 +99,8 @@ node .issue-flow/cli.cjs pr merged --event <event-json-file>
 
 `pr submit plan` 会读取 source issue 的类型与特性开关。`type::optimization` 固定发布 Automation Optimizer Skill 定义的 Optimization JSON；其他 Issue 默认提交 Markdown Plan，`feature:visual-plan:on` 发布 Decision 或 Visual Plan。Markdown Plan 和 Build 的 `--body-file` 必须放在 repo 外临时文件。
 
+`pr submit plan|build` 默认使用普通 push。rebase 等操作改写提交历史后，可显式传入 `--force-with-lease`；内部同时使用 `--force-if-includes`，仅在远端更新已整合到本地时允许改写远端分支，不会退化为无保护的 `--force`。若已自行 push，可继续使用 `--no-push`。
+
 ### Milestone、Labels
 
 ```bash
