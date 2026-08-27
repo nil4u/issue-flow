@@ -42,6 +42,7 @@ export type Repository = {
   }
   webhookUrl?: string
   settings?: {
+    issueDefaults?: { visualPlanEnabled?: boolean; updatedAt?: string }
     permissions?: { items?: AdminPermission[]; checkedAt?: string }
     variables?: { items?: AgentrixVariable[]; checkedAt?: string }
     webhook?: Record<string, unknown>
@@ -769,6 +770,7 @@ export type RepoWorkspaceProps = {
   onResolveGroupVariablePrompt: (decision: GroupVariableDecision) => void
   onSetVariable: (key: string, input: Record<string, unknown>) => Promise<InstallCheck | undefined>
   onSetWebhook: (input?: Record<string, unknown>) => Promise<InstallCheck | undefined>
+  onSetIssueDefaults: (visualPlanEnabled: boolean) => Promise<Repository | undefined>
   onSetLabels: () => Promise<InstallCheck | undefined>
   onSetRunner: () => Promise<InstallCheck | undefined>
   onInstallPlugin: (input?: PluginInstallRequest) => Promise<InstallCheck | undefined>

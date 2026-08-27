@@ -9,6 +9,7 @@ import {
   listTasks,
   listRepositories,
   syncIssuesSnapshot,
+  updateRepositoryIssueDefaults,
   validateRepositoryToken,
 } from "../core/repositories.js"
 import { contextFromRequest, currentUserIdFromRequest } from "../services/issue-flow.js"
@@ -102,6 +103,17 @@ export async function repositoryRoutes(app: FastifyInstance) {
   app.post("/api/repositories/:repoId/configure-agentrix", async (request, reply) => {
     const { repoId } = request.params as { repoId: string }
     const result = await configureRepositoryAgentrix({
+      ...contextFromRequest(request),
+      repoId,
+      userId: await userIdFromRequest(request),
+      input: request.body || {},
+    })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/repositories/:repoId/issue-defaults", async (request, reply) => {
+    const { repoId } = request.params as { repoId: string }
+    const result = await updateRepositoryIssueDefaults({
       ...contextFromRequest(request),
       repoId,
       userId: await userIdFromRequest(request),

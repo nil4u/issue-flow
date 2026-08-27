@@ -105,6 +105,22 @@ async function configureRepositoryAgentrix({ store, basePublicUrl, repoId, input
   };
 }
 
+async function updateRepositoryIssueDefaults({ store, basePublicUrl, repoId, input = {}, userId = '' }) {
+  await requireAccessibleRepo(store, repoId, userId);
+  if (typeof input.visualPlanEnabled !== 'boolean') {
+    return { status: 400, body: { error: 'visual_plan_enabled_required' } };
+  }
+  const updated = await store.updateRepositoryIssueDefaults(repoId, {
+    visualPlanEnabled: input.visualPlanEnabled,
+  });
+  return {
+    status: 200,
+    body: {
+      repository: repoWithWebhook(basePublicUrl, store.publicRepository(updated)),
+    },
+  };
+}
+
 async function getRepository({ store, basePublicUrl, repoId, userId = '' }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
   return {
@@ -193,5 +209,6 @@ export {
   listRepositories,
   requireAccessibleRepo,
   syncIssuesSnapshot,
+  updateRepositoryIssueDefaults,
   validateRepositoryToken,
 }

@@ -188,6 +188,7 @@ function jsonValue(value, fallback) {
 
 function emptyRepoSettings() {
   return {
+    issueDefaults: { visualPlanEnabled: false },
     permissions: { items: [], checkedAt: "" },
     variables: { items: [], checkedAt: "" },
     webhook: {},

@@ -393,6 +393,16 @@ export function useDashboardController() {
     }
   }
 
+  async function setRepositoryIssueDefaults(visualPlanEnabled: boolean) {
+    if (!selectedRepo?.id) return undefined
+    const body = await api<{ repository: Repository }>(`/api/repositories/${encodeURIComponent(selectedRepo.id)}/issue-defaults`, {
+      method: "POST",
+      body: JSON.stringify({ visualPlanEnabled }),
+    })
+    rememberRepositoryDetail(body.repository)
+    return body.repository
+  }
+
   async function loadSession(gitServerId: string) {
     if (!gitServerId) return { authenticated: false }
     const body = await api<{ authenticated: boolean; user?: GitLabUser; gitServer?: { id?: string; baseUrl?: string } }>(
@@ -1111,7 +1121,7 @@ export function useDashboardController() {
   }, [activeTab, selectedGitServerId, selectedProject?.id, projectAccess?.canManage])
 
   useEffect(() => {
-    if (activeTab === "issues" || !selectedGitServerId || !userSession.authenticated) return
+    if ((activeTab !== "issues" && activeTab !== "settings") || !selectedGitServerId || !userSession.authenticated) return
     if (!selectedRepoSummary?.id || repositoryDetails[selectedRepoSummary.id]?.settings) return
     void loadRepositoryDetail(selectedRepoSummary.id).catch((error) => notifyError(error, "加载仓库详情失败"))
   }, [activeTab, selectedGitServerId, selectedRepoSummary?.id, userSession.authenticated, repositoryDetails])
@@ -1233,6 +1243,7 @@ export function useDashboardController() {
       onResolveGroupVariablePrompt: resolveGroupVariablePrompt,
       onSetVariable: setInstallVariable,
       onSetWebhook: setInstallWebhook,
+      onSetIssueDefaults: setRepositoryIssueDefaults,
       onSetLabels: setInstallLabels,
       onSetRunner: setInstallRunner,
       onInstallPlugin: installPlugin,

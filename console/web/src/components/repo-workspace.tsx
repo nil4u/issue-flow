@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Sparkles,
   Webhook,
   Wrench,
 } from "lucide-react"
@@ -31,11 +32,13 @@ import { MergeRequestsBoard } from "@/components/merge-requests-board"
 import { TasksBoard } from "@/components/tasks-board"
 import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { InstallStep, RepoWorkspaceProps, Repository, VariableInstallStatus } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
 import type { AgentrixHelpTopicId } from "@/lib/agentrix-help"
+import { notifyError } from "@/lib/errors"
 
 const MetricsBoard = lazy(() =>
   import("@/components/metrics-board").then((module) => ({ default: module.MetricsBoard })),
@@ -140,6 +143,7 @@ function InstallConsole({
   onInstallPlugin,
   onSetVariable,
   onSetRunner,
+  onSetIssueDefaults,
   onSetLabels,
   onSetWebhook,
 }: RepoWorkspaceProps) {
@@ -151,6 +155,7 @@ function InstallConsole({
   const [installDialogRow, setInstallDialogRow] = useState<CheckRow>()
   const [installCommitMessage, setInstallCommitMessage] = useState("")
   const [pendingInstallCommitMessage, setPendingInstallCommitMessage] = useState("")
+  const [savingIssueDefaults, setSavingIssueDefaults] = useState(false)
   const installInput = useMemo(() => installForm, [installForm])
   const groups = useMemo(() => buildInstallGroups({
     defaults,
@@ -236,6 +241,18 @@ function InstallConsole({
     try { await onSetLabels() } finally { setActionRowId("") }
   }
 
+  async function saveIssueDefaults(visualPlanEnabled: boolean) {
+    if (!canManage || savingIssueDefaults) return
+    setSavingIssueDefaults(true)
+    try {
+      await onSetIssueDefaults(visualPlanEnabled)
+    } catch (error) {
+      notifyError(error, "保存 Issue 默认设置失败")
+    } finally {
+      setSavingIssueDefaults(false)
+    }
+  }
+
   async function installPlugin(row: CheckRow) {
     if (row.configItem?.type !== "plugin" || !canManage) return
     setInstallCommitMessage("")
@@ -308,6 +325,28 @@ function InstallConsole({
             ))}
           </section>
         ))}
+        <section className="check-group">
+          <header>
+            <strong>Features</strong>
+          </header>
+          <div className="check-table-row">
+            <div className="check-row-main">
+              <span className="check-status-icon"><Sparkles className="size-4" /></span>
+              <span className="check-row-copy">
+                <strong>Visual Plan</strong>
+                <small>新建 Issue 时默认选中 feature:visual-plan:on</small>
+              </span>
+              <span className="check-row-value">
+                <Switch
+                  aria-label="新建 Issue 默认使用 Visual Plan"
+                  checked={repository?.settings?.issueDefaults?.visualPlanEnabled === true}
+                  disabled={!canManage || savingIssueDefaults}
+                  onCheckedChange={(checked) => void saveIssueDefaults(checked)}
+                />
+              </span>
+            </div>
+          </div>
+        </section>
       </div>
       <VariableSettingsDialog
         row={editingRow}

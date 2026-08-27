@@ -47,6 +47,7 @@
   .provider-issue-dialog { max-height: calc(100svh - 2rem); overflow: auto; }
   .provider-issue-field { display: grid; gap: .45rem; }
   .provider-issue-field > span { font-size: .76rem; font-weight: 650; }
+  .provider-issue-default-notice { display: flex; align-items: center; gap: .4rem; color: var(--success); font-size: .76rem; font-weight: 600; }
   .provider-issue-dialog-actions { display: flex; justify-content: end; gap: .5rem; }
   .issue-markdown-editor { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
   .issue-editor-tabs { display: flex; gap: .15rem; padding: .35rem .45rem 0; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 50%, var(--card)); }
