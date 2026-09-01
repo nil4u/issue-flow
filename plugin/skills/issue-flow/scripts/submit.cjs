@@ -65,6 +65,7 @@ function usage() {
     '  --label <mr-by::...>    PR/MR label override. Defaults by kind.',
     '  --draft                Create the PR as draft.',
     '  --no-push              Do not push the current branch before creating the PR.',
+    '  --force-with-lease     Allow a non-fast-forward push only when remote updates are integrated locally.',
     '  --dry-run              Print intended behavior without changing remote state.',
     '  --help',
   ].join('\n');
@@ -102,6 +103,10 @@ function parseArgs(argv) {
     }
     if (arg === '--no-push') {
       options.noPush = true;
+      continue;
+    }
+    if (arg === '--force-with-lease') {
+      options.forceWithLease = true;
       continue;
     }
     if (!arg.startsWith('--')) {
@@ -650,6 +655,15 @@ function createGitAskpassEnv(providerName, baseEnv = process.env) {
 }
 
 
+function buildPushArgs(headBranch, options = {}) {
+  const args = ['push'];
+  if (options.forceWithLease) {
+    args.push('--force-with-lease', '--force-if-includes');
+  }
+  args.push('-u', 'origin', `HEAD:${headBranch}`);
+  return args;
+}
+
 function pushCurrentBranch(headBranch, options) {
   if (options.noPush) {
     return;
@@ -657,7 +671,7 @@ function pushCurrentBranch(headBranch, options) {
 
   const askpass = createGitAskpassEnv(options.provider);
   try {
-    runChecked('git', ['push', '-u', 'origin', `HEAD:${headBranch}`], {
+    runChecked('git', buildPushArgs(headBranch, options), {
       dryRun: options.dryRun,
       inherit: true,
       env: askpass.env,
@@ -922,6 +936,7 @@ module.exports = {
   assertDecisionArtifactsRemoved,
   assertVisualArtifactData,
   assertVisualBriefNotInIssueArtifacts,
+  buildPushArgs,
   buildPrBodyWithMarkers,
   buildPrBodyWithSourceMarker,
   buildSourceIssueMarker,

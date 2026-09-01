@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, CircleDot, ExternalLink, Eye, GitBranch, GitMerge, LayoutGrid, List, Loader2, MessageCircle, Plus, RefreshCw, Search } from "lucide-react"
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleDot, ExternalLink, Eye, GitBranch, GitMerge, LayoutGrid, List, Loader2, MessageCircle, Plus, RefreshCw, Search } from "lucide-react"
 
 import { EmptyPanel } from "@/components/empty-panel"
 import { ProviderLabel, ProviderLabelPicker } from "@/components/issues/provider-label-picker"
@@ -7,7 +7,9 @@ import { ProviderMarkdownEditor } from "@/components/issues/provider-markdown"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { api, formatWhen, type ProviderIssueLabel, type ProviderIssueSummary, type RepoWorkspaceProps, type ReviewablePlanArtifact } from "@/issue-flow-model"
+import { api, formatWhen, type ProviderIssueLabel, type ProviderIssueSummary, type Repository, type RepoWorkspaceProps, type ReviewablePlanArtifact } from "@/issue-flow-model"
+import { notifyError } from "@/lib/errors"
+import { defaultNewIssueLabels, showDefaultVisionPlanNotice } from "@/lib/issue-create-labels"
 
 type IssueState = "open" | "closed"
 type IssueViewMode = "board" | "list"
@@ -50,10 +52,12 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
+  const [loadingCreateDefaults, setLoadingCreateDefaults] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newTitle, setNewTitle] = useState("")
   const [newBody, setNewBody] = useState("")
   const [newLabels, setNewLabels] = useState<string[]>([])
+  const [newIssueVisualPlanEnabled, setNewIssueVisualPlanEnabled] = useState(false)
   const [reviewArtifacts, setReviewArtifacts] = useState<ReviewablePlanArtifact[]>([])
   const gitServerId = gitServer?.id || ""
   const projectId = repository?.serverRepoId || project?.id || ""
@@ -135,6 +139,23 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
     setLaneCollapseOverrides((current) => ({ ...current, [lane]: !(current[lane] ?? (issueCount === 0)) }))
   }
 
+  async function openCreateIssue() {
+    const repositoryId = repository?.id
+    if (!repositoryId || loadingCreateDefaults) return
+    setLoadingCreateDefaults(true)
+    try {
+      const body = await api<{ repository: Repository }>(`/api/repositories/${encodeURIComponent(repositoryId)}`)
+      const visualPlanEnabled = body.repository.settings?.issueDefaults?.visualPlanEnabled === true
+      setNewIssueVisualPlanEnabled(visualPlanEnabled)
+      setNewLabels(defaultNewIssueLabels(visualPlanEnabled))
+      setCreateOpen(true)
+    } catch (loadError) {
+      notifyError(loadError, "读取 Issue 默认配置失败")
+    } finally {
+      setLoadingCreateDefaults(false)
+    }
+  }
+
   async function createIssue() {
     if (!newTitle.trim() || creating) return
     setCreating(true); setError("")
@@ -157,8 +178,9 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
   const collapsedLanes = laneViews.filter((lane) => lane.collapsed)
   const expandedLanes = laneViews.filter((lane) => !lane.collapsed)
   const laneGridStyle = { "--issue-lane-count": Math.max(expandedLanes.length, 1) } as CSSProperties
+  const visionPlanDefaultNoticeVisible = showDefaultVisionPlanNotice(newIssueVisualPlanEnabled, newLabels)
 
-  return <div className="provider-issues-board"><header className="provider-issues-toolbar"><div className="provider-issue-state-filter" role="group" aria-label="Issue state">{stateOptions.map((option) => <Button key={option.value} type="button" variant={state === option.value ? "default" : "ghost"} size="sm" aria-pressed={state === option.value} onClick={() => selectState(option.value)}>{option.label}</Button>)}</div><label className="provider-issues-search"><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search issues…" /></label><div className="provider-issues-actions">{state === "open" ? <div className="issue-view-switch"><Button variant={viewMode === "list" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("list")}><List className="size-4" />列表</Button><Button variant={viewMode === "board" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("board")}><LayoutGrid className="size-4" />看板</Button></div> : null}<Button variant="secondary" onClick={() => void loadIssues()} disabled={loading}>{loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}刷新</Button><Button onClick={() => setCreateOpen(true)}><Plus className="size-4" />New issue</Button></div></header>{error ? <div className="provider-issues-error"><AlertCircle className="size-4" />{error}</div> : null}{loading && !issues.length ? <div className="provider-issues-empty"><Loader2 className="size-5 animate-spin" />正在读取 Issues…</div> : !issues.length ? <div className="provider-issues-empty"><CircleDot className="size-5" />当前筛选条件下没有 Issue</div> : viewMode === "board" && state === "open" ? <div className="issue-board-shell">{collapsedLanes.length ? <div className="issue-board-collapsed-lanes"><span>已收起</span>{collapsedLanes.map((lane) => <button key={lane.id} type="button" className="issue-lane-collapsed" aria-label={`展开 ${lane.title}`} aria-expanded={false} onClick={() => toggleLane(lane.id, lane.issues.length)}><span>{lane.title}</span><b>{lane.issues.length}</b><ChevronRight className="size-4" /></button>)}</div> : null}<div className="issue-board-lanes" style={laneGridStyle}>{expandedLanes.map((lane) => <section key={lane.id} className="issue-lane"><header><button type="button" className="issue-lane-toggle" aria-expanded onClick={() => toggleLane(lane.id, lane.issues.length)}><span><strong>{lane.title}</strong><small>{lane.id === "untriaged" ? "无 flow:: 标签" : `flow::${lane.id}`}</small></span><span className="issue-lane-toggle-meta"><b>{lane.issues.length}</b><ChevronDown className="size-4" /></span></button></header><div className="issue-lane-list">{lane.issues.map((issue) => <IssueBoardCard key={issue.id} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div></section>)}</div></div> : <div className="provider-issue-list">{issues.map((issue) => <IssueListRow key={issue.id || issue.number} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div>}<ListPagination page={page} hasMore={hasMore} loading={loading} onPage={selectPage} /><Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="provider-issue-dialog"><DialogHeader><DialogTitle>Create new issue</DialogTitle></DialogHeader><label className="provider-issue-field"><span>Title</span><Input value={newTitle} onChange={(event) => setNewTitle(event.currentTarget.value)} placeholder="Issue title" autoFocus /></label><label className="provider-issue-field"><span>Description</span><ProviderMarkdownEditor endpoint={`${baseApi}/markdown`} value={newBody} onChange={setNewBody} placeholder="Describe the issue…" /></label><div className="provider-issue-field"><span>Labels</span><ProviderLabelPicker labels={labels} selected={newLabels} onChange={setNewLabels} /></div><div className="provider-issue-dialog-actions"><Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</Button><Button onClick={() => void createIssue()} disabled={creating || !newTitle.trim()}>{creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{creating ? "Creating…" : "Create issue"}</Button></div></DialogContent></Dialog></div>
+  return <div className="provider-issues-board"><header className="provider-issues-toolbar"><div className="provider-issue-state-filter" role="group" aria-label="Issue state">{stateOptions.map((option) => <Button key={option.value} type="button" variant={state === option.value ? "default" : "ghost"} size="sm" aria-pressed={state === option.value} onClick={() => selectState(option.value)}>{option.label}</Button>)}</div><label className="provider-issues-search"><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search issues…" /></label><div className="provider-issues-actions">{state === "open" ? <div className="issue-view-switch"><Button variant={viewMode === "list" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("list")}><List className="size-4" />列表</Button><Button variant={viewMode === "board" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("board")}><LayoutGrid className="size-4" />看板</Button></div> : null}<Button variant="secondary" onClick={() => void loadIssues()} disabled={loading}>{loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}刷新</Button><Button onClick={() => void openCreateIssue()} disabled={loadingCreateDefaults}>{loadingCreateDefaults ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}New issue</Button></div></header>{error ? <div className="provider-issues-error"><AlertCircle className="size-4" />{error}</div> : null}{loading && !issues.length ? <div className="provider-issues-empty"><Loader2 className="size-5 animate-spin" />正在读取 Issues…</div> : !issues.length ? <div className="provider-issues-empty"><CircleDot className="size-5" />当前筛选条件下没有 Issue</div> : viewMode === "board" && state === "open" ? <div className="issue-board-shell">{collapsedLanes.length ? <div className="issue-board-collapsed-lanes"><span>已收起</span>{collapsedLanes.map((lane) => <button key={lane.id} type="button" className="issue-lane-collapsed" aria-label={`展开 ${lane.title}`} aria-expanded={false} onClick={() => toggleLane(lane.id, lane.issues.length)}><span>{lane.title}</span><b>{lane.issues.length}</b><ChevronRight className="size-4" /></button>)}</div> : null}<div className="issue-board-lanes" style={laneGridStyle}>{expandedLanes.map((lane) => <section key={lane.id} className="issue-lane"><header><button type="button" className="issue-lane-toggle" aria-expanded onClick={() => toggleLane(lane.id, lane.issues.length)}><span><strong>{lane.title}</strong><small>{lane.id === "untriaged" ? "无 flow:: 标签" : `flow::${lane.id}`}</small></span><span className="issue-lane-toggle-meta"><b>{lane.issues.length}</b><ChevronDown className="size-4" /></span></button></header><div className="issue-lane-list">{lane.issues.map((issue) => <IssueBoardCard key={issue.id} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div></section>)}</div></div> : <div className="provider-issue-list">{issues.map((issue) => <IssueListRow key={issue.id || issue.number} issue={issue} href={issueHref(issue.number)} artifact={artifactFor(issue.number)} reviewHref={reviewHref(issue.number)} />)}</div>}<ListPagination page={page} hasMore={hasMore} loading={loading} onPage={selectPage} /><Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="provider-issue-dialog"><DialogHeader><DialogTitle>Create new issue</DialogTitle></DialogHeader><label className="provider-issue-field"><span>Title</span><Input value={newTitle} onChange={(event) => setNewTitle(event.currentTarget.value)} placeholder="Issue title" autoFocus /></label><label className="provider-issue-field"><span>Description</span><ProviderMarkdownEditor endpoint={`${baseApi}/markdown`} value={newBody} onChange={setNewBody} placeholder="Describe the issue…" /></label><div className="provider-issue-field"><span>Labels</span>{visionPlanDefaultNoticeVisible ? <div className="provider-issue-default-notice"><CheckCircle2 className="size-4" />已默认开启 Vision Plan</div> : null}<ProviderLabelPicker labels={labels} selected={newLabels} onChange={setNewLabels} /></div><div className="provider-issue-dialog-actions"><Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</Button><Button onClick={() => void createIssue()} disabled={creating || !newTitle.trim()}>{creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{creating ? "Creating…" : "Create issue"}</Button></div></DialogContent></Dialog></div>
 }
 
 function ListPagination({ page, hasMore, loading, onPage }: { page: number; hasMore: boolean; loading: boolean; onPage: (page: number) => void }) {

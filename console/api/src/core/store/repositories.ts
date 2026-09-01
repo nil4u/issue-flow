@@ -85,7 +85,18 @@ function withRepositoryStore(Base) {
 
     repoSettingsFromItems(rows = []) {
       const empty = emptyRepoSettings()
+      const visualPlanFeature = (rows || []).find((row) => row.kind === "feature" && row.key === "visual-plan")
+      const legacyIssueDefaults = (rows || []).find((row) => row.kind === "preference" && row.key === "issue-defaults")
+      const visualPlanSetting = visualPlanFeature || legacyIssueDefaults
+      const visualPlanData = visualPlanSetting ? repoSettingData(visualPlanSetting) : {}
       const settings = {
+        issueDefaults: {
+          ...empty.issueDefaults,
+          ...(visualPlanSetting ? {
+            visualPlanEnabled: visualPlanFeature ? visualPlanData.enabled === true : visualPlanData.visualPlanEnabled === true,
+            updatedAt: timestampValue(visualPlanSetting.checkedAt),
+          } : {}),
+        },
         permissions: { ...empty.permissions, items: [] },
         variables: { ...empty.variables, items: [] },
         webhook: {},
@@ -95,6 +106,7 @@ function withRepositoryStore(Base) {
       for (const row of rows || []) {
         const data = repoSettingData(row)
         const checkedAt = timestampValue(row.checkedAt)
+        if ((row.kind === "feature" && row.key === "visual-plan") || (row.kind === "preference" && row.key === "issue-defaults")) continue
         if (row.kind === "permission") {
           settings.permissions.items.push(data)
           settings.permissions.checkedAt = latestTimestamp(settings.permissions.checkedAt, checkedAt)
@@ -640,6 +652,27 @@ function withRepositoryStore(Base) {
 
       await this.saveRepository(repo)
       return this.publicRepository(repo)
+    }
+
+    async updateRepositoryIssueDefaults(repoId, input = {}) {
+      await this.ready
+      const repo = await this.getRepository(repoId)
+      if (!repo) return undefined
+      const updatedAt = nowIso()
+      await this.upsertRepoSettingItem(repoId, {
+        kind: "feature",
+        key: "visual-plan",
+        source: "console",
+        data: {
+          enabled: input.visualPlanEnabled === true,
+        },
+        checkedAt: updatedAt,
+      })
+      await this.db.repo.update({
+        where: { id: repoId },
+        data: { updatedAt: asDate(updatedAt) },
+      })
+      return this.getRepository(repoId)
     }
 
     async updateRepositoryWebhookCache(repoId, patch = {}) {

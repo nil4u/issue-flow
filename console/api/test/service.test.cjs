@@ -247,6 +247,58 @@ test('service store creates repositories without repo credential storage', async
   }
 });
 
+test('repository Visual Plan issue default is disabled until explicitly enabled', async () => {
+  const { dir, store } = tempStore();
+  let app;
+  try {
+    await seedGitlabServer(store, 'https://gitlab.example.com');
+    const user = await store.createUser({ id: 'user-visual-plan', displayName: 'Alice' });
+    const created = await store.createRepository({
+      gitServerId: 'gitlab-main',
+      userId: user.id,
+      baseUrl: 'https://gitlab.example.com',
+      projectPath: 'team/visual-plan',
+    }, { status: 'unchecked', projectId: 'visual-plan-42' });
+    const listening = await listenApp(store);
+    app = listening.app;
+    const cookie = await consoleSidCookie(store, user.id);
+
+    const initial = await fetch(`${listening.baseUrl}/api/repositories/${created.repo.id}`, {
+      headers: { Cookie: cookie },
+    });
+    assert.equal(initial.status, 200);
+    assert.equal((await initial.json()).repository.settings.issueDefaults.visualPlanEnabled, false);
+
+    const updated = await fetch(`${listening.baseUrl}/api/repositories/${created.repo.id}/issue-defaults`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ visualPlanEnabled: true }),
+    });
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json()).repository.settings.issueDefaults.visualPlanEnabled, true);
+
+    const persisted = await store.db.repoSettingItem.findUnique({
+      where: {
+        repoId_kind_key: {
+          repoId: created.repo.id,
+          kind: 'feature',
+          key: 'visual-plan',
+        },
+      },
+    });
+    assert.equal(persisted.kind, 'feature');
+    assert.equal(persisted.key, 'visual-plan');
+    assert.equal(persisted.data.enabled, true);
+
+    const reloaded = await store.getRepository(created.repo.id);
+    assert.equal(reloaded.settings.issueDefaults.visualPlanEnabled, true);
+  } finally {
+    if (app) await app.close();
+    await store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('repository search ignores owner filter while owner browsing still scopes results', async () => {
   const { dir, store } = tempStore();
   try {
