@@ -11,6 +11,7 @@ import {
   getGitlabRunner,
   getGitlabRepositoryFile,
   getGitlabVariableForInstall,
+  publicGitlabVariable,
   getGitlabVariableForValidation,
   listGitlabProjects,
   listGitlabProjectLabels,
@@ -89,6 +90,7 @@ function gitlabCiVariablesForInstall({ config, installConfig, basePublicUrl = ''
     { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: automation.agent || 'codex', required: true },
     { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: automationDefaultValue(automation.autoDefault), required: true },
     { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: booleanVariableValue(automation.reviewEnabled), required: true },
+    { key: 'ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST', required: false, emptyDetail: '未设置，不屏蔽评论作者' },
   ];
 }
 
@@ -1255,7 +1257,7 @@ async function writeInstallVariable({ definition, input = {}, key = '', config, 
     await createIssueFlowGitlabTokenVariable({ config, project, apiInput });
     return;
   }
-  if (nextValue === undefined || nextValue === '') {
+  if (nextValue === undefined || (nextValue === '' && definition.required !== false)) {
     const error = new Error('gitlab_variable_value_required');
     error.status = 400;
     error.code = 'gitlab_variable_value_required';
@@ -1264,11 +1266,57 @@ async function writeInstallVariable({ definition, input = {}, key = '', config, 
   if (definition.key === 'AGENTRIX_API_KEY') {
     await validateAgentrixApiKey({ env, apiKey: String(nextValue), logger: apiInput.logger });
   }
-  await upsertGitlabProjectVariable(apiInput, {
+  const written = await upsertGitlabProjectVariable(apiInput, {
     ...definition,
     value: String(nextValue),
     environmentScope: input.environmentScope || input.scope || definition.environmentScope || '*',
   });
+  return publicGitlabVariable({ key: definition.key, value: String(nextValue), masked: definition.masked, ...written }, 'project');
+}
+
+// 指定 key 的单变量写入:直接写 GitLab,用写入响应更新该 key 的 cache,其余 key 沿用已有 cache,不再全量重读。
+async function setSingleInstallVariable({ store, existing, definitions, definition, input, config, project, apiInput, env }) {
+  const cachedItems = existing.settings && existing.settings.variables && existing.settings.variables.items || [];
+  const cachedByKey = new Map(cachedItems.map((item) => [item.key, item]));
+  const key = definition.key;
+  let written;
+  let validation;
+  let writeError;
+  try {
+    written = await writeInstallVariable({ definition, input, key, config, project, apiInput, env });
+  } catch (error) {
+    if (error && error.code === 'gitlab_variable_value_required') {
+      return { status: 400, body: { error: 'gitlab_variable_value_required' } };
+    }
+    writeError = error;
+  }
+  if (!writeError && !written) {
+    // token 变量由 writeInstallVariable 内部创建,需要回读一次并验证权限。
+    const checked = await readInstallVariable(apiInput, definition);
+    written = checked.existingVariable;
+    validation = checked.validation;
+  }
+  const result = writeError
+    ? failedVariableResult(definition, cachedByKey.get(key), writeError)
+    : variableResultWithValidation(definition, written, validation);
+  const nextCache = variableCache(writeError ? cachedByKey.get(key) : written);
+  const items = cachedItems.filter((item) => item.key !== key);
+  if (nextCache) items.push(nextCache);
+  const repository = await store.updateRepositorySettingsCache(existing.id, {
+    variables: { items, checkedAt: new Date().toISOString() },
+  });
+  const variableResults = definitions.map((item) => item.key === key ? result : variableResult(item, cachedByKey.get(item.key)));
+  const step = variableStepFromResults(variableResults);
+  return {
+    status: 200,
+    body: {
+      repository,
+      step,
+      variable: result,
+      steps: [step],
+      installable: step.status !== 'blocked' && step.status !== 'needs_input' && step.status !== 'failed',
+    },
+  };
 }
 
 async function setGitlabProjectInstallVariable({ store, basePublicUrl, input = {}, session, env = process.env, logger = undefined }) {
@@ -1294,18 +1342,20 @@ async function setGitlabProjectInstallVariable({ store, basePublicUrl, input = {
   }
   const key = String(input.key || '').trim();
   const definitions = gitlabCiVariablesForInstall({ config, installConfig, basePublicUrl, env });
+  if (key) {
+    const definition = definitions.find((item) => item.key === key);
+    if (!definition) return { status: 400, body: { error: 'gitlab_variable_unknown' } };
+    return setSingleInstallVariable({ store, existing, definitions, definition, input, config, project, apiInput, env });
+  }
   const initial = await readInstallVariableResults(apiInput, definitions);
   const initialByKey = new Map(initial.variableResults.map((item) => [item.key, item]));
-  const selectedDefinitions = key
-    ? definitions.filter((item) => item.key === key)
-    : definitions.filter((item) => {
-      const current = initialByKey.get(item.key);
-      if (!current) return false;
-      return current.status === 'pending_auto'
-        || current.status === 'unverified' && Boolean(current.autoWritable ?? current.writable);
-    });
+  const selectedDefinitions = definitions.filter((item) => {
+    const current = initialByKey.get(item.key);
+    if (!current) return false;
+    return current.status === 'pending_auto'
+      || current.status === 'unverified' && Boolean(current.autoWritable ?? current.writable);
+  });
   if (!selectedDefinitions.length) {
-    if (key) return { status: 400, body: { error: 'gitlab_variable_unknown' } };
     const variables = { items: initial.variableCaches, checkedAt: new Date().toISOString() };
     const repository = await store.updateRepositorySettingsCache(existing.id, { variables });
     const step = variableStepFromResults(initial.variableResults);
@@ -1324,23 +1374,19 @@ async function setGitlabProjectInstallVariable({ store, basePublicUrl, input = {
     try {
       await writeInstallVariable({ definition, input, key, config, project, apiInput, env });
     } catch (error) {
-      if (key && error && error.code === 'gitlab_variable_value_required') {
-        return { status: 400, body: { error: 'gitlab_variable_value_required' } };
-      }
       failedByKey.set(definition.key, error);
     }
   }
   const final = await readInstallVariableResults(apiInput, definitions, failedByKey);
   const variables = { items: final.variableCaches, checkedAt: new Date().toISOString() };
   const repository = await store.updateRepositorySettingsCache(existing.id, { variables });
-  const resultByKey = new Map(final.variableResults.map((variable) => [variable.key, variable]));
   const step = variableStepFromResults(final.variableResults);
   return {
     status: 200,
     body: {
       repository,
       step,
-      variable: key ? resultByKey.get(key) : undefined,
+      variable: undefined,
       steps: [step],
       installable: step.status !== 'blocked' && step.status !== 'needs_input' && step.status !== 'failed',
     },

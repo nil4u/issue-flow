@@ -97,6 +97,12 @@ test('github bootstrap writes workflow and Agentrix config convention paths', ()
     const milestoneWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-milestones.yml'), 'utf8');
     const reviewWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review.yml'), 'utf8');
     const reviewCommentWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-pr-review-comment.yml'), 'utf8');
+    const commentWorkflow = fs.readFileSync(path.join(root, '.github/workflows/issue-flow-comment.yml'), 'utf8');
+    for (const workflow of [commentWorkflow, reviewCommentWorkflow]) {
+      const dispatchStep = workflow.split(/(?=      - name:)/).find((step) => /dispatch(?:\.cjs comment| review-comment)/.test(step));
+      assert.match(dispatchStep, /^          ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST: \$\{\{ vars\.ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST \}\}$/m);
+      assert.equal(dispatchStep.match(/^          ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST:/gm).length, 1);
+    }
     assert.match(labelsWorkflow, /Issue Flow Labels/);
     assert.match(labelsWorkflow, /issues: write/);
     assert.match(labelsWorkflow, /sync-labels\.cjs --provider github/);

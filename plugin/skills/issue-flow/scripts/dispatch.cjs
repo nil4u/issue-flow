@@ -9,6 +9,7 @@ const {
   shouldRunAutoForEvent,
 } = require('./resolve.cjs');
 const { parseSourceMarker } = require('./provenance.cjs');
+const { commentAuthorSkipReason } = require('./comment-policy.cjs');
 const prMerged = require('./pr-merged.cjs');
 const pipelineFailed = require('./pipeline-failed.cjs');
 const { completeOptimizationForChildIssue } = require('./optimization-completion.cjs');
@@ -929,6 +930,11 @@ async function runComment(options = {}, provided = {}) {
     };
   }
   const comment = getCommentContext(payload, options);
+  const authorSkipReason = commentAuthorSkipReason(comment.author);
+  if (authorSkipReason) {
+    logIssueFlow('Issue comment skipped', { reason: authorSkipReason, author: comment.author });
+    return { action: 'skipped', reason: authorSkipReason, comment: comment.id };
+  }
   if (isBotComment(payload, options)) {
     logIssueFlow('Bot comment ignored');
     return {
@@ -1156,6 +1162,11 @@ async function runReviewComment(options = {}, provided = {}) {
   }
 
   const reviewComment = provided.reviewComment || getReviewCommentContext(payload, options);
+  const authorSkipReason = commentAuthorSkipReason(reviewComment.author);
+  if (authorSkipReason) {
+    logIssueFlow('PR/MR review comment skipped', { reason: authorSkipReason, author: reviewComment.author });
+    return { action: 'skipped', reason: authorSkipReason, reviewComment: reviewComment.id };
+  }
   const source = parseSourceMarker(reviewComment.body);
   if (source.source_task_id || source.source_agent) {
     logIssueFlow('PR/MR review comment skipped', {

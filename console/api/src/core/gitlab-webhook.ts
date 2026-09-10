@@ -147,6 +147,9 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
       gitlabPipelineTarget({
         variables: composeVariables([
           defaultVariables(),
+          (event) => event.comment ? {
+            GITLAB_BRIDGE_COMMENT_AUTHOR: event.raw.body?.user?.username || event.raw.body?.user?.name || '',
+          } : {},
           staticVariables({
             AGENTRIX_GIT_SERVER_ID: secrets.agentrixGitServerId,
           }),
