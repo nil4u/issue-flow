@@ -123,6 +123,12 @@ export const gitlabInstallCheckConfig = {
           },
         },
         {
+          id: "variable:ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST",
+          type: "variable",
+          name: "ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST",
+          description: "评论作者黑名单，账号名用逗号分隔，例如 ci-bot,security-bot。留空不屏蔽。",
+        },
+        {
           id: "variable:ISSUE_FLOW_REVIEW_ENABLED",
           type: "variable",
           name: "ISSUE_FLOW_REVIEW_ENABLED",

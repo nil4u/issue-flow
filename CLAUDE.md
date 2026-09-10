@@ -17,7 +17,7 @@ npm-workspaces monorepo(Node 22),两个独立版本管理的产品加根级 dogf
 - `plugin/install.sh` — 安装器入口(README 的 curl URL 指向它;clone 模式下探测 monorepo 的 `plugin/` 子目录,并对旧 tag 布局回退)
 - `plugin/skills/issue-flow/SKILL.md` — 单一 skill 入口(agent-facing);`cli.cjs` 是统一 CLI 前门
 - `plugin/skills/issue-flow/scripts/` — 确定性 CJS 脚本(路径全部相对自身,可整体平移)
-- `plugin/docs/` — 插件人类文档(状态机、provider API)
+- `plugin/docs/` — 插件人类文档(状态机、provider API、功能配置)
 - `plugin/test/` — 插件单元测试;`plugin/test/integration/` 为真实远端集成测试(默认不跑)
 - `console/api/` — API 服务源码、`prisma/` migrations、独立 package.json(`issue-flow-console`)
 - `console/web/` — web 控制台(workspace `issue-flow-web`,不独立发版;React 19 + Vite + Tailwind 4 + shadcn/radix + echarts)

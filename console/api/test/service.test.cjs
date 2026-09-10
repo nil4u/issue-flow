@@ -1632,6 +1632,23 @@ test('GitLab webhook receiver authenticates with Git server secret and dispatche
       'POST /api/v4/projects/42/triggers',
       'POST /api/v4/projects/42/trigger/pipeline',
     ]);
+    assert.equal(pipelineVariables.GITLAB_BRIDGE_COMMENT_AUTHOR, undefined);
+    for (const user of [{ username: 'ci-bot', name: 'CI Bot' }, { name: 'CI Bot' }, null]) {
+      const note = await handleGitlabWebhook({
+        store,
+        repoId: createdRepo.repo.id,
+        headers: { 'X-Gitlab-Token': 'backend-webhook-secret', 'X-Gitlab-Event': 'Note Hook', 'X-Gitlab-Event-UUID': `note-${user?.username || user?.name || 'missing'}` },
+        rawBody: JSON.stringify({
+          object_kind: 'note', user, project: payload.project,
+          merge_request: { iid: 7, source_branch: 'feature', target_branch: 'main' },
+          object_attributes: { id: 200, noteable_type: 'MergeRequest', action: 'create', note: 'Please review' },
+        }),
+      });
+      assert.equal(note.status, 200);
+      assert.equal(note.body.status, 'delivered');
+      assert.equal(pipelineVariables.GITLAB_BRIDGE_COMMENT_AUTHOR, user?.username || user?.name || '');
+      assert.equal(pipelineVariables.ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST, undefined);
+    }
   } finally {
     await close(gitlab);
     await store.close();
@@ -2888,6 +2905,7 @@ function configuredInstallProjectVariables() {
     ['AGENTRIX_BASE_URL', { key: 'AGENTRIX_BASE_URL', value: 'https://agentrix.xmz.ai', environment_scope: '*', variable_type: 'env_var' }],
     ['AGENTRIX_ISSUE_FLOW_AGENT', { key: 'AGENTRIX_ISSUE_FLOW_AGENT', value: 'codex', environment_scope: '*', variable_type: 'env_var' }],
     ['ISSUE_FLOW_AUTO_DEFAULT', { key: 'ISSUE_FLOW_AUTO_DEFAULT', value: 'triage', environment_scope: '*', variable_type: 'env_var' }],
+    ['ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST', { key: 'ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST', value: '', environment_scope: '*', variable_type: 'env_var' }],
     ['ISSUE_FLOW_REVIEW_ENABLED', { key: 'ISSUE_FLOW_REVIEW_ENABLED', value: 'false', environment_scope: '*', variable_type: 'env_var' }],
   ]);
 }
@@ -3068,7 +3086,9 @@ test('GitLab settings checks variables independently and caches safe metadata', 
   ]);
   let updatedVariable;
   let createdProjectToken = false;
+  const requestLog = [];
   const gitlab = http.createServer((req, res) => {
+    requestLog.push(`${req.method} ${req.url}`);
     if (req.url === '/api/v4/user' && req.headers['private-token'] === 'glpat-issue-flow-token-1234567890') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ id: 701, username: 'project_42_bot' }));
@@ -3180,12 +3200,12 @@ test('GitLab settings checks variables independently and caches safe metadata', 
       res.end(JSON.stringify({ message: '404 Variable Not Found' }));
       return;
     }
-    if (req.url === '/api/v4/projects/42/variables/ISSUE_FLOW_AUTO_DEFAULT' && req.method === 'PUT') {
+    if (['/api/v4/projects/42/variables/ISSUE_FLOW_AUTO_DEFAULT', '/api/v4/projects/42/variables/ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST'].includes(req.url) && req.method === 'PUT') {
       let raw = '';
       req.on('data', (chunk) => { raw += chunk; });
       req.on('end', () => {
         const body = JSON.parse(raw);
-        assert.equal(body.value, 'build');
+        if (body.key === 'ISSUE_FLOW_AUTO_DEFAULT') assert.equal(body.value, 'build');
         assert.equal(body.environment_scope, '*');
         updatedVariable = body;
         variables.set(body.key, {
@@ -3231,6 +3251,11 @@ test('GitLab settings checks variables independently and caches safe metadata', 
       input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', checkType: 'variables' },
     });
     assert.equal(checked.status, 200);
+    const blacklist = checked.body.steps[0].variables.find((item) => item.key === 'ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST');
+    assert.equal(blacklist.required, false);
+    assert.equal(blacklist.status, 'passed');
+    assert.equal(blacklist.autoWritable, false);
+
     const apiKey = checked.body.steps[0].variables.find((item) => item.key === 'AGENTRIX_API_KEY');
     assert.equal(apiKey.status, 'passed');
     assert.equal(apiKey.detail, '已设置');
@@ -3299,6 +3324,28 @@ test('GitLab settings checks variables independently and caches safe metadata', 
     });
     assert.equal(persistedAuto.data.status, undefined);
     assert.equal(persistedAuto.data.value, 'build');
+    for (const value of ['ci-bot,security-bot', '']) {
+      requestLog.length = 0;
+      const result = await setGitlabProjectInstallVariable({
+        store,
+        input: { gitServerId: 'gitlab-main', token: 'gl-oauth-user-token', projectId: '42', key: 'ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST', value },
+      });
+      assert.equal(result.status, 200);
+      assert.equal(updatedVariable.key, 'ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST');
+      assert.equal(updatedVariable.value, value);
+      assert.equal(variables.get('ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST').value, value);
+      assert.equal(result.body.variable.value, value);
+      assert.equal(result.body.variable.status, 'passed');
+      // 单变量保存只写该 key,不回读其他变量,也不重新验证 ISSUE_FLOW_GITLAB_TOKEN。
+      assert.deepEqual(requestLog.filter((line) => /\/variables/.test(line)), [
+        'PUT /api/v4/projects/42/variables/ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST',
+      ]);
+      assert.equal(requestLog.some((line) => line.startsWith('GET /api/v4/projects/42/issues')), false);
+      const cached = await store.findRepositoryByProject({ gitServerId: 'gitlab-main', projectId: '42' });
+      assert.equal(cached.settings.variables.items.find((item) => item.key === 'ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST').value, value);
+      assert.equal(cached.settings.variables.items.find((item) => item.key === 'ISSUE_FLOW_AUTO_DEFAULT').value, 'build');
+    }
+
   } finally {
     await close(gitlab);
     await store.close();

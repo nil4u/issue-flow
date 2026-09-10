@@ -1157,6 +1157,7 @@ export {
   getGitlabProjectVariable,
   getGitlabVariableForInstall,
   getGitlabVariableForValidation,
+  publicGitlabVariable,
   getGitlabRepositoryFile,
   gitlabOAuthAuthorizeUrl,
   gitlabOAuthRedirectUri,

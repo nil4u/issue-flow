@@ -162,6 +162,7 @@ Set these repository variables/secrets as needed:
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
 - `ISSUE_FLOW_REVIEW_ENABLED` - optional automatic PR/MR reviewer switch, defaults to off; set to `true` or `1` to run automatic review
+- `ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST` - optional comma-separated account names whose issue/PR/MR comments are ignored by `dispatch comment` and `dispatch review-comment`; empty means no filtering (see `plugin/docs/features.md`)
 
 GitHub label sync uses the workflow `GITHUB_TOKEN` with `issues: write`. Provider tokens are only for issue-flow routing jobs; when issue-flow starts or resumes an Agentrix task, it does not forward `GITHUB_TOKEN`/`GH_TOKEN` into the Agentrix task environment.
 
@@ -374,6 +375,7 @@ Set these CI variables as needed:
 - `AGENTRIX_ISSUE_FLOW_AGENT` - optional agent name, defaults to `codex`
 - `ISSUE_FLOW_AUTO_DEFAULT` - optional automation default: `off`, `triage`, `plan`, or `build`
 - `ISSUE_FLOW_REVIEW_ENABLED` - optional automatic PR/MR reviewer switch, defaults to off; set to `true` or `1` to run automatic review
+- `ISSUE_FLOW_COMMENT_AUTHOR_BLACKLIST` - optional comma-separated account names whose issue/PR/MR comments are ignored by `dispatch comment` and `dispatch review-comment`; empty means no filtering (see `plugin/docs/features.md`)
 
 GitLab label sync runs on push in `.gitlab/issue-flow.gitlab-ci.yml` and uses `GITLAB_TOKEN`, `GL_TOKEN`, `GITLAB_PRIVATE_TOKEN`, or `CI_JOB_TOKEN`. Provider tokens are only for issue-flow routing jobs; when issue-flow starts or resumes an Agentrix task, it does not forward GitLab provider token env vars into the Agentrix task environment.
 

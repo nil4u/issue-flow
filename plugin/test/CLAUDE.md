@@ -5,6 +5,7 @@
 agentrix-runtime.test.cjs: Agentrix runtime prompt 路由、run args、resume 与 task comment 的行为测试。
 bootstrap.test.cjs: install/bootstrap 生成文件、manifest、三方冲突规则、plan/decision 与 provider workflow 的行为测试。
 cli.test.cjs: 统一 CLI help、dry-run envelope 与命令路由测试。
+comment-policy.test.cjs: 评论作者黑名单解析、dispatch comment/review-comment 前置过滤与 GitLab bridge 作者透传测试。
 create-issue.test.cjs: issue create 参数解析、managed label 与 source provenance marker 测试。
 dispatch.test.cjs: issue/PR/MR event dispatch、自动流转与 review resume 测试。
 gitlab-ci-include.test.cjs: GitLab 根 CI 顶层 include 转换器（list/scalar/map/complex）与字节保真测试。
