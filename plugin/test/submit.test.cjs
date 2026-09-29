@@ -11,6 +11,7 @@ const {
   assertVisualArtifactData,
   assertVisualBriefNotInIssueArtifacts,
   buildPushArgs,
+  buildPrBodyReferences,
   buildPrBodyWithMarkers,
   buildVisualArtifactComment,
   buildVisualArtifactPublishedComment,
@@ -104,6 +105,18 @@ test('submit body wrapper inserts stable source issue marker', () => {
       '<!-- issue-flow:source-issue=482 -->\n<!-- issue-flow:source source_task_id=task-123 source_runtime=agentrix -->\nSource issue: #111\n\nBody'
     );
   });
+});
+
+test('submit body references are generated unless the agent already wrote them', () => {
+  assert.equal(
+    buildPrBodyReferences('## Summary\n\n- Decision', 42, '.issue-flow/issues/42-x/plan/001-implementation.md'),
+    'Source issue: #42\nPlan file: `.issue-flow/issues/42-x/plan/001-implementation.md`\n\n## Summary\n\n- Decision'
+  );
+  assert.equal(buildPrBodyReferences('## Summary\n\n- Change\n', 42), 'Source issue: #42\n\n## Summary\n\n- Change');
+  assert.equal(
+    buildPrBodyReferences('- **Source issue**: #42\n- Plan file: `plan.md`\n\nBody', 42, 'plan.md'),
+    '- **Source issue**: #42\n- Plan file: `plan.md`\n\nBody'
+  );
 });
 
 test('submit body wrapper replaces stale source issue marker', () => {

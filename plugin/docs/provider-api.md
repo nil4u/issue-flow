@@ -230,14 +230,14 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision.json.isv`、`plan/data/plan.json.isv`、`plan/data/optimization-data.json` 或 Markdown Plan 文件；Decision/Visual Plan 通过 `.isv` 后缀发现并由 JSON 内的 `artifact` 字段区分类型；现有 Markdown Preview 以及 `decision-data.json`、`plan-data.json` 固定文件名识别继续兼容
 5. Decision/Visual Plan 只提交 JSON；HTML、CSS、JavaScript、布局、图形和审阅锚点由 Issue Flow Engine 内置生成；`visual-brief.md` 只写入 Plan prompt 注入的系统临时路径；Visual Plan 发布前必须删除同一 Issue 的 `decision/`
 6. 使用 `.issue-flow/config.json` 的 `gitServerId`、`projectId` 和 `baseUrl` 生成统一 Engine URL
-7. 创建或更新带 `mr-by::plan` label 的 PR/MR；所有产物都写入不含 repository ID 的 `issue-flow:plan-artifact` marker，在 body 写入 Engine URL并在同一 PR/MR 下回复该 URL
+7. 创建或更新带 `mr-by::plan` label 的 PR/MR；所有产物都写入不含 repository ID 的 `issue-flow:plan-artifact` marker，在 body 写入 Engine URL并在同一 PR/MR 下回复该 URL；Markdown Plan 在 agent 提供的 body 前补写 `Source issue` 与 `Plan file` 行（body 已包含时不重复）
 8. Decision 设置 `flow::clarify`；Visual Plan、Markdown Plan 和 Optimization Plan 设置 `flow::approve`
 
 Optimization Plan 由 Automation Optimizer Skill 定义专用 schema，Engine 复用统一页面壳、评论锚点、Provider 身份和渲染基础设施。Proposal Approve 创建独立 Issue，Ignore 写入 MR marker；所有 Proposal 进入 ignored/done/drop 后，pipeline 关闭优化 Plan MR 与优化 Issue，并将来源 Issue 更新为 `optimization::analyzed`。
 
 Engine 从 `mr-by::plan` PR/MR 发现当前产物；JSON 使用固定组件渲染，Markdown 使用结构化章节渲染。草稿和历史评论按 repository、issue、artifact 分区保存在浏览器 LocalStorage。提交审阅时，Issue Flow 使用页面当前登录用户的 OAuth token 在该 PR/MR 下评论，由 review-comment pipeline resume 原 Plan task。Decision 批准只评论同一个 open MR并进入 `flow::plan`，不合并；Visual/Markdown Plan 批准后合并并进入 `flow::build`；Optimization Plan 按 Proposal 独立流转。
 
-`pr submit build` 保持 PR/MR 行为：校验 source issue、确保 `mr-by::build` label、push 分支，在 body 写入 source/task marker、创建或更新 PR/MR，并把 source issue 转到 `flow::approve`。
+`pr submit build` 保持 PR/MR 行为：校验 source issue、确保 `mr-by::build` label、push 分支，在 body 写入 source/task marker 并补写 `Source issue` 行（已包含时不重复）、创建或更新 PR/MR，并把 source issue 转到 `flow::approve`。
 
 ## PR/MR review comments
 

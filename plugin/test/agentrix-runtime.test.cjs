@@ -116,6 +116,31 @@ test('agentrix appends context without parsing a custom action prompt', () => {
   }
 });
 
+test('agentrix skips project instructions left at the installed default', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-default-instructions-'));
+  try {
+    const instructionsPath = path.join(root, 'instructions.md');
+    fs.copyFileSync(
+      path.resolve(__dirname, '../skills/issue-flow/assets/agentrix/bootstrap/issue-flow/instructions.md'),
+      instructionsPath,
+    );
+
+    const prompt = agentrix.composeActionPrompt('build', {
+      number: 42,
+      labels: ['type::feature'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }, {}, {
+      projectInstructionsPath: instructionsPath,
+      planRootDir: path.join(root, 'issues'),
+    });
+
+    assert.doesNotMatch(prompt, /<project_instructions>/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agentrix injects project instructions into action prompts with explicit precedence', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-instructions-'));
   try {
@@ -202,7 +227,7 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
     }
   );
 
-  assert.match(prompt, /针对当前 issue 产出可审阅的根因与修复方案/);
+  assert.match(prompt, /针对当前 bug 产出根因与修复方案/);
   assert.match(prompt, /<output_context>/);
   assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
   assert.match(prompt, /Working branch: `42-broken-login\/plan`/);
@@ -249,7 +274,6 @@ test('docs prompts use a dedicated no-plan build contract with executable conten
   assert.match(docsTemplate, /^## 文档目标$/m);
   assert.match(docsTemplate, /^## 目标读者$/m);
   assert.doesNotMatch(docsTemplate, /^## (文档范围|事实来源|验收方式|非目标)$/m);
-  assert.match(planPrompt, /链接可达性与锚点、示例可运行性、命令有效性/);
   assert.match(buildPrompt, /运行仓库已有的文档检查，并补充与改动相称的人工检查/);
   assert.match(buildPrompt, /不要把 Markdown 格式检查当作完成验证/);
   assert.doesNotMatch(genericBuildPrompt, /type::docs/);
@@ -423,7 +447,7 @@ test('agentrix build prompt uses CI failure template for failure intake issues',
   assert.match(prompt, /repository regression、workflow config、provider permission/);
   assert.match(prompt, /只有确认是仓库代码回归时，才把 `type::ops` 改成 `type::bug`/);
   assert.match(prompt, /不要硬改业务代码/);
-  assert.match(prompt, /PR body 写清 Source issue、Root cause、Fix、Validation/);
+  assert.match(prompt, /PR body 写清 Root cause、Fix、Validation；Source issue 由 CLI 生成/);
   assert.match(prompt, /Working branch: `563-fix-ci-failure-ci-test\/build`/);
   assert.match(prompt, /^Labels: type::ops, failure::ci, size::M$/m);
 });

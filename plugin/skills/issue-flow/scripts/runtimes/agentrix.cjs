@@ -112,6 +112,11 @@ function agentrixAssetsDir() {
   return path.join(skillRootDir(), 'assets', 'agentrix', 'runtime');
 }
 
+function defaultProjectInstructions() {
+  const filePath = path.join(skillRootDir(), 'assets', 'agentrix', 'bootstrap', 'issue-flow', 'instructions.md');
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8').trim() : '';
+}
+
 function readJsonFile(filePath, required = false) {
   if (!fs.existsSync(filePath)) {
     if (required) {
@@ -390,7 +395,7 @@ function formatProjectInstructions(options = {}) {
     return '';
   }
   const body = fs.readFileSync(projectInstructionsPath, 'utf8').trim();
-  if (!body) {
+  if (!body || body === defaultProjectInstructions()) {
     return '';
   }
   return formatContextBlock('project_instructions', [
