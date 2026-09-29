@@ -3,7 +3,7 @@
 要求：
 - 必须先读取注入的 Issue Flow Skill 和 Vision Plan Skill。
 - 能从仓库代码、文档、配置、测试、历史方案和 issue comments 中确认的信息，不要再问用户。
-- 根据 `type::feature`、`type::debt`、`type::ops` 或 `type::optimization` 确定方案重点；optimization 必须依据 Automation Optimizer Skill 的 TaskEvent 分析生成方案。
+- 根据 `type::feature`、`type::debt` 或 `type::ops` 确定方案重点。
 - 首先判断是否存在会实质改变方案的矛盾、范围歧义或用户选择。
 - 存在阻塞选择时，只生成并提交 Decision artifact，然后停止。
 - 没有阻塞选择，或 Decision 已批准时，生成完整 Visual Plan。

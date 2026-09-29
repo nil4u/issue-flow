@@ -23,6 +23,7 @@ Triage 识别 issue 类型后使用这些模版。模版同时承担两件事：
 Plan 使用单独的方案模版：
 
 - `type::bug` -> `plan-bug.md`
-- `type::feature` / `type::debt` / `type::ops` / `type::docs` / `type::optimization` -> `plan-impl.md`
+- `type::feature` / `type::debt` / `type::ops` / `type::docs` -> `plan-impl.md`
+- `type::optimization` -> Optimization JSON contract from the Automation Optimizer Skill
 
 `type::docs` 的常规路径是 `triage -> build -> approve`，不要求 Plan。`plan-impl.md` 仅用于显式启动的例外 plan action。

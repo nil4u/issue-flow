@@ -9,8 +9,10 @@ const {
   shouldRunAutoForEvent,
 } = require('./resolve.cjs');
 const { parseSourceMarker } = require('./provenance.cjs');
+const { commentAuthorSkipReason } = require('./comment-policy.cjs');
 const prMerged = require('./pr-merged.cjs');
 const pipelineFailed = require('./pipeline-failed.cjs');
+const { completeOptimizationForChildIssue } = require('./optimization-completion.cjs');
 const { resolveIssueTarget } = require('./milestones.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
@@ -589,6 +591,8 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   const taskData = {
     ...data,
     pullRequest: currentPr,
+    checkoutRef: currentPr.headRef,
+    checkoutSha: currentPr.headSha,
     sourceIssueNumber: options.issueNumber || runtime.extractSourceIssueNumberFromPullRequest(currentPr),
   };
   const existingReviewTask = findActionTaskComment(await listPullRequestComments(currentPr, options), action, runtime, taskData);
@@ -772,7 +776,7 @@ function listResumableIssueTasks(comments, runtime) {
     .filter(Boolean);
 }
 
-function shouldSkipPullRequestReview(pr) {
+function shouldSkipPullRequest(pr) {
   if (!pr || !pr.number) {
     return 'not_pull_request';
   }
@@ -784,6 +788,17 @@ function shouldSkipPullRequestReview(pr) {
   }
   if (pr.state && pr.state !== 'open' && pr.state !== 'opened') {
     return 'pull_request_not_open';
+  }
+  return '';
+}
+
+function shouldSkipPullRequestReview(pr) {
+  const reason = shouldSkipPullRequest(pr);
+  if (reason) {
+    return reason;
+  }
+  if (normalizeLabels(pr.labels).includes('review::off')) {
+    return 'pull_request_review_disabled';
   }
   return '';
 }
@@ -807,6 +822,15 @@ async function runAuto(options = {}, provided = {}) {
     };
   }
   if (!shouldRunAutoForEvent(payload)) {
+    const rawLabel = payload.label || payload.object_attributes && payload.object_attributes.label;
+    const changedLabel = normalizeLabels([rawLabel])[0] || '';
+    if (changedLabel === 'status::done' || changedLabel === 'status::drop') {
+      const terminalIssue = await fetchCurrentIssue(provided.issue || buildIssueContext(payload, options), options);
+      const terminalProvider = providers[terminalIssue.provider] || resolveProvider(options, payload);
+      const terminalRepo = terminalProvider.resolveRepo(payload, options);
+      const optimizationCompletion = await completeOptimizationForChildIssue(terminalProvider, terminalRepo, terminalIssue.number, options);
+      if (optimizationCompletion.completed) return { action: 'optimization_completed', optimizationCompletion };
+    }
     logIssueFlow('Automatic issue-flow skipped for non-routing labeled event');
     return {
       action: 'skipped',
@@ -816,6 +840,13 @@ async function runAuto(options = {}, provided = {}) {
 
   let issue = provided.issue || buildIssueContext(payload, options);
   issue = await fetchCurrentIssue(issue, options);
+  const issueLabels = normalizeLabels(issue.labels);
+  if (issueLabels.includes('status::done') || issueLabels.includes('status::drop')) {
+    const terminalProvider = providers[issue.provider] || resolveProvider(options, payload);
+    const terminalRepo = terminalProvider.resolveRepo(payload, options);
+    const optimizationCompletion = await completeOptimizationForChildIssue(terminalProvider, terminalRepo, issue.number, options);
+    if (optimizationCompletion.completed) return { action: 'optimization_completed', optimizationCompletion };
+  }
   if (shouldCheckForResumableVisualPlanTask(issue)) {
     const planTasks = listResumableIssueTasks(await listIssueComments(issue, options), runtime)
       .filter((task) => task.action === 'plan');
@@ -899,6 +930,11 @@ async function runComment(options = {}, provided = {}) {
     };
   }
   const comment = getCommentContext(payload, options);
+  const authorSkipReason = commentAuthorSkipReason(comment.author);
+  if (authorSkipReason) {
+    logIssueFlow('Issue comment skipped', { reason: authorSkipReason, author: comment.author });
+    return { action: 'skipped', reason: authorSkipReason, comment: comment.id };
+  }
   if (isBotComment(payload, options)) {
     logIssueFlow('Bot comment ignored');
     return {
@@ -1126,6 +1162,11 @@ async function runReviewComment(options = {}, provided = {}) {
   }
 
   const reviewComment = provided.reviewComment || getReviewCommentContext(payload, options);
+  const authorSkipReason = commentAuthorSkipReason(reviewComment.author);
+  if (authorSkipReason) {
+    logIssueFlow('PR/MR review comment skipped', { reason: authorSkipReason, author: reviewComment.author });
+    return { action: 'skipped', reason: authorSkipReason, reviewComment: reviewComment.id };
+  }
   const source = parseSourceMarker(reviewComment.body);
   if (source.source_task_id || source.source_agent) {
     logIssueFlow('PR/MR review comment skipped', {
@@ -1143,7 +1184,7 @@ async function runReviewComment(options = {}, provided = {}) {
     };
   }
   const currentPr = await fetchCurrentPullRequest(pr, options);
-  const skipReason = shouldSkipPullRequestReview(currentPr);
+  const skipReason = shouldSkipPullRequest(currentPr);
   if (skipReason) {
     logIssueFlow('PR/MR review comment skipped', {
       pr: currentPr.number ? `#${currentPr.number}` : '',
