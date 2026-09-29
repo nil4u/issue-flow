@@ -266,11 +266,11 @@ test('docs prompts use a dedicated no-plan build contract with executable conten
   const genericBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build.prompt.md'), 'utf8');
   const docsBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build-docs.prompt.md'), 'utf8');
 
-  assert.match(triagePrompt, /`type::docs` 固定选择 `flow::build`/);
-  assert.match(triagePrompt, /正文只需明确文档目标和目标读者/);
-  assert.match(triagePrompt, /模版只定义必须具备的最小结构，不是允许保留内容的白名单/);
-  assert.match(triagePrompt, /不得因模版没有对应字段而删除原文/);
-  assert.match(triagePrompt, /无法自然归入时，新增语义明确的章节/);
+  assert.match(triagePrompt, /`type::docs` 固定走 build/);
+  assert.match(triagePrompt, /docs 只需明确文档目标和目标读者/);
+  assert.match(triagePrompt, /模版是最小结构，不是白名单/);
+  assert.match(triagePrompt, /原文的背景、约束、证据、复现、链接、日志和讨论结论都要保留/);
+  assert.match(triagePrompt, /融合进合适章节或新增章节/);
   assert.match(docsTemplate, /^## 文档目标$/m);
   assert.match(docsTemplate, /^## 目标读者$/m);
   assert.doesNotMatch(docsTemplate, /^## (文档范围|事实来源|验收方式|非目标)$/m);
@@ -447,7 +447,7 @@ test('agentrix build prompt uses CI failure template for failure intake issues',
   assert.match(prompt, /repository regression、workflow config、provider permission/);
   assert.match(prompt, /只有确认是仓库代码回归时，才把 `type::ops` 改成 `type::bug`/);
   assert.match(prompt, /不要硬改业务代码/);
-  assert.match(prompt, /PR body 写清 Root cause、Fix、Validation；Source issue 由 CLI 生成/);
+  assert.match(prompt, /PR body 写清 Source issue、Root cause、Fix、Validation/);
   assert.match(prompt, /Working branch: `563-fix-ci-failure-ci-test\/build`/);
   assert.match(prompt, /^Labels: type::ops, failure::ci, size::M$/m);
 });
