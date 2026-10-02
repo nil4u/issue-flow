@@ -614,7 +614,7 @@ function truncate(value, maxLength) {
 }
 
 function resolveAgent(options = {}) {
-  return options.agent || process.env.AGENTRIX_ISSUE_FLOW_AGENT || process.env.AGENTRIX_AGENT || DEFAULT_AGENT;
+  return options.agent || process.env.AGENTRIX_ISSUE_FLOW_AGENT || DEFAULT_AGENT;
 }
 
 function resolveResponseMode(options = {}) {
