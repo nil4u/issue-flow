@@ -858,7 +858,7 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   );
 
   assert.equal(args[args.indexOf('--resume') + 1], 'task-123');
-  assert.equal(args[1], '@agentrix/agentrix-run@0.11.0');
+  assert.equal(args[1], '@agentrix/agentrix-run@latest');
   assert.ok(args.includes('--prompt'));
   assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
   assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');
@@ -871,6 +871,25 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.equal(args.includes('--title'), false);
 });
 
+
+test('agentrix run and resume args resolve the runtime version from the environment', () => {
+  const issue = { number: 42, repoFullName: 'example/platform', title: 'Build' };
+  const cases = [
+    { environment: { AGENTRIX_RUN_VERSION: undefined }, expected: 'latest' },
+    { environment: { AGENTRIX_RUN_VERSION: '' }, expected: 'latest' },
+    { environment: { AGENTRIX_RUN_VERSION: '0.12.3' }, expected: '0.12.3' },
+  ];
+
+  for (const { environment, expected } of cases) {
+    withTemporaryEnv(environment, () => {
+      const runArgs = agentrix.buildRunArgs('build', issue, {}, {}, 'prompt', '/tmp/result.json');
+      const resumeArgs = agentrix.buildResumeTaskArgs('task-123', 'continue', {}, {}, '/tmp/result.json');
+
+      assert.equal(runArgs[1], `@agentrix/agentrix-run@${expected}`);
+      assert.equal(resumeArgs[1], `@agentrix/agentrix-run@${expected}`);
+    });
+  }
+});
 test('agentrix run args pass git server repo context to agentrix-run', () => {
   const args = agentrix.buildRunArgs(
     'build',

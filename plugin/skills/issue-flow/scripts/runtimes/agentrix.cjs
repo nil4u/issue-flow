@@ -15,7 +15,7 @@ const { resolveActionExecution, validateActionExecutionConfig } = require('../ac
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
-const DEFAULT_AGENTRIX_RUN_VERSION = '0.11.0';
+const DEFAULT_AGENTRIX_RUN_VERSION = 'latest';
 const DEFAULT_MENTION = '@agentrix';
 const MENTION_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/i;
 const MENTION_REPLACE_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/gi;
