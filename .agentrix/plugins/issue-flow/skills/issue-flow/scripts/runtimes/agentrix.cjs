@@ -11,10 +11,11 @@ const path = require('node:path');
 const { sourceIssueNumber } = require('../../../../domain/index.cjs');
 const { spawnSync } = require('node:child_process');
 const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
+const { resolveActionExecution, validateActionExecutionConfig } = require('../action-execution.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
-const DEFAULT_AGENTRIX_RUN_VERSION = 'latest';
+const DEFAULT_AGENTRIX_RUN_VERSION = '0.11.0';
 const DEFAULT_MENTION = '@agentrix';
 const MENTION_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/i;
 const MENTION_REPLACE_PATTERN = /(^|[^A-Za-z0-9._-])(?:@agentrix|\/agentrix)(?=$|[^A-Za-z0-9._-])/gi;
@@ -160,6 +161,7 @@ function resolveAgentrixConfig(options = {}) {
     planRootDirDisplay: normalizeRepoPath(planRootDir),
     defaultPromptsDir: path.join(agentrixAssetsDir(), 'prompts'),
     defaultTemplatesDir: path.join(agentrixAssetsDir(), 'templates'),
+    executionConfig: projectConfig,
   };
 }
 
@@ -612,7 +614,7 @@ function truncate(value, maxLength) {
 }
 
 function resolveAgent(options = {}) {
-  return options.agent || process.env.AGENTRIX_ISSUE_FLOW_AGENT || process.env.AGENTRIX_AGENT || DEFAULT_AGENT;
+  return options.agent || process.env.AGENTRIX_ISSUE_FLOW_AGENT || DEFAULT_AGENT;
 }
 
 function resolveResponseMode(options = {}) {
@@ -758,6 +760,8 @@ function buildRepoArg(issue = {}, options = {}) {
 }
 
 function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resultFile = '') {
+  const config = resolveAgentrixConfig(options);
+  const execution = resolveActionExecution(action, options, config.executionConfig, config.projectConfigPath);
   const metadataSubject = action === 'review'
     ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
     : ['--issue-number', String(issue.number), '--metadata', `issue_flow_issue=${issue.repoFullName}#${issue.number}`];
@@ -766,7 +770,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
     '--yes',
     resolveAgentrixRunPackage(),
     '--agent',
-    resolveAgent(options),
+    execution.values.agent,
     '--title',
     buildRunTitle(action, issue),
     '--prompt',
@@ -794,6 +798,8 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
   appendOptionalArg(args, '--checkout-ref', data.checkoutRef);
   appendOptionalArg(args, '--checkout-sha', data.checkoutSha);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
+  appendOptionalArg(args, '--model', execution.values.model);
+  appendOptionalArg(args, '--reasoning-effort', execution.values.reasoningEffort);
   return args;
 }
 
@@ -855,13 +861,15 @@ function sanitizeAgentrixRunEnv(env = process.env, data = {}) {
 function run(action, issue, options = {}, data = {}) {
   const prompt = composeActionPrompt(action, issue, data, options);
   if (options.dryRun) {
+    const config = resolveAgentrixConfig(options);
+    const execution = resolveActionExecution(action, options, config.executionConfig, config.projectConfigPath);
     const result = {
       runId: 'dry-run',
       status: 'dry-run',
       detailUrl: '',
       result: '',
     };
-    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, prompt }, null, 2));
+    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, execution, prompt }, null, 2));
     return result;
   }
 
@@ -1101,6 +1109,8 @@ module.exports = {
   listPlanInputFiles,
   normalizeRepoPath,
   resolveAgentrixConfig,
+  resolveActionExecution,
+  validateActionExecutionConfig,
   resolvePlanTemplate,
   visualPlanFeatureMode,
   resolvePromptBaseBranch,

@@ -36,6 +36,9 @@ const VALUE_OPTIONS = new Set([
   '--gitlab-project',
   '--gitlab-token',
   '--log-file',
+  '--agent',
+  '--model',
+  '--reasoning-effort',
 ]);
 
 function logIssueFlow(message, details = {}) {
@@ -77,6 +80,9 @@ function usage() {
     '  --prompts-dir <path>    Agentrix prompt override directory.',
     '  --templates-dir <path>  Agentrix template override directory.',
     '  --plan-root-dir <path>  Agentrix plan root directory.',
+    '  --agent <id>            Override the action agent.',
+    '  --model <model>         Override the action model.',
+    '  --reasoning-effort <v>  Override reasoning effort: low, medium, high, xhigh, or max.',
     '  --dry-run              Print intended behavior without calling external APIs.',
     '  --help',
   ].join('\n');
