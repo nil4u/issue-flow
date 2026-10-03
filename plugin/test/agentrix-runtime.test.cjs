@@ -89,6 +89,67 @@ test('agentrix config only customizes prompt, template, and plan root paths', ()
   }
 });
 
+test('agentrix resolves action execution fields independently with source tracking', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-execution-'));
+  try {
+    const configPath = path.join(root, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      agentrix: {
+        actions: {
+          defaults: { agent: 'default-agent', model: 'default-model', reasoningEffort: 'low' },
+          plan: { agent: 'plan-agent', reasoningEffort: 'high' },
+        },
+      },
+    }));
+
+    const config = agentrix.resolveAgentrixConfig({ config: configPath });
+    const resolved = agentrix.resolveActionExecution('plan', { model: 'explicit-model' }, config.executionConfig, config.projectConfigPath);
+    assert.deepEqual(resolved.values, {
+      agent: 'plan-agent',
+      model: 'explicit-model',
+      reasoningEffort: 'high',
+    });
+    assert.deepEqual(resolved.sources, {
+      agent: 'actions.plan',
+      model: 'options',
+      reasoningEffort: 'actions.plan',
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('agentrix rejects invalid action execution configuration with a field path', () => {
+  assert.throws(
+    () => agentrix.validateActionExecutionConfig({ actions: { build: { reasoningEffort: 'urgent' } } }, '/tmp/config.json'),
+    /\/tmp\/config\.json\.agentrix\.actions\.build\.reasoningEffort/
+  );
+  assert.throws(
+    () => agentrix.validateActionExecutionConfig({ actions: { plan: { unknown: 'value' } } }, '/tmp/config.json'),
+    /\/tmp\/config\.json\.agentrix\.actions\.plan\.unknown/
+  );
+});
+
+test('agentrix run args pass per-action model and reasoning effort without leaking to resume', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-execution-'));
+  try {
+    const configPath = path.join(root, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      agentrix: { actions: { build: { agent: 'builder', model: 'model-x', reasoningEffort: 'xhigh' } } },
+    }));
+    const args = agentrix.buildRunArgs('build', { number: 42, repoFullName: 'example/repo', title: 'Build' }, { config: configPath }, {}, 'prompt', '/tmp/result.json');
+    assert.equal(args[args.indexOf('--agent') + 1], 'builder');
+    assert.equal(args[args.indexOf('--model') + 1], 'model-x');
+    assert.equal(args[args.indexOf('--reasoning-effort') + 1], 'xhigh');
+
+    const resumeArgs = agentrix.buildResumeTaskArgs('task-1', 'continue', {}, {}, '/tmp/result.json');
+    assert.equal(resumeArgs.includes('--model'), false);
+    assert.equal(resumeArgs.includes('--reasoning-effort'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agentrix appends context without parsing a custom action prompt', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-prompt-'));
   try {
@@ -194,7 +255,7 @@ test('agentrix injects project instructions into review prompts', () => {
 test('agentrix command logging shell-quotes args and redacts api key', () => {
   const command = agentrix.redactedCommand('npx', [
     '--yes',
-    '@agentrix/agentrix-run@latest',
+    '@agentrix/agentrix-run@0.11.0',
     '--api-key',
     'sk-secret-value',
     '--title',
@@ -205,7 +266,7 @@ test('agentrix command logging shell-quotes args and redacts api key', () => {
 
   assert.equal(
     command,
-    "npx --yes @agentrix/agentrix-run@latest --api-key '[redacted]' --title 'Review PR #8: Bob'\\''s change' --prompt 'line one\nline two'"
+    "npx --yes @agentrix/agentrix-run@0.11.0 --api-key '[redacted]' --title 'Review PR #8: Bob'\\''s change' --prompt 'line one\nline two'"
   );
   assert.doesNotMatch(command, /sk-secret-value/);
 });
@@ -797,7 +858,7 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   );
 
   assert.equal(args[args.indexOf('--resume') + 1], 'task-123');
-  assert.equal(args[1], '@agentrix/agentrix-run@latest');
+  assert.equal(args[1], '@agentrix/agentrix-run@0.11.0');
   assert.ok(args.includes('--prompt'));
   assert.equal(args[args.indexOf('--response-mode') + 1], 'async');
   assert.equal(args[args.indexOf('--result-file') + 1], '/tmp/result.json');

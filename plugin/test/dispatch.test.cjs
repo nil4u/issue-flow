@@ -63,6 +63,12 @@ test('dispatch parser accepts runtime and Agentrix path options', () => {
     '12',
     '--review-enabled',
     'true',
+    '--agent',
+    'plan-agent',
+    '--model',
+    'model-x',
+    '--reasoning-effort',
+    'high',
   ]), {
     command: 'auto',
     options: {
@@ -74,6 +80,9 @@ test('dispatch parser accepts runtime and Agentrix path options', () => {
       planRootDir: '.issue-flow/issues',
       prNumber: '12',
       reviewEnabled: 'true',
+      agent: 'plan-agent',
+      model: 'model-x',
+      reasoningEffort: 'high',
     },
   });
 });
