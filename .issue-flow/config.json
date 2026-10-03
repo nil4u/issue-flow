@@ -7,10 +7,13 @@
     "templatesDir": ".issue-flow/templates",
     "planRootDir": ".issue-flow/issues",
     "actions": {
-      "defaults": {},
+      "defaults": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium"
+      },
       "triage": {
-          "model": "gpt-6.1-sol",
-          "reasoningEffort": "medium"
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium"
       },
       "plan": {},
       "build": {},
