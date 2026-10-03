@@ -8,7 +8,10 @@
     "planRootDir": ".issue-flow/issues",
     "actions": {
       "defaults": {},
-      "triage": {},
+      "triage": {
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "medium"
+      },
       "plan": {},
       "build": {},
       "review": {},
