@@ -13,7 +13,7 @@
 - `type::`：feature | bug | debt | ops | docs。docs 仅限纯文档改动，涉及产品或代码行为时按主要类型分类；`type::optimization` 由系统创建，不要选择。
 - `priority::`：无明显信号时用 `priority::p2`。
 - `size::`：恰好一个；无法判断时用 `size::M`，并在回复中说明置信度低。
-- `automation::`：默认不标，沿用仓库默认；只有这个 issue 的风险或把握明显不同于默认时才标：`automation::plan` 停在 build 前等人工触发，`automation::build` 允许自动推进到 build。
+- `automation::`：与 flow 正交，表示自动推进的上限——`automation::plan` 自动到 plan 为止、build 等人工触发；`automation::build` 允许自动推进到 build。默认不标，沿用仓库默认；按风险和实现路径把握判断：`flow::build` + `automation::build`（路径清楚、低风险、全自动）；`flow::plan` + `automation::build`（需先规划，plan 通过后自动实现）；`flow::build` + `automation::plan`（路径清楚但想在 build 前留人工确认）。
 
 ## 选择 flow
 
