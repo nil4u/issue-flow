@@ -413,17 +413,27 @@ Inline comment JSON entries use:
 
 ### Agentrix 路径配置
 
-只支持配置路径，不支持改文件名、branch pattern 或 label/flow 语义。
+路径和 action 执行配置可配置，不支持改文件名、branch pattern 或 label/flow 语义。
 
 ```json
 {
   "agentrix": {
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
-    "planRootDir": ".issue-flow/issues"
+    "planRootDir": ".issue-flow/issues",
+    "actions": {
+      "defaults": {},
+      "triage": {},
+      "plan": {},
+      "build": {},
+      "review": {},
+      "general": {}
+    }
   }
 }
 ```
+
+`actions` 按 action 逐字段继承 `agent`、`model` 和 `reasoningEffort`。优先级为显式运行参数、当前 action、`defaults`、CI agent 默认；model 和推理强度缺省时不追加参数。`reasoningEffort` 可取 `low`、`medium`、`high`、`xhigh` 或 `max`。当前默认使用 `@agentrix/agentrix-run@0.11.0`，续跑沿用已创建任务的设置，不读取新的配置覆盖原任务。
 
 ### Agentrix 行为
 
