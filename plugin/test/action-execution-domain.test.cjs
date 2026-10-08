@@ -39,7 +39,7 @@ test('no semantic edits preserve nulls, missing actions and whitespace', () => {
 });
 
 test('invalid source and request configurations are rejected', () => {
-  for (const config of [{}, { agentrix: [] }, { agentrix: { actions: null } }, { agentrix: { actions: { build: { agent: '' } } } }, { agentrix: { actions: { build: { unknown: 'x' } } } }]) {
+  for (const config of [null, [], { agentrix: [] }, { agentrix: { actions: [] } }, { agentrix: { actions: { build: { agent: '' } } } }, { agentrix: { actions: { build: { unknown: 'x' } } } }]) {
     assert.throws(() => domain.actionExecutionSnapshot(config));
   }
   const config = configuration();
@@ -47,4 +47,19 @@ test('invalid source and request configurations are rejected', () => {
     assert.throws(() => domain.mergeActionExecution(config, { ...domain.actionExecutionSnapshot(config).explicit, build: changes }));
   }
   assert.throws(() => domain.mergeActionExecution(config, { future: {} }));
+});
+
+test('legacy configurations inherit without requiring action configuration or rewriting on no-op', () => {
+  for (const config of [{}, { agentrix: null }, { agentrix: { promptsDir: '.issue-flow/prompts', planRootDir: '.issue-flow/issues' } }, { agentrix: { actions: null } }]) {
+    const snapshot = domain.actionExecutionSnapshot(config);
+    assert.equal(Object.keys(snapshot.explicit).length, 6);
+    assert.deepEqual(snapshot.explicit.build, {});
+    assert.deepEqual(snapshot.preview.build.agent, { source: 'runtime' });
+    assert.deepEqual(domain.mergeActionExecution(config, snapshot.explicit), config);
+    snapshot.explicit.build = { model: 'new-model' };
+    const next = domain.mergeActionExecution(config, snapshot.explicit);
+    assert.deepEqual(next.agentrix.actions, { build: { model: 'new-model' } });
+    if (config.agentrix?.promptsDir) assert.equal(next.agentrix.promptsDir, config.agentrix.promptsDir);
+    assert.equal(config.agentrix?.actions?.build, undefined);
+  }
 });

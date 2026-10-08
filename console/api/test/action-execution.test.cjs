@@ -129,6 +129,19 @@ test('concurrent operations cannot overwrite a newly created pending MR', async 
   assert.equal((await setup.store.getRepository()).settings.actionExecution.pendingMergeRequest.iid, 12);
 });
 
+test('legacy configuration without actions is editable and initializes only edited overrides', async () => {
+  const legacy = { gitServerId: 'server', agentrix: { promptsDir: '.issue-flow/prompts', planRootDir: '.issue-flow/issues' }, milestone: { enabled: true } };
+  const setup = fixture({ content: JSON.stringify(legacy) });
+  const loaded = await actionExecutionForProject(setup);
+  assert.equal(loaded.body.actionExecution.state, 'ready');
+  setup.input.actions = loaded.body.actionExecution.explicit;
+  assert.equal((await actionExecutionForProject({ ...setup, save: true })).body.skipped, true);
+  setup.input.actions.build = { model: 'new-model' };
+  assert.equal((await actionExecutionForProject({ ...setup, save: true })).status, 202);
+  const commit = setup.calls.find((call) => call.url.endsWith('/repository/commits')).body;
+  assert.deepEqual(JSON.parse(commit.actions[0].content), { ...legacy, agentrix: { ...legacy.agentrix, actions: { build: { model: 'new-model' } } } });
+});
+
 test('HTTP routes require authentication and management access only for submission', async () => {
   const fastify = require('fastify');
   const { gitlabRoutes } = require('../src/routes/gitlab.ts');

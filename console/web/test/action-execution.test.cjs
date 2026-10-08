@@ -7,9 +7,9 @@ const { normalizedActionValues, actionValuesChanged, actionFieldPlaceholder, act
 test('blank inputs inherit and never serialize preview defaults', () => {
   const draft = { defaults: { agent: ' codex ' }, build: { agent: ' ', model: ' model ' } };
   assert.deepEqual(normalizedActionValues(draft), { defaults: { agent: 'codex' }, build: { model: 'model' } });
-  assert.equal(actionFieldPlaceholder('build', 'agent', draft), '继承 defaults: codex');
-  assert.equal(actionFieldPlaceholder('defaults', 'agent', draft), '由运行时决定');
-  assert.equal(actionFieldPlaceholder('build', 'reasoningEffort', draft), '由运行时决定');
+  assert.equal(actionFieldPlaceholder('build', 'agent', draft), '继承 · codex');
+  assert.equal(actionFieldPlaceholder('defaults', 'agent', draft), '运行时默认');
+  assert.equal(actionFieldPlaceholder('build', 'reasoningEffort', draft), '继承默认');
 });
 
 test('dirty comparison ignores whitespace and detects clearing overrides', () => {
@@ -27,6 +27,8 @@ test('configuration loads independently and pending state refreshes without inst
   assert.match(component, /actionExecutionEditable/);
   assert.match(component, /snapshot.reasoningEfforts.map/);
   assert.match(component, /清除覆盖/);
+  assert.match(component, /check-group action-execution-settings/);
+  assert.doesNotMatch(component, /snapshot\.detail|snapshot\.checkedAt|snapshot\.path|显式覆盖:/);
 });
 
 test('editing is unavailable for read-only users, invalid files, pending MR or failed/loading reads', () => {

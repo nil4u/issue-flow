@@ -55,14 +55,16 @@ export function actionFieldPlaceholder(
 ) {
   const value = draft.defaults?.[field]?.trim()
   return action !== "defaults" && value
-    ? `继承 defaults: ${value}`
-    : "由运行时决定"
+    ? `继承 · ${value}`
+    : action === "defaults"
+      ? "运行时默认"
+      : "继承默认"
 }
 
 export const actionExecutionMessages: Record<string, string> = {
-  missing: "默认分支缺少 .issue-flow/config.json，请先安装或修复 Issue Flow。",
-  invalid_json: "配置文件不是合法 JSON，请在仓库中修复后刷新。",
-  invalid_config: "agentrix.actions 配置结构或字段无效，请在仓库中修复后刷新。",
+  missing: "未找到配置文件，请先安装 Issue Flow。",
+  invalid_json: "配置文件不是有效 JSON。",
+  invalid_config: "配置内容无效，请检查字段类型。",
   action_execution_revision_conflict: "默认分支配置已变更，请刷新后重新编辑。",
   action_execution_pending_merge_request: "已有待合并配置 MR，请先合并或关闭。",
   gitlab_project_permission_required:

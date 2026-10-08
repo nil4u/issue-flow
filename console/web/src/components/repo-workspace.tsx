@@ -76,7 +76,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         </TabsContent>
         <TabsContent value="settings">
           <InstallConsole {...props} />
-          <ActionExecutionSettings key={`${props.gitServer?.id}:${props.project?.id}`} {...props} />
         </TabsContent>
       </Tabs>
     </div>
@@ -126,6 +125,8 @@ function OverviewTab({
 }
 
 function InstallConsole({
+  gitServer,
+  tab,
   project,
   repository,
   loadingRepositoryDetails,
@@ -349,6 +350,7 @@ function InstallConsole({
             </div>
           </div>
         </section>
+        <ActionExecutionSettings key={`${gitServer?.id}:${project?.id}`} gitServer={gitServer} project={project} repository={repository} tab={tab} />
       </div>
       <VariableSettingsDialog
         row={editingRow}

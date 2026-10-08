@@ -28,8 +28,8 @@ function validateActionExecutionConfig(config = {}, configPath = '.issue-flow/co
 }
 
 function actionExecutionSnapshot(config) {
-  if (!isPlainObject(config) || !isPlainObject(config.agentrix) || !isPlainObject(config.agentrix.actions)) throw new Error('agentrix.actions must be an object.');
-  const actions = validateActionExecutionConfig(config.agentrix);
+  if (!isPlainObject(config)) throw new Error('Configuration must be an object.');
+  const actions = validateActionExecutionConfig(config.agentrix ?? {});
   const explicit = {};
   const preview = {};
   for (const action of ACTION_NAMES) {
@@ -63,11 +63,14 @@ function mergeActionExecution(config, input) {
       if (value.trim()) normalized[field] = value.trim();
     }
     validateActionObject(normalized, action);
-    const original = config.agentrix.actions[action];
+    const original = config.agentrix?.actions?.[action];
     const previous = Object.fromEntries(Object.entries(original || {}).filter(([, value]) => value != null).map(([field, value]) => [field, value.trim()]));
     if (ACTION_FIELDS.every((field) => previous[field] === normalized[field])) continue;
-    if (Object.keys(normalized).length) next.agentrix.actions[action] = normalized;
-    else delete next.agentrix.actions[action];
+    if (Object.keys(normalized).length) {
+      next.agentrix ??= {};
+      next.agentrix.actions ??= {};
+      next.agentrix.actions[action] = normalized;
+    } else if (next.agentrix?.actions) delete next.agentrix.actions[action];
   }
   return next;
 }
