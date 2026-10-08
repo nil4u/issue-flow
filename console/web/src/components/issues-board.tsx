@@ -192,5 +192,5 @@ function IssueListRow({ issue, href, artifact, reviewHref }: { issue: ProviderIs
 }
 
 function IssueBoardCard({ issue, href, artifact, reviewHref }: { issue: ProviderIssueSummary; href: string; artifact?: ReviewablePlanArtifact; reviewHref: string }) {
-  return <article className="issue-card"><header><strong>#{issue.number}</strong><small>{formatWhen(issue.updatedAt) || ""}</small></header><a className="provider-issue-card-link" href={href}>{issue.title}</a>{issue.labels.length ? <div className="provider-issue-labels">{issue.labels.slice(0, 4).map((label) => <ProviderLabel key={label.name} label={label} />)}</div> : null}{artifact ? <a className="issue-review-link" href={reviewHref}><Eye className="size-4" />{artifact.type === "decision" ? "Decision" : "Plan"}</a> : null}</article>
+  return <article className="issue-card provider-issue-card"><header><strong>#{issue.number}</strong><small>{formatWhen(issue.updatedAt) || ""}</small></header><a className="provider-issue-card-link" href={href}>{issue.title}</a>{issue.labels.length ? <div className="provider-issue-labels">{issue.labels.slice(0, 4).map((label) => <ProviderLabel key={label.name} label={label} />)}</div> : null}{artifact ? <a className="issue-review-link" href={reviewHref}><Eye className="size-4" />{artifact.type === "decision" ? "Decision" : "Plan"}</a> : null}</article>
 }
