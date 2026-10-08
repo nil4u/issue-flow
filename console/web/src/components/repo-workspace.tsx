@@ -34,6 +34,7 @@ import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
+import { ActionExecutionSettings } from "@/components/action-execution-settings"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { InstallStep, RepoWorkspaceProps, Repository, VariableInstallStatus } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
@@ -124,6 +125,8 @@ function OverviewTab({
 }
 
 function InstallConsole({
+  gitServer,
+  tab,
   project,
   repository,
   loadingRepositoryDetails,
@@ -347,6 +350,7 @@ function InstallConsole({
             </div>
           </div>
         </section>
+        <ActionExecutionSettings key={`${gitServer?.id}:${project?.id}`} gitServer={gitServer} project={project} repository={repository} tab={tab} />
       </div>
       <VariableSettingsDialog
         row={editingRow}

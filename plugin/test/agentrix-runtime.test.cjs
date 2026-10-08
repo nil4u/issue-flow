@@ -89,6 +89,67 @@ test('agentrix config only customizes prompt, template, and plan root paths', ()
   }
 });
 
+test('agentrix resolves action execution fields independently with source tracking', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-execution-'));
+  try {
+    const configPath = path.join(root, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      agentrix: {
+        actions: {
+          defaults: { agent: 'default-agent', model: 'default-model', reasoningEffort: 'low' },
+          plan: { agent: 'plan-agent', reasoningEffort: 'high' },
+        },
+      },
+    }));
+
+    const config = agentrix.resolveAgentrixConfig({ config: configPath });
+    const resolved = agentrix.resolveActionExecution('plan', { model: 'explicit-model' }, config.executionConfig, config.projectConfigPath);
+    assert.deepEqual(resolved.values, {
+      agent: 'plan-agent',
+      model: 'explicit-model',
+      reasoningEffort: 'high',
+    });
+    assert.deepEqual(resolved.sources, {
+      agent: 'actions.plan',
+      model: 'options',
+      reasoningEffort: 'actions.plan',
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('agentrix rejects invalid action execution configuration with a field path', () => {
+  assert.throws(
+    () => agentrix.validateActionExecutionConfig({ actions: { build: { reasoningEffort: 'urgent' } } }, '/tmp/config.json'),
+    /\/tmp\/config\.json\.agentrix\.actions\.build\.reasoningEffort/
+  );
+  assert.throws(
+    () => agentrix.validateActionExecutionConfig({ actions: { plan: { unknown: 'value' } } }, '/tmp/config.json'),
+    /\/tmp\/config\.json\.agentrix\.actions\.plan\.unknown/
+  );
+});
+
+test('agentrix run args pass per-action model and reasoning effort without leaking to resume', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-execution-'));
+  try {
+    const configPath = path.join(root, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      agentrix: { actions: { build: { agent: 'builder', model: 'model-x', reasoningEffort: 'xhigh' } } },
+    }));
+    const args = agentrix.buildRunArgs('build', { number: 42, repoFullName: 'example/repo', title: 'Build' }, { config: configPath }, {}, 'prompt', '/tmp/result.json');
+    assert.equal(args[args.indexOf('--agent') + 1], 'builder');
+    assert.equal(args[args.indexOf('--model') + 1], 'model-x');
+    assert.equal(args[args.indexOf('--reasoning-effort') + 1], 'xhigh');
+
+    const resumeArgs = agentrix.buildResumeTaskArgs('task-1', 'continue', {}, {}, '/tmp/result.json');
+    assert.equal(resumeArgs.includes('--model'), false);
+    assert.equal(resumeArgs.includes('--reasoning-effort'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agentrix appends context without parsing a custom action prompt', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-prompt-'));
   try {
@@ -111,6 +172,31 @@ test('agentrix appends context without parsing a custom action prompt', () => {
     assert.equal(prompt.indexOf(template), prompt.lastIndexOf(template));
     assert.match(prompt, /<task_input>/);
     assert.match(prompt, /<repository_context>/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('agentrix skips project instructions left at the installed default', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-flow-agentrix-default-instructions-'));
+  try {
+    const instructionsPath = path.join(root, 'instructions.md');
+    fs.copyFileSync(
+      path.resolve(__dirname, '../skills/issue-flow/assets/agentrix/bootstrap/issue-flow/instructions.md'),
+      instructionsPath,
+    );
+
+    const prompt = agentrix.composeActionPrompt('build', {
+      number: 42,
+      labels: ['type::feature'],
+      title: 'Add export button',
+      body: 'Add CSV export.',
+    }, {}, {
+      projectInstructionsPath: instructionsPath,
+      planRootDir: path.join(root, 'issues'),
+    });
+
+    assert.doesNotMatch(prompt, /<project_instructions>/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -169,7 +255,7 @@ test('agentrix injects project instructions into review prompts', () => {
 test('agentrix command logging shell-quotes args and redacts api key', () => {
   const command = agentrix.redactedCommand('npx', [
     '--yes',
-    '@agentrix/agentrix-run@latest',
+    '@agentrix/agentrix-run@0.11.0',
     '--api-key',
     'sk-secret-value',
     '--title',
@@ -180,7 +266,7 @@ test('agentrix command logging shell-quotes args and redacts api key', () => {
 
   assert.equal(
     command,
-    "npx --yes @agentrix/agentrix-run@latest --api-key '[redacted]' --title 'Review PR #8: Bob'\\''s change' --prompt 'line one\nline two'"
+    "npx --yes @agentrix/agentrix-run@0.11.0 --api-key '[redacted]' --title 'Review PR #8: Bob'\\''s change' --prompt 'line one\nline two'"
   );
   assert.doesNotMatch(command, /sk-secret-value/);
 });
@@ -202,7 +288,7 @@ test('agentrix prompt falls back to built-in defaults and injects fixed plan con
     }
   );
 
-  assert.match(prompt, /针对当前 issue 产出可审阅的根因与修复方案/);
+  assert.match(prompt, /针对当前 bug 产出根因与修复方案/);
   assert.match(prompt, /<output_context>/);
   assert.match(prompt, /Plan output file: `\.work\/items\/42-broken-login\/plan\/001-root-cause-and-fix\.md`/);
   assert.match(prompt, /Working branch: `42-broken-login\/plan`/);
@@ -241,15 +327,14 @@ test('docs prompts use a dedicated no-plan build contract with executable conten
   const genericBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build.prompt.md'), 'utf8');
   const docsBuildPrompt = fs.readFileSync(path.join(promptsDir, 'build-docs.prompt.md'), 'utf8');
 
-  assert.match(triagePrompt, /`type::docs` 固定选择 `flow::build`/);
-  assert.match(triagePrompt, /正文只需明确文档目标和目标读者/);
-  assert.match(triagePrompt, /模版只定义必须具备的最小结构，不是允许保留内容的白名单/);
-  assert.match(triagePrompt, /不得因模版没有对应字段而删除原文/);
-  assert.match(triagePrompt, /无法自然归入时，新增语义明确的章节/);
+  assert.match(triagePrompt, /`type::docs` 固定走 build/);
+  assert.match(triagePrompt, /docs 只需明确文档目标和目标读者/);
+  assert.match(triagePrompt, /模版是最小结构，不是白名单/);
+  assert.match(triagePrompt, /原文的背景、约束、证据、复现、链接、日志和讨论结论都要保留/);
+  assert.match(triagePrompt, /融合进合适章节或新增章节/);
   assert.match(docsTemplate, /^## 文档目标$/m);
   assert.match(docsTemplate, /^## 目标读者$/m);
   assert.doesNotMatch(docsTemplate, /^## (文档范围|事实来源|验收方式|非目标)$/m);
-  assert.match(planPrompt, /链接可达性与锚点、示例可运行性、命令有效性/);
   assert.match(buildPrompt, /运行仓库已有的文档检查，并补充与改动相称的人工检查/);
   assert.match(buildPrompt, /不要把 Markdown 格式检查当作完成验证/);
   assert.doesNotMatch(genericBuildPrompt, /type::docs/);
@@ -786,6 +871,25 @@ test('agentrix resume task args use resume mode without new task metadata', () =
   assert.equal(args.includes('--title'), false);
 });
 
+
+test('agentrix run and resume args resolve the runtime version from the environment', () => {
+  const issue = { number: 42, repoFullName: 'example/platform', title: 'Build' };
+  const cases = [
+    { environment: { AGENTRIX_RUN_VERSION: undefined }, expected: 'latest' },
+    { environment: { AGENTRIX_RUN_VERSION: '' }, expected: 'latest' },
+    { environment: { AGENTRIX_RUN_VERSION: '0.12.3' }, expected: '0.12.3' },
+  ];
+
+  for (const { environment, expected } of cases) {
+    withTemporaryEnv(environment, () => {
+      const runArgs = agentrix.buildRunArgs('build', issue, {}, {}, 'prompt', '/tmp/result.json');
+      const resumeArgs = agentrix.buildResumeTaskArgs('task-123', 'continue', {}, {}, '/tmp/result.json');
+
+      assert.equal(runArgs[1], `@agentrix/agentrix-run@${expected}`);
+      assert.equal(resumeArgs[1], `@agentrix/agentrix-run@${expected}`);
+    });
+  }
+});
 test('agentrix run args pass git server repo context to agentrix-run', () => {
   const args = agentrix.buildRunArgs(
     'build',

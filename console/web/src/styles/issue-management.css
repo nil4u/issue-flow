@@ -29,6 +29,11 @@
   .provider-issue-label.is-removable button:hover:not(:disabled) { background: color-mix(in srgb, var(--foreground) 12%, transparent); color: var(--foreground); }
   .provider-issue-label.is-removable button:disabled { opacity: .45; cursor: wait; }
   .provider-issue-card-link { color: var(--foreground); font-size: .84rem; font-weight: 600; line-height: 1.4; text-decoration: none; }
+  .provider-issue-card { position: relative; }
+  .provider-issue-card-link::after { content: ""; position: absolute; inset: 0; border-radius: 7px; }
+  .provider-issue-card-link:focus-visible { outline: none; }
+  .provider-issue-card-link:focus-visible::after { outline: 2px solid var(--if-color-focus-border); outline-offset: 2px; }
+  .provider-issue-card > .issue-review-link { position: relative; z-index: 1; justify-self: start; }
   .issue-board-shell { min-height: 0; flex: 1; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: .65rem; overflow: hidden; }
   .issue-board-collapsed-lanes { min-height: 2.25rem; display: flex; align-items: center; gap: .4rem; overflow-x: auto; }
   .issue-board-collapsed-lanes > span { margin-right: .15rem; color: var(--muted-foreground); font-size: .7rem; font-weight: 600; white-space: nowrap; }

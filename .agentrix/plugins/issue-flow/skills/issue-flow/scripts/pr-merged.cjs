@@ -4,22 +4,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveProvider } = require('./providers.cjs');
 const { loadEventPayload } = require('./events.cjs');
+const { completeOptimizationForChildIssue } = require('./optimization-completion.cjs');
+const {
+  parsePlanArtifactMarker,
+  resolveMergedPullRequestTransition,
+  sourceIssueNumber,
+} = require('../../../domain/index.cjs');
 
-const MERGED_PR_TRANSITIONS = {
-  plan: {
-    label: 'mr-by::plan',
-    flow: 'flow::build',
-  },
-  build: {
-    label: 'mr-by::build',
-    status: 'status::done',
-    clearFlow: true,
-  },
-};
-const SOURCE_ISSUE_MARKER_PATTERN = /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i;
-const AUTOMATION_OPTIMIZATION_SOURCE_PATTERN = /<!--\s*issue-flow:automation-optimization\s+source-issue=(\d+)\s*-->/i;
 const AGENTRIX_TASK_MARKER_PATTERN = /<!--\s*issue-flow:agentrix:task=([^>]+?)\s*-->/i;
-const PLAN_ARTIFACT_MARKER_PATTERN = /<!--\s*issue-flow:plan-artifact\s+artifact=(decision|plan)\s+format=(json|markdown)\b[^>]*-->/i;
 
 function usage() {
   return [
@@ -106,8 +98,8 @@ function pullRequestLabels(pullRequest) {
 }
 
 function parsePlanArtifact(body = '') {
-  const match = String(body || '').match(PLAN_ARTIFACT_MARKER_PATTERN);
-  return match ? { artifact: match[1].toLowerCase(), format: match[2].toLowerCase() } : undefined;
+  const marker = parsePlanArtifactMarker(body);
+  return marker ? { artifact: marker.artifact, format: marker.format } : undefined;
 }
 
 function parseAgentrixTaskId(body = '') {
@@ -115,38 +107,9 @@ function parseAgentrixTaskId(body = '') {
   return match ? match[1].trim() : '';
 }
 
-function parseAutomationOptimizationSourceIssue(body = '') {
-  const match = String(body || '').match(AUTOMATION_OPTIMIZATION_SOURCE_PATTERN);
-  return match ? Number.parseInt(match[1], 10) : undefined;
-}
 
 function resolveMergedPrTransition(labels, pullRequest = {}) {
-  const matches = Object.entries(MERGED_PR_TRANSITIONS).filter(([, transition]) => labels.includes(transition.label));
-  if (matches.length === 0) {
-    return undefined;
-  }
-  if (matches.length > 1) {
-    throw new Error(`Pull request has multiple issue-flow source labels: ${matches.map(([, transition]) => transition.label).join(', ')}`);
-  }
-  const [kind, transition] = matches[0];
-  const planArtifact = kind === 'plan' ? parsePlanArtifact(pullRequest.body) : undefined;
-  if (planArtifact && planArtifact.artifact === 'decision') {
-    return {
-      kind: 'decision',
-      label: transition.label,
-      flow: 'flow::plan',
-      artifact: planArtifact.artifact,
-      format: planArtifact.format,
-    };
-  }
-  return {
-    kind,
-    ...transition,
-    ...(planArtifact ? {
-      artifact: planArtifact.artifact,
-      format: planArtifact.format,
-    } : {}),
-  };
+  return resolveMergedPullRequestTransition(labels, pullRequest);
 }
 
 function firstIssueReference(value, patterns) {
@@ -164,7 +127,7 @@ function firstIssueReference(value, patterns) {
 }
 
 function parseSourceIssueNumber(pullRequest) {
-  const markerIssue = firstIssueReference(pullRequest.body, [SOURCE_ISSUE_MARKER_PATTERN]);
+  const markerIssue = sourceIssueNumber(pullRequest.body);
   if (markerIssue) {
     return markerIssue;
   }
@@ -279,22 +242,6 @@ function applyIssueTransition(provider, repo, issueNumber, transition, options) 
   });
 }
 
-async function completeAutomationOptimizationSource(provider, repo, issueNumber, transition, options) {
-  if (options.dryRun || transition.kind !== 'build' || transition.status !== 'status::done') return undefined;
-  const issue = await provider.getIssueForApply({
-    ...repo,
-    provider: provider.name,
-    issueNumber,
-    number: issueNumber,
-  }, options);
-  const labels = Array.isArray(issue.labels) ? issue.labels.map(normalizeLabelName).filter(Boolean) : [];
-  if (!labels.includes('type::optimization')) return undefined;
-  const sourceIssueNumber = parseAutomationOptimizationSourceIssue(issue.body || issue.description);
-  if (!sourceIssueNumber) return undefined;
-  applyIssueTransition(provider, repo, sourceIssueNumber, { optimizationState: 'optimization::analyzed' }, options);
-  return sourceIssueNumber;
-}
-
 function buildSourceIssueContext(provider, repo, issueNumber, transition) {
   const status = transition.status || (transition.flow ? 'status::active' : undefined);
   return {
@@ -304,9 +251,13 @@ function buildSourceIssueContext(provider, repo, issueNumber, transition) {
     repoFullName: repo.fullName,
     projectId: repo.projectId,
     number: issueNumber,
-    state: 'open',
+    state: transition.status === 'status::done' ? 'closed' : 'open',
     labels: [status, transition.flow].filter(Boolean),
   };
+}
+
+function shouldCloseSourceIssue(transition = {}) {
+  return transition.kind === 'build' && transition.status === 'status::done';
 }
 
 async function runPrMerged(options) {
@@ -331,6 +282,13 @@ async function runPrMerged(options) {
       reason: 'missing_source_label',
     };
   }
+  if (transition.kind === 'optimization') {
+    console.log('Optimization Plan MR is closed by proposal completion and must not advance the parent issue to Build.');
+    return {
+      action: 'ignored',
+      reason: 'optimization_plan_merge_does_not_transition',
+    };
+  }
 
   const issueNumber = parseSourceIssueNumber(pullRequest);
   if (!issueNumber) {
@@ -339,8 +297,14 @@ async function runPrMerged(options) {
 
   const repo = resolveRepo(payload, options);
   applyIssueTransition(provider, repo, issueNumber, transition, options);
-  const optimizationSourceIssueNumber = await completeAutomationOptimizationSource(provider, repo, issueNumber, transition, options);
   const sourceIssue = buildSourceIssueContext(provider, repo, issueNumber, transition);
+  if (shouldCloseSourceIssue(transition) && !options.dryRun) {
+    if (!provider.closeIssue) throw new Error(`${provider.name} provider cannot close the merged Build source issue.`);
+    await provider.closeIssue(sourceIssue, options);
+  }
+  const optimizationCompletion = transition.kind === 'build' && transition.status === 'status::done'
+    ? await completeOptimizationForChildIssue(provider, repo, issueNumber, options)
+    : undefined;
 
   const result = {
     action: 'applied',
@@ -358,7 +322,7 @@ async function runPrMerged(options) {
     pullRequestNumber: pullRequest.number,
     pullRequestUrl: pullRequest.url || '',
     pullRequestBody: pullRequest.body || '',
-    optimizationSourceIssueNumber,
+    optimizationCompletion,
   };
   console.log(JSON.stringify(result, null, 2));
   return result;
@@ -378,17 +342,16 @@ async function main(argv = process.argv.slice(2)) {
 module.exports = {
   applyIssueTransition,
   buildSourceIssueContext,
-  completeAutomationOptimizationSource,
   main,
   normalizeMergeRequestPayload,
   parseArgs,
   parseAgentrixTaskId,
-  parseAutomationOptimizationSourceIssue,
   parsePlanArtifact,
   parseSourceIssueNumber,
   pullRequestLabels,
   resolveMergedPrTransition,
   runPrMerged,
+  shouldCloseSourceIssue,
 };
 
 if (require.main === module) {

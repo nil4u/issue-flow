@@ -230,14 +230,14 @@ node submit.cjs plan|build --issue-number <num> --title "<title>" --body-file <p
 4. 从 `.issue-flow/issues/{issue-number}-{slug}/` 定位 `decision/data/decision.json.isv`、`plan/data/plan.json.isv`、`plan/data/optimization-data.json` 或 Markdown Plan 文件；Decision/Visual Plan 通过 `.isv` 后缀发现并由 JSON 内的 `artifact` 字段区分类型；现有 Markdown Preview 以及 `decision-data.json`、`plan-data.json` 固定文件名识别继续兼容
 5. Decision/Visual Plan 只提交 JSON；HTML、CSS、JavaScript、布局、图形和审阅锚点由 Issue Flow Engine 内置生成；`visual-brief.md` 只写入 Plan prompt 注入的系统临时路径；Visual Plan 发布前必须删除同一 Issue 的 `decision/`
 6. 使用 `.issue-flow/config.json` 的 `gitServerId`、`projectId` 和 `baseUrl` 生成统一 Engine URL
-7. 创建或更新带 `mr-by::plan` label 的 PR/MR；所有产物都写入不含 repository ID 的 `issue-flow:plan-artifact` marker，在 body 写入 Engine URL并在同一 PR/MR 下回复该 URL
+7. 创建或更新带 `mr-by::plan` label 的 PR/MR；所有产物都写入不含 repository ID 的 `issue-flow:plan-artifact` marker，在 body 写入 Engine URL并在同一 PR/MR 下回复该 URL；Markdown Plan 在 agent 提供的 body 前补写 `Source issue` 与 `Plan file` 行（body 已包含时不重复）
 8. Decision 设置 `flow::clarify`；Visual Plan、Markdown Plan 和 Optimization Plan 设置 `flow::approve`
 
 Optimization Plan 由 Automation Optimizer Skill 定义专用 schema，Engine 复用统一页面壳、评论锚点、Provider 身份和渲染基础设施。Proposal Approve 创建独立 Issue，Ignore 写入 MR marker；所有 Proposal 进入 ignored/done/drop 后，pipeline 关闭优化 Plan MR 与优化 Issue，并将来源 Issue 更新为 `optimization::analyzed`。
 
 Engine 从 `mr-by::plan` PR/MR 发现当前产物；JSON 使用固定组件渲染，Markdown 使用结构化章节渲染。草稿和历史评论按 repository、issue、artifact 分区保存在浏览器 LocalStorage。提交审阅时，Issue Flow 使用页面当前登录用户的 OAuth token 在该 PR/MR 下评论，由 review-comment pipeline resume 原 Plan task。Decision 批准只评论同一个 open MR并进入 `flow::plan`，不合并；Visual/Markdown Plan 批准后合并并进入 `flow::build`；Optimization Plan 按 Proposal 独立流转。
 
-`pr submit build` 保持 PR/MR 行为：校验 source issue、确保 `mr-by::build` label、push 分支，在 body 写入 source/task marker、创建或更新 PR/MR，并把 source issue 转到 `flow::approve`。
+`pr submit build` 保持 PR/MR 行为：校验 source issue、确保 `mr-by::build` label、push 分支，在 body 写入 source/task marker 并补写 `Source issue` 行（已包含时不重复）、创建或更新 PR/MR，并把 source issue 转到 `flow::approve`。
 
 ## PR/MR review comments
 
@@ -413,17 +413,31 @@ Inline comment JSON entries use:
 
 ### Agentrix 路径配置
 
-只支持配置路径，不支持改文件名、branch pattern 或 label/flow 语义。
+Console 的 GitLab 仓库 Settings 提供独立的 **Issue Flow 执行配置**：分别编辑 `defaults`、`triage`、`plan`、`build`、`review`、`general` 的 `agent`、`model` 和 `reasoningEffort`。输入仅代表显式覆盖；清空字段表示继承，界面显示 defaults 的仓库内预览，无法确定的最终默认值标记为“由运行时决定”。配置通过仅修改默认分支 `.issue-flow/config.json` 的专用 MR 审阅后生效，不运行安装器，也不修改运行中或续跑任务。
+
+有仓库访问权限的用户可以读取配置；提交需要 Maintainer/Owner 权限。历史配置缺少 `agentrix` 或 `actions`（包括 `null`）时按未设置处理，无需升级 plugin；首次提交仅补入编辑的覆盖值，不改动其他配置。缺失文件、非法 JSON 或字段类型错误必须先在仓库修复。提交时验证文件 revision，冲突需刷新后重新编辑；已有待审配置 MR 时不重复提交，页面刷新和 webhook 在合并/关闭后重新读取生效配置。`issue-flow/domain` 导出与 runtime 共用的 action execution 校验、枚举、快照和最小合并能力，保留其他配置和未来 action。
+
+路径和 action 执行配置可配置，不支持改文件名、branch pattern 或 label/flow 语义。
 
 ```json
 {
   "agentrix": {
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
-    "planRootDir": ".issue-flow/issues"
+    "planRootDir": ".issue-flow/issues",
+    "actions": {
+      "defaults": {},
+      "triage": {},
+      "plan": {},
+      "build": {},
+      "review": {},
+      "general": {}
+    }
   }
 }
 ```
+
+`actions` 按 action 逐字段继承 `agent`、`model` 和 `reasoningEffort`。优先级为显式运行参数、当前 action、`defaults`、CI agent 默认；model 和推理强度缺省时不追加参数。`reasoningEffort` 可取 `low`、`medium`、`high`、`xhigh` 或 `max`。当前默认使用 `@agentrix/agentrix-run@0.11.0`，续跑沿用已创建任务的设置，不读取新的配置覆盖原任务。
 
 ### Agentrix 行为
 

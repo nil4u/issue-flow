@@ -1,13 +1,13 @@
 ---
 name: automation-optimizer
-description: 分析 Issue Flow 某个阶段为何需要多轮人工介入，依据完整 TaskEvent 找出 Agent 首次未完成的真实原因，选择可长期消除原因的改进方式，并为当前优化 Issue 生成可审阅的 Markdown Plan。适用于 triage、plan、build 或 review 阶段 Turns 大于 1 后发起的自动化优化分析。
+description: 分析 Issue Flow 某个阶段为何需要多轮人工介入，依据完整 TaskEvent 找出 Agent 首次未完成的真实原因，选择可长期消除原因的改进方式，并生成结构化 Optimization Plan JSON。适用于 triage、plan、build 或 review 阶段 Turns 大于 1 后发起的自动化优化分析。
 ---
 
 # 自动化优化分析
 
 分析 Agent 为什么没有在首次 Task 中完成阶段目标，并设计能够减少同类人工介入的改进。人工评论描述的是这次需要纠正什么，只能作为线索，不能直接改写成根因或长期规则。
 
-当前任务应来自带 `type::optimization` 的优化 Issue。来源 Issue、待优化阶段及其 Turns 由 Issue 正文提供。优化 Issue 使用 Markdown Plan，不使用 Decision 或 Visual Plan；Plan 获批前不得实施改动。
+从优化 Issue 正文读取来源 Issue、待优化阶段及其 Turns。先读取 [Optimization Plan 产物协议](references/optimization-artifact.md)。本任务只生成分析产物，不实施改进方案。
 
 ## 获取执行上下文
 
@@ -29,6 +29,7 @@ node .agentrix/plugins/issue-flow/skills/automation-optimizer/scripts/task-conte
 - 不得把后续人工评论改写成祈使句后称为根因或规范。
 - 不要用后续评论倒推首次执行时不可能知道的要求。
 - 每个原因都必须由 `taskId + sequence`、仓库代码、项目文档或测试事实支撑。
+- Task ID、sequence 和事件流水只用于分析取证，不写入最终产物的目标与原因。
 - 不强制为每个问题生成规范；先确定原因，再选择最合适的改进去向。
 - 优先消除诱发错误的结构，而不是要求 Agent 下次“更仔细”。
 
@@ -83,9 +84,21 @@ node .agentrix/plugins/issue-flow/skills/automation-optimizer/scripts/task-conte
 - **代码结构容易诱发错误**：重构重复判断、隐式副作用、分散复制或多重权威来源，从结构上消除误用。
 - **项目工具能力不足**：改进项目内脚本、CLI 或辅助工具，使必要信息可获取、操作可执行、结果可验证。新增可供 Agent 使用的工具时，同时在 `.issue-flow/instructions.md` 中声明其适用场景、调用入口、必要输入、输出和使用边界，确保后续任务能够发现并正确使用；不要在项目说明中复制工具实现细节。
 
-### 开发者反馈
+项目级执行规范统一写入 `.issue-flow/instructions.md`。除该文件外，不得生成修改 `.issue-flow/` 下任何文件的方案。若根因属于 `.issue-flow` 体系内的流程、Skill、模板或脚本本身，生成 Issue Flow 开发者反馈，不作为当前项目改进方案。
 
-Issue Flow 未传递阶段上下文、关联错误 Task、注入错误版本，或者公共流程、Prompt、Skill、Provider、平台工具存在项目仓库无法修复的缺陷时，形成开发者 Bug 反馈。至少记录：
+### 项目开发者建议
+
+如果改进需要当前项目维护者补齐仓库外或人工管理的前置能力，而 Agent 无法在本次优化中安全实施，例如构建环境、工具链、凭据、组织级基础设施或项目级运行配置，生成 `kind: project-developer-feedback` 的 Proposal：
+
+- 明确当前项目开发者需要完成什么，以及完成后 Agent 如何发现和使用该能力；
+- 不生成 `issue`，页面只展示建议内容和验证方式；
+- 不提供复制、创建 Issue 或忽略操作，也不阻塞优化流程终态。
+
+只要改动能够由 Agent 在当前仓库中实施，就仍使用 `project-change`，不得用项目开发者建议逃避可执行改进。
+
+### Issue Flow 开发者反馈
+
+Issue Flow 未传递阶段上下文、关联错误 Task、注入错误版本，或者 `.issue-flow` 体系内的流程、Skill、模板、脚本等存在缺陷时，形成 Issue Flow 开发者反馈。至少记录：
 
 - 预期行为与实际行为；
 - 相关阶段、Task ID 和事件证据；
@@ -94,6 +107,10 @@ Issue Flow 未传递阶段上下文、关联错误 Task、注入错误版本，�
 - 可复现条件。
 
 不得把平台缺陷改写成项目长期规则，也不得声称项目改动已经修复底层问题。
+
+Issue Flow 开发者 Bug 反馈必须生成 `kind: issue-flow-feedback` 的 Proposal，Issue 草稿使用 `type::bug` 与 `flow::triage`。
+
+能够通过当前项目的仓库配置、构建入口、运行环境声明或项目维护动作解决的问题，不属于 Issue Flow 开发者反馈；应生成 `project-change` 或 `project-developer-feedback`。只有问题位于 `.issue-flow` 体系内的流程、Skill、模板、脚本等公共能力时，才反馈给 Issue Flow 开发者。
 
 ### 不形成长期改动
 
@@ -113,18 +130,11 @@ Issue Flow 未传递阶段上下文、关联错误 Task、注入错误版本，�
 
 如果删除任务专属名词后规则失去意义，它仍是本次修复准则，不是可沉淀规范。
 
-## Markdown Plan
+## Optimization Plan
 
-Plan 保持精简，不复制完整会话。每个独立问题只写：
+产物只包含 `target` 与 `proposals`。`target.summary` 用一句话简述当前问题；`target.cause` 用 1–3 条短句概括根本原因，不写取证过程。Agent 可在仓库内执行的改动使用 `project-change`；需要当前项目维护者补齐外部能力时使用 `project-developer-feedback`；`.issue-flow` 体系内的公共能力缺陷使用 `issue-flow-feedback`。只有 `project-developer-feedback` 不携带 Issue 合同。多个阶段属于同一因果链时可以合并根因，但不同落点仍拆成独立 Proposal。
 
-1. **问题与证据**：首次结果和人工纠正的关键差异，引用 `taskId + sequence`。
-2. **出现原因**：说明 Agent 当时的判断、依据、错误假设，以及现有信息或验证为什么没有阻止它。
-3. **改进方案**：明确落点、具体改动及其消除的原因；没有长期改动时明确说明。
-4. **泛化规范**：仅在确实可泛化时给出拟修改的项目规范。
-5. **开发者反馈**：仅在发现 Issue Flow 或公共能力缺陷时给出可复现的 Bug 信息。
-6. **验证方法**：说明如何证明同类任务能够在首次 Task 中完成。
-
-多个阶段属于同一因果链时合并根因，但保留各阶段证据；原因独立时分别记录。优先形成少量能够消除原因的改动，不输出冗长执行流水账和“加强理解”“提高准确率”等抽象建议。
+Proposal 只保留具体方案和验证方式。证据用于得出结论，不在产物中堆叠执行流水账。
 
 ## 硬性约束
 
@@ -134,4 +144,4 @@ Plan 保持精简，不复制完整会话。每个独立问题只写：
 - 不得把完整会话、敏感数据或临时上下文文件提交到仓库。
 - 不得强制把所有问题转换成 `.issue-flow/instructions.md`。
 - 不得用项目规则掩盖 Issue Flow 上下文传递或平台能力 Bug。
-- 不得在优化 Plan 获批前实施优化改动。
+- 不得在本分析任务中实施优化改动。

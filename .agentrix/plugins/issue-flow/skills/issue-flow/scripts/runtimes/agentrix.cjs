@@ -8,8 +8,10 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { sourceIssueNumber } = require('../../../../domain/index.cjs');
 const { spawnSync } = require('node:child_process');
 const { buildSourceMarker, parseSourceMarker } = require('../provenance.cjs');
+const { resolveActionExecution, validateActionExecutionConfig } = require('../action-execution.cjs');
 
 const DEFAULT_AGENT = 'codex';
 const DEFAULT_RESPONSE_MODE = 'async';
@@ -32,6 +34,7 @@ const FEATURE_PLAN_FILE = '001-implementation.md';
 const BUG_PLAN_FILE = '001-root-cause-and-fix.md';
 const PLAN_ENTRY_FILE = 'data/plan.json.isv';
 const PLAN_DATA_FILE = 'data/plan.json.isv';
+const OPTIMIZATION_DATA_FILE = 'data/optimization-data.json';
 const PLAN_BRIEF_FILE = 'visual-brief.md';
 const VISUAL_BRIEF_TEMP_ROOT = path.join(os.tmpdir(), 'issue-flow', 'visual-plan');
 const DECISION_ENTRY_FILE = 'decision/data/decision.json.isv';
@@ -49,6 +52,20 @@ const PROVIDER_TOKEN_ENV_KEYS = [
   'CI_JOB_TOKEN',
   'ISSUE_FLOW_GIT_TOKEN',
 ];
+const GITHUB_TRIGGER_ENV_KEYS = [
+  'GITHUB_EVENT_NAME',
+  'GITHUB_EVENT_PATH',
+  'GITHUB_REF',
+  'GITHUB_REF_NAME',
+  'GITHUB_SHA',
+  'GITHUB_BASE_REF',
+  'GITHUB_HEAD_REF',
+];
+const GITLAB_TRIGGER_ENV_KEYS = [
+  'CI_COMMIT_REF_NAME',
+  'CI_COMMIT_SHA',
+  'CI_PIPELINE_SOURCE',
+];
 
 const PROMPT_FILES = {
   triage: 'triage.prompt.md',
@@ -61,6 +78,7 @@ const PROMPT_FILES = {
   planImpl: 'plan-impl.prompt.md',
   planVisualBug: 'plan-visual-bug.prompt.md',
   planVisualImpl: 'plan-visual-impl.prompt.md',
+  planOptimization: 'plan-optimization.prompt.md',
 };
 
 const TEMPLATE_FILES = {
@@ -93,6 +111,11 @@ function skillRootDir() {
 
 function agentrixAssetsDir() {
   return path.join(skillRootDir(), 'assets', 'agentrix', 'runtime');
+}
+
+function defaultProjectInstructions() {
+  const filePath = path.join(skillRootDir(), 'assets', 'agentrix', 'bootstrap', 'issue-flow', 'instructions.md');
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8').trim() : '';
 }
 
 function readJsonFile(filePath, required = false) {
@@ -138,6 +161,7 @@ function resolveAgentrixConfig(options = {}) {
     planRootDirDisplay: normalizeRepoPath(planRootDir),
     defaultPromptsDir: path.join(agentrixAssetsDir(), 'prompts'),
     defaultTemplatesDir: path.join(agentrixAssetsDir(), 'templates'),
+    executionConfig: projectConfig,
   };
 }
 
@@ -175,6 +199,9 @@ function promptNameForAction(action, issue) {
   if (action !== 'plan') {
     return action;
   }
+  if (hasLabel(issue, 'type::optimization')) {
+    return 'planOptimization';
+  }
   if (isVisualPlanEnabled(issue)) {
     return hasLabel(issue, 'type::bug') ? 'planVisualBug' : 'planVisualImpl';
   }
@@ -186,7 +213,7 @@ function templateNameForIssue(issue) {
 }
 
 function visualPlanFeatureMode(issue) {
-  if (hasLabel(issue, 'type::optimization')) return 'off';
+  if (hasLabel(issue, 'type::optimization')) return 'on';
   return hasLabel(issue, VISUAL_PLAN_FEATURE_ON) ? 'on' : 'off';
 }
 
@@ -246,6 +273,9 @@ function buildIssueArtifactDir(issue, options = {}) {
 }
 
 function buildIssuePlanFile(issue, options = {}) {
+  if (hasLabel(issue, 'type::optimization')) {
+    return path.join(buildIssuePlanDir(issue, options), OPTIMIZATION_DATA_FILE);
+  }
   return path.join(buildIssuePlanDir(issue, options), isVisualPlanEnabled(issue) ? PLAN_ENTRY_FILE : planFileNameForIssue(issue));
 }
 
@@ -351,7 +381,9 @@ function formatRequiredSkills(action = '', issue = {}) {
     `Read this project-level skill file before acting: \`${normalizeRepoPath(path.join(skillRootDir(), 'SKILL.md'))}\``,
   ];
   if (action === 'plan' && isVisualPlanEnabled(issue)) {
-    lines.push('', `Read and follow the visual plan skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'vision-plan', 'SKILL.md'))}\``);
+    if (!hasLabel(issue, 'type::optimization')) {
+      lines.push('', `Read and follow the visual plan skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'vision-plan', 'SKILL.md'))}\``);
+    }
   }
   if (action === 'plan' && hasLabel(issue, 'type::optimization')) {
     lines.push('', `Read and follow the automation optimizer skill: \`${normalizeRepoPath(path.join(skillRootDir(), '..', 'automation-optimizer', 'SKILL.md'))}\``);
@@ -365,7 +397,7 @@ function formatProjectInstructions(options = {}) {
     return '';
   }
   const body = fs.readFileSync(projectInstructionsPath, 'utf8').trim();
-  if (!body) {
+  if (!body || body === defaultProjectInstructions()) {
     return '';
   }
   return formatContextBlock('project_instructions', [
@@ -433,6 +465,11 @@ function formatOutputContext(kind, issue, options = {}) {
     lines.push(`Plan output file: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
     return formatContextBlock('output_context', lines);
   }
+  if (hasLabel(issue, 'type::optimization')) {
+    lines.push(`Optimization output JSON: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
+    lines.push(`Publish Optimization Plan: \`node ${normalizeRepoPath(path.join(skillRootDir(), 'cli.cjs'))} pr submit plan --issue ${issue.number} --artifact optimization\``);
+    return formatContextBlock('output_context', lines);
+  }
   lines.push(`Optional decision output: \`${normalizeRepoPath(buildIssueDecisionFile(issue, options))}\``);
   lines.push(`Plan output JSON: \`${normalizeRepoPath(buildIssuePlanFile(issue, options))}\``);
   lines.push(`Temporary visual brief (do not commit): \`${buildIssuePlanBriefFile(issue).replace(/\\/g, '/')}\``);
@@ -477,6 +514,8 @@ function composeActionPrompt(action, issue, data = {}, options = {}) {
 }
 
 function extractSourceIssueNumberFromPullRequest(pr = {}) {
+  const markerIssueNumber = sourceIssueNumber(pr.body);
+  if (markerIssueNumber) return markerIssueNumber;
   const candidates = [
     pr.body,
     pr.title,
@@ -485,7 +524,6 @@ function extractSourceIssueNumberFromPullRequest(pr = {}) {
   ].filter(Boolean).map(String);
 
   const patterns = [
-    /<!--\s*issue-flow:source-issue=(\d+)\s*-->/i,
     /Source issue:\s*#(\d+)/i,
     /\b(?:Plan|Build)\s+#(\d+)/i,
     /^(\d+)-[^/]+\/(?:plan|build)$/i,
@@ -508,11 +546,7 @@ function extractAgentrixTaskIdFromPullRequest(pr = {}) {
 }
 
 function buildReviewCommentResumeInstruction() {
-  return [
-    'PR/MR 有新的 review comment，请查看并处理。',
-    '',
-    '处理完成后，请使用 issue-flow CLI 在 PR/MR 下回复一条普通总结 comment；不要创建新的 inline review comment。',
-  ].join('\n');
+  return 'PR/MR 有新的 review comment，请查看并处理。';
 }
 
 function buildIssueCommentResumeInstruction() {
@@ -580,7 +614,7 @@ function truncate(value, maxLength) {
 }
 
 function resolveAgent(options = {}) {
-  return options.agent || process.env.AGENTRIX_ISSUE_FLOW_AGENT || process.env.AGENTRIX_AGENT || DEFAULT_AGENT;
+  return options.agent || process.env.AGENTRIX_ISSUE_FLOW_AGENT || DEFAULT_AGENT;
 }
 
 function resolveResponseMode(options = {}) {
@@ -726,6 +760,8 @@ function buildRepoArg(issue = {}, options = {}) {
 }
 
 function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resultFile = '') {
+  const config = resolveAgentrixConfig(options);
+  const execution = resolveActionExecution(action, options, config.executionConfig, config.projectConfigPath);
   const metadataSubject = action === 'review'
     ? ['--metadata', `issue_flow_pr=${issue.repoFullName}#${issue.number}`]
     : ['--issue-number', String(issue.number), '--metadata', `issue_flow_issue=${issue.repoFullName}#${issue.number}`];
@@ -734,7 +770,7 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
     '--yes',
     resolveAgentrixRunPackage(),
     '--agent',
-    resolveAgent(options),
+    execution.values.agent,
     '--title',
     buildRunTitle(action, issue),
     '--prompt',
@@ -760,7 +796,10 @@ function buildRunArgs(action, issue, options = {}, data = {}, prompt = '', resul
   appendOptionalArg(args, '--repo', buildRepoArg(issue, options));
   appendOptionalArg(args, '--base-ref', resolvePromptBaseBranch(data, options));
   appendOptionalArg(args, '--checkout-ref', data.checkoutRef);
+  appendOptionalArg(args, '--checkout-sha', data.checkoutSha);
   appendOptionalArg(args, '--runner-id', options.runnerId || process.env.AGENTRIX_RUNNER_ID);
+  appendOptionalArg(args, '--model', execution.values.model);
+  appendOptionalArg(args, '--reasoning-effort', execution.values.reasoningEffort);
   return args;
 }
 
@@ -794,10 +833,27 @@ function buildResumeTaskArgs(taskId, instruction, options = {}, data = {}, resul
   return args;
 }
 
-function sanitizeAgentrixRunEnv(env = process.env) {
+function clearMergedPullRequestContext(env) {
+  for (const key of GITHUB_TRIGGER_ENV_KEYS) {
+    delete env[key];
+  }
+  for (const key of GITLAB_TRIGGER_ENV_KEYS) {
+    delete env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GITLAB_BRIDGE_') || key.startsWith('CI_MERGE_REQUEST_')) {
+      delete env[key];
+    }
+  }
+}
+
+function sanitizeAgentrixRunEnv(env = process.env, data = {}) {
   const childEnv = { ...env };
   for (const key of PROVIDER_TOKEN_ENV_KEYS) {
     delete childEnv[key];
+  }
+  if (data.prMerged) {
+    clearMergedPullRequestContext(childEnv);
   }
   return childEnv;
 }
@@ -805,13 +861,15 @@ function sanitizeAgentrixRunEnv(env = process.env) {
 function run(action, issue, options = {}, data = {}) {
   const prompt = composeActionPrompt(action, issue, data, options);
   if (options.dryRun) {
+    const config = resolveAgentrixConfig(options);
+    const execution = resolveActionExecution(action, options, config.executionConfig, config.projectConfigPath);
     const result = {
       runId: 'dry-run',
       status: 'dry-run',
       detailUrl: '',
       result: '',
     };
-    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, prompt }, null, 2));
+    console.log(JSON.stringify({ dryRun: true, runtime: 'agentrix', action, subject: issue.number, execution, prompt }, null, 2));
     return result;
   }
 
@@ -822,7 +880,7 @@ function run(action, issue, options = {}, data = {}) {
 
   const child = spawnSync('npx', args, {
     stdio: 'inherit',
-    env: sanitizeAgentrixRunEnv(),
+    env: sanitizeAgentrixRunEnv(process.env, data),
   });
 
   try {
@@ -1051,6 +1109,8 @@ module.exports = {
   listPlanInputFiles,
   normalizeRepoPath,
   resolveAgentrixConfig,
+  resolveActionExecution,
+  validateActionExecutionConfig,
   resolvePlanTemplate,
   visualPlanFeatureMode,
   resolvePromptBaseBranch,
