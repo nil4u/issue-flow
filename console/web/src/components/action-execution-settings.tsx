@@ -66,7 +66,7 @@ export function ActionExecutionSettings({
   return (
     <section className="check-group action-execution-settings">
       <header>
-        <strong>Issue Flow 执行配置</strong>
+        <strong>Agent Customize</strong>
         <Button
           type="button"
           variant="ghost"

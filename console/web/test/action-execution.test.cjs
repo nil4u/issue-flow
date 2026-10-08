@@ -28,6 +28,7 @@ test('configuration loads independently and pending state refreshes without inst
   assert.match(component, /snapshot.reasoningEfforts.map/);
   assert.match(component, /清除覆盖/);
   assert.match(component, /check-group action-execution-settings/);
+  assert.match(component, /<header>\s*<strong>Agent Customize<\/strong>/);
   assert.doesNotMatch(component, /snapshot\.detail|snapshot\.checkedAt|snapshot\.path|显式覆盖:/);
 });
 
