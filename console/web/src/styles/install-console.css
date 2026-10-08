@@ -94,11 +94,6 @@
     color: var(--muted-foreground);
     font-size: 0.75rem;
   }
-  .action-execution-footer a {
-    color: var(--foreground);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
   .action-execution-notice {
     padding: 0.75rem 0.875rem;
     font-size: 0.8125rem;

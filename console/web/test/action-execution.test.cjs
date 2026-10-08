@@ -29,6 +29,12 @@ test('configuration loads independently and pending state refreshes without inst
   assert.match(component, /清除覆盖/);
   assert.match(component, /check-group action-execution-settings/);
   assert.match(component, /<header>\s*<strong>Agent Customize<\/strong>/);
+  assert.match(component, /check-table-row needs_action/);
+  assert.match(component, /MR !\{pending.iid\} 待合并/);
+  assert.match(component, /配置合并后生效/);
+  assert.match(component, /<Button asChild size="sm" variant="secondary">/);
+  assert.match(component, /href=\{pending.webUrl\}/);
+  assert.match(component, /去合并/);
   assert.doesNotMatch(component, /snapshot\.detail|snapshot\.checkedAt|snapshot\.path|显式覆盖:/);
 });
 

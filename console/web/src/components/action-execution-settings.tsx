@@ -1,4 +1,4 @@
-import { RefreshCw, X } from "lucide-react"
+import { AlertCircle, ExternalLink, RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -79,6 +79,27 @@ export function ActionExecutionSettings({
           <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
         </Button>
       </header>
+      {pending && (
+        <div className="check-table-row needs_action" role="status">
+          <div className="check-row-main">
+            <span className="check-status-icon">
+              <AlertCircle className="size-4" />
+            </span>
+            <span className="check-row-copy">
+              <strong>MR !{pending.iid} 待合并</strong>
+              <small>配置合并后生效</small>
+            </span>
+            <div className="check-row-upgrade">
+              <Button asChild size="sm" variant="secondary">
+                <a href={pending.webUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink className="size-4" />
+                  去合并
+                </a>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {error && (
         <p role="alert" className="action-execution-notice text-destructive">
           {error}
@@ -187,32 +208,25 @@ export function ActionExecutionSettings({
               </tbody>
             </table>
           </div>
-          <footer className="action-execution-footer">
-            <span>
-              {pending ? (
-                <>
-                  <a href={pending.webUrl} target="_blank" rel="noreferrer">
-                    MR !{pending.iid}
-                  </a>{" "}
-                  待合并
-                </>
-              ) : !canManage ? (
-                "只读 · 需要 Maintainer 权限"
-              ) : (
-                "留空继承默认值 · 合并后生效"
+          {!pending && (
+            <footer className="action-execution-footer">
+              <span>
+                {!canManage
+                  ? "只读 · 需要 Maintainer 权限"
+                  : "留空继承默认值 · 合并后生效"}
+              </span>
+              {canManage && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void execution.save()}
+                  disabled={!editable || !dirty || !valid}
+                >
+                  提交 MR
+                </Button>
               )}
-            </span>
-            {canManage && !pending && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void execution.save()}
-                disabled={!editable || !dirty || !valid}
-              >
-                提交 MR
-              </Button>
-            )}
-          </footer>
+            </footer>
+          )}
         </>
       )}
     </section>
