@@ -1,5 +1,6 @@
 // @ts-nocheck
 import domain from 'issue-flow/domain'
+import { actionExecutionForProject } from './action-execution.js'
 import {
   createGitlabProjectLabel,
   createGitlabProjectAccessToken,
@@ -1682,7 +1683,20 @@ async function installGitlabProjectPlugin({ store, basePublicUrl, input = {}, se
   };
 }
 
+async function configureGitlabActionExecution({ store, input = {}, session, env = process.env, logger = undefined, save = false }) {
+  try {
+    const context = await gitlabInstallContext({ store, input, session, env, logger })
+    const access = await resolveGitlabProjectAccess(context)
+    if (save && !access.canManage) return { status: 403, body: { error: 'gitlab_project_permission_required', access } }
+    const result = await actionExecutionForProject({ store, context, input, save })
+    return { ...result, body: { ...result.body, access } }
+  } catch (error) {
+    return { status: error.status || 502, body: { error: error.code || (error.status === 403 ? 'action_execution_permission_denied' : 'action_execution_gitlab_failed'), detail: sanitizeError(error) } }
+  }
+}
+
 export {
+  configureGitlabActionExecution,
   checkGitlabProjectInstall,
   getGitlabProjectRole,
   installGitlabProjectPlugin,

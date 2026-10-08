@@ -34,6 +34,7 @@ import { RowValue } from "@/components/row-value"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
+import { ActionExecutionSettings } from "@/components/action-execution-settings"
 import { gitlabInstallCheckConfig } from "@/install-check-config"
 import type { InstallStep, RepoWorkspaceProps, Repository, VariableInstallStatus } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
@@ -75,6 +76,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         </TabsContent>
         <TabsContent value="settings">
           <InstallConsole {...props} />
+          <ActionExecutionSettings key={`${props.gitServer?.id}:${props.project?.id}`} {...props} />
         </TabsContent>
       </Tabs>
     </div>

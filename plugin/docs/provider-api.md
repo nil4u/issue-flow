@@ -413,6 +413,10 @@ Inline comment JSON entries use:
 
 ### Agentrix 路径配置
 
+Console 的 GitLab 仓库 Settings 提供独立的 **Issue Flow 执行配置**：分别编辑 `defaults`、`triage`、`plan`、`build`、`review`、`general` 的 `agent`、`model` 和 `reasoningEffort`。输入仅代表显式覆盖；清空字段表示继承，界面显示 defaults 的仓库内预览，无法确定的最终默认值标记为“由运行时决定”。配置通过仅修改默认分支 `.issue-flow/config.json` 的专用 MR 审阅后生效，不运行安装器，也不修改运行中或续跑任务。
+
+有仓库访问权限的用户可以读取配置；提交需要 Maintainer/Owner 权限。缺失文件、非法 JSON 或非法 `agentrix.actions` 必须先在仓库修复。提交时验证文件 revision，冲突需刷新后重新编辑；已有待审配置 MR 时不重复提交，页面刷新和 webhook 在合并/关闭后重新读取生效配置。`issue-flow/domain` 导出与 runtime 共用的 action execution 校验、枚举、快照和最小合并能力，保留其他配置和未来 action。
+
 路径和 action 执行配置可配置，不支持改文件名、branch pattern 或 label/flow 语义。
 
 ```json
