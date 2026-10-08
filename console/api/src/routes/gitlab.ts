@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify"
 import { connectGitlabSession } from "../core/gitlab-auth.js"
 import {
   checkGitlabProjectInstall,
+  configureGitlabActionExecution,
   getGitlabProjectRole,
   installGitlabProjectPlugin,
   listGitlabProjectsWithInstallStatus,
@@ -16,6 +17,16 @@ import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.j
 import { allowedOrigin } from "../utils/http.js"
 
 export async function gitlabRoutes(app: FastifyInstance) {
+  for (const action of ['read', 'submit']) {
+    app.post(`/api/gitlab/action-execution/${action}`, async (request, reply) => {
+      const input = (request.body || {}) as Record<string, unknown>
+      const session = await sessionFromRequest(request, String(input.gitServerId || ''))
+      const result = await configureGitlabActionExecution({
+        ...contextFromRequest(request), input, session, save: action === 'submit',
+      })
+      return reply.code(result.status).send(result.body)
+    })
+  }
   app.post("/api/gitlab/connect", async (request, reply) => {
     const result = await connectGitlabSession({
       ...contextFromRequest(request),

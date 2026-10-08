@@ -107,6 +107,10 @@ function withRepositoryStore(Base) {
         const data = repoSettingData(row)
         const checkedAt = timestampValue(row.checkedAt)
         if ((row.kind === "feature" && row.key === "visual-plan") || (row.kind === "preference" && row.key === "issue-defaults")) continue
+        if (row.kind === "preference" && row.key === "action-execution") {
+          settings.actionExecution = { ...data, checkedAt }
+          continue
+        }
         if (row.kind === "permission") {
           settings.permissions.items.push(data)
           settings.permissions.checkedAt = latestTimestamp(settings.permissions.checkedAt, checkedAt)
@@ -704,6 +708,15 @@ function withRepositoryStore(Base) {
       if (!repo) return undefined
       const updatedAt = nowIso()
       await this.db.$transaction(async (tx) => {
+        if (patch.actionExecution) {
+          await this.upsertRepoSettingItem(repoId, {
+            kind: "preference",
+            key: "action-execution",
+            source: "gitlab",
+            data: patch.actionExecution,
+            checkedAt: patch.actionExecution.checkedAt || updatedAt,
+          }, tx)
+        }
         if (patch.variables) {
           await this.replaceRepoSettingItems(
             repoId,

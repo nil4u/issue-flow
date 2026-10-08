@@ -1091,6 +1091,7 @@ async function createGitlabRepositoryCommit(input = {}) {
       body: {
         branch: input.branch,
         commit_message: input.commitMessage,
+        ...(input.startBranch ? { start_branch: input.startBranch } : {}),
         actions: input.actions || [],
       },
     }

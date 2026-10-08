@@ -204,7 +204,21 @@ async function handleIssueFlowBusinessEvent({ store, repo, event }) {
   return Promise.all([
     refreshPluginAfterMerge({ store, repo, payload }),
     clearPluginAfterClose({ store, repo, payload }),
+    clearActionExecutionPending({ store, repo, payload }),
   ])
+}
+
+async function clearActionExecutionPending({ store, repo, payload }) {
+  const mergeRequest = mergedMergeRequest(payload) || closedMergeRequest(payload)
+  if (!mergeRequest) return undefined
+  const repository = await store.getRepository(repo.id)
+  const cached = repository.settings?.actionExecution
+  const pending = cached?.pendingMergeRequest
+  if (!pending || String(pending.iid) !== String(mergeRequest.iid) || pending.sourceBranch !== mergeRequest.sourceBranch) return undefined
+  await store.updateRepositorySettingsCache(repo.id, {
+    actionExecution: { ...cached, state: 'stale', pendingMergeRequest: undefined, checkedAt: new Date().toISOString() },
+  })
+  return 'action_execution_pending_cleared'
 }
 
 async function refreshPluginAfterMerge({ store, repo, payload }) {

@@ -42,6 +42,7 @@ export type Repository = {
   }
   webhookUrl?: string
   settings?: {
+    actionExecution?: ActionExecutionSnapshot
     issueDefaults?: { visualPlanEnabled?: boolean; updatedAt?: string }
     permissions?: { items?: AdminPermission[]; checkedAt?: string }
     variables?: { items?: AgentrixVariable[]; checkedAt?: string }
@@ -49,6 +50,30 @@ export type Repository = {
     plugins?: { items?: PluginInstall[]; checkedAt?: string }
     runners?: { items?: GitRunnerSetting[]; checkedAt?: string }
   }
+}
+
+export type ActionExecutionValues = Partial<Record<'agent' | 'model' | 'reasoningEffort', string>>
+export type ActionExecutionSnapshot = {
+  state: 'ready' | 'missing' | 'invalid_json' | 'invalid_config' | 'stale'
+  exists: boolean
+  revision?: string
+  branch: string
+  path: string
+  checkedAt: string
+  detail?: string
+  refreshError?: string
+  actionNames: string[]
+  fields: Array<keyof ActionExecutionValues>
+  reasoningEfforts: string[]
+  explicit?: Record<string, ActionExecutionValues>
+  preview?: Record<string, Partial<Record<keyof ActionExecutionValues, { value?: string; source: string }>>>
+  pendingMergeRequest?: { iid: number; webUrl: string; sourceBranch: string; targetBranch: string }
+}
+
+export type ActionExecutionResult = {
+  actionExecution: ActionExecutionSnapshot
+  access: ProjectAccess
+  skipped?: boolean
 }
 
 export type GitLabUser = { username: string; name?: string; avatarUrl?: string }
