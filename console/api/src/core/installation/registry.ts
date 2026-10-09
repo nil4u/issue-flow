@@ -1,7 +1,8 @@
 // @ts-nocheck
+import { githubInstaller } from './github/adapter.js'
 import { gitlabInstaller } from './gitlab/adapter.js'
 
-const installers = new Map([[gitlabInstaller.id, gitlabInstaller]])
+const installers = new Map([[gitlabInstaller.id, gitlabInstaller], [githubInstaller.id, githubInstaller]])
 
 export async function repositoryInstaller({ store, input = {}, session }) {
   const server = await store.getGitServer(input.gitServerId || session?.gitServerId || '')

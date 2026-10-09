@@ -19,10 +19,11 @@ function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "")
 }
 
-function normalizeApiUrl(baseUrl, apiUrl) {
+function normalizeApiUrl(baseUrl, apiUrl, provider = "gitlab") {
   const explicit = normalizeBaseUrl(apiUrl)
   if (explicit) return explicit
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  if (provider === "github") return normalizedBaseUrl === "https://github.com" ? "https://api.github.com" : normalizedBaseUrl ? `${normalizedBaseUrl}/api/v3` : ""
   return normalizedBaseUrl ? `${normalizedBaseUrl}/api/v4` : ""
 }
 
@@ -88,7 +89,8 @@ function normalizeGitServer(input = {}, fingerprints = {}) {
     type,
     name: input.name || baseUrl || id,
     baseUrl,
-    apiUrl: normalizeApiUrl(baseUrl, input.apiUrl),
+    apiUrl: normalizeApiUrl(baseUrl, input.apiUrl, type),
+    githubApp: { appId: String(input.githubApp?.appId || ""), slug: String(input.githubApp?.slug || "") },
     tokenAuth: input.tokenAuth || "bearer",
     oauth: {
       clientId: oauth.clientId || "",

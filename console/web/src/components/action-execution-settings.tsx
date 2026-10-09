@@ -47,7 +47,8 @@ export function ActionExecutionSettings({
   const execution = useActionExecution(
     gitServer?.id || project?.gitServerId || "",
     project?.id || "",
-    tab === "settings" && !!repository
+    tab === "settings" && !!repository,
+    gitServer?.type || repository?.provider || "gitlab"
   )
   const { snapshot, draft, setDraft, busy, canManage, error } = execution
   if (!project || !repository) return null
@@ -61,6 +62,7 @@ export function ActionExecutionSettings({
         !values.reasoningEffort ||
         snapshot.reasoningEfforts.includes(values.reasoningEffort)
     )
+  const changeName = gitServer?.type === "github" ? "PR" : "MR"
   const pending = snapshot?.pendingMergeRequest
 
   return (
@@ -86,7 +88,7 @@ export function ActionExecutionSettings({
               <AlertCircle className="size-4" />
             </span>
             <span className="check-row-copy">
-              <strong>MR !{pending.iid} 待合并</strong>
+              <strong>{changeName} {changeName === "PR" ? "#" : "!"}{pending.iid} 待合并</strong>
               <small>配置合并后生效</small>
             </span>
             <div className="check-row-upgrade">
@@ -112,7 +114,7 @@ export function ActionExecutionSettings({
       )}
       {snapshot?.refreshError && (
         <p role="alert" className="action-execution-notice text-destructive">
-          MR 状态刷新失败，请重试。
+          {changeName} 状态刷新失败，请重试。
         </p>
       )}
       {!snapshot && !error && (
@@ -222,7 +224,7 @@ export function ActionExecutionSettings({
                   onClick={() => void execution.save()}
                   disabled={!editable || !dirty || !valid}
                 >
-                  提交 MR
+                  提交 {changeName}
                 </Button>
               )}
             </footer>

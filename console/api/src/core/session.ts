@@ -1,6 +1,9 @@
 // @ts-nocheck
 import { publicSession, resolveGitServer } from './common.js'
+import { githubOAuthToken } from './github/api.js'
 import { refreshGitlabOAuthToken } from './gitlab.js'
+
+const refreshes = new WeakMap()
 
 const SESSION_REFRESH_SKEW_MS = 5 * 60 * 1000
 
@@ -30,11 +33,22 @@ async function resolveFreshSession({ store, userId, gitServerId = '', logger = u
   const expired = tokenExpiresAt(session) <= Date.now()
   if (!session.refreshToken) return expired ? undefined : session
 
+  let pending = refreshes.get(store)
+  if (!pending) { pending = new Map(); refreshes.set(store, pending) }
+  if (!pending.has(session.id)) {
+    pending.set(session.id, refreshSession({ store, session, gitServerId, logger, expired }).finally(() => pending.delete(session.id)))
+  }
+  return pending.get(session.id)
+}
+
+async function refreshSession({ store, session, gitServerId, logger, expired }) {
   try {
-    const { config } = await resolveGitServer(store, {
+    const { server, config } = await resolveGitServer(store, {
       gitServerId: gitServerId || session.gitServerId,
-    }, session, 'gitlab')
-    const result = await refreshGitlabOAuthToken({
+    }, session, '')
+    const result = server.type === 'github'
+      ? await githubOAuthToken(server, { grant_type: 'refresh_token', refresh_token: session.refreshToken })
+      : await refreshGitlabOAuthToken({
       config,
       refreshToken: session.refreshToken,
       logger,

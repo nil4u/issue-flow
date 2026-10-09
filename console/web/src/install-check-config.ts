@@ -1,4 +1,4 @@
-export type InstallCheckItemType = "variable" | "webhook" | "permission" | "labels" | "repo_file" | "plugin" | "git-runner"
+export type InstallCheckItemType = "variable" | "webhook" | "permission" | "labels" | "repo_file" | "plugin" | "git-runner" | "actions"
 
 export type InstallCheckControl = {
   path: string
@@ -14,6 +14,7 @@ export type InstallCheckConfigItem = {
   type: InstallCheckItemType
   name: string
   description: string
+  configurable?: boolean
   defaultValue?: InstallCheckDefaultValue
   helpTopicId?: "agentrix-api-key" | "agentrix-runner-id"
   control?: InstallCheckControl
@@ -175,4 +176,19 @@ export const gitlabInstallCheckConfig = {
 } satisfies {
   provider: "gitlab"
   groups: InstallCheckConfigGroup[]
+}
+
+
+export function installCheckConfig(provider = "gitlab"): { groups: InstallCheckConfigGroup[] } {
+  if (provider !== "github") return gitlabInstallCheckConfig
+  return { groups: gitlabInstallCheckConfig.groups.map((group): InstallCheckConfigGroup => {
+    if (group.id === "permissions") return { ...group, items: [{ id: "permission:github-app", type: "permission", name: "GitHub App", description: "授权 App 访问此仓库并配置安装所需权限。" }] }
+    if (group.id === "webhook") return { ...group, items: [{ id: "webhook", type: "webhook", name: "GitHub App webhook", configurable: false, description: "通过 App 统一接收事件并同步 Console 状态。" }] }
+    if (group.id === "runners") return { id: "actions", title: "GitHub Actions", items: [{ id: "actions", type: "actions", name: "GitHub Actions", description: "工作流直接由 GitHub 仓库事件触发。" }] }
+    if (group.id === "variables") return { ...group, items: [
+      { id: "variable:AGENTRIX_GIT_SERVER_ID", type: "variable", name: "AGENTRIX_GIT_SERVER_ID", description: "Agentrix 中配置的 GitHub server ID，用于任务克隆仓库。" },
+      ...group.items.filter((item) => item.id !== "variable:ISSUE_FLOW_GITLAB_TOKEN").map((item) => ({ ...item, description: item.description.replaceAll("GitLab CI", "GitHub Actions").replaceAll("GitLab", "GitHub") })),
+    ] }
+    return { ...group, items: group.items.filter((item) => item.id !== "variable:ISSUE_FLOW_GITLAB_TOKEN").map((item) => ({ ...item, description: item.description.replaceAll("GitLab CI", "GitHub Actions").replaceAll("GitLab", "GitHub") })) }
+  }) }
 }

@@ -1,3 +1,5 @@
+import { GithubRepositoryEmpty } from "@/components/settings/github-repository-empty"
+import type { GitConnection } from "@/lib/git-connection"
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react"
 import {
   AlertCircle,
@@ -58,6 +60,8 @@ export function RepoSidebar(props: {
   onLoadMore: () => void
   onSelectProject: (id: string, gitServerId?: string) => void
   onLoginCurrent: () => void
+  githubConnection?: GitConnection
+  onAuthorizeGithub: () => void
   onRefresh: (gitServerId?: string) => void | Promise<void>
   onLogout: () => void
   onOpenUserSettings: () => void
@@ -90,6 +94,8 @@ export function RepoSidebar(props: {
     onLoadMore,
     onSelectProject,
     onLoginCurrent,
+    githubConnection,
+    onAuthorizeGithub,
     onRefresh,
     onLogout,
     onOpenUserSettings,
@@ -336,7 +342,11 @@ export function RepoSidebar(props: {
           } }}>
             <div className="repo-list">
               {(currentUser || searching) && loading && <div className="repo-row muted"><Loader2 className="size-4 animate-spin" /> {loadingLabel || "加载仓库..."}</div>}
-              {(currentUser || searching) && !loading && projects.length === 0 && <div className="repo-row muted">没有匹配仓库</div>}
+              {(currentUser || searching) && !loading && projects.length === 0 && (
+                selectedGitServer?.type === "github" && !searching && owner === "all"
+                  ? <GithubRepositoryEmpty connection={githubConnection} onAuthorize={onAuthorizeGithub} onSync={() => { void onRefresh(selectedGitServerId) }} onConnect={onLoginCurrent} />
+                  : <div className="repo-row muted">没有匹配仓库</div>
+              )}
               {projects.map((project) => {
                 const selected = isSelectedProject(project, selectedProjectId, selectedGitServerId)
                 return (

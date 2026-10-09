@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { listGitlabWebhooks, upsertGitlabWebhook } from '../../gitlab.js'
+import { externallyAddressableWebhook, gitlabWebhookUrl } from '../../events/urls.js'
 import { repoWithWebhook } from '../../common.js'
 import { sanitizeError } from '../../sanitize.js'
 import { resolveGitlabProjectAccess, gitlabInstallContext } from './context.js'
@@ -52,7 +53,10 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
     return { status: 400, body: { error: 'git_server_webhook_secret_required' } };
   }
 
-  const publicRepo = repoWithWebhook(basePublicUrl, existing);
+  const publicRepo = repoWithWebhook(basePublicUrl, existing, env);
+  if (!externallyAddressableWebhook(publicRepo.webhookUrl)) {
+    return { status: 400, body: { error: 'webhook_public_url_required', detail: '请设置 ISSUE_FLOW_WEBHOOK_BASE_URL 为 GitLab 可访问的公网或内网服务地址。' } };
+  }
   let hook;
   try {
     hook = await upsertGitlabWebhook({
@@ -84,7 +88,7 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
   return {
     status: 200,
     body: {
-      repository: repoWithWebhook(basePublicUrl, repository),
+      repository: repoWithWebhook(basePublicUrl, repository, env),
       step,
       steps: [step],
       webhook: cache,
@@ -94,20 +98,24 @@ async function setGitlabProjectInstallWebhook({ store, basePublicUrl, input = {}
 }
 
 async function checkWebhook({ store, basePublicUrl, env, config, project, existing, installConfig, apiInput }) {
+  if (!externallyAddressableWebhook(gitlabWebhookUrl(basePublicUrl, existing?.id || '', env))) {
+    return installStep('webhook', 'api', 'GitLab webhook', 'needs_action', '请在服务端设置 ISSUE_FLOW_WEBHOOK_BASE_URL 为 GitLab 可访问的公网或内网服务地址，然后重新检查。');
+  }
   let webhookStep;
   if (existing) {
-    const publicRepo = repoWithWebhook(basePublicUrl, existing);
+    const publicRepo = repoWithWebhook(basePublicUrl, existing, env);
     const hooks = await listGitlabWebhooks(apiInput);
     const hook = hooks.find((item) => item && item.url === publicRepo.webhookUrl);
+    const previous = hooks.find((item) => item && existing.webhook?.hookId && String(item.id) === String(existing.webhook.hookId));
     const hookState = statusFromBoolean(
       Boolean(hook && (hook.push_events || hook.pushEvents)),
-      hook ? 'Webhook 需要启用 Push events' : '需要通过 API 配置 GitLab webhook',
+      hook ? 'Webhook 需要启用 Push events' : previous ? `Webhook 地址需要更新为 ${publicRepo.webhookUrl}` : '需要通过 API 配置 GitLab webhook',
       'Webhook 已配置'
     );
     const hookDetail = hookState.status === 'passed' && hook ? hook.url : hookState.detail;
     webhookStep = installStep('webhook', 'api', 'GitLab webhook', hookState.status, hookDetail);
     await store.updateRepositorySettingsCache(existing.id, {
-      webhook: hook ? webhookCache(hook) : null,
+      webhook: hook || previous ? { ...webhookCache(hook || previous), status: hookState.status, detail: hookDetail } : null,
     });
   } else {
     webhookStep = installStep(

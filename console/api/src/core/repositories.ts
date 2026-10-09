@@ -8,6 +8,11 @@ import {
   resolveGitServer,
 } from './common.js'
 import { listGitlabIssues, validateGitlabToken } from './gitlab.js'
+import { createGithubRepository, validateGithubRepository } from './github/projects.js'
+import { installationClient, githubPages } from './github/api.js'
+import { githubRepoPath } from './provider-api.js'
+import { githubIssueSnapshot } from './events/github.js'
+import { applyIssueSnapshotToFacts } from './issue-projection.js'
 import { applyGitlabIssueSnapshotToFacts } from './events/gitlab.js'
 
 async function requireAccessibleRepo(store, repoId, userId) {
@@ -37,17 +42,19 @@ async function listRepositories({ store, basePublicUrl, input = {}, userId = '' 
     perPage: input.perPage || 50,
     selectedProjectId: input.selectedProjectId || '',
   });
+  const providers = new Map((await store.listGitServers()).map((server) => [server.id, server.type]))
   return {
     status: 200,
     body: {
       ...result,
-      repositories: result.repositories.map((repo) => repoWithWebhook(basePublicUrl, repo)),
+      repositories: result.repositories.map((repo) => repoWithWebhook(basePublicUrl, { ...repo, provider: providers.get(repo.gitServerId) || repo.provider })),
     },
   };
 }
 
 async function createRepository({ store, basePublicUrl, input = {}, userId = '', env = process.env, logger = undefined }) {
-  const { server, config } = await resolveGitServer(store, input, undefined, 'gitlab');
+  const { server, config } = await resolveGitServer(store, input, undefined, '');
+  if (server.type === 'github') return createGithubRepository({ store, input, userId })
   const baseUrl = normalizeBaseUrl(input.baseUrl || config.baseUrl);
   const apiUrl = normalizeApiUrl(baseUrl, input.apiUrl || config.apiUrl);
   const projectPath = String(input.projectPath || '').trim();
@@ -158,7 +165,13 @@ async function listTasks({ store, repoId, input = {}, userId = '', env = process
 
 async function syncIssuesSnapshot({ store, repoId, userId = '', logger = undefined }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
-  const { config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, 'gitlab');
+  const { server, config } = await resolveGitServer(store, { gitServerId: repo.gitServerId }, undefined, '');
+  if (server.type === 'github') {
+    const { client } = await installationClient(server, repo.fullName)
+    const issues = (await githubPages(client, `${githubRepoPath(repo)}/issues?state=all`)).filter((issue) => !issue.pull_request)
+    for (const issue of issues) await applyIssueSnapshotToFacts(store, githubIssueSnapshot(repo, issue, new Date().toISOString()))
+    return { status: 200, body: { issues: await store.listIssues(repoId), count: issues.length } }
+  }
   if (!config.adminPat) {
     return { status: 403, body: { error: 'git_server_admin_pat_required' } };
   }
@@ -179,6 +192,7 @@ async function syncIssuesSnapshot({ store, repoId, userId = '', logger = undefin
 
 async function validateRepositoryToken({ store, basePublicUrl, repoId, userId = '', logger = undefined }) {
   const repo = await requireAccessibleRepo(store, repoId, userId);
+  if (repo.provider === 'github') return validateGithubRepository({ store, repo, userId })
   const session = repo.oauthSessionId
     ? await store.getSession(repo.oauthSessionId, { allowExpired: true })
     : undefined;

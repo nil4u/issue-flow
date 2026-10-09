@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { Check, ExternalLink, GitBranch, KeyRound, Link2, Loader2, Plus, Save, Server, ShieldCheck, Trash2 } from "lucide-react"
+import { Check, ExternalLink, KeyRound, Link2, Loader2, Plus, Save, Server, ShieldCheck, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { GitConnectionsGroup } from "@/components/settings/git-connections"
+import type { GitConnections } from "@/lib/git-connection"
 import { AgentrixPanel } from "@/components/agentrix-panel"
 import { GitServerSetupFields } from "@/components/git-server-setup-fields"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { api, type AgentrixDefaults, type GitServer, type UserGitAccount, type UserGitPat, type UserSession } from "@/issue-flow-model"
+import { api, type AgentrixDefaults, type GitServer, type UserGitPat, type UserSession } from "@/issue-flow-model"
 import { notifyError } from "@/lib/errors"
 
 type SettingsSection = "account" | "agentrix" | "git-servers"
 
 type GitServerForm = {
+  githubAppId: string
+  githubAppSlug: string
+  githubPrivateKey: string
   id: string
   type: string
   name: string
@@ -30,6 +35,7 @@ type GitServerForm = {
 }
 
 const emptyGitServerForm: GitServerForm = {
+  githubAppId: "", githubAppSlug: "", githubPrivateKey: "",
   id: "",
   type: "gitlab",
   name: "",
@@ -55,6 +61,9 @@ export function UserSettings({
   deletingGitServerId,
   onSelectSection,
   onConnectGitServer,
+  connections,
+  onAuthorizeGithub,
+  onSyncGitServer,
   onSaveGitServer,
   onDeleteGitServer,
 }: {
@@ -66,6 +75,9 @@ export function UserSettings({
   deletingGitServerId: string
   onSelectSection: (section: SettingsSection) => void
   onConnectGitServer: (gitServerId: string) => void
+  connections: GitConnections
+  onAuthorizeGithub: (gitServerId: string) => void
+  onSyncGitServer: (gitServerId: string) => Promise<unknown>
   onSaveGitServer: (input: GitServer) => Promise<GitServer>
   onDeleteGitServer: (gitServerId: string) => Promise<GitServer[]>
 }) {
@@ -105,7 +117,7 @@ export function UserSettings({
         ) : section === "agentrix" ? (
           <AgentrixPanel userSession={userSession} gitServers={gitServers} onConnectGitServer={onConnectGitServer} onOpenAccount={() => onSelectSection("account")} />
         ) : (
-          <AccountSettings userSession={userSession} gitServers={gitServers} pendingGitServerId={pendingGitServerId} onConnectGitServer={onConnectGitServer} />
+          <AccountSettings connections={connections} onAuthorizeGithub={onAuthorizeGithub} onSyncGitServer={onSyncGitServer} userSession={userSession} gitServers={gitServers} pendingGitServerId={pendingGitServerId} onConnectGitServer={onConnectGitServer} />
         )}
       </div>
     </div>
@@ -117,11 +129,17 @@ function AccountSettings({
   gitServers,
   pendingGitServerId,
   onConnectGitServer,
+  connections,
+  onAuthorizeGithub,
+  onSyncGitServer,
 }: {
   userSession: UserSession
   gitServers: GitServer[]
   pendingGitServerId: string
   onConnectGitServer: (gitServerId: string) => void
+  connections: GitConnections
+  onAuthorizeGithub: (gitServerId: string) => void
+  onSyncGitServer: (gitServerId: string) => Promise<unknown>
 }) {
   const accountByServerId = new Map(
     (userSession.accounts || [])
@@ -143,39 +161,7 @@ function AccountSettings({
 
       <AgentrixAccountGroup userSession={userSession} gitServers={gitServers} />
 
-      <div className="account-group">
-        <header>
-          <strong>关联 Git 账号</strong>
-          <span>
-            {connectedCount(accountByServerId, gitServers)} / {gitServers.length}
-          </span>
-        </header>
-        <div className="account-list">
-          {gitServers.map((server) => {
-            const account = accountByServerId.get(server.id)
-            const connected = Boolean(account)
-            const unsupported = server.type !== "gitlab"
-            return (
-              <div className="account-row" key={server.id}>
-                <span className="account-provider-icon">{providerIcon(server.type)}</span>
-                <span className="account-row-copy">
-                  <strong>{accountTitle(account, server)}</strong>
-                  <small>{serverLabel(server, account)}</small>
-                </span>
-                <span className={`account-status ${connected ? "connected" : ""}`}>
-                  {connected ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
-                  {connected ? "已关联" : "未关联"}
-                </span>
-                <Button size="sm" variant={connected ? "outline" : "default"} disabled={pendingGitServerId === server.id || unsupported} onClick={() => onConnectGitServer(server.id)}>
-                  {pendingGitServerId === server.id && <Loader2 className="size-4 animate-spin" />}
-                  {connected ? "重新关联" : unsupported ? "待支持" : "关联"}
-                </Button>
-              </div>
-            )
-          })}
-          {gitServers.length === 0 && <div className="account-empty">还没有配置 Git server</div>}
-        </div>
-      </div>
+      <GitConnectionsGroup servers={gitServers} accounts={accountByServerId} connections={connections} pendingId={pendingGitServerId} onConnect={onConnectGitServer} onAuthorize={onAuthorizeGithub} onSync={onSyncGitServer} />
 
       <GitPatAccountGroup userSession={userSession} gitServers={gitServers} />
     </section>
@@ -424,7 +410,7 @@ function AgentrixAccountGroup({ gitServers, userSession }: { gitServers: GitServ
       </header>
       <div className="account-list">
         {!gitServerId ? (
-          <div className="account-empty">先关联一个 GitLab 账号后再关联 Agentrix</div>
+          <div className="account-empty">先关联一个 Git 账号后再关联 Agentrix</div>
         ) : (
           <div className={`account-row agentrix-account-row ${connected ? "linked" : "unlinked"}`}>
             <span className={`account-provider-icon ${connected ? "connected" : "unlinked"}`}>{connected ? <KeyRound className="size-4" /> : <Link2 className="size-4" />}</span>
@@ -500,7 +486,7 @@ function GitServerAdmin({
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "baseUrl" && !current.apiUrl ? { apiUrl: defaultApiUrl(value) } : {}),
+      ...(key === "baseUrl" ? { apiUrl: current.type === "github" ? value === "https://github.com" ? "https://api.github.com" : `${value.replace(/\/+$/, "")}/api/v3` : defaultApiUrl(value) } : {}),
       ...(key === "baseUrl" && (!current.commitAuthorEmail || current.commitAuthorEmail === defaultCommitAuthorEmail(current.baseUrl)) ? { commitAuthorEmail: defaultCommitAuthorEmail(value) } : {}),
     }))
   }
@@ -584,7 +570,7 @@ function GitServerAdmin({
               <Button
                 type="submit"
                 size="sm"
-                disabled={busy || !form.baseUrl || !form.oauthClientId || (creating && !form.oauthClientSecret) || !form.agentrixGitServerId || (creating && !form.adminPat) || !form.commitAuthorName || !form.commitAuthorEmail}
+                disabled={busy || !form.baseUrl || !form.oauthClientId || (creating && !form.oauthClientSecret) || (form.type === "gitlab" && (!form.agentrixGitServerId || (creating && !form.adminPat))) || (form.type === "github" && (!form.githubAppId || !form.githubAppSlug || (creating && (!form.githubPrivateKey || !form.webhookSecret)))) || !form.commitAuthorName || !form.commitAuthorEmail}
               >
                 {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                 保存
@@ -593,8 +579,8 @@ function GitServerAdmin({
           </header>
 
           <div className="git-server-fields">
-            {creating ? (
-              <GitServerSetupFields value={form} onChange={update} />
+            {creating || form.type === "github" ? (
+              <GitServerSetupFields value={form} onChange={update} editing={!creating} />
             ) : (
               <>
             <Field label="ID">
@@ -666,6 +652,7 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
 function formFromGitServer(server?: GitServer): GitServerForm {
   if (!server) return emptyGitServerForm
   return {
+    githubAppId: server.githubApp?.appId || "", githubAppSlug: server.githubApp?.slug || "", githubPrivateKey: "",
     id: server.id || "",
     type: server.type || "gitlab",
     name: server.name || "",
@@ -687,13 +674,14 @@ function payloadFromForm(form: GitServerForm): GitServer {
   const payload: GitServer = {
     id: form.id.trim(),
     type: form.type,
+    githubApp: { appId: form.githubAppId, slug: form.githubAppSlug, ...(form.githubPrivateKey ? { privateKey: form.githubPrivateKey } : {}) },
     name: form.name.trim(),
     baseUrl: form.baseUrl.trim(),
     apiUrl: form.apiUrl.trim(),
     tokenAuth: form.tokenAuth,
     oauth: {
       clientId: form.oauthClientId.trim(),
-      scopes: form.oauthScopes.trim(),
+      scopes: form.type === "github" ? "" : form.oauthScopes.trim(),
     },
     webhook: {},
     agentrixGitServerId: form.agentrixGitServerId.trim(),
@@ -739,25 +727,7 @@ function userEmail(user: UserSession["user"]) {
   return user && "email" in user ? user.email || "" : ""
 }
 
-function connectedCount(accounts: Map<string, UserGitAccount | undefined>, gitServers: GitServer[]) {
-  return gitServers.filter((server) => accounts.has(server.id)).length
-}
-
 function agentrixContextGitServerId(userSession: UserSession, gitServers: GitServer[]) {
-  const gitlabServerIds = new Set(gitServers.filter((server) => server.type === "gitlab").map((server) => server.id))
+  const gitlabServerIds = new Set(gitServers.filter((server) => ["gitlab", "github"].includes(server.type)).map((server) => server.id))
   return (userSession.accounts || []).map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "").find((id) => gitlabServerIds.has(id)) || ""
-}
-
-function providerIcon(type: string) {
-  if (type === "github") return <GitBranch className="size-4 rotate-270" />
-  return <GitBranch className="size-4" />
-}
-
-function accountTitle(account: UserGitAccount | undefined, server: GitServer) {
-  return account?.displayName || account?.username || server.name || server.id
-}
-
-function serverLabel(server: GitServer, account?: UserGitAccount) {
-  const identity = account?.username ? `@${account.username}` : server.type
-  return `${server.name || server.id} · ${identity}`
 }

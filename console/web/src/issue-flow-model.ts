@@ -78,6 +78,7 @@ export type ActionExecutionResult = {
 
 export type GitLabUser = { username: string; name?: string; avatarUrl?: string }
 export type GitServer = {
+  githubApp?: { appId?: string; slug?: string; privateKey?: string; privateKeyFingerprint?: string }
   id: string
   type: string
   name?: string

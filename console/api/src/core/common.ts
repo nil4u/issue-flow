@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { normalizeApiUrl, normalizeBaseUrl } from './store.js'
-import { webhookUrl } from './gitlab-webhook.js'
+import { githubWebhookUrl, gitlabWebhookUrl } from './events/urls.js'
 
 const DEFAULT_AGENTRIX_BASE_URL = 'https://agentrix.xmz.ai';
 const DEFAULT_LLM_PROXY_BASE_URL = 'https://api.xmz.ai';
@@ -28,6 +28,7 @@ function agentrixConfigFromEnv(input = {}, env = process.env) {
 
 function gitlabConfigFromServer(server = {}) {
   return {
+    githubApp: server.githubApp || {},
     baseUrl: server.baseUrl || '',
     apiUrl: server.apiUrl || normalizeApiUrl(server.baseUrl || '', ''),
     webhookSecret: server.webhook && server.webhook.secret || '',
@@ -86,10 +87,10 @@ async function resolveGitServer(store, input = {}, session, requiredType = 'gitl
   };
 }
 
-function repoWithWebhook(basePublicUrl, repo) {
+function repoWithWebhook(basePublicUrl, repo, env = process.env) {
   return {
     ...repo,
-    webhookUrl: webhookUrl(basePublicUrl, repo.id),
+    webhookUrl: repo.provider === 'github' ? githubWebhookUrl(basePublicUrl, env) : gitlabWebhookUrl(basePublicUrl, repo.id, env),
   };
 }
 

@@ -1,3 +1,4 @@
+import { useGitConnections } from "./use-git-connections"
 import { useInstallation } from "./use-installation"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -82,6 +83,9 @@ export function useDashboardController() {
   const { installCheck, setInstallCheck, installConflictPlan, setInstallConflictPlan, groupVariablePrompt, checkProgress, checking, applyInstallCheck, checkInstallStep, runInstallCheck, closeCheckProgress, resolveGroupVariablePrompt, setInstallVariable, setInstallWebhook, setInstallLabels, setInstallRunner, installPlugin, confirmInstallConflicts, cancelInstallConflicts } = useInstallation({
     selectedProject, selectedGitServerId, selectedRepo, projectAccess, rememberRepositoryDetail,
     reloadRepositories: () => loadRepositories(selectedGitServerId, { includeSelectedProject: true }),
+  })
+  const gitConnections = useGitConnections(userSession, gitServers, async (id) => {
+    if (id === selectedGitServerId) await loadRepositories(id, { includeSelectedProject: true })
   })
   const isAdmin = Boolean(userSession.user && !("username" in userSession.user) && userSession.user.role === "admin")
   const filteredProjects = projects
@@ -343,20 +347,23 @@ export function useDashboardController() {
 
   async function syncGitServer(gitServerId = selectedGitServerId) {
     if (!gitServerId) return
+    if (gitServers.find((server) => server.id === gitServerId)?.type === "github") {
+      await gitConnections.sync(gitServerId)
+      return
+    }
     setLoadingProjects(true)
     setProjectLoadingLabel("同步仓库...")
     try {
       const session = await loadSession(gitServerId)
       if (!session.authenticated) {
-        resetRepositoryState()
-        setAgentrixDefaults(undefined)
+        if (gitServerId === selectedGitServerId) { resetRepositoryState(); setAgentrixDefaults(undefined) }
         return
       }
-      await api<{ projects: GitLabProject[] }>("/api/gitlab/projects", {
+      await api<{ projects: GitLabProject[] }>(`/api/${gitServers.find((server) => server.id === gitServerId)?.type || "gitlab"}/projects`, {
         method: "POST",
         body: JSON.stringify({ gitServerId }),
       })
-      await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId, { includeSelectedProject: true })])
+      if (gitServerId === selectedGitServerId) await Promise.all([loadAgentrixDefaults(gitServerId), loadRepositories(gitServerId, { includeSelectedProject: true })])
     } catch (error) {
       notifyError(error, "同步仓库失败")
     } finally {
@@ -398,7 +405,7 @@ export function useDashboardController() {
     setProjectAccess(undefined)
     setLoadingProjectAccess(true)
     try {
-      const body = await api<{ access: ProjectAccess }>("/api/gitlab/project-role", {
+      const body = await api<{ access: ProjectAccess }>(`/api/${gitServers.find((server) => server.id === gitServerId)?.type || "gitlab"}/project-role`, {
         method: "POST",
         body: JSON.stringify({
           gitServerId,
@@ -425,13 +432,13 @@ export function useDashboardController() {
       return
     }
     try {
-      const body = await api<{ authorizeUrl: string }>("/api/auth/gitlab/authorize", {
+      const body = await api<{ authorizeUrl: string }>(`/api/auth/${gitServers.find((server) => server.id === gitServerId)?.type || "gitlab"}/authorize`, {
         method: "POST",
         body: JSON.stringify({ gitServerId, returnTo: options.returnTo || `${window.location.pathname}${window.location.search}` }),
       })
       window.location.href = body.authorizeUrl
     } catch (error) {
-      notifyError(error, "登录 GitLab 失败")
+      notifyError(error, "登录 Git 账号失败")
     }
   }
   async function initializeSetup(input: SetupInitializeInput) {
@@ -449,14 +456,14 @@ export function useDashboardController() {
   function connectGitServerAccount(gitServerId: string) {
     const server = gitServers.find((item) => item.id === gitServerId)
     if (!server) return
-    if (server.type !== "gitlab") {
+    if (!["gitlab", "github"].includes(server.type)) {
       toast.warning("暂不支持关联", {
         description: `${server.name || server.id} 暂未支持网页 OAuth 关联`,
       })
       return
     }
     setPendingGitServerId(gitServerId)
-    void loginGitLab(gitServerId)
+    void loginGitLab(gitServerId).finally(() => setPendingGitServerId(""))
   }
 
   async function logoutAll() {
@@ -703,6 +710,8 @@ export function useDashboardController() {
       selectedGitServer,
       user: userSession.user,
       currentUser,
+      githubConnection: gitConnections.connections[selectedGitServerId],
+      onAuthorizeGithub: () => gitConnections.authorize(selectedGitServerId),
       projects: filteredProjects,
       selectedProjectId,
       owner,
@@ -737,6 +746,9 @@ export function useDashboardController() {
       deletingGitServerId,
       onSelectSection: (section: WorkspaceRoute["settingsSection"]) => navigateUserSettings(section),
       onConnectGitServer: connectGitServerAccount,
+      connections: gitConnections.connections,
+      onAuthorizeGithub: gitConnections.authorize,
+      onSyncGitServer: syncGitServer,
       onSaveGitServer: saveGitServer,
       onDeleteGitServer: deleteGitServer,
     },

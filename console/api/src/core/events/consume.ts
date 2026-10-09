@@ -25,9 +25,8 @@ function pendingPlugin(repository = {}) {
 function pluginMergeMatches(pending, mergeRequest) {
   if (!pending || !mergeRequest) return false
   const mr = pending.pendingMergeRequest || {}
-  if (mr.iid && mergeRequest.iid && String(mr.iid) === String(mergeRequest.iid)) return true
-  const source = mergeRequest.sourceBranch || ''
-  return source.startsWith('issue-flow/install-') || source.startsWith('issue-flow/upgrade-')
+  if (mr.iid && mergeRequest.iid) return String(mr.iid) === String(mergeRequest.iid)
+  return Boolean(mr.sourceBranch && mr.sourceBranch === mergeRequest.sourceBranch)
 }
 
 export async function applyPluginChange({ store, repo, change }) {

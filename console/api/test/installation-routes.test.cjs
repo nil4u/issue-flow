@@ -41,7 +41,7 @@ test('installation routes expose a serializable plan selected from the authentic
 
 test('installation routes reject missing authentication and unimplemented platforms', async (t) => {
   const anonymous = await appFixture({ authenticated: false });
-  const unsupported = await appFixture({ provider: 'github' });
+  const unsupported = await appFixture({ provider: 'unsupported' });
   t.after(() => Promise.all([anonymous.close(), unsupported.close()]));
   for (const path of ['plan', 'check', 'configure', 'plugin', 'plugin/stream']) {
     const result = await anonymous.inject({ method: 'POST', url: `/api/installation/${path}`, payload: { gitServerId: 'server' } });

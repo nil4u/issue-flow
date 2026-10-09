@@ -401,7 +401,7 @@ export function useInstallation({ selectedProject, selectedGitServerId, selected
       open: true,
       title: `正在${operationLabel} issue-flow`,
       detail: "",
-      steps: pluginInstallProgressSteps.map((step) => ({ ...step })),
+      steps: pluginInstallProgressSteps.map((step) => ({ ...step, label: selectedRepo?.provider === "github" && step.id === "mr" ? "发起 PR" : step.label })),
     })
     try {
       const body = await streamInstallPlugin({
@@ -432,7 +432,7 @@ export function useInstallation({ selectedProject, selectedGitServerId, selected
             ...current,
             open: true,
             title: "正在恢复安装状态",
-            detail: "流式连接中断，正在读取最新 MR 状态。",
+            detail: "流式连接中断，正在读取最新合并请求状态。",
           }))
           const body = await requestInstallPlugin({
             gitServerId: selectedGitServerId,

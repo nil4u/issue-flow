@@ -271,3 +271,27 @@ test('installer failure redacts credentials and removes its temporary checkout',
   assert.equal(gitCalls('push').length, 0);
   assert.equal(fs.existsSync(path.dirname(execState.cloneTarget)), false);
 });
+
+test('GitHub App installation runs the GitHub installer and opens a PR using the installation credential', async () => {
+  resetExecState();
+  execState.statusOutput = ' M .github/workflows/issue-flow-auto.yml\n';
+  const { fixture } = require('./helpers/github.cjs');
+  const { githubInstaller } = require('../src/core/installation/github/adapter.ts');
+  const { installProjectPlugin } = require('../src/core/installation/workflow.ts');
+  const setup = fixture();
+  setup.mockFetch(({ path, method, init, body }) => {
+    if (path === '/repos/owner/repo/pulls' && method === 'POST') {
+      assert.equal(init.headers.Authorization, 'Bearer installation-token');
+      assert.equal(body.base, 'main');
+      assert.match(body.head, /^issue-flow\/install-/);
+      return Response.json({ id: 9, number: 3, html_url: 'https://github.com/owner/repo/pull/3' });
+    }
+  });
+  const result = await installProjectPlugin(setup.options, githubInstaller);
+  assert.equal(result.status, 202);
+  assert.equal(result.body.plugin.provider, 'github');
+  assert.equal(result.body.pendingMergeRequest.iid, '3');
+  assert.ok(installScriptCalls().every((call) => call.args[1] === 'github'));
+  assert.ok(gitCalls('add')[0].args.includes('.github/workflows'));
+  assert.equal(gitCalls('push').length, 1);
+});

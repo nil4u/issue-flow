@@ -7,6 +7,9 @@ datasource db {
 }
 
 model GitServer {
+  githubAppId       String   @default("") @map("github_app_id")
+  githubAppSlug     String   @default("") @map("github_app_slug")
+  githubPrivateKey  String   @default("") @map("github_private_key")
   id                String   @id
   type              String
   name              String   @default("")

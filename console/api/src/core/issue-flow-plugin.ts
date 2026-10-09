@@ -45,7 +45,7 @@ function pluginVersionValue(version) {
 
 function pluginState(cache) {
   if (cache && cache.pendingMergeRequest && cache.pendingMergeRequest.webUrl) {
-    return { status: 'needs_action', detail: `MR !${cache.pendingMergeRequest.iid || ''} 待合并`, needsUpgrade: Boolean(cache.needsUpgrade) }
+    return { status: 'needs_action', detail: `${(cache.provider || cache.source) === 'github' ? 'PR #' : 'MR !'}${cache.pendingMergeRequest.iid || ''} 待合并`, needsUpgrade: Boolean(cache.needsUpgrade) }
   }
   if (!cache || !cache.installed) {
     return { status: 'blocked', detail: '未安装', needsUpgrade: false }

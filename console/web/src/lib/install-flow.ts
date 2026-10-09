@@ -138,11 +138,12 @@ export function pluginInstallCompleteProgress(
   operationLabel: string
 ): InstallCheckProgress {
   const pendingMergeRequest = streamPendingMergeRequest(body)
+  const changeName = body.repository?.provider === "github" ? "PR" : "MR"
   return {
     ...current,
     open: true,
-    title: pendingMergeRequest?.webUrl ? "MR 已创建" : `${operationLabel}完成`,
-    detail: pendingMergeRequest?.webUrl ? "合并 MR 后，issue-flow 会刷新安装状态。" : "没有需要提交的变更。",
+    title: pendingMergeRequest?.webUrl ? `${changeName} 已创建` : `${operationLabel}完成`,
+    detail: pendingMergeRequest?.webUrl ? `合并 ${changeName} 后，issue-flow 会刷新安装状态。` : "没有需要提交的变更。",
     actionHref: pendingMergeRequest?.webUrl || current.actionHref,
     actionLabel: pendingMergeRequest?.webUrl ? "去合并" : current.actionLabel,
     steps: current.steps.map((step) => ({

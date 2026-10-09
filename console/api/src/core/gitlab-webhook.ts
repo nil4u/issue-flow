@@ -7,16 +7,13 @@ import {
   gitlabPipelineTarget,
   staticVariables,
 } from '@xmz-ai/gitlab-webhook-bridge'
+import { gitlabWebhookUrl as webhookUrl } from './events/urls.js'
 import { requireRepo, resolveGitServer } from './common.js'
 import { recordGitEvent, applyRepositoryChange } from './events/consume.js'
 import { gitlabEventFacts, gitlabPluginChange, optimizationIssueLifecycleFromGitlabPayload } from './events/gitlab.js'
 import { applyOptimizationIssueLifecycle } from './optimization-lifecycle.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
-
-function webhookUrl(basePublicUrl, repoId) {
-  return `${String(basePublicUrl || '').replace(/\/+$/, '')}/webhooks/gitlab/${encodeURIComponent(repoId)}`;
-}
 
 function createWebhookBridgeStore(store, repoId) {
   return {

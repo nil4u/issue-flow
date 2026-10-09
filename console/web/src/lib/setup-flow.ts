@@ -1,6 +1,11 @@
 import { api, type GitServer } from "@/issue-flow-model"
 
 export type SetupInitializeInput = {
+  type?: string
+  githubAppId?: string
+  githubAppSlug?: string
+  githubPrivateKey?: string
+  webhookSecret?: string
   setupCode: string
   baseUrl: string
   oauthClientId: string
@@ -21,7 +26,9 @@ export async function initializeIssueFlowSetup(input: SetupInitializeInput) {
     method: "POST",
     body: JSON.stringify({
       setupCode: input.setupCode,
-      type: "gitlab",
+      type: input.type || "gitlab",
+      githubApp: { appId: input.githubAppId, slug: input.githubAppSlug, privateKey: input.githubPrivateKey },
+      webhook: { secret: input.webhookSecret },
       baseUrl: input.baseUrl,
       oauth: {
         clientId: input.oauthClientId,
