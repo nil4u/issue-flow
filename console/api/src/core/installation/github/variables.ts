@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { publicIssueFlowBaseUrl } from '../config.js'
 import sodium from 'libsodium-wrappers'
 import { githubRepoPath, providerFetch } from '../../provider-api.js'
 import { githubPages, githubError } from '../../github/api.js'
@@ -9,7 +10,7 @@ import { installStep } from '../steps.js'
 function definitions(context) {
   const { installConfig, basePublicUrl, server } = context
   return [
-    { key: 'ISSUE_FLOW_BASE_URL', value: basePublicUrl },
+    { key: 'ISSUE_FLOW_BASE_URL', value: publicIssueFlowBaseUrl(basePublicUrl, context.env) },
     { key: 'AGENTRIX_BASE_URL', value: installConfig.agentrix?.baseUrl },
     { key: 'AGENTRIX_API_KEY', value: installConfig.agentrix?.apiKey, masked: true },
     { key: 'AGENTRIX_RUNNER_ID', value: installConfig.agentrix?.runnerId },

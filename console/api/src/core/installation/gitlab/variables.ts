@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { publicIssueFlowBaseUrl } from '../config.js'
 import { createGitlabProjectAccessToken, getGitlabVariableForInstall, publicGitlabVariable, getGitlabVariableForValidation, upsertGitlabProjectVariable, validateGitlabProjectApiToken } from '../../gitlab.js'
 import { validateAgentrixApiKey } from '../../agentrix-api.js'
 import { sanitizeError } from '../../sanitize.js'
@@ -24,7 +25,7 @@ function gitlabCiVariablesForInstall({ config, installConfig, basePublicUrl = ''
   const automation = installConfig.automation || {};
   const agentrix = installConfig.agentrix || {};
   const runnerId = agentrix.runnerId || automation.runnerId || '';
-  const issueFlowBaseUrl = String(basePublicUrl || env.ISSUE_FLOW_BASE_URL || '').trim().replace(/\/+$/, '');
+  const issueFlowBaseUrl = publicIssueFlowBaseUrl(basePublicUrl, env);
   return [
     {
       key: ISSUE_FLOW_GITLAB_TOKEN_KEY,

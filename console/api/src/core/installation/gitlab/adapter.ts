@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { publicIssueFlowBaseUrl } from '../config.js'
 import { gitlabInstallContext, resolveGitlabProjectAccess, openPendingMergeRequest, readGitlabIssueFlowManifest } from './context.js'
 import { checkGitlabAdminPatPermission, setGitlabProjectInstallPermission } from './permissions.js'
 import { checkWebhook, setGitlabProjectInstallWebhook } from './webhook.js'
@@ -18,7 +19,7 @@ function pluginProvider(context) {
     install: (input) => installGitlabPluginMergeRequest({
       ...apiInput, ...input, baseUrl: config.baseUrl,
       projectPath: project.pathWithNamespace, gitServerId: server.id, projectId: project.id,
-      issueFlowBaseUrl: basePublicUrl, branch, commitAuthor: config.commitAuthor,
+      issueFlowBaseUrl: publicIssueFlowBaseUrl(basePublicUrl, context.env), branch, commitAuthor: config.commitAuthor,
       mergeRequestTitle: input.mergeRequestTitle || `${input.operation === 'upgrade' ? 'Upgrade' : 'Install'} issue-flow plugin`,
     }),
   }
