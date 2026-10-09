@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { createGithubOAuthAuthorize } from "./github/auth.js"
+import { normalizeApiUrl } from "./store/shared.js"
 import crypto from "node:crypto"
 import { createGitlabOAuthAuthorize } from "./gitlab-auth.js"
 
@@ -66,6 +68,12 @@ function gitServerMissingFields(server = {}) {
     if (!hasText(server.commitAuthor?.name)) missing.push("commitAuthor.name")
     if (!hasText(server.commitAuthor?.email)) missing.push("commitAuthor.email")
   }
+  if (server.type === "github") {
+    for (const [key, value] of Object.entries({ "oauth.clientId": server.oauth?.clientId, "oauth.clientSecret": server.oauth?.clientSecret, "githubApp.appId": server.githubApp?.appId, "githubApp.slug": server.githubApp?.slug, "githubApp.privateKey": server.githubApp?.privateKey, "webhook.secret": server.webhook?.secret })) {
+      if (!hasText(value)) missing.push(key)
+    }
+  }
+  if (!["gitlab", "github"].includes(server.type)) missing.push("supported_provider")
   return missing
 }
 
@@ -98,19 +106,21 @@ function defaultCommitAuthorEmail(baseUrl = "") {
 }
 
 function gitServerInputFromSetup(input = {}) {
-  const baseUrl = normalizedUrl(input.baseUrl)
+  const type = input.type || "gitlab"
+  const baseUrl = normalizedUrl(input.baseUrl || (type === "github" ? "https://github.com" : ""))
   const host = gitlabHost(baseUrl)
   return {
-    id: input.id || defaultGitlabId(baseUrl),
+    id: input.id || (type === "github" ? `github-${gitlabHost(baseUrl).replace(/\./g, "-")}` : defaultGitlabId(baseUrl)),
+    githubApp: input.githubApp || {},
     type: input.type || "gitlab",
     name: input.name || host,
     baseUrl,
-    apiUrl: normalizedUrl(input.apiUrl) || defaultGitlabApiUrl(baseUrl),
+    apiUrl: normalizeApiUrl(baseUrl, input.apiUrl, type),
     tokenAuth: input.tokenAuth || "bearer",
     oauth: {
       clientId: input.oauth?.clientId || input.oauthClientId,
       clientSecret: input.oauth?.clientSecret || input.oauthClientSecret,
-      scopes: input.oauth?.scopes || input.oauthScopes || DEFAULT_GITLAB_OAUTH_SCOPES,
+      scopes: type === "github" ? "" : input.oauth?.scopes || input.oauthScopes || DEFAULT_GITLAB_OAUTH_SCOPES,
     },
     webhook: {
       secret: input.webhook?.secret || input.webhookSecret || crypto.randomBytes(32).toString("hex"),
@@ -165,7 +175,7 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
   }
   const gitServer = await store.ensureGitServer(gitServerInput)
 
-  const authorize = await createGitlabOAuthAuthorize({
+  const authorize = await (gitServer.type === "github" ? createGithubOAuthAuthorize : createGitlabOAuthAuthorize)({
     store,
     basePublicUrl,
     appUrl,
@@ -182,6 +192,7 @@ async function initializeSetup({ store, basePublicUrl, appUrl, input = {}, env =
       ok: true,
       gitServer: store.publicGitServer(gitServer),
       authorizeUrl: authorize.authorizeUrl,
+      oauthState: gitServer.type === "github" ? authorize.state : undefined,
     },
   }
 }

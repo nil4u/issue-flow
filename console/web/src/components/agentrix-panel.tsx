@@ -35,6 +35,7 @@ export function AgentrixPanel({
   userSession: UserSession
 }) {
   const gitServerId = useAgentrixContextGitServerId(userSession, gitServers)
+  const github = gitServers.find((server) => server.id === gitServerId)?.type === "github"
   const [resources, setResources] = useState<AgentrixResources>()
   const [deployCloud, setDeployCloud] = useState<AgentrixCloud>()
   const [expandedCloudId, setExpandedCloudId] = useState("")
@@ -88,7 +89,7 @@ export function AgentrixPanel({
         <div className="agentrix-empty-state">
           <AlertCircle className="size-5" />
           <strong>先关联 Git 账号</strong>
-          <span>Agentrix 配置按 issue-flow 用户保存，需要先关联至少一个 GitLab 账号。</span>
+          <span>Agentrix 配置按 issue-flow 用户保存，需要先关联至少一个 Git 账号。</span>
         </div>
       </section>
     )
@@ -140,10 +141,10 @@ export function AgentrixPanel({
                       </span>
                       <ChevronDown className={`size-4 agentrix-cloud-chevron ${expanded ? "expanded" : ""}`} />
                     </button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => setDeployCloud(cloud)}>
+                    {github ? <Button asChild size="sm" variant="secondary"><a href={resources?.agentrix?.baseUrl} target="_blank" rel="noreferrer">在 Agentrix 部署</a></Button> : <Button type="button" size="sm" variant="secondary" onClick={() => setDeployCloud(cloud)}>
                       <Wrench className="size-4" />
                       部署
-                    </Button>
+                    </Button>}
                   </div>
                   {expanded && (
                     <div className="agentrix-cloud-machines">
@@ -220,7 +221,7 @@ function MachineRow({ machine, local = false }: { machine: AgentrixCloudMachine 
 }
 
 function useAgentrixContextGitServerId(userSession: UserSession, gitServers: GitServer[]) {
-  const gitlabServerIds = useMemo(() => new Set(gitServers.filter((server) => server.type === "gitlab").map((server) => server.id)), [gitServers])
+  const gitlabServerIds = useMemo(() => new Set(gitServers.filter((server) => ["gitlab", "github"].includes(server.type)).map((server) => server.id)), [gitServers])
   return (userSession.accounts || [])
     .map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "")
     .find((id) => gitlabServerIds.has(id)) || ""

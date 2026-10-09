@@ -31,12 +31,9 @@ require('tsx/cjs');
 
 const { createApp } = require('../src/app.ts');
 const { IssueFlowStore } = require('../src/core/store.ts');
-const {
-  applyGitEventToIssueFacts,
-  applyGitlabIssueSnapshotToFacts,
-  applyIssueSnapshotToFacts,
-} = require('../src/core/issue-projection.ts');
-const { applyGitEventToPullRequestFacts } = require('../src/core/pull-request-projection.ts');
+const { applyIssueSnapshotToFacts } = require('../src/core/issue-projection.ts');
+const { applyGitEventToIssueFacts, applyGitlabIssueSnapshotToFacts } = require('../src/core/events/gitlab.ts');
+const { applyGitEventToPullRequestFacts } = require('../src/core/events/gitlab.ts');
 const { applyForwardedEventToTaskFacts } = require('../src/core/task-projection.ts');
 
 let testSchemaCounter = 0;

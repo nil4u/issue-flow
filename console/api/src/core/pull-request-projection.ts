@@ -1,6 +1,4 @@
 // @ts-nocheck
-
-import { labelsFromPayload } from "./issue-projection.js"
 import { issueFlowMarkers } from "./provenance-marker.js"
 
 const PR_KIND_BY_LABEL = new Map([
@@ -31,39 +29,7 @@ function pullRequestState(attributes = {}) {
   return "open"
 }
 
-function pullRequestSnapshot(gitEvent = {}) {
-  const payload = gitEvent.payload || {}
-  const objectKind = payload.object_kind || payload.event_type || ""
-  if (gitEvent.eventName !== "merge_request" && objectKind !== "merge_request") return undefined
-  const attributes = payload.object_attributes || {}
-  const prNumber = Number(attributes.iid || attributes.number || 0)
-  const pullRequestId = String(attributes.id || prNumber || "")
-  if (!pullRequestId || !prNumber) return undefined
-  const description = attributes.description || ""
-  const markers = issueFlowMarkers(description)
-  const state = pullRequestState(attributes)
-  const updatedAt = attributes.updated_at || attributes.created_at || gitEvent.receivedAt
-  return {
-    gitServerId: gitEvent.gitServerId,
-    repositoryId: gitEvent.repositoryId,
-    repositoryFullName: gitEvent.repositoryFullName,
-    issueNumber: markers.sourceIssueNumber,
-    openedByTaskId: markers.taskId,
-    sourceRuntime: markers.sourceRuntime,
-    pullRequestId,
-    prNumber,
-    kind: pullRequestKind(labelsFromPayload(payload)),
-    state,
-    htmlUrl: attributes.url || "",
-    openedAt: attributes.created_at || updatedAt,
-    mergedAt: attributes.merged_at || (state === "merged" ? updatedAt : ""),
-    closedAt: attributes.closed_at || (state === "closed" ? updatedAt : ""),
-    updatedAt,
-  }
-}
-
-async function applyGitEventToPullRequestFacts(store, gitEvent = {}) {
-  const snapshot = pullRequestSnapshot(gitEvent)
+async function applyPullRequestSnapshotToFacts(store, snapshot) {
   if (!snapshot) return undefined
   const { pullRequest } = await store.upsertPullRequestSnapshot(snapshot)
   if (snapshot.openedByTaskId && snapshot.sourceRuntime === "agentrix") {
@@ -78,10 +44,4 @@ async function applyGitEventToPullRequestFacts(store, gitEvent = {}) {
   return pullRequest
 }
 
-export {
-  applyGitEventToPullRequestFacts,
-  openedByTaskId,
-  pullRequestKind,
-  pullRequestSnapshot,
-  sourceIssueNumber,
-}
+export { applyPullRequestSnapshotToFacts, openedByTaskId, pullRequestKind, pullRequestState, sourceIssueNumber }

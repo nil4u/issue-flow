@@ -227,3 +227,71 @@ test('install merge request re-streams new plan when decisions are stale', async
   assert.equal(gitCalls('commit').length, 0);
   assert.equal(gitCalls('push').length, 0);
 });
+
+const { installPluginChange } = require('../src/core/installation/checkout.ts');
+
+test('shared checkout installs provider-selected files and creates a change through the adapter', async () => {
+  resetExecState();
+  execState.statusOutput = ' M .ci/workflow.yml\n';
+  let created;
+  const adapter = {
+    id: 'native-actions', changeName: 'PR',
+    remoteUrl: () => 'https://example/repo.git',
+    sparsePaths: ['.ci/**', '.issue-flow/**'], paths: ['.ci', '.issue-flow'],
+    async createChange(input) { created = input; return { id: '8', iid: '4', webUrl: 'https://example/pr/4' }; },
+  };
+  global.fetch = async () => assert.fail('shared checkout must not call GitLab');
+  const result = await installPluginChange(installInput(), adapter);
+  assert.equal(result.mergeRequest.iid, '4');
+  assert.ok(installScriptCalls().every((call) => call.args[1] === 'native-actions'));
+  assert.deepEqual(gitCalls('add')[0].args, ['add', '-A', '--', '.ci', '.issue-flow']);
+  assert.equal(created.targetBranch, 'main');
+  assert.deepEqual(gitCalls('commit')[0].args, ['commit', '-m', 'chore: install issue-flow plugin']);
+  assert.equal(fs.existsSync(path.dirname(execState.cloneTarget)), false);
+});
+
+test('unchanged checkout skips push and change creation', async () => {
+  resetExecState();
+  execState.statusOutput = '';
+  global.fetch = async () => assert.fail('no MR should be created');
+  const result = await installGitlabPluginMergeRequest(installInput());
+  assert.equal(result.skipped, true);
+  assert.equal(gitCalls('push').length, 0);
+  assert.equal(fs.existsSync(path.dirname(execState.cloneTarget)), false);
+});
+
+test('installer failure redacts credentials and removes its temporary checkout', async () => {
+  resetExecState();
+  execState.install = () => { throw new Error('failed with secret-token'); };
+  await assert.rejects(installGitlabPluginMergeRequest(installInput()), (error) => {
+    assert.match(error.message, /\[redacted\]/);
+    assert.doesNotMatch(error.message, /secret-token/);
+    return true;
+  });
+  assert.equal(gitCalls('push').length, 0);
+  assert.equal(fs.existsSync(path.dirname(execState.cloneTarget)), false);
+});
+
+test('GitHub App installation runs the GitHub installer and opens a PR using the installation credential', async () => {
+  resetExecState();
+  execState.statusOutput = ' M .github/workflows/issue-flow-auto.yml\n';
+  const { fixture } = require('./helpers/github.cjs');
+  const { githubInstaller } = require('../src/core/installation/github/adapter.ts');
+  const { installProjectPlugin } = require('../src/core/installation/workflow.ts');
+  const setup = fixture();
+  setup.mockFetch(({ path, method, init, body }) => {
+    if (path === '/repos/owner/repo/pulls' && method === 'POST') {
+      assert.equal(init.headers.Authorization, 'Bearer installation-token');
+      assert.equal(body.base, 'main');
+      assert.match(body.head, /^issue-flow\/install-/);
+      return Response.json({ id: 9, number: 3, html_url: 'https://github.com/owner/repo/pull/3' });
+    }
+  });
+  const result = await installProjectPlugin(setup.options, githubInstaller);
+  assert.equal(result.status, 202);
+  assert.equal(result.body.plugin.provider, 'github');
+  assert.equal(result.body.pendingMergeRequest.iid, '3');
+  assert.ok(installScriptCalls().every((call) => call.args[1] === 'github'));
+  assert.ok(gitCalls('add')[0].args.includes('.github/workflows'));
+  assert.equal(gitCalls('push').length, 1);
+});

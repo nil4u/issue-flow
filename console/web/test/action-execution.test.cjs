@@ -30,7 +30,8 @@ test('configuration loads independently and pending state refreshes without inst
   assert.match(component, /check-group action-execution-settings/);
   assert.match(component, /<header>\s*<strong>Agent Customize<\/strong>/);
   assert.match(component, /check-table-row needs_action/);
-  assert.match(component, /MR !\{pending.iid\} 待合并/);
+  assert.match(component, /changeName.*\{pending.iid\} 待合并/);
+  assert.match(component, /gitServer\?\.type === "github" \? "PR" : "MR"/);
   assert.match(component, /配置合并后生效/);
   assert.match(component, /<Button asChild size="sm" variant="secondary">/);
   assert.match(component, /href=\{pending.webUrl\}/);

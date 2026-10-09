@@ -13,7 +13,8 @@ import {
 export function useActionExecution(
   gitServerId: string,
   projectId: string,
-  enabled: boolean
+  enabled: boolean,
+  provider = "gitlab"
 ) {
   const [snapshot, setSnapshot] = useState<ActionExecutionSnapshot>()
   const [draft, setDraft] = useState<Record<string, ActionExecutionValues>>({})
@@ -31,7 +32,7 @@ export function useActionExecution(
         if (controller.signal.aborted) return
         setBusy(true)
         setError("")
-        return api<ActionExecutionResult>("/api/gitlab/action-execution/read", {
+        return api<ActionExecutionResult>(`/api/${provider}/action-execution/read`, {
           method: "POST",
           body: JSON.stringify({ gitServerId, projectId }),
           signal: controller.signal,
@@ -54,7 +55,7 @@ export function useActionExecution(
         if (!controller.signal.aborted) setBusy(false)
       })
     return () => controller.abort()
-  }, [gitServerId, projectId, enabled, refresh])
+  }, [gitServerId, projectId, enabled, refresh, provider])
 
   useEffect(() => {
     if (!enabled || !pending) return
@@ -71,7 +72,7 @@ export function useActionExecution(
     setError("")
     try {
       const result = await api<ActionExecutionResult>(
-        "/api/gitlab/action-execution/submit",
+        `/api/${provider}/action-execution/submit`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -92,7 +93,7 @@ export function useActionExecution(
     } finally {
       setBusy(false)
     }
-  }, [snapshot, busy, canManage, pending, gitServerId, projectId, draft])
+  }, [snapshot, busy, canManage, pending, gitServerId, projectId, draft, provider])
 
   return {
     snapshot,

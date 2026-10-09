@@ -35,7 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { VariableSettingsDialog } from "@/components/variable-settings-dialog"
 import { ActionExecutionSettings } from "@/components/action-execution-settings"
-import { gitlabInstallCheckConfig } from "@/install-check-config"
+import { gitlabInstallCheckConfig, installCheckConfig } from "@/install-check-config"
 import type { InstallStep, RepoWorkspaceProps, Repository, VariableInstallStatus } from "@/issue-flow-model"
 import type { InstallCheckConfigItem } from "@/install-check-config"
 import type { AgentrixHelpTopicId } from "@/lib/agentrix-help"
@@ -464,14 +464,16 @@ function buildInstallGroups({
 }): CheckGroup[] {
   const byId = new Map((installCheck?.steps || []).map((step) => [step.id, step]))
   if (!byId.has("webhook")) {
-    const hookId = String(repository?.settings?.webhook?.hookId || repository?.webhook?.hookId || "")
+    const cachedWebhook = repository?.settings?.webhook
+    const hookId = String(cachedWebhook?.hookId || repository?.webhook?.hookId || "")
     if (hookId) {
+      const changed = Boolean(repository?.webhookUrl && cachedWebhook?.url && repository.webhookUrl !== cachedWebhook.url)
       byId.set("webhook", {
         id: "webhook",
         kind: "api",
-        label: "GitLab webhook",
-        status: "passed",
-        detail: "Webhook 已配置",
+        label: repository?.provider === "github" ? "GitHub App webhook" : "GitLab webhook",
+        status: changed || cachedWebhook?.status === "needs_action" ? "needs_action" : "passed",
+        detail: changed ? `Webhook 地址需要更新为 ${repository?.webhookUrl}` : String(cachedWebhook?.detail || "Webhook 已配置"),
       })
     }
   }
@@ -494,7 +496,7 @@ function buildInstallGroups({
         key: item.name,
         label: item.name,
         description: accountAgentrixKey && !checkedVariable
-          ? "使用账户页已校验的 Agentrix API key 写入 GitLab CI 变量。"
+          ? "使用账户页已校验的 Agentrix API key 配置自动化。"
           : item.description,
         ...(checkedVariable || {}),
         exists,
@@ -518,7 +520,7 @@ function buildInstallGroups({
     }
     if (item.type === "permission") {
       const step = byId.get("permissions")
-      const permission = permissionByKey.get("admin-pat")
+      const permission = permissionByKey.get(item.id.replace("permission:", ""))
       return {
         id: item.id,
         title: item.name,
@@ -568,7 +570,7 @@ function buildInstallGroups({
       status: step?.status || fallbackStatus,
       detail: step?.detail || (item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : item.type === "webhook" ? "未配置" : runner?.detail),
       value: item.type === "webhook" && cachedWebhookHookId ? cachedWebhookUrl : runnerValue,
-      valueHref: runnerSettingsUrl,
+      valueHref: item.type === "webhook" ? String(cachedWebhook?.settingsUrl || "") || undefined : runnerSettingsUrl,
       runner: item.type === "git-runner" ? runner : undefined,
       files: step?.files,
       missing: step?.missing,
@@ -577,7 +579,7 @@ function buildInstallGroups({
       actionCount: step?.actionCount,
     }
   }
-  return gitlabInstallCheckConfig.groups.map((group) => ({
+  return installCheckConfig(repository?.provider).groups.map((group) => ({
     title: group.title,
     rows: group.items.map(row),
   }))
@@ -612,7 +614,7 @@ function pluginDetail(plugin?: NonNullable<CheckRow["plugin"]>) {
   if (!plugin) return "未安装"
   if (plugin.detail) return plugin.detail
   if (plugin.manifestInvalid) return "manifest 无效"
-  if (plugin.pendingMergeRequest?.webUrl) return `MR !${plugin.pendingMergeRequest.iid || ""} 待合并`
+  if (plugin.pendingMergeRequest?.webUrl) return `${plugin.provider === "github" ? "PR #" : "MR !"}${plugin.pendingMergeRequest.iid || ""} 待合并`
   if (plugin.installed && !plugin.installedVersion) return "版本未知，建议升级"
   if (plugin.installed && plugin.needsUpgrade) return pluginUpgradeLabel(plugin)
   if (plugin.installed) return pluginVersionLabel(plugin.installedVersion)
@@ -655,7 +657,7 @@ function variableDetail(variable: NonNullable<CheckRow["variable"]>) {
     return ""
   }
   if (status === "manual_required" || status === "needs_input" || variable.manualRequired || variable.needsInput) {
-    return variable.detail || "需要填写后写入 GitLab"
+    return variable.detail || "需要填写后保存"
   }
   if (status === "failed") {
     return variable.detail || "自动写入失败"
@@ -664,7 +666,7 @@ function variableDetail(variable: NonNullable<CheckRow["variable"]>) {
     return variable.detail || "当前账号无权验证 group 变量"
   }
   if (status === "pending_auto" || status === "needs_action" && Boolean(variable.autoWritable ?? variable.writable)) {
-    return "待自动写入 GitLab"
+    return "待自动写入"
   }
   return variable.detail || ""
 }
@@ -748,7 +750,7 @@ function CheckTableRow({
   onOpenHelp: (topicId: AgentrixHelpTopicId) => void
 }) {
   const canSetVariable = Boolean(row.variable) && !readOnly
-  const canSetWebhook = row.configItem?.type === "webhook" && !readOnly
+  const canSetWebhook = row.configItem?.type === "webhook" && row.configItem.configurable !== false && !readOnly
   const canSetLabels = row.configItem?.type === "labels" && !readOnly && row.status === "needs_action"
   const canSetRunner = row.configItem?.type === "git-runner" && !readOnly && row.status !== "passed"
   const canInstallPlugin = row.configItem?.type === "plugin"

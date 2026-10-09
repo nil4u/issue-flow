@@ -342,6 +342,9 @@ function withIssueStore(Base) {
           createdAt: asDate(createdAt),
           updatedAt: asDate(createdAt),
         },
+      }).catch(async (error) => {
+        if (error.code !== "P2002") throw error
+        return this.db.gitEvent.findUniqueOrThrow({ where: { gitServerId_deliveryId: { gitServerId, deliveryId } } })
       })
       await this.markRepositoryGitEvent(input.repoId, createdAt)
       return this.gitEventFromRecord(row)

@@ -16,7 +16,7 @@ export const agentrixHelpTopics: Record<AgentrixHelpTopicId, AgentrixHelpTopic> 
   "agentrix-api-key": {
     id: "agentrix-api-key",
     title: "获取 Agentrix API Key",
-    summary: "用于 GitLab CI 调用 Agentrix API。建议使用个人或团队专用 key，不要复用临时测试 key。",
+    summary: "用于自动化工作流调用 Agentrix API。建议使用个人或团队专用 key，不要复用临时测试 key。",
     steps: [
       "1. 打开 Agentrix Desktop 或 Web 控制台，进入 Settings。",
       "2. 在 DEVELOPER 区域点击 API Keys。",

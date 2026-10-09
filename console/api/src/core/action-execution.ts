@@ -6,9 +6,17 @@ import { sanitizeError } from './sanitize.js'
 
 const CONFIG_PATH = '.issue-flow/config.json'
 const submissions = new Set()
+function gitlabActionProvider(apiInput) {
+  return {
+    readFile: (input) => getGitlabRepositoryFile({ ...apiInput, ...input }),
+    readChange: (input) => getGitlabMergeRequest({ ...apiInput, ...input }),
+    commit: (input) => createGitlabRepositoryCommit({ ...apiInput, ...input }),
+    createChange: (input) => createGitlabMergeRequest({ ...apiInput, ...input }),
+  }
+}
 
-async function readConfiguration(apiInput, branch) {
-  const file = await getGitlabRepositoryFile({ ...apiInput, filePath: CONFIG_PATH, ref: branch })
+async function readConfiguration(provider, branch) {
+  const file = await provider.readFile({ filePath: CONFIG_PATH, ref: branch })
   if (!file) return { state: 'missing', exists: false }
   const revision = file.last_commit_id || file.blob_id || ''
   let config
@@ -27,7 +35,8 @@ async function readConfiguration(apiInput, branch) {
 async function actionExecutionForProject({ store, context, input = {}, save = false }) {
   const { project, existing, apiInput } = context
   if (!existing) return { status: 404, body: { error: 'repository_not_found' } }
-  const lockKey = `${apiInput.apiUrl}:${project.id}`
+  const provider = context.actionProvider || gitlabActionProvider(apiInput)
+  const lockKey = `${context.server?.apiUrl || apiInput?.apiUrl}:${project.id}`
   if (submissions.has(lockKey)) return { status: 409, body: { error: 'action_execution_submission_in_progress' } }
   submissions.add(lockKey)
   try {
@@ -36,7 +45,7 @@ async function actionExecutionForProject({ store, context, input = {}, save = fa
     let refreshError
     if (pendingMergeRequest) {
       try {
-        const mr = await getGitlabMergeRequest({ ...apiInput, iid: pendingMergeRequest.iid })
+        const mr = await provider.readChange({ iid: pendingMergeRequest.iid })
         if (mr && ['merged', 'closed'].includes(mr.state)) pendingMergeRequest = undefined
         else if (!mr) refreshError = 'pending_merge_request_refresh_failed'
       } catch {
@@ -44,7 +53,7 @@ async function actionExecutionForProject({ store, context, input = {}, save = fa
       }
     }
     const branch = project.defaultBranch || existing.defaultBranch || 'main'
-    const { config, ...snapshot } = await readConfiguration(apiInput, branch)
+    const { config, ...snapshot } = await readConfiguration(provider, branch)
     const actionExecution = {
       ...snapshot, branch, path: CONFIG_PATH, pendingMergeRequest, refreshError,
       actionNames: domain.ACTION_NAMES, fields: domain.ACTION_FIELDS, reasoningEfforts: [...domain.REASONING_EFFORTS],
@@ -64,8 +73,7 @@ async function actionExecutionForProject({ store, context, input = {}, save = fa
     if (JSON.stringify(next) === JSON.stringify(config)) return { status: 200, body: { skipped: true, actionExecution } }
     const sourceBranch = `issue-flow/action-execution-${randomUUID()}`
     try {
-      await createGitlabRepositoryCommit({
-        ...apiInput, branch: sourceBranch, startBranch: branch,
+      await provider.commit({ branch: sourceBranch, startBranch: branch,
         commitMessage: 'feat(issue-flow): configure action execution',
         actions: [{ action: 'update', file_path: CONFIG_PATH, content: `${JSON.stringify(next, null, 2)}\n`, last_commit_id: snapshot.revision }],
       })
@@ -73,8 +81,7 @@ async function actionExecutionForProject({ store, context, input = {}, save = fa
       if (error.status === 403) return { status: 403, body: { error: 'action_execution_permission_denied' } }
       return { status: error.status === 400 || error.status === 409 ? 409 : 502, body: { error: error.status === 400 || error.status === 409 ? 'action_execution_revision_conflict' : 'action_execution_commit_failed', detail: sanitizeError(error) } }
     }
-    const mr = await createGitlabMergeRequest({
-      ...apiInput, sourceBranch, targetBranch: branch, title: 'Configure Issue Flow action execution',
+    const mr = await provider.createChange({ sourceBranch, targetBranch: branch, title: 'Configure Issue Flow action execution',
       description: 'Update explicit agent, model and reasoning effort overrides in `.issue-flow/config.json`. Takes effect after merge for new tasks only; running and resumed tasks are unchanged.',
     })
     actionExecution.pendingMergeRequest = { iid: mr.iid, id: mr.id, webUrl: mr.web_url, sourceBranch, targetBranch: branch }
@@ -82,7 +89,7 @@ async function actionExecutionForProject({ store, context, input = {}, save = fa
     return { status: 202, body: { actionExecution, pendingMergeRequest: actionExecution.pendingMergeRequest } }
   } catch (error) {
     if (error.status === 403) return { status: 403, body: { error: 'action_execution_permission_denied' } }
-    return { status: 502, body: { error: 'action_execution_gitlab_failed', detail: sanitizeError(error) } }
+    return { status: 502, body: { error: `action_execution_${context.server?.type || 'gitlab'}_failed`, detail: sanitizeError(error) } }
   } finally {
     submissions.delete(lockKey)
   }

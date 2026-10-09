@@ -29,6 +29,7 @@ function withIdentityStore(Base) {
           secret: undefined,
           secretFingerprint: server.webhook && server.webhook.secretFingerprint || "",
         },
+        githubApp: { ...(server.githubApp || {}), privateKey: undefined },
         adminPat: undefined,
         adminPatFingerprint: server.adminPatFingerprint || "",
       }
@@ -395,12 +396,14 @@ function withIdentityStore(Base) {
       const oauthClientSecret = String(row.oauthClientSecret || "")
       const webhookSecret = String(row.webhookSecret || "")
       const adminPat = String(row.adminPat || "")
+      const privateKey = row.githubPrivateKey ? this.decrypt(row.githubPrivateKey) : ""
       const server = {
+        githubApp: { appId: row.githubAppId || "", slug: row.githubAppSlug || "", privateKeyFingerprint: fingerprintSecret(privateKey) },
         id: row.id,
         type: row.type || "gitlab",
         name: row.name || row.baseUrl || row.id,
         baseUrl: normalizeBaseUrl(row.baseUrl || ""),
-        apiUrl: normalizeApiUrl(row.baseUrl || "", row.apiUrl || ""),
+        apiUrl: normalizeApiUrl(row.baseUrl || "", row.apiUrl || "", row.type),
         tokenAuth: row.tokenAuth || "bearer",
         oauth: {
           clientId: row.oauthClientId || "",
@@ -422,6 +425,7 @@ function withIdentityStore(Base) {
       if (options.includeSecret) {
         server.oauth.clientSecret = oauthClientSecret
         server.webhook.secret = webhookSecret
+        server.githubApp.privateKey = privateKey
         server.adminPat = adminPat
         return server
       }
@@ -475,12 +479,15 @@ function withIdentityStore(Base) {
       const commitAuthor = hasCommitAuthor || !existing
         ? normalized.commitAuthor
         : existing.commitAuthor || normalized.commitAuthor
+      const githubApp = { ...existing?.githubApp, ...input.githubApp }
+      const githubFields = { githubAppId: githubApp.appId || "", githubAppSlug: githubApp.slug || "", githubPrivateKey: this.encrypt(githubApp.privateKey || "") }
       const now = new Date()
 
       await this.db.gitServer.upsert({
         where: { id: normalized.id },
         create: {
           id: normalized.id,
+          ...githubFields,
           type: normalized.type,
           name: normalized.name,
           baseUrl: normalized.baseUrl,
@@ -498,6 +505,7 @@ function withIdentityStore(Base) {
           updatedAt: now,
         },
         update: {
+          ...githubFields,
           type: normalized.type,
           name: normalized.name,
           baseUrl: normalized.baseUrl,

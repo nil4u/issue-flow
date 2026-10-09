@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify"
 
 import { getSetupStatus, initializeSetup } from "../core/setup.js"
+import { cookie, cookieSecure } from "../utils/http.js"
 import { contextFromRequest } from "../services/issue-flow.js"
 
 export async function setupRoutes(app: FastifyInstance) {
@@ -17,6 +18,7 @@ export async function setupRoutes(app: FastifyInstance) {
     if (result.status !== 201) {
       return reply.code(result.status).send(result.body)
     }
+    if (result.body.oauthState) reply.header("Set-Cookie", cookie("issue_flow_github_oauth", result.body.oauthState, { maxAge: 600, secure: cookieSecure(request) }))
     return reply
       .code(result.status)
       .send({

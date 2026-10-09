@@ -8,17 +8,10 @@ const {
   bindMetricsParams,
   metricsResultFromRows,
 } = require('../src/core/metrics-sql.ts');
-const {
-  openedByTaskId,
-  pullRequestKind,
-  pullRequestSnapshot,
-  sourceIssueNumber,
-} = require('../src/core/pull-request-projection.ts');
+const { openedByTaskId, pullRequestKind, sourceIssueNumber } = require('../src/core/pull-request-projection.ts');
+const { pullRequestSnapshot } = require('../src/core/events/gitlab.ts');
 const { issueFlowMarkers } = require('../src/core/provenance-marker.ts');
-const {
-  issueSnapshot,
-  issueSnapshotFromGitlabIssue,
-} = require('../src/core/issue-projection.ts');
+const { issueSnapshot, issueSnapshotFromGitlabIssue } = require('../src/core/events/gitlab.ts');
 
 test('issue projection persists docs labels as a first-class type', () => {
   const eventSnapshot = issueSnapshot({

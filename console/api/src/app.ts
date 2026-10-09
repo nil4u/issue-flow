@@ -4,10 +4,14 @@ import Fastify, { type FastifyRequest } from "fastify"
 import cors from "@fastify/cors"
 
 import { agentrixPrivateCloudRoutes } from "./routes/agentrix-private-cloud.js"
+import { githubRoutes } from "./routes/github.js"
+import { githubWebhookRoutes } from "./routes/webhooks/github.js"
+import { githubAuthRoutes } from "./routes/auth/github.js"
 import { gitlabAuthRoutes } from "./routes/auth/gitlab.js"
 import { dashboardRoutes } from "./routes/dashboards.js"
 import { gitServerRoutes } from "./routes/git-servers.js"
 import { gitlabRoutes } from "./routes/gitlab.js"
+import { installationRoutes } from "./routes/installation.js"
 import { healthRoutes } from "./routes/health.js"
 import { insightsRoutes } from "./routes/insights.js"
 import { issueRoutes } from "./routes/issues.js"
@@ -148,6 +152,9 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(sessionRoutes)
   await app.register(gitServerRoutes)
   await app.register(gitlabAuthRoutes)
+  await app.register(githubAuthRoutes)
+  await app.register(githubRoutes)
+  await app.register(githubWebhookRoutes)
   await app.register(agentrixPrivateCloudRoutes)
   await app.register(userAgentrixConfigRoutes)
   await app.register(userGitPatRoutes)
@@ -159,6 +166,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await app.register(visualArtifactRoutes)
   await app.register(dashboardRoutes)
   await app.register(gitlabRoutes)
+  await app.register(installationRoutes)
   await app.register(gitlabWebhookRoutes)
 
   app.get("/api", async () => ({

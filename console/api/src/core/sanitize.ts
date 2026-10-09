@@ -1,7 +1,7 @@
 // @ts-nocheck
 import crypto from 'node:crypto'
 
-const SECRET_KEY_PATTERN = /(token|secret|api[_-]?key|authorization|private[_-]?token)/i;
+const SECRET_KEY_PATTERN = /(token|secret|api[_-]?key|authorization|private[_-]?(?:token|key))/i;
 const SECRET_VALUE_PATTERN = /(glpat-|gldt-|glcbt-|glrt-|github_pat_|gh[pousr]_)[A-Za-z0-9_\-]+/g;
 
 function redactString(value) {
