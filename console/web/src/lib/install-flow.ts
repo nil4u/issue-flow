@@ -7,15 +7,6 @@ type PluginInstallApiInput = {
   decisions?: InstallConflictDecision
 }
 
-export const installCheckProgressSteps: InstallCheckProgress["steps"] = [
-  { id: "permissions", label: "Permissions", status: "pending" },
-  { id: "webhook", label: "Webhook", status: "pending" },
-  { id: "variables", label: "Variables", status: "pending" },
-  { id: "labels", label: "Labels", status: "pending" },
-  { id: "runners", label: "GitLab Runner", status: "pending" },
-  { id: "plugins", label: "Plugins", status: "pending" },
-]
-
 export const pluginInstallProgressSteps: InstallCheckProgress["steps"] = [
   { id: "clone", label: "克隆仓库", status: "pending" },
   { id: "install", label: "安装文件", status: "pending" },
@@ -40,7 +31,7 @@ export async function streamInstallPlugin(
   input: PluginInstallApiInput,
   onEvent: (event: string, data: unknown) => void
 ): Promise<{ kind: "complete"; body: InstallCheck } | { kind: "conflicts"; plan: InstallConflictPlan }> {
-  const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin/stream`, {
+  const response = await fetch(`${API_BASE_URL}/api/installation/plugin/stream`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -90,7 +81,7 @@ export async function streamInstallPlugin(
 }
 
 export async function requestInstallPlugin(input: PluginInstallApiInput) {
-  const response = await fetch(`${API_BASE_URL}/api/gitlab/install-plugin`, {
+  const response = await fetch(`${API_BASE_URL}/api/installation/plugin`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

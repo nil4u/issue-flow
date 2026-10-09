@@ -87,13 +87,13 @@ function pluginCacheFromManifest(manifest = {}, extra = {}) {
   const latestVersion = extra.latestVersion || LATEST_ISSUE_FLOW_VERSION
   const cache = {
     key: ISSUE_FLOW_PLUGIN_KEY,
-    source: 'gitlab',
+    source: manifest.provider || extra.provider || 'gitlab',
     manifestPath: ISSUE_FLOW_MANIFEST_PATH,
     installed: true,
     installedVersion,
     latestVersion,
     manifestVersion: Number(manifest.version || 0),
-    provider: manifest.provider || 'gitlab',
+    provider: manifest.provider || extra.provider || 'gitlab',
     runtime: manifest.runtime || 'agentrix',
     pendingMergeRequest: extra.pendingMergeRequest || undefined,
   }
@@ -109,7 +109,7 @@ function pluginCacheFromMergedPending(cache = {}) {
   const next = {
     ...cache,
     key: ISSUE_FLOW_PLUGIN_KEY,
-    source: 'gitlab',
+    source: cache.provider || cache.source || 'gitlab',
     manifestPath: ISSUE_FLOW_MANIFEST_PATH,
     installed: true,
     installedVersion,

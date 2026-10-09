@@ -38,7 +38,7 @@ const { normalizeGitLabWebhook } = require('@xmz-ai/gitlab-webhook-bridge');
 const { upsertGitlabWebhook, validateGitlabToken } = require('../src/core/gitlab.ts');
 const { getUserAgentrixConfig } = require('../src/core/user-agentrix-config.ts');
 const { handleGitlabWebhook } = require('../src/core/gitlab-webhook.ts');
-const { applyGitEventToIssueFacts, issueSnapshot } = require('../src/core/issue-projection.ts');
+const { applyGitEventToIssueFacts, issueSnapshot } = require('../src/core/events/gitlab.ts');
 const { connectGitlabSession } = require('../src/core/gitlab-auth.ts');
 const {
   checkGitlabProjectInstall,
@@ -1632,6 +1632,18 @@ test('GitLab webhook receiver authenticates with Git server secret and dispatche
       'POST /api/v4/projects/42/triggers',
       'POST /api/v4/projects/42/trigger/pipeline',
     ]);
+    const replay = await handleGitlabWebhook({
+      store, repoId: createdRepo.repo.id,
+      headers: {
+        'X-Gitlab-Token': 'backend-webhook-secret',
+        'X-Gitlab-Event': 'Merge Request Hook',
+        'X-Gitlab-Event-UUID': 'delivery-1',
+      },
+      rawBody: JSON.stringify(payload),
+    });
+    assert.equal(replay.status, 200);
+    assert.equal((await store.listGitEvents(createdRepo.repo.id)).length, 1);
+    assert.equal(calls.filter((call) => call.url.endsWith('/trigger/pipeline')).length, 1);
     assert.equal(pipelineVariables.GITLAB_BRIDGE_COMMENT_AUTHOR, undefined);
     for (const user of [{ username: 'ci-bot', name: 'CI Bot' }, { name: 'CI Bot' }, null]) {
       const note = await handleGitlabWebhook({

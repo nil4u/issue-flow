@@ -25,25 +25,6 @@ function optimizationIssueLifecycle(issue = {}) {
   }
 }
 
-function optimizationIssueLifecycleFromGitlabPayload(payload = {}) {
-  const kind = payload.object_kind || payload.objectKind || payload.event_type || payload.eventType || ""
-  if (kind !== "issue") return undefined
-  const attributes = payload.object_attributes || payload.objectAttributes || {}
-  const action = String(attributes.action || "").toLowerCase()
-  const rawState = String(attributes.state || "").toLowerCase()
-  const state = action === "close" || rawState === "closed"
-    ? "closed"
-    : action === "open" || action === "reopen" || rawState === "open" || rawState === "opened"
-      ? "open"
-      : ""
-  return optimizationIssueLifecycle({
-    number: attributes.iid || attributes.number,
-    body: attributes.description || "",
-    state,
-    labels: payload.labels || attributes.labels || [],
-  })
-}
-
 function labelsForLifecycle(sourceLabels, lifecycle) {
   if (lifecycle.state === "open") {
     return domain.applyManagedLabels(sourceLabels, { optimizationState: "optimization::analyzing" })
@@ -75,5 +56,4 @@ async function applyOptimizationIssueLifecycle({ server, repo, issue, lifecycle:
 export {
   applyOptimizationIssueLifecycle,
   optimizationIssueLifecycle,
-  optimizationIssueLifecycleFromGitlabPayload,
 }

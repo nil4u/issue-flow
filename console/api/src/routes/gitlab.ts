@@ -14,7 +14,7 @@ import {
   setGitlabProjectInstallWebhook,
 } from "../core/gitlab-projects.js"
 import { contextFromRequest, sessionFromRequest } from "../services/issue-flow.js"
-import { allowedOrigin } from "../utils/http.js"
+import { streamPluginInstall } from "./installation/stream.js"
 
 export async function gitlabRoutes(app: FastifyInstance) {
   for (const action of ['read', 'submit']) {
@@ -160,47 +160,10 @@ export async function gitlabRoutes(app: FastifyInstance) {
     const input = (request.body || {}) as Record<string, unknown>
     const session = await sessionFromRequest(request, String(input.gitServerId || ""))
 
-    reply.hijack()
-    const origin = String(request.headers.origin || "")
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "Access-Control-Allow-Origin": allowedOrigin(origin),
-      "Access-Control-Allow-Credentials": "true",
-      Vary: "Origin",
-    })
-
-    const send = (event: string, data: unknown) => {
-      reply.raw.write(`event: ${event}\n`)
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
-    }
-
-    try {
-      const result = await installGitlabProjectPlugin({
-        ...contextFromRequest(request),
-        input: {
-          ...input,
-          onProgress: (step: unknown) => send("progress", step),
-        },
-        session,
-      })
-      if (result.status >= 400) {
-        if (result.status === 409 && Array.isArray((result.body as { conflicts?: unknown }).conflicts)) {
-          send("conflicts", result.body)
-        } else {
-          send("error", result.body)
-        }
-      } else {
-        send("complete", result.body)
-      }
-    } catch (error) {
-      send("error", {
-        error: error instanceof Error ? error.message : "install_plugin_stream_failed",
-      })
-    } finally {
-      reply.raw.end()
-    }
+    return streamPluginInstall(request, reply, (onProgress) => installGitlabProjectPlugin({
+      ...contextFromRequest(request),
+      input: { ...input, onProgress },
+      session,
+    }))
   })
-
 }

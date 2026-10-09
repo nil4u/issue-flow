@@ -30,7 +30,6 @@ const {
 } = require("../src/core/managed-issue-labels.ts")
 const {
   applyOptimizationIssueLifecycle,
-  optimizationIssueLifecycleFromGitlabPayload,
 } = require("../src/core/optimization-lifecycle.ts")
 
 test("workflow changes replace only the requested managed prefix", () => {
@@ -644,3 +643,5 @@ test("GitLab issue create, edit, comment, close, and reopen use provider APIs", 
   assert.deepEqual(requests[3].body, { state_event: "close" })
   assert.deepEqual(requests[4].body, { state_event: "reopen" })
 })
+
+const { optimizationIssueLifecycleFromGitlabPayload } = require('../src/core/events/gitlab.ts');

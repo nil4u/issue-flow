@@ -8,13 +8,9 @@ import {
   staticVariables,
 } from '@xmz-ai/gitlab-webhook-bridge'
 import { requireRepo, resolveGitServer } from './common.js'
-import { applyGitEventToIssueFacts } from './issue-projection.js'
-import { applyGitEventToPullRequestFacts } from './pull-request-projection.js'
-import {
-  ISSUE_FLOW_PLUGIN_KEY,
-  pluginCacheFromMergedPending,
-} from './issue-flow-plugin.js'
-import { applyOptimizationIssueLifecycle, optimizationIssueLifecycleFromGitlabPayload } from './optimization-lifecycle.js'
+import { recordGitEvent, applyRepositoryChange } from './events/consume.js'
+import { gitlabEventFacts, gitlabPluginChange, optimizationIssueLifecycleFromGitlabPayload } from './events/gitlab.js'
+import { applyOptimizationIssueLifecycle } from './optimization-lifecycle.js'
 import { compactNulls, sanitize } from './sanitize.js'
 import { sanitizeError } from './sanitize.js'
 
@@ -59,7 +55,7 @@ function createGitEventTarget(store, repo) {
   return deliveryTarget('issue-flow-git-event-log', async (input) => {
     const event = input.events[0] || {};
     const raw = event.raw || {};
-    const gitEvent = await store.createGitEvent({
+    const record = {
       repoId: repo.id,
       gitServerId: repo.gitServerId,
       repositoryId: event.project && event.project.id !== undefined ? String(event.project.id) : repo.projectId || '',
@@ -71,9 +67,8 @@ function createGitEventTarget(store, repo) {
       objectId: eventObjectId(event),
       payload: sanitize(compactNulls(raw.body || {})),
       normalizedEvents: input.events.map(normalizedEventFact),
-    });
-    await applyGitEventToIssueFacts(store, gitEvent);
-    await applyGitEventToPullRequestFacts(store, gitEvent);
+    };
+    await recordGitEvent(store, record, gitlabEventFacts);
     return {
       target: 'issue-flow-git-event-log',
       eventId: input.deliveryId,
@@ -83,14 +78,10 @@ function createGitEventTarget(store, repo) {
   });
 }
 
-function createIssueFlowBusinessTarget(store, repo, secrets) {
+function createIssueFlowBusinessTarget(store, repo) {
   return deliveryTarget('issue-flow-business', async (input) => {
-    const handled = (await Promise.all((input.events || []).map((event) => handleIssueFlowBusinessEvent({
-      store,
-      repo,
-      secrets,
-      event,
-    })))).flat().filter(Boolean);
+    const changes = (input.events || []).map((event) => gitlabPluginChange(event.raw?.body || {}));
+    const handled = (await Promise.all(changes.map((change) => applyRepositoryChange({ store, repo, change })))).flat();
     return {
       target: 'issue-flow-business',
       eventId: input.deliveryId,
@@ -143,7 +134,7 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
     targets: [
       createGitEventTarget(store, repo),
       createOptimizationLifecycleTarget(repo, secrets),
-      createIssueFlowBusinessTarget(store, repo, secrets),
+      createIssueFlowBusinessTarget(store, repo),
       gitlabPipelineTarget({
         variables: composeVariables([
           defaultVariables(),
@@ -157,101 +148,6 @@ function createGitLabWebhookBridge({ store, repo, secrets }) {
       }),
     ],
   });
-}
-
-function mergedMergeRequest(payload = {}) {
-  const attributes = payload.object_attributes || payload.objectAttributes || {}
-  const kind = payload.object_kind || payload.objectKind || payload.event_type || payload.eventType || ''
-  if (kind !== 'merge_request') return undefined
-  const state = attributes.state || ''
-  const action = attributes.action || ''
-  if (state !== 'merged' && action !== 'merge') return undefined
-  return {
-    iid: attributes.iid !== undefined ? String(attributes.iid) : '',
-    sourceBranch: attributes.source_branch || attributes.sourceBranch || '',
-    targetBranch: attributes.target_branch || attributes.targetBranch || '',
-  }
-}
-
-function closedMergeRequest(payload = {}) {
-  const attributes = payload.object_attributes || payload.objectAttributes || {}
-  const kind = payload.object_kind || payload.objectKind || payload.event_type || payload.eventType || ''
-  if (kind !== 'merge_request') return undefined
-  const state = attributes.state || ''
-  const action = attributes.action || ''
-  if (state !== 'closed' && action !== 'close') return undefined
-  return {
-    iid: attributes.iid !== undefined ? String(attributes.iid) : '',
-    sourceBranch: attributes.source_branch || attributes.sourceBranch || '',
-  }
-}
-
-function pendingPlugin(repository = {}) {
-  return (repository.settings && repository.settings.plugins && repository.settings.plugins.items || [])
-    .find((item) => item && item.key === ISSUE_FLOW_PLUGIN_KEY && item.pendingMergeRequest)
-}
-
-function pluginMergeMatches(pending, mergeRequest) {
-  if (!pending || !mergeRequest) return false
-  const mr = pending.pendingMergeRequest || {}
-  if (mr.iid && mergeRequest.iid && String(mr.iid) === String(mergeRequest.iid)) return true
-  const source = mergeRequest.sourceBranch || ''
-  return source.startsWith('issue-flow/install-') || source.startsWith('issue-flow/upgrade-')
-}
-
-async function handleIssueFlowBusinessEvent({ store, repo, event }) {
-  const payload = event && event.raw && event.raw.body || {}
-  return Promise.all([
-    refreshPluginAfterMerge({ store, repo, payload }),
-    clearPluginAfterClose({ store, repo, payload }),
-    clearActionExecutionPending({ store, repo, payload }),
-  ])
-}
-
-async function clearActionExecutionPending({ store, repo, payload }) {
-  const mergeRequest = mergedMergeRequest(payload) || closedMergeRequest(payload)
-  if (!mergeRequest) return undefined
-  const repository = await store.getRepository(repo.id)
-  const cached = repository.settings?.actionExecution
-  const pending = cached?.pendingMergeRequest
-  if (!pending || String(pending.iid) !== String(mergeRequest.iid) || pending.sourceBranch !== mergeRequest.sourceBranch) return undefined
-  await store.updateRepositorySettingsCache(repo.id, {
-    actionExecution: { ...cached, state: 'stale', pendingMergeRequest: undefined, checkedAt: new Date().toISOString() },
-  })
-  return 'action_execution_pending_cleared'
-}
-
-async function refreshPluginAfterMerge({ store, repo, payload }) {
-  const mergeRequest = mergedMergeRequest(payload)
-  if (!mergeRequest) return undefined
-  const repository = await store.getRepository(repo.id)
-  const pending = pendingPlugin(repository)
-  if (!pluginMergeMatches(pending, mergeRequest)) return undefined
-  await store.updateRepositorySettingsCache(repo.id, {
-    plugins: {
-      items: [pluginCacheFromMergedPending(pending)],
-      checkedAt: new Date().toISOString(),
-    },
-  })
-  return 'plugin_merge_refreshed'
-}
-
-async function clearPluginAfterClose({ store, repo, payload }) {
-  const mergeRequest = closedMergeRequest(payload)
-  if (!mergeRequest) return undefined
-  const repository = await store.getRepository(repo.id)
-  const pending = pendingPlugin(repository)
-  if (!pluginMergeMatches(pending, mergeRequest)) return undefined
-  await store.updateRepositorySettingsCache(repo.id, {
-    plugins: {
-      items: [{
-        ...pending,
-        pendingMergeRequest: undefined,
-      }],
-      checkedAt: new Date().toISOString(),
-    },
-  })
-  return 'plugin_pending_merge_cleared'
 }
 
 async function handleGitlabWebhook({ store, repoId, headers = {}, rawBody = '' }) {

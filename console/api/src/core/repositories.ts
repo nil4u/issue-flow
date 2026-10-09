@@ -8,7 +8,7 @@ import {
   resolveGitServer,
 } from './common.js'
 import { listGitlabIssues, validateGitlabToken } from './gitlab.js'
-import { applyGitlabIssueSnapshotToFacts } from './issue-projection.js'
+import { applyGitlabIssueSnapshotToFacts } from './events/gitlab.js'
 
 async function requireAccessibleRepo(store, repoId, userId) {
   if (!userId) {
