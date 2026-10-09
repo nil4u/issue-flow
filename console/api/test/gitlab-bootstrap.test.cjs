@@ -13,6 +13,7 @@ const execState = {
   cloneTarget: '',
   statusOutput: ' M .gitlab-ci.yml\n',
   install: () => ({ stdout: '', stderr: '' }),
+  generatedConfig: undefined,
 };
 
 function handleExec(file, args) {
@@ -20,6 +21,10 @@ function handleExec(file, args) {
   if (file === 'git') {
     if (args[0] === 'clone') {
       execState.cloneTarget = args[args.length - 1];
+    }
+    if (args[0] === 'add') {
+      const configPath = path.join(execState.cloneTarget, '.issue-flow/config.json');
+      if (fs.existsSync(configPath)) execState.generatedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     }
     if (args[0] === 'status') {
       return { stdout: execState.statusOutput, stderr: '' };
@@ -55,6 +60,7 @@ test.after(() => {
 });
 
 function resetExecState() {
+  execState.generatedConfig = undefined;
   execState.calls = [];
   execState.cloneTarget = '';
   execState.statusOutput = ' M .gitlab-ci.yml\n';
@@ -295,3 +301,41 @@ test('GitHub App installation runs the GitHub installer and opens a PR using the
   assert.ok(gitCalls('add')[0].args.includes('.github/workflows'));
   assert.equal(gitCalls('push').length, 1);
 });
+
+
+for (const providerName of ['github', 'gitlab']) {
+  test(`${providerName} upgrade commits the stored Console identity and public service address`, async () => {
+    resetExecState();
+    const serverId = 'actual-server-7e84';
+    const config = { gitServerId: 'outdated', baseUrl: 'http://localhost:8788', agentrix: { actions: { build: { model: 'custom' } } } };
+    execState.install = () => {
+      const configDir = path.join(execState.cloneTarget, '.issue-flow');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(config));
+      return { stdout: '{}', stderr: '' };
+    };
+    const { fixture, server } = require('./helpers/github.cjs');
+    const setup = fixture();
+    setup.mockFetch(({ path, method }) => {
+      if (path.endsWith('/pulls') && method === 'POST') return Response.json({ id: 9, number: 3, html_url: 'https://github.com/owner/repo/pull/3' });
+      if (path.endsWith('/merge_requests') && method === 'POST') return Response.json({ id: 9, iid: 3, web_url: 'https://gitlab.example/mr/3' });
+    });
+    const context = {
+      server: { ...server, id: serverId, agentrixGitServerId: 'agentrix-server-separate' },
+      config: { baseUrl: 'https://gitlab.example', commitAuthor: server.commitAuthor },
+      project: { id: '123', fullName: 'owner/repo', pathWithNamespace: 'owner/repo', defaultBranch: 'main' },
+      existing: setup.repository,
+      apiInput: { apiUrl: 'https://gitlab.example/api/v4', token: 'token', projectIdOrPath: '123' },
+      basePublicUrl: 'http://127.0.0.1:8788', env: { ISSUE_FLOW_WEBHOOK_BASE_URL: 'https://public.example/' },
+      appAccess: async () => ({ client: { ...server, userToken: 'token' }, token: 'token' }),
+    };
+    const installer = providerName === 'github'
+      ? require('../src/core/installation/github/adapter.ts').githubInstaller
+      : require('../src/core/installation/gitlab/adapter.ts').gitlabInstaller;
+    await installer.plugin(context).install({ operation: 'upgrade' });
+    assert.equal(execState.generatedConfig.gitServerId, serverId);
+    assert.equal(execState.generatedConfig.projectId, '123');
+    assert.equal(execState.generatedConfig.baseUrl, 'https://public.example');
+    assert.deepEqual(execState.generatedConfig.agentrix, config.agentrix);
+  });
+}

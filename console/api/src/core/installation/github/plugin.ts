@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { publicIssueFlowBaseUrl } from '../config.js'
 import { githubRepoPath, providerFetch } from '../../provider-api.js'
 import { ISSUE_FLOW_MANIFEST_PATH } from '../../issue-flow-plugin.js'
 import { installPluginChange } from '../checkout.js'
@@ -29,7 +30,7 @@ export function githubPluginProvider(context) {
     },
     async install(input) {
       const { client, token } = await context.appAccess()
-      return installPluginChange({ ...input, branch, token, gitServerId: server.id, projectId: project.id, issueFlowBaseUrl: basePublicUrl, commitAuthor: server.commitAuthor }, {
+      return installPluginChange({ ...input, branch, token, gitServerId: server.id, projectId: project.id, issueFlowBaseUrl: publicIssueFlowBaseUrl(basePublicUrl, context.env), commitAuthor: server.commitAuthor }, {
         id: 'github', changeName: 'PR',
         remoteUrl() {
           const url = new URL(`${server.baseUrl}/${project.fullName}.git`)

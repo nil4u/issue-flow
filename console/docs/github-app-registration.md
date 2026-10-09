@@ -78,3 +78,9 @@ Actions 检查验证 API 可访问，实际执行仍受仓库/组织的 Actions 
 另设 `ISSUE_FLOW_WEBHOOK_BASE_URL=https://你的公网隧道域名`，GitHub App 的 Webhook URL 填写该地址加 `/webhooks/github`。该配置独立于 OAuth 回调，更新后重启 API。检查会拒绝把 loopback 地址推荐给 GitHub；地址匹配只说明配置一致，真实投递结果仍以 GitHub Recent deliveries 为准。
 
 GitLab 也使用同一 `ISSUE_FLOW_WEBHOOK_BASE_URL`，接收路径为 `/webhooks/gitlab/<repoId>`。仓库返回的 webhook URL、安装检查和自动配置共用此规则。已有 GitLab webhook 地址变化后，检查保留已识别的 hook ID，点击“自动配置”更新原 webhook。未设置该变量时，两种平台都回退到 `ISSUE_FLOW_BASE_URL`；loopback 地址不能作为远端 Git 平台的 webhook 目标。
+
+### 安装与升级生成的仓库配置
+
+`.issue-flow/config.json` 中的 `gitServerId` 读取 Console 已保存的 Git server 记录 ID，用于 Plan 页面与任务上下文路由；升级时不根据域名推导，也不使用 Agentrix 的 `AGENTRIX_GIT_SERVER_ID` 替代。`projectId` 使用 Git 平台返回的实际项目 ID。
+
+`baseUrl` 与安装器写入 CI 的 `ISSUE_FLOW_BASE_URL` 使用同一规则：优先 `ISSUE_FLOW_PUBLIC_BASE_URL`；否则使用可远程访问的 `ISSUE_FLOW_BASE_URL`；本机地址则回退到 `ISSUE_FLOW_WEBHOOK_BASE_URL` 的公网入口。无法确定可访问地址时拒绝安装，避免把 localhost 提交到仓库。OAuth 回调继续使用原来的地址配置。

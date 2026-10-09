@@ -140,7 +140,7 @@ async function installPlugin(context) {
       mergeRequestTitle: input.mergeRequestTitle, onProgress: input.onProgress, decisions: input.decisions,
     })
   } catch (error) {
-    return { status: error.status || 502, body: { error: `${provider.id}_plugin_install_failed`, detail: sanitizeError(error) } }
+    return { status: error.status || 502, body: { error: error.code || `${provider.id}_plugin_install_failed`, detail: sanitizeError(error) } }
   }
   if (result.conflicts) return { status: 409, body: { fingerprint: result.plan?.fingerprint || '', conflicts: result.plan?.conflicts || [] } }
   return result.skipped ? skippedInstallation(context, previous) : pendingInstallation(context, previous, result)
