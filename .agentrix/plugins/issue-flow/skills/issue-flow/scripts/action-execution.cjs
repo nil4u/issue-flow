@@ -1,45 +1,5 @@
-const ACTION_FIELDS = ['agent', 'model', 'reasoningEffort'];
-const REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const { ACTION_FIELDS, REASONING_EFFORTS, validateActionObject, validateActionExecutionConfig } = require('../../../domain/action-execution.cjs');
 const DEFAULT_AGENT = 'codex';
-
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function validateActionObject(value, fieldPath) {
-  if (value === null || value === undefined) return {};
-  if (!isPlainObject(value)) {
-    throw new Error(`${fieldPath} must be an object.`);
-  }
-  for (const [field, fieldValue] of Object.entries(value)) {
-    if (!ACTION_FIELDS.includes(field)) {
-      throw new Error(`${fieldPath}.${field} is not a supported action execution field.`);
-    }
-    if (fieldValue === null) continue;
-    if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
-      throw new Error(`${fieldPath}.${field} must be a non-empty string or null.`);
-    }
-    if (field === 'reasoningEffort' && !REASONING_EFFORTS.has(fieldValue)) {
-      throw new Error(`${fieldPath}.reasoningEffort must be one of ${[...REASONING_EFFORTS].join(', ')}.`);
-    }
-  }
-  return value;
-}
-
-function validateActionExecutionConfig(config = {}, configPath = '.issue-flow/config.json') {
-  if (!isPlainObject(config)) {
-    throw new Error(`${configPath}.agentrix must be an object.`);
-  }
-  const actions = config.actions;
-  if (actions === undefined || actions === null) return {};
-  if (!isPlainObject(actions)) {
-    throw new Error(`${configPath}.agentrix.actions must be an object.`);
-  }
-  for (const [action, value] of Object.entries(actions)) {
-    validateActionObject(value, `${configPath}.agentrix.actions.${action}`);
-  }
-  return actions;
-}
 
 function readValue(source, key) {
   if (source && Object.prototype.hasOwnProperty.call(source, key) && source[key] !== null) {
