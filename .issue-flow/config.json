@@ -16,7 +16,10 @@
         "reasoningEffort": "medium"
       },
       "plan": {},
-      "build": {},
+      "build": {
+        "agent": "claude code",
+        "model": "claude-opus-5-5"
+      },
       "review": {},
       "general": {}
     }
