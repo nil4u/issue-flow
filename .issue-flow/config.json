@@ -1,7 +1,7 @@
 {
-  "gitServerId": "",
-  "projectId": "",
-  "baseUrl": "",
+  "gitServerId": "github-github-com",
+  "projectId": "1260059913",
+  "baseUrl": "https://issue-flow.bella.top",
   "agentrix": {
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
@@ -23,6 +23,9 @@
   },
   "milestone": {
     "enabled": true,
-    "branchPatterns": ["release/*", "integration/*"]
+    "branchPatterns": [
+      "release/*",
+      "integration/*"
+    ]
   }
 }
