@@ -15,7 +15,10 @@
         "model": "gpt-6.1-sol",
         "reasoningEffort": "medium"
       },
-      "plan": {},
+      "plan": {
+        "agent": "claude code",
+        "model": "claude-opus-5.5"
+      },
       "build": {},
       "review": {},
       "general": {}
