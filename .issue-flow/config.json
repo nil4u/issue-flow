@@ -1,7 +1,7 @@
 {
-  "gitServerId": "",
-  "projectId": "",
-  "baseUrl": "",
+  "gitServerId": "github-github-com",
+  "projectId": "1260059913",
+  "baseUrl": "https://issue-flow.bella.top",
   "agentrix": {
     "promptsDir": ".issue-flow/prompts",
     "templatesDir": ".issue-flow/templates",
@@ -16,13 +16,19 @@
         "reasoningEffort": "medium"
       },
       "plan": {},
-      "build": {},
+      "build": {
+        "agent": "claude code",
+        "model": "claude-opus-5-5"
+      },
       "review": {},
       "general": {}
     }
   },
   "milestone": {
     "enabled": true,
-    "branchPatterns": ["release/*", "integration/*"]
+    "branchPatterns": [
+      "release/*",
+      "integration/*"
+    ]
   }
 }

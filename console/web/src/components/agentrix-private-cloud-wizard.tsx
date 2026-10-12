@@ -30,9 +30,8 @@ export function AgentrixPrivateCloudWizard({
     () => new Set((userSession.accounts || []).map((item) => item.account?.gitServerId || item.gitServer?.id || item.session?.gitServerId || "").filter(Boolean)),
     [userSession.accounts]
   )
-  const selectableServers = gitServers.filter((server) => server.type === "gitlab")
-  const firstLinkedServer = selectableServers.find((server) => linkedGitServerIds.has(server.id))
-  const [gitServerId, setGitServerId] = useState(firstLinkedServer?.id || selectableServers[0]?.id || "")
+  const selectableServers = gitServers.filter((server) => ["gitlab", "github"].includes(server.type))
+  const [gitServerId, setGitServerId] = useState("")
   const [step, setStep] = useState<StepId>("git")
   const [config, setConfig] = useState<AgentrixPrivateCloudConfig>()
   const [command, setCommand] = useState("")
@@ -53,16 +52,13 @@ export function AgentrixPrivateCloudWizard({
     message: "",
     key: "",
   })
+  const runnerId = String(cloud.id || cloud.cloudId || "").trim()
+  const selectedServer = selectableServers.find((server) => server.id === gitServerId)
+  const isGitlab = selectedServer?.type === "gitlab"
   const connected = Boolean(gitServerId && linkedGitServerIds.has(gitServerId))
 
   useEffect(() => {
-    if (gitServerId || !selectableServers.length) return
-    setGitServerId(firstLinkedServer?.id || selectableServers[0]?.id || "")
-  }, [firstLinkedServer?.id, gitServerId, selectableServers])
-
-  useEffect(() => {
-    if (!gitServerId) return
-    void loadConfig(gitServerId)
+    void loadConfig(gitServerId).catch(() => {})
   }, [gitServerId])
 
   async function loadConfig(nextGitServerId = gitServerId, options: { notify?: boolean } = {}) {
@@ -88,7 +84,7 @@ export function AgentrixPrivateCloudWizard({
       setConfig(latestConfig)
       setStatus("ready")
       setStatusText("")
-      setStep("pat")
+      setStep(isGitlab ? "pat" : "llm")
     } catch (error) {
       setStatus("error")
       setStatusText(errorMessage(error))
@@ -167,11 +163,11 @@ export function AgentrixPrivateCloudWizard({
     setStatusText("正在生成 Docker 命令...")
     try {
       setStatusText("正在生成 Docker 命令...")
-      const body = await api<RunnerGitlabTokenResult>("/api/agentrix/private-cloud/gitlab-token", {
+      const body = await api<RunnerGitlabTokenResult>("/api/agentrix/private-cloud/command", {
         method: "POST",
         body: JSON.stringify({
-          gitServerId,
-          runnerId: cloud.id,
+          gitServerId: gitServerId || undefined,
+          runnerId,
           llmProxyBaseUrl: llmProxyBaseUrl.trim(),
           llmProxyApiKey: llmProxyApiKey.trim(),
           commitAuthor: {
@@ -238,15 +234,15 @@ export function AgentrixPrivateCloudWizard({
   }
 
   function canConfirmGitServer() {
-    return connected && validRunnerId(cloud.id)
+    return (!gitServerId || connected) && validRunnerId(runnerId)
   }
 
   function canConfirmLlmProxy() {
-    return canConfirmGitPat() && Boolean(llmProxyBaseUrl.trim() && llmProxyApiKey.trim())
+    return (isGitlab ? canConfirmGitPat() : canConfirmGitServer()) && Boolean(llmProxyBaseUrl.trim() && llmProxyApiKey.trim())
   }
 
   function canConfirmGitPat() {
-    return canConfirmGitServer() && Boolean(gitPat.trim() || config?.gitPat?.tokenFingerprint)
+    return isGitlab && canConfirmGitServer() && Boolean(gitPat.trim() || config?.gitPat?.tokenFingerprint)
   }
 
   function canGenerateCommand() {
@@ -295,6 +291,7 @@ export function AgentrixPrivateCloudWizard({
     setGitServerId(nextGitServerId)
     setCommand("")
     setGitPat("")
+    setConfig(undefined)
     setCommitAuthorName("")
     setCommitAuthorEmail("")
     goToStep("git")
@@ -330,6 +327,7 @@ export function AgentrixPrivateCloudWizard({
                 <label className="setup-field">
                   <span>Git server</span>
                   <select value={gitServerId} onChange={(event) => selectGitServer(event.currentTarget.value)}>
+                    <option value="">暂不配置仓库凭据</option>
                     {selectableServers.map((server) => (
                       <option key={server.id} value={server.id}>
                         {server.name || server.baseUrl || server.id}
@@ -339,11 +337,12 @@ export function AgentrixPrivateCloudWizard({
                 </label>
               ) : (
                 <div className="agentrix-guide">
-                  <strong>还没有可用 GitLab server</strong>
-                  <p>需要先配置 GitLab server。</p>
+                  <strong>还没有可用 Git server（可跳过）</strong>
+                  <p>可以不配置 Git server，先部署 runner。</p>
                 </div>
               )}
-              <ValidationLine tone={connected ? "ok" : "error"} text={connected ? "已关联" : "未关联"} />
+              {gitServerId ? <ValidationLine tone={connected ? "ok" : "error"} text={connected ? "已关联" : "未关联"} /> : <p>先部署 runner，仓库访问凭据可稍后在 Agentrix 配置。</p>}
+              {selectedServer?.type === "github" && <p>此命令不包含 GitHub 凭据；执行仓库任务前，请在 Agentrix 配置对应 Git server 的访问凭据。</p>}
               {!connected && gitServerId ? (
                 <Button type="button" variant="outline" onClick={() => onConnectGitServer(gitServerId)}>
                   <Server className="size-4" />
@@ -391,7 +390,7 @@ export function AgentrixPrivateCloudWizard({
             <div className="agentrix-step-body">
               <div className="agentrix-guide git-pat-guide">
                 <strong>使用当前 GitLab 账号的 PAT</strong>
-                <p>Runner 需要 api、read_repository、write_repository 权限。新 PAT 只展示一次，生成后请复制回来。</p>
+                <p>GitLab 需要 api、read_repository、write_repository 权限。返回上一步可选择暂不配置仓库凭据。</p>
               </div>
               <label className="setup-field">
                 <span>Personal access token</span>
@@ -466,7 +465,7 @@ export function AgentrixPrivateCloudWizard({
             </Button>
           ) : null}
           {step === "llm" ? (
-            <Button type="button" variant="outline" onClick={() => goToStep("pat")}>
+            <Button type="button" variant="outline" onClick={() => goToStep(isGitlab ? "pat" : "git")}>
               <ChevronLeft className="size-4" />
               上一步
             </Button>
@@ -572,7 +571,7 @@ function isUserPatError(error: unknown) {
 
 function mergeTokenConfig(current: AgentrixPrivateCloudConfig | undefined, next: RunnerGitlabTokenResult): AgentrixPrivateCloudConfig {
   const token = next.runnerGitlabToken
-  const tokens = [token, ...(current?.runnerGitlabTokens || []).filter((item) => item.id !== token.id && item.runnerId !== token.runnerId)]
+  const tokens = token ? [token, ...(current?.runnerGitlabTokens || []).filter((item) => item.id !== token.id && item.runnerId !== token.runnerId)] : current?.runnerGitlabTokens || []
   return {
     ...(current || {}),
     agentrix: next.agentrix ||

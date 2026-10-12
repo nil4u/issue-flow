@@ -35,7 +35,6 @@ export function AgentrixPanel({
   userSession: UserSession
 }) {
   const gitServerId = useAgentrixContextGitServerId(userSession, gitServers)
-  const github = gitServers.find((server) => server.id === gitServerId)?.type === "github"
   const [resources, setResources] = useState<AgentrixResources>()
   const [deployCloud, setDeployCloud] = useState<AgentrixCloud>()
   const [expandedCloudId, setExpandedCloudId] = useState("")
@@ -128,30 +127,31 @@ export function AgentrixPanel({
           </header>
           <div className="agentrix-resource-list">
             {privateClouds.map((cloud) => {
-              const expanded = expandedCloudId === cloud.id
-              const machineState = cloudMachines[cloud.id]
+              const cloudId = cloud.id || cloud.cloudId || ""
+              const expanded = expandedCloudId === cloudId
+              const machineState = cloudMachines[cloudId]
               return (
-                <div className={`agentrix-cloud-group ${expanded ? "expanded" : ""}`} key={cloud.id}>
+                <div className={`agentrix-cloud-group ${expanded ? "expanded" : ""}`} key={cloudId}>
                   <div className="agentrix-resource-row agentrix-cloud-row">
-                    <button type="button" className="agentrix-cloud-trigger" aria-expanded={expanded} onClick={() => toggleCloud(cloud.id)}>
+                    <button type="button" className="agentrix-cloud-trigger" aria-expanded={expanded} onClick={() => toggleCloud(cloudId)}>
                       <span className="account-provider-icon"><Cloud className="size-4" /></span>
                       <span className="agentrix-resource-copy">
-                        <strong>{cloud.name || cloud.id}</strong>
-                        <small>{cloud.id} · {cloud.role || "member"} · 在线 {cloud.onlineMachineCount ?? 0}/{cloud.machineCount ?? 0}</small>
+                        <strong>{cloud.name || cloudId}</strong>
+                        <small>{cloudId} · {cloud.role || "member"} · 在线 {cloud.onlineMachineCount ?? 0}/{cloud.machineCount ?? 0}</small>
                       </span>
                       <ChevronDown className={`size-4 agentrix-cloud-chevron ${expanded ? "expanded" : ""}`} />
                     </button>
-                    {github ? <Button asChild size="sm" variant="secondary"><a href={resources?.agentrix?.baseUrl} target="_blank" rel="noreferrer">在 Agentrix 部署</a></Button> : <Button type="button" size="sm" variant="secondary" onClick={() => setDeployCloud(cloud)}>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => setDeployCloud(cloud)}>
                       <Wrench className="size-4" />
                       部署
-                    </Button>}
+                    </Button>
                   </div>
                   {expanded && (
                     <div className="agentrix-cloud-machines">
                       {machineState?.loading ? (
                         <div className="agentrix-empty-row"><Loader2 className="size-4 animate-spin" />正在加载 machines</div>
                       ) : machineState?.error ? (
-                        <button type="button" className="agentrix-empty-row agentrix-retry-row" onClick={() => loadCloudMachines(cloud.id)}>加载失败，点击重试</button>
+                        <button type="button" className="agentrix-empty-row agentrix-retry-row" onClick={() => loadCloudMachines(cloudId)}>加载失败，点击重试</button>
                       ) : machineState?.machines.length ? (
                         machineState.machines.map((machine) => <MachineRow key={machine.id} machine={machine} />)
                       ) : (

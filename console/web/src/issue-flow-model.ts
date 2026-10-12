@@ -478,7 +478,7 @@ export type AgentrixPrivateCloudConfig = {
 }
 
 export type RunnerGitlabTokenResult = AgentrixPrivateCloudConfig & {
-  runnerGitlabToken: RunnerGitlabToken
+  runnerGitlabToken?: RunnerGitlabToken
   commitAuthor?: {
     name?: string
     email?: string
@@ -488,7 +488,8 @@ export type RunnerGitlabTokenResult = AgentrixPrivateCloudConfig & {
 }
 
 export type AgentrixCloud = {
-  id: string
+  id?: string
+  cloudId?: string
   name?: string
   type?: string
   status?: string
