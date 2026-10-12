@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify"
 
 import {
   createRunnerGitlabToken,
+  createRunnerCommand,
   getAgentrixPrivateCloudConfig,
   validatePrivateCloudGitServer,
 } from "../core/agentrix-private-cloud.js"
@@ -20,14 +21,21 @@ export async function agentrixPrivateCloudRoutes(app: FastifyInstance) {
     return reply.code(result.status).send(result.body)
   })
 
-  app.post("/api/agentrix/private-cloud/gitlab-token", async (request, reply) => {
+  app.post("/api/agentrix/private-cloud/command", async (request, reply) => {
     const input = (request.body || {}) as Record<string, unknown>
     const userId = await currentUserIdFromRequest(request)
-    const result = await createRunnerGitlabToken({
+    const result = await createRunnerCommand({
       ...contextFromRequest(request),
       input,
       userId,
     })
+    return reply.code(result.status).send(result.body)
+  })
+
+  app.post("/api/agentrix/private-cloud/gitlab-token", async (request, reply) => {
+    const input = (request.body || {}) as Record<string, unknown>
+    const userId = await currentUserIdFromRequest(request)
+    const result = await createRunnerGitlabToken({ ...contextFromRequest(request), input, userId })
     return reply.code(result.status).send(result.body)
   })
 

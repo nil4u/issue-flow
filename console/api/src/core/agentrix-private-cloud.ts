@@ -28,9 +28,11 @@ function dockerCommand(input = {}) {
     `  -e AGENTRIX_EVENT_FORWARD_TOKEN=${shellQuote(input.eventForwardToken)} \\`,
     `  -e AGENTRIX_BASE_URL=${shellQuote(input.llmProxyBaseUrl)} \\`,
     `  -e AGENTRIX_API_KEY=${shellQuote(input.llmProxyApiKey)} \\`,
-    `  -e GITLAB_BASE_URL=${shellQuote(input.gitServer && input.gitServer.baseUrl || '')} \\`,
-    ...(input.gitServer && input.gitServer.apiUrl ? [`  -e GITLAB_API_URL=${shellQuote(input.gitServer.apiUrl)} \\`] : []),
-    `  -e GITLAB_TOKEN=${shellQuote(input.gitlabToken)} \\`,
+    ...(input.gitServer && input.gitServer.type === 'gitlab' ? [
+      `  -e GITLAB_BASE_URL=${shellQuote(input.gitServer.baseUrl || '')} \\`,
+      ...(input.gitServer.apiUrl ? [`  -e GITLAB_API_URL=${shellQuote(input.gitServer.apiUrl)} \\`] : []),
+      `  -e GITLAB_TOKEN=${shellQuote(input.gitlabToken || '')} \\`,
+    ] : []),
     `  -e GIT_AUTHOR_NAME=${shellQuote(input.commitAuthor && input.commitAuthor.name || '')} \\`,
     `  -e GIT_AUTHOR_EMAIL=${shellQuote(input.commitAuthor && input.commitAuthor.email || '')} \\`,
     `  -e GIT_COMMITTER_NAME=${shellQuote(input.commitAuthor && input.commitAuthor.name || '')} \\`,
@@ -117,11 +119,11 @@ async function getAgentrixPrivateCloudConfig({ store, input = {}, userId, env = 
   const gitServerId = String(input.gitServerId || '').trim()
   const gitServer = gitServerId ? await store.getGitServer(gitServerId) : undefined
   const defaults = await savedAgentrixDefaults(store, userId, env)
-  const tokens = await store.listRunnerGitlabTokens({
+  const tokens = gitServer?.type === 'gitlab' ? await store.listRunnerGitlabTokens({
     userId,
     gitServerId,
-  })
-  const patResult = gitServerId
+  }) : []
+  const patResult = gitServer?.type === 'gitlab'
     ? await getUserGitPat({ store, userId, gitServerId })
     : undefined
   return {
@@ -296,11 +298,41 @@ async function createRunnerGitlabToken({ store, input = {}, userId, env = proces
   }
 }
 
+async function createRunnerCommand({ store, input = {}, userId, env = process.env, basePublicUrl = '', logger = undefined }) {
+  requireUserId(userId)
+  const runnerId = runnerIdFrom(input)
+  if (!runnerId) return { status: 400, body: { error: 'runner_id_required' } }
+  const gitServerId = String(input.gitServerId || '').trim()
+  const server = gitServerId ? (await resolveGitServer(store, input, undefined, '')).server : undefined
+  if (server?.type === 'gitlab') return createRunnerGitlabToken({ store, input, userId, env, basePublicUrl, logger })
+  const commitAuthor = commitAuthorInput(input, server || {})
+  if (!commitAuthor.email) return { status: 400, body: { error: 'commit_author_email_required' } }
+  const llmProxy = llmProxyInput(input, env)
+  if (!llmProxy.baseUrl || !llmProxy.apiKey) return { status: 400, body: { error: 'llm_proxy_required' } }
+  const eventForward = eventForwardInput({ basePublicUrl, env })
+  if (eventForward.status) return eventForward
+  const defaults = await savedAgentrixDefaults(store, userId, env)
+  const apiKey = input.agentrixApiKey || defaults.agentrix?.apiKey || ''
+  const cloudAuthToken = String(input.cloudAuthToken || input.runnerSecret || '').trim()
+    || await getAgentrixPrivateCloudRunnerSecret({ env, apiKey, cloudId: runnerId, logger })
+  if (input.saveDefaults !== false) {
+    await store.saveUserAgentrixConfig(userAgentrixKey(userId), { automation: { runnerId }, agentrix: { runnerId, apiKey, baseUrl: llmProxy.baseUrl } })
+  }
+  return { status: 200, body: {
+    agentrix: { serverUrl: AGENTRIX_SERVER_URL, webappUrl: AGENTRIX_WEBAPP_URL, cliImage: agentrixCliImage(env) },
+    gitServer: server ? publicGitServer(server) : undefined,
+    llmProxy, commitAuthor, cloudAuthToken,
+    dockerCommand: dockerCommand({ cloudAuthToken, eventForwardToken: eventForward.token, eventForwardWsUrl: eventForward.wsUrl,
+      llmProxyBaseUrl: llmProxy.baseUrl, llmProxyApiKey: llmProxy.apiKey, commitAuthor, cliImage: agentrixCliImage(env) }),
+  } }
+}
+
 export {
   AGENTRIX_SERVER_URL,
   AGENTRIX_WEBAPP_URL,
   DEFAULT_AGENTRIX_CLI_IMAGE,
   createRunnerGitlabToken,
+  createRunnerCommand,
   getAgentrixPrivateCloudConfig,
   validatePrivateCloudGitServer,
 }
