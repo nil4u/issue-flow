@@ -7,6 +7,7 @@ import { applyProviderIssueSnapshotToFacts } from "./issue-projection.js"
 import { applyWorkflowChanges, normalizeWorkflowChanges } from "./managed-issue-labels.js"
 import { applyOptimizationIssueLifecycle } from "./optimization-lifecycle.js"
 import { parseProposalMarker } from "./optimization-artifact.js"
+import { agentrixServiceConfig } from "./common.js"
 import { issueFlowPluginDir } from "./plugin-paths.js"
 import { renderProviderMarkdown } from "./provider-api.js"
 import { listIssuePullRequestSummaries } from "./pull-request-facts.js"
@@ -120,6 +121,28 @@ async function getIssue({ store, gitServerId, projectId, issueNumber, userId, se
     issue: { ...detail.issue, bodyHtml },
     mergeRequests,
     repository: { id: repo.id, fullName: repo.fullName, provider: server.type, webUrl: repo.webUrl || repo.url || "" },
+  }
+}
+
+// Tasks are local Agentrix projections, so only repository access is needed;
+// the Git credential is not required to read them.
+async function getIssueTasks({ store, gitServerId, projectId, issueNumber, userId, env = process.env }) {
+  const repo = await requireIssueRepository(store, gitServerId, projectId, userId)
+  const tasks = await store.listIssueTasks({
+    gitServerId: repo.gitServerId,
+    repositoryId: repo.serverRepoId,
+    issueNumber: normalizeIssueNumber(issueNumber),
+  })
+  return {
+    tasks: tasks.map((task) => ({
+      taskId: task.taskId,
+      title: task.title,
+      action: task.action,
+      status: task.status,
+      queuedAt: task.queuedAt,
+      updatedAt: task.updatedAt,
+    })),
+    agentrixBaseUrl: agentrixServiceConfig(env).baseUrl,
   }
 }
 
@@ -279,6 +302,7 @@ export {
   createIssue,
   getIssue,
   getIssueComments,
+  getIssueTasks,
   getIssueMentionUsers,
   listIssueLabels,
   listIssues,
