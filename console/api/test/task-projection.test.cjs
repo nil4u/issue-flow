@@ -7,6 +7,7 @@ const {
   forwardedTaskEvent,
   forwardedTaskLink,
   forwardedTaskRuntime,
+  forwardedTaskTitle,
   forwardedTaskUsageReport,
   normalizeTaskAction,
 } = require('../src/core/task-projection.ts');
@@ -257,4 +258,17 @@ test('forwardedTaskUsageReport keeps usage counters and drops metadata fields', 
 
   assert.equal(forwardedTaskEvent({ taskId: 'task-abc', eventId: 'evt-usage-1', eventType: 'task-usage-report' }), undefined);
   assert.equal(forwardedTaskUsageReport({ taskId: 'task-abc', eventId: 'evt-usage-2', eventType: 'task-usage-report' }), undefined, 'reports without modelUsage are skipped');
+});
+
+test('forwardedTaskTitle seeds from the task envelope and follows change-task-title renames', () => {
+  assert.deepEqual(forwardedTaskTitle({ taskId: 'task-1', eventType: 'create-task', eventData: { customTitle: ' Build #148 ' } }), { taskId: 'task-1', title: 'Build #148' });
+  assert.deepEqual(forwardedTaskTitle({ taskId: 'task-1', eventType: 'resume-task', eventData: { title: 'Resumed' } }), { taskId: 'task-1', title: 'Resumed' });
+  assert.deepEqual(forwardedTaskTitle({ taskId: 'task-1', eventType: 'change-task-title', eventData: { title: 'Renamed' } }), { taskId: 'task-1', title: 'Renamed' });
+});
+
+test('forwardedTaskTitle ignores empty titles, missing task ids and unrelated events', () => {
+  assert.equal(forwardedTaskTitle({ taskId: 'task-1', eventType: 'change-task-title', eventData: { title: '   ' } }), undefined);
+  assert.equal(forwardedTaskTitle({ taskId: 'task-1', eventType: 'create-task', eventData: {} }), undefined);
+  assert.equal(forwardedTaskTitle({ taskId: '', eventType: 'change-task-title', eventData: { title: 'x' } }), undefined);
+  assert.equal(forwardedTaskTitle({ taskId: 'task-1', eventType: 'task-message', eventData: { title: 'x' } }), undefined);
 });

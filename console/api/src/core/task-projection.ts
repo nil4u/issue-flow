@@ -59,6 +59,25 @@ function forwardedTaskLink(forwarded = {}) {
   }
 }
 
+// Titles come only from Agentrix: the task envelope seeds them and
+// change-task-title renames them. Empty titles never clear a stored one.
+function forwardedTaskTitle(forwarded = {}) {
+  const taskId = String(forwarded.taskId || "").trim()
+  if (!taskId) return undefined
+  const eventType = String(forwarded.eventType || "")
+  const eventData = forwarded.eventData || {}
+  let title = ""
+  if (eventType === "create-task" || eventType === "resume-task") {
+    title = String(eventData.customTitle || eventData.title || "")
+  } else if (eventType === "change-task-title") {
+    title = String(eventData.title || "")
+  } else {
+    return undefined
+  }
+  title = title.trim()
+  return title ? { taskId, title } : undefined
+}
+
 function forwardedTaskRuntime(forwarded = {}) {
   const taskId = String(forwarded.taskId || "").trim()
   if (!taskId) return undefined
@@ -156,6 +175,10 @@ async function applyForwardedEventToTaskFacts(store, forwarded = {}) {
   if (runtime) {
     await store.upsertTaskRuntime(runtime)
   }
+  const title = forwardedTaskTitle(forwarded)
+  if (title) {
+    await store.upsertTaskTitle(title)
+  }
   const link = forwardedTaskLink(forwarded)
   if (link) {
     await store.upsertTaskLink(link)
@@ -168,7 +191,7 @@ async function applyForwardedEventToTaskFacts(store, forwarded = {}) {
   if (usageReport) {
     await store.appendTaskUsageReport(usageReport)
   }
-  return Boolean(runtime || link || event || usageReport)
+  return Boolean(runtime || title || link || event || usageReport)
 }
 
 export {
@@ -176,6 +199,7 @@ export {
   forwardedTaskEvent,
   forwardedTaskLink,
   forwardedTaskRuntime,
+  forwardedTaskTitle,
   forwardedTaskUsageReport,
   normalizeTaskAction,
 }

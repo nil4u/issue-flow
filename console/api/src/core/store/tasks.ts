@@ -19,6 +19,7 @@ function withTaskStore(Base) {
         repositoryFullName: row.repositoryFullName || "",
         issueNumber: row.issueNumber || 0,
         taskId: row.taskId,
+        title: row.title || "",
         action: row.action || "",
         agent: row.agent || "",
         model: row.model || "",
@@ -346,6 +347,26 @@ function withTaskStore(Base) {
       return { task: this.taskFromRecord(row), applied: true }
     }
 
+    // Agentrix-owned title; created rows keep the default status so a later
+    // runtime/link envelope fills the rest without losing the title.
+    async upsertTaskTitle(input = {}, client = this.db) {
+      await this.ready
+      const taskId = String(input.taskId || "").trim()
+      const title = String(input.title || "").trim()
+      if (!taskId || !title) return { task: undefined, applied: false }
+      const row = await client.task.upsert({
+        where: { taskId },
+        create: {
+          id: input.id || randomId("task"),
+          taskId,
+          title,
+          updatedAt: new Date(),
+        },
+        update: { title, updatedAt: new Date() },
+      })
+      return { task: this.taskFromRecord(row), applied: true }
+    }
+
     async appendTaskUsageReport(input = {}, client = this.db) {
       await this.ready
       const taskId = String(input.taskId || "").trim()
@@ -503,6 +524,25 @@ function withTaskStore(Base) {
         total,
         hasMore: page * perPage < total,
       }
+    }
+
+    // All tasks linked to one issue, scoped in the database by git server,
+    // repository and issue number; ordered oldest-first with a stable tiebreak.
+    async listIssueTasks(input = {}) {
+      await this.ready
+      const gitServerId = String(input.gitServerId || "").trim()
+      const repositoryId = String(input.repositoryId || "").trim()
+      const issueNumber = Number(input.issueNumber || 0)
+      if (!gitServerId || !repositoryId || !Number.isInteger(issueNumber) || issueNumber <= 0) return []
+      const rows = await this.db.task.findMany({
+        where: { gitServerId, repositoryId, issueNumber },
+        orderBy: [
+          { queuedAt: { sort: "asc", nulls: "last" } },
+          { updatedAt: "asc" },
+          { taskId: "asc" },
+        ],
+      })
+      return rows.map((row) => this.taskFromRecord(row))
     }
 
     async listTaskEvents(taskId) {

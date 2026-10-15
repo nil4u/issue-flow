@@ -720,6 +720,20 @@ export type TaskRow = {
   updatedAt: string
 }
 
+export type IssueTask = {
+  taskId: string
+  title: string
+  action: string
+  status: string
+  queuedAt: string
+  updatedAt: string
+}
+
+export type IssueTaskList = {
+  tasks: IssueTask[]
+  agentrixBaseUrl: string
+}
+
 export type TaskPage = {
   tasks: TaskRow[]
   agentrixBaseUrl: string
