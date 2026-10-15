@@ -21,6 +21,7 @@ const {
   createAutomationOptimizationIssue,
   getIssue,
   getIssueComments,
+  getIssueTasks,
   listAutomationOptimizations,
   updateIssueWorkflow,
 } = require("../src/core/issues.ts")
@@ -645,3 +646,41 @@ test("GitLab issue create, edit, comment, close, and reopen use provider APIs", 
 })
 
 const { optimizationIssueLifecycleFromGitlabPayload } = require('../src/core/events/gitlab.ts');
+
+test("issue tasks are scoped by repository and issue without touching the provider", async (t) => {
+  const originalFetch = global.fetch
+  t.after(() => { global.fetch = originalFetch })
+  global.fetch = async () => { throw new Error("provider must not be called") }
+  const repo = { id: "repo_123", gitServerId: "gitlab-main", serverRepoId: "43326", fullName: "acme/widget" }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => true,
+    getGitServer: async () => { throw new Error("git credential must not be required") },
+    listIssueTasks: async (input) => {
+      assert.deepEqual(input, { gitServerId: "gitlab-main", repositoryId: "43326", issueNumber: 148 })
+      return [
+        { taskId: "task-1", title: "Plan #148", action: "plan", status: "completed", queuedAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T01:00:00.000Z", agent: "claude", tokens: 99 },
+        { taskId: "task-2", title: "", action: "build", status: "running", queuedAt: "", updatedAt: "2026-10-02T00:00:00.000Z" },
+      ]
+    },
+  }
+  const result = await getIssueTasks({
+    store, gitServerId: "gitlab-main", projectId: "43326", issueNumber: "148", userId: "user-1",
+    env: { ISSUE_FLOW_AGENTRIX_BASE_URL: "https://agentrix.test" },
+  })
+  assert.equal(result.agentrixBaseUrl, "https://agentrix.test")
+  assert.deepEqual(result.tasks.map((task) => task.taskId), ["task-1", "task-2"])
+  assert.deepEqual(Object.keys(result.tasks[0]).sort(), ["action", "queuedAt", "status", "taskId", "title", "updatedAt"])
+  assert.equal(result.tasks[1].title, "")
+})
+
+test("issue tasks reject anonymous and unauthorized readers", async () => {
+  const repo = { id: "repo_123", gitServerId: "gitlab-main", serverRepoId: "43326" }
+  const store = {
+    findRepositoryByProject: async () => repo,
+    userCanAccessRepo: async () => false,
+    listIssueTasks: async () => { throw new Error("must not query tasks") },
+  }
+  await assert.rejects(getIssueTasks({ store, gitServerId: "gitlab-main", projectId: "43326", issueNumber: 1, userId: "" }), (error) => error.status === 401)
+  await assert.rejects(getIssueTasks({ store, gitServerId: "gitlab-main", projectId: "43326", issueNumber: 1, userId: "user-2" }), (error) => error.status === 404)
+})

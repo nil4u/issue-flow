@@ -127,6 +127,19 @@
   .issue-size-gate-options button span { color: var(--muted-foreground); font-size: .61rem; white-space: nowrap; }
   .provider-issue-milestone { color: var(--foreground); font-size: .8rem; font-weight: 600; }
   a.provider-issue-milestone:hover { text-decoration: underline; }
+  .issue-tasks-section { display: grid; gap: .55rem; padding: .9rem 0; border-bottom: 1px solid var(--border); font-size: .78rem; }
+  .issue-tasks-section > strong { font-size: .78rem; }
+  .gh-pr-meta > .issue-tasks-section { padding: 1rem 0; }
+  .gh-pr-meta > .issue-tasks-section > strong { color: var(--muted-foreground); }
+  .issue-tasks-section p { margin: 0; color: var(--muted-foreground); font-size: .76rem; }
+  .issue-tasks-state { display: inline-flex; align-items: center; gap: .35rem; }
+  .issue-tasks-list { min-width: 0; display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+  .issue-tasks-list li { min-width: 0; display: flex; align-items: center; gap: .4rem; }
+  .issue-tasks-list li > svg { flex: 0 0 auto; color: var(--muted-foreground); }
+  .issue-tasks-list a, .issue-tasks-list span { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .issue-tasks-list a { color: #0969da; }
+  .issue-tasks-list a:hover { text-decoration: underline; }
+  .issue-tasks-list small { flex: 0 0 auto; color: var(--muted-foreground); font-size: .66rem; }
   .provider-issue-assignee { display: flex; align-items: center; gap: .45rem; font-size: .76rem; }
   .provider-issue-assignee .provider-issue-avatar { width: 1.6rem; height: 1.6rem; }
   .provider-issue-label-dialog { max-width: 32rem; }

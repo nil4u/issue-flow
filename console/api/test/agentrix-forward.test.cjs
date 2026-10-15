@@ -25,6 +25,10 @@ function fakeStore(overrides = {}) {
       if (overrides.failRuntime) throw new Error('db down');
       return { task: { taskId: input.taskId }, applied: true };
     },
+    async upsertTaskTitle(input) {
+      calls.push(['title', input]);
+      return { task: { taskId: input.taskId }, applied: true };
+    },
     async upsertTaskLink(input) {
       calls.push(['link', input]);
       return { task: { taskId: input.taskId }, applied: true };

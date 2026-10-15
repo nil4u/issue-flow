@@ -230,6 +230,7 @@ model Task {
   repositoryFullName String    @default("") @map("repository_full_name")
   issueNumber        Int       @default(0) @map("issue_number")
   taskId             String    @unique @map("task_id")
+  title              String    @default("")
   action             String    @default("")
   agent              String    @default("")
   model              String    @default("")
