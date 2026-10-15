@@ -39,11 +39,12 @@ MR Tasks 的查询范围定义为 MR 当前已确定的关联 Issue，而不是�
 
 抽取共享的 Task summary 查询能力，按 `gitServerId + repositoryId + issueNumber` 查询全部关联 tasks，不按 action 限制，并使用稳定排序（如 queued/updated 时间后 task ID）。
 
-- Issue 详情在 `getIssue` 中查询当前 Issue tasks。
-- MR 详情在 `getMergeRequest` 中读取已解析的 source issue number；存在关联 Issue 时复用同一查询，否则返回空列表及可区分的无关联状态。
+新增独立的 `GET /api/issues/:gitServerId/:projectId/:issueNumber/tasks` 接口，由 `issues` route 与 core 层负责鉴权、仓库解析和查询。Issue 详情接口不携带 `tasks`，避免详情 payload 与任务列表查询耦合。
+
 - Store 查询必须在数据库 where 条件中绑定 git server、repository 与 Issue 编号，不能先查 taskId 再由应用层过滤。
-- 查询失败沿用详情 API 的错误边界；前端将可区分的请求失败显示在 Tasks 区块内，不吞掉主详情。
-- 对于没有 source issue 的 MR，不根据 repo 或 `openedByTaskId` 猜测任务，避免把无明确关系的 repo tasks 展示出来。
+- Tasks 接口返回统一任务摘要和 `agentrixBaseUrl`；接口查询失败只影响 Tasks 区块，不影响 Issue/MR 主详情。
+- MR 详情继续返回已有 source issue number，但不携带 `tasks`；MR 页面在 source issue 存在时调用同一个按 Issue number 的 Tasks 接口。
+- 对于没有 source issue 的 MR，前端不调用 Tasks 接口并显示无关联状态，不根据 repo 或 `openedByTaskId` 猜测任务，避免展示无明确关系的 repo tasks。
 
 ### 4. 迁移与兼容
 
@@ -51,14 +52,15 @@ MR Tasks 的查询范围定义为 MR 当前已确定的关联 Issue，而不是�
 
 历史 Task 没有标题时由 UI 使用稳定降级文本；后续新事件带标题即可补齐投影。事件重复和乱序沿用现有 task upsert 语义，标题更新不得清空已有非空标题，除非事件明确提供新的标题。
 
-### 5. API：详情接口一次返回关联任务
+### 5. API：新增独立的 Issue Tasks 查询接口
 
-扩展现有 Issue/MR 详情响应，而不是新增前端逐条请求：
+不扩展现有 Issue 或 MR 详情响应；新增按 Issue number 查询 tasks 的接口，保持主详情 payload 稳定：
 
-- Issue 详情返回 `tasks` 与 `agentrixBaseUrl`。
-- MR 详情返回基于关联 Issue 查询得到的 `tasks` 与 `agentrixBaseUrl`，并可返回用于说明来源的 `taskSourceIssueNumber`。
-- 统一任务摘要字段，至少包含 `taskId`、`title` 和可选的状态；响应排序稳定，避免刷新时列表跳动。
-- 当 MR 没有关联 Issue 时返回空 tasks；若详情接口能区分“无关联”和“查询错误”，前端按对应状态展示。
+- `GET /api/issues/:gitServerId/:projectId/:issueNumber/tasks` 返回任务摘要列表与 `agentrixBaseUrl`。
+- 响应至少包含 `taskId`、`title` 和可选的状态，排序稳定，避免刷新时列表跳动。
+- Issue 页从当前 Issue number 调用该接口；Issue 详情请求只返回 provider Issue、MR 摘要及现有详情字段。
+- MR 页先从 MR 详情读取已有 source issue number，再调用同一个接口；MR 详情请求本身不返回 `tasks`。
+- 接口无效 Issue、无关联 tasks、权限失败与查询失败使用项目既有错误格式；前端分别展示无关联或错误状态。
 
 ### 6. 前端：复用右侧栏结构，统一状态与链接行为
 
@@ -74,7 +76,7 @@ MR Tasks 的查询范围定义为 MR 当前已确定的关联 Issue，而不是�
 
 ### 7. 本期实现边界
 
-包含 Task 标题投影、Issue/MR 详情 API 字段、共享 Tasks 展示组件及相关测试。不包含：MR-task 独立关联表或关系回填、Agentrix task 详情页改造、repo 级 Tasks 列表重做、Issue/MR 创建或状态流转变化、无明确关联关系的仓库级 task 推断。
+包含 Task 标题投影、独立 Issue Tasks 查询 API、共享 Tasks 展示组件及相关测试。不包含：MR-task 独立关联表或关系回填、Agentrix task 详情页改造、repo 级 Tasks 列表重做、Issue/MR 创建或状态流转变化、无明确关联关系的仓库级 task 推断。
 
 ## 风险与边界
 
@@ -90,13 +92,13 @@ MR Tasks 的查询范围定义为 MR 当前已确定的关联 Issue，而不是�
 - Task projection 测试：有标题、无标题、resume、旧事件兼容；重复事件不异常，已有标题不会被缺失标题覆盖。
 - Store 测试：Issue 查询返回同 repo 同 Issue 的全部 tasks；排除其他 Issue、其他 repo、其他 Git server；稳定排序符合约定。
 - MR API 测试：MR 复用 source Issue 的全部 tasks；没有 source Issue 时为空；不因 `openedByTaskId` 或 repo task 产生额外结果。
-- API 集成测试：Issue/MR 详情有数据、无数据、查询失败时响应字段和错误边界符合约定；检查 `agentrixBaseUrl` 与 task ID 映射。
+- API 集成测试：Issue/MR 详情不包含 `tasks`；独立 Issue Tasks 接口覆盖有数据、无数据、越权/无效范围、查询失败，并检查 `agentrixBaseUrl` 与 task ID 映射。
 - Migration 验证：在含旧 Task 数据的数据库上执行追加 migration，确认 `title` 默认值、既有 `issueNumber` 关系和现有查询均可用；不修改既有 migration 文件。
 
 ### 前端与验收映射
 
 - Issue 页：右侧出现 Tasks；展示同 Issue 多条标题与正确链接；无数据、loading、错误、缺标题均不破坏其他元信息。
-- MR 页：右侧出现 Tasks；展示关联 Issue 的全部 task；无 source Issue 时为空，不串入 repo 其他 task。
+- MR 页：右侧出现 Tasks；读取 source Issue number 后展示关联 Issue 的全部 task；无 source Issue 时为空，不串入 repo 其他 task。
 - 链接测试：每条链接的 pathname 为 `/tasks/{encodeURIComponent(taskId)}`，base URL 去除尾斜杠，标题与 ID 一一对应。
 - 样式/可访问性：长标题截断仍可通过 title/可访问名称读取；空状态和错误状态有文本，不依赖颜色；小屏/窄侧栏不溢出。
 - 最终以 API/store/projection 自动化测试，加上前端组件或现有等价验证覆盖验收标准 1–7；不以人工浏览单一有数据样例作为唯一验证。
