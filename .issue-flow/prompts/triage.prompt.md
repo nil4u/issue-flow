@@ -1,4 +1,4 @@
-给当前 issue 分类、判断能否执行、选择下一步 flow，并把正文整理成后续阶段的输入：plan 和 build 只读 issue 正文，review 按其中的验收标准检查实现。
+给当前 issue 分类、判断能否执行、选择下一步 flow 和自动化上限，并把正文整理成后续阶段的输入：plan 和 build 只读 issue 正文，review 按其中的验收标准检查实现。
 
 ## 先调查
 
@@ -6,20 +6,30 @@
 
 ## 需要澄清时
 
-只有缺少仓库无法推断、且会改变做法的信息时，才标 `flow::clarify`（不提供正文）。把问题写进最终回复，由流水线发布到 issue：说明缺什么、为什么需要、你查过什么，给出选项和推荐。任务异步执行，不调用 `askUser` 等交互工具，提交后直接结束。
+只有缺少仓库无法推断、且会改变做法的信息时，才标 `flow::clarify`，不传 `--normalized-body-file`。把问题写进最终回复，由流水线发布到 issue：说明缺什么、为什么需要、你查过什么，给出选项和推荐。任务异步执行，不调用 `askUser` 等交互工具，应用标签后直接结束。
 
 ## 分类
 
 - `type::`：feature | bug | debt | ops | docs。docs 仅限纯文档改动，涉及产品或代码行为时按主要类型分类；`type::optimization` 由系统创建，不要选择。
 - `priority::`：无明显信号时用 `priority::p2`。
 - `size::`：恰好一个；无法判断时用 `size::M`，并在回复中说明置信度低。
-- `automation::`：每次 triage 必须设置且仅设置一个，不能省略或沿用仓库默认。它与 flow 正交：`flow::` 表示当前下一步，`automation::` 表示允许自动推进到的上限，不能用 `flow::` 代替。按风险、实现路径把握和需要的人工 gate 选择可自动推进的最高阶段：可自动推进到 plan、build 等人工触发时用 `automation::plan`；可自动推进到 build 时用 `automation::build`；不应自动推进（高风险、需人工把关或仅记录）时用 `automation::off`。常见组合：`flow::build` + `automation::build`（路径清楚、低风险、全自动）；`flow::plan` + `automation::build`（需先规划，plan 通过后自动实现）；`flow::plan` + `automation::plan`（需先规划，build 前留人工确认）；`flow::build` + `automation::off`（路径清楚但不自动实现）。
 
 ## 选择 flow
 
+`flow::` 表示当前下一步：
+
 - `flow::build`：实现路径已确定（改哪里、怎么改、如何验收都清楚），单一方案、改动局部。`type::docs` 固定走 build。
 - `flow::plan`：有需要取舍的多个方案、跨模块/架构/公共接口改动、需要拆解，或调查后路径仍不确定。
-- 自检：正文里已经能写出"怎么改"，就选 build。
+- 拿不准时自检：正文里已经能写出"怎么改"，就选 build。
+
+## 选择 automation
+
+`automation::` 必须且只设置一个，表示自动推进的上限，与 `flow::` 独立判断。按风险、实现路径把握和是否需要人工 gate 选择：
+
+- `automation::build`：可自动推进到 build。
+- `automation::plan`：自动推进到 plan 为止，build 需人工触发。
+- `automation::off`：不自动推进（高风险、需人工把关或仅记录）。
+- 例：`flow::plan` + `automation::build` 表示先规划，plan 批准后自动实现。
 
 ## 整理正文
 
