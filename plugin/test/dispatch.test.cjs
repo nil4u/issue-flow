@@ -8,6 +8,7 @@ const {
   findActionTaskComment,
   parseArgs,
   resolveAutomationDecision,
+  resolvePipelineJobUrl,
   resolveReviewEnabled,
   resolveRuntimeResumeDecision,
   runPrMerged,
@@ -682,6 +683,86 @@ test('dispatch review resumes the existing reviewer task for a new PR head', asy
   } finally {
     providers.github.listPullRequestComments = originalList;
     providers.github.createPullRequestComment = originalCreate;
+    providers.github.updatePullRequestComment = originalUpdate;
+  }
+});
+
+test('dispatch resolves the current pipeline job URL from CI environment', () => {
+  assert.equal(resolvePipelineJobUrl({}), '');
+  assert.equal(
+    resolvePipelineJobUrl({
+      GITHUB_SERVER_URL: 'https://github.example/',
+      GITHUB_REPOSITORY: 'example/platform',
+      GITHUB_RUN_ID: '123',
+      GITHUB_RUN_ATTEMPT: '1',
+    }),
+    'https://github.example/example/platform/actions/runs/123'
+  );
+  assert.equal(
+    resolvePipelineJobUrl({ GITHUB_REPOSITORY: 'example/platform', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2' }),
+    'https://github.com/example/platform/actions/runs/123/attempts/2'
+  );
+  assert.equal(
+    resolvePipelineJobUrl({ CI_JOB_URL: 'https://gitlab.example/group/project/-/jobs/77' }),
+    'https://gitlab.example/group/project/-/jobs/77'
+  );
+  assert.equal(
+    resolvePipelineJobUrl({ ISSUE_FLOW_JOB_URL: 'https://ci.example/job/1', CI_JOB_URL: 'https://gitlab.example/-/jobs/77' }),
+    'https://ci.example/job/1'
+  );
+});
+
+test('dispatch task comments link the triggering pipeline job', async () => {
+  const originalList = providers.github.listPullRequestComments;
+  const originalUpdate = providers.github.updatePullRequestComment;
+  const updates = [];
+  providers.github.listPullRequestComments = async () => [{
+    id: 300,
+    body: agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+      pullRequest: { headSha: 'old-sha' },
+    }),
+  }];
+  providers.github.updatePullRequestComment = async (_pr, commentId, body) => {
+    updates.push({ commentId, body });
+  };
+
+  try {
+    await withEnv({
+      ISSUE_FLOW_JOB_URL: undefined,
+      CI_JOB_URL: undefined,
+      GITHUB_SERVER_URL: 'https://github.com',
+      GITHUB_REPOSITORY: 'example/platform',
+      GITHUB_RUN_ID: '4242',
+      GITHUB_RUN_ATTEMPT: '1',
+    }, () => runReview(
+      {
+        dryRun: true,
+        reviewEnabled: '1',
+      },
+      {
+        payload: {
+          pull_request: {
+            number: 9,
+            state: 'open',
+            draft: false,
+            merged: false,
+            title: 'Build #42: Add widget support',
+            body: '<!-- issue-flow:source-issue=42 -->',
+            html_url: 'https://github.com/example/platform/pull/9',
+            base: { ref: 'main' },
+            head: { ref: '42-add-widget-support/build', sha: 'new-sha' },
+            labels: [{ name: 'mr-by::build' }],
+            user: { login: 'alice' },
+          },
+          repository: { full_name: 'example/platform' },
+        },
+      }
+    ));
+
+    assert.equal(updates.length, 1);
+    assert.match(updates[0].body, /^- Job: https:\/\/github\.com\/example\/platform\/actions\/runs\/4242$/m);
+  } finally {
+    providers.github.listPullRequestComments = originalList;
     providers.github.updatePullRequestComment = originalUpdate;
   }
 });

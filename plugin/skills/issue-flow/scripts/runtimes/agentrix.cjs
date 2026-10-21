@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 provenance.cjs 的 source marker 能力、项目级 instructions 与 Node.js 子进程环境
- * [OUTPUT]: 对外提供按 issue 语义选择且含项目说明的 Agentrix prompt、agentrix-run package、run/resume args、环境清洗与 task comment 构造执行函数
+ * [OUTPUT]: 对外提供按 issue 语义选择且含项目说明的 Agentrix prompt、agentrix-run package、run/resume args、环境清洗与 task comment（含可选 pipeline job 链接）构造执行函数
  * [POS]: scripts/runtimes 的 Agentrix adapter，把 issue/PR 事件转换为 agentrix-run 可消费的确定性调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -992,6 +992,9 @@ function buildTaskComment(action, result, data = {}) {
     if (pr && pr.headSha) {
       lines.push(`- Head: \`${pr.headSha}\``);
     }
+    if (data.jobUrl) {
+      lines.push(`- Job: ${data.jobUrl}`);
+    }
     return lines.join('\n');
   }
 
@@ -1031,6 +1034,9 @@ function buildTaskComment(action, result, data = {}) {
   }
   if (data.agentrixTaskId && action !== 'task_resume') {
     lines.push(`- Agentrix task: \`${data.agentrixTaskId}\``);
+  }
+  if (data.jobUrl) {
+    lines.push(`- Job: ${data.jobUrl}`);
   }
   return lines.join('\n');
 }
