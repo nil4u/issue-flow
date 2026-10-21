@@ -23,9 +23,10 @@ function AppShell() {
 
 function Dashboard() {
   const dashboard = useDashboardController()
-  const visualRoute = parseVisualArtifactRoute()
-  const issueRoute = parseIssueRoute()
-  const mergeRequestRoute = parseMergeRequestRoute()
+  const { pathname, search } = dashboard.location
+  const visualRoute = parseVisualArtifactRoute(pathname, search)
+  const issueRoute = parseIssueRoute(pathname)
+  const mergeRequestRoute = parseMergeRequestRoute(pathname)
 
   if (dashboard.booting) {
     return <main className="login-screen"><div className="shell-loading">正在检查控制台配置...</div></main>
@@ -41,6 +42,11 @@ function Dashboard() {
     )
   }
 
+  // 启动时登录态未返回前显示中性加载壳，确认未登录后才渲染登录页，避免闪现登录页。
+  if (!dashboard.userSession.authenticated && !dashboard.loginStateLoaded) {
+    return <main className="login-screen"><div className="shell-loading">正在加载...</div></main>
+  }
+
   if (!dashboard.userSession.authenticated) {
     return (
       <LoginPage
@@ -53,15 +59,15 @@ function Dashboard() {
   }
 
   if (visualRoute) {
-    return <VisionPlanPage {...visualRoute} />
+    return <VisionPlanPage key={`${visualRoute.gitServerId}/${visualRoute.projectId}/${visualRoute.issueNumber}`} {...visualRoute} />
   }
 
   if (issueRoute) {
-    return <IssuePage {...issueRoute} />
+    return <IssuePage key={`${issueRoute.gitServerId}/${issueRoute.projectId}/${issueRoute.issueNumber}`} {...issueRoute} />
   }
 
   if (mergeRequestRoute) {
-    return <MergeRequestPage {...mergeRequestRoute} />
+    return <MergeRequestPage key={`${mergeRequestRoute.gitServerId}/${mergeRequestRoute.projectId}/${mergeRequestRoute.mergeRequestNumber}`} {...mergeRequestRoute} />
   }
 
   return (

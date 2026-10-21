@@ -113,6 +113,8 @@ GitHub API token 至少需要：
 
 Agentrix runtime 启动或 resume task 时会从子进程环境中移除 provider token（`GITHUB_TOKEN`、`GH_TOKEN`、`ISSUE_FLOW_GITLAB_TOKEN`、`GITLAB_TOKEN`、`GL_TOKEN`、`GITLAB_PRIVATE_TOKEN`、`CI_JOB_TOKEN`、`ISSUE_FLOW_GIT_TOKEN`）。这些 token 只供 issue-flow routing job 调用 provider API；Agentrix task 里的 provider 凭据由 Agentrix worker 环境提供。
 
+`dispatch` 创建或更新的 Agentrix task 评论（issue 任务锁评论、PR/MR review 评论、resume 排队评论）会附带 `- Job: <url>`，指向触发本次 dispatch 的 pipeline job，便于排查。URL 依次取 `ISSUE_FLOW_JOB_URL`、GitLab `CI_JOB_URL`、GitHub `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY`/`GITHUB_RUN_ID`（`GITHUB_RUN_ATTEMPT` > 1 时带 `/attempts/<n>`）；都不存在时省略该行。
+
 ### GitLab
 
 读取顺序：`ISSUE_FLOW_GITLAB_TOKEN` → `GITLAB_TOKEN` → `GL_TOKEN` → `GITLAB_PRIVATE_TOKEN` → `CI_JOB_TOKEN` → git remote URL 中的 token（如存在）。

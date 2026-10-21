@@ -44,3 +44,10 @@ test("repository Insights uses its own workspace tab", () => {
   assert.equal(route.tab, "insights")
   assert.equal(workspaceRoutePath(route), "/repos/gitlab-main/43326/insights")
 })
+
+test("detail routes parse from an explicit location instead of window state", () => {
+  assert.deepEqual(parseIssueRoute("/repos/gl/7/issues/3"), { gitServerId: "gl", projectId: "7", issueNumber: 3 })
+  assert.deepEqual(parseMergeRequestRoute("/repos/gl/7/merge-requests/9"), { gitServerId: "gl", projectId: "7", mergeRequestNumber: 9 })
+  assert.deepEqual(parseVisualArtifactRoute("/repos/gl/7/plan/3", ""), { gitServerId: "gl", projectId: "7", issueNumber: 3 })
+  assert.equal(parseIssueRoute("/repos/gl/7/merge-requests/9"), undefined)
+})

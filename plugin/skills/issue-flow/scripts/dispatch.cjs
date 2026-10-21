@@ -16,6 +16,7 @@ const { completeOptimizationForChildIssue } = require('./optimization-completion
 const { resolveIssueTarget } = require('./milestones.cjs');
 
 const DEFAULT_RUNTIME = 'agentrix';
+const GITHUB_DEFAULT_SERVER_URL = 'https://github.com';
 const TRIGGER_COMMENT_REACTION = 'eyes';
 const VALUE_OPTIONS = new Set([
   '--event',
@@ -322,7 +323,7 @@ async function claimActionTask(issue, action, runtime, data, options = {}) {
     };
   }
 
-  const created = await createIssueComment(issue, runtime.buildTaskComment(action, { status: 'starting' }, data), options);
+  const created = await createIssueComment(issue, buildTaskCommentBody(runtime, action, { status: 'starting' }, data), options);
   if (options.dryRun) {
     return {
       claimed: true,
@@ -359,7 +360,7 @@ async function claimPullRequestActionTask(pr, action, runtime, data, options = {
     };
   }
 
-  const created = await createPullRequestComment(pr, runtime.buildTaskComment(action, { status: 'starting' }, data), options);
+  const created = await createPullRequestComment(pr, buildTaskCommentBody(runtime, action, { status: 'starting' }, data), options);
   if (options.dryRun) {
     return {
       claimed: true,
@@ -385,6 +386,27 @@ async function claimPullRequestActionTask(pr, action, runtime, data, options = {
     claimed: true,
     comment: created,
   };
+}
+
+function resolvePipelineJobUrl(env = process.env) {
+  if (env.ISSUE_FLOW_JOB_URL) {
+    return env.ISSUE_FLOW_JOB_URL;
+  }
+  if (env.CI_JOB_URL) {
+    return env.CI_JOB_URL;
+  }
+  if (env.GITHUB_RUN_ID && env.GITHUB_REPOSITORY) {
+    const serverUrl = String(env.GITHUB_SERVER_URL || GITHUB_DEFAULT_SERVER_URL).replace(/\/+$/, '');
+    const attempt = Number(env.GITHUB_RUN_ATTEMPT);
+    const attemptPath = Number.isInteger(attempt) && attempt > 1 ? `/attempts/${attempt}` : '';
+    return `${serverUrl}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}${attemptPath}`;
+  }
+  return '';
+}
+
+function buildTaskCommentBody(runtime, action, result, data = {}) {
+  const jobUrl = data.jobUrl === undefined ? resolvePipelineJobUrl() : data.jobUrl;
+  return runtime.buildTaskComment(action, result, jobUrl ? { ...data, jobUrl } : data);
 }
 
 async function acknowledgeAutoIssue(issue, action, runtime, data, options = {}) {
@@ -566,7 +588,7 @@ async function startAction(action, issue, options = {}, data = {}) {
 
   await acknowledgeAutoIssue(currentIssue, action, runtime, taskData, options);
   if (taskClaim.comment && taskClaim.comment.id) {
-    await updateIssueComment(currentIssue, taskClaim.comment.id, runtime.buildTaskComment(action, result, taskData), options);
+    await updateIssueComment(currentIssue, taskClaim.comment.id, buildTaskCommentBody(runtime, action, result, taskData), options);
   }
   logIssueFlow('Finished action', {
     action,
@@ -646,7 +668,7 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
       await updatePullRequestComment(
         currentPr,
         existingReviewTask.id,
-        runtime.buildTaskComment(action, { ...result, runId: taskId }, resumeData),
+        buildTaskCommentBody(runtime, action, { ...result, runId: taskId }, resumeData),
         options
       );
     }
@@ -695,7 +717,7 @@ async function startPullRequestReview(pr, options = {}, data = {}) {
   }
 
   if (taskClaim.comment && taskClaim.comment.id) {
-    await updatePullRequestComment(currentPr, taskClaim.comment.id, runtime.buildTaskComment(action, result, taskData), options);
+    await updatePullRequestComment(currentPr, taskClaim.comment.id, buildTaskCommentBody(runtime, action, result, taskData), options);
   }
   logIssueFlow('Finished PR/MR review', {
     pr: `#${currentPr.number}`,
@@ -721,7 +743,7 @@ async function resumeTaskForReviewComment(target, taskId, instruction, options =
   };
   let taskComment;
   if (data.issueTask) {
-    taskComment = await createIssueComment(target, runtime.buildTaskComment(action, {
+    taskComment = await createIssueComment(target, buildTaskCommentBody(runtime, action, {
       status: 'queued',
       runId: taskId,
       detailUrl: data.issueTask.detailUrl,
@@ -744,7 +766,7 @@ async function resumeTaskForReviewComment(target, taskId, instruction, options =
   }
 
   if (data.issueTask && taskComment && taskComment.id) {
-    const commentBody = runtime.buildTaskComment(action, {
+    const commentBody = buildTaskCommentBody(runtime, action, {
       ...result,
       runId: taskId,
       detailUrl: result.detailUrl || data.issueTask.detailUrl,
@@ -1317,6 +1339,7 @@ module.exports = {
   main,
   parseArgs,
   resolveAutomationDecision,
+  resolvePipelineJobUrl,
   resolveRepoDefaultAutomationLevel,
   resolveReviewEnabled,
   resolveRuntimeResumeDecision,

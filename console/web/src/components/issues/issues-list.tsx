@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { ExternalLink, Eye, Search, X } from "lucide-react"
 
+import { AppLink } from "@/components/app-link"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { IssueRow, ReviewablePlanArtifact } from "@/issue-flow-model"
@@ -157,10 +158,10 @@ function IssueListRow({ issue, href, reviewArtifacts, reviewHref }: { issue: Iss
       <td>{formatWhen(issue.updatedAt || issue.openedAt || "") || "-"}</td>
       <td className="issue-link-cell">
         {reviewArtifacts.map((artifact) => (
-          <a key={artifact.type} className="issue-review-link" href={reviewHref(issue.issueNumber)} title={artifact.type === "decision" ? "查看决策" : "查看方案"}>
+          <AppLink key={artifact.type} className="issue-review-link" href={reviewHref(issue.issueNumber)} title={artifact.type === "decision" ? "查看决策" : "查看方案"}>
             <Eye className="size-4" />
             <span>{artifact.type === "decision" ? "Decision" : "Plan"}</span>
-          </a>
+          </AppLink>
         ))}
         <a
           className="issue-external-link"

@@ -780,6 +780,22 @@ test('agentrix formats issue task metadata as a Markdown list', () => {
   );
 });
 
+test('agentrix task comments include the pipeline job link when provided', () => {
+  const jobUrl = 'https://gitlab.example/group/project/-/jobs/77';
+  const issueComment = agentrix.buildTaskComment('build', { status: 'queued', runId: 'task-build' }, { auto: true, jobUrl });
+  assert.match(issueComment, /^- Job: https:\/\/gitlab\.example\/group\/project\/-\/jobs\/77$/m);
+  assert.equal(agentrix.extractRunIdFromTaskComment(issueComment), 'task-build');
+
+  const reviewComment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
+    pullRequest: { headSha: 'abc123' },
+    jobUrl,
+  });
+  assert.match(reviewComment, /^- Job: https:\/\/gitlab\.example\/group\/project\/-\/jobs\/77$/m);
+  assert.equal(agentrix.extractReviewHeadShaFromTaskComment(reviewComment), 'abc123');
+
+  assert.doesNotMatch(agentrix.buildTaskComment('build', { status: 'starting' }), /- Job:/);
+});
+
 test('agentrix extracts task run and reviewed head from task comments', () => {
   const comment = agentrix.buildTaskComment('review', { status: 'dry-run', runId: 'task-review' }, {
     pullRequest: { headSha: 'abc123' },

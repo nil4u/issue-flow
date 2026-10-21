@@ -1,3 +1,4 @@
+import { notifyIfConsoleSessionExpired } from "../lib/console-session"
 import { loadReviewStorage } from "./review-storage"
 import type { DraftReviewItem, LoadedVisualArtifact, OptimizationProposalState, VisionRouteContext, VisualReview } from "./types"
 
@@ -12,7 +13,10 @@ function endpoint(context: VisionRouteContext, suffix = "") {
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(data?.error ? `请求失败：${data.error}` : `请求失败：HTTP ${response.status}`)
+  if (!response.ok) {
+    notifyIfConsoleSessionExpired(response.status, data)
+    throw new Error(data?.error ? `请求失败：${data.error}` : `请求失败：HTTP ${response.status}`)
+  }
   return data as T
 }
 

@@ -176,3 +176,47 @@ export function sameWorkspaceRoute(a: Partial<WorkspaceRoute>, b: Partial<Worksp
     && (a.tab || "overview") === (b.tab || "overview")
     && (a.settingsSection || "account") === (b.settingsSection || "account")
 }
+
+export type AppLocation = {
+  pathname: string
+  search: string
+}
+
+export const APP_NAVIGATE_EVENT = "issue-flow:navigate"
+
+export function currentAppLocation(): AppLocation {
+  return { pathname: window.location.pathname, search: window.location.search }
+}
+
+// SPA 内导航：只改 history 并通知 controller，不触发整页刷新（避免重新跑启动鉴权链路）。
+export function navigateApp(path: string, mode: "push" | "replace" = "push") {
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  if (path !== currentPath) {
+    window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", path)
+  }
+  window.dispatchEvent(new Event(APP_NAVIGATE_EVENT))
+}
+
+export type AppLinkClick = {
+  button: number
+  metaKey: boolean
+  ctrlKey: boolean
+  shiftKey: boolean
+  altKey: boolean
+  defaultPrevented: boolean
+}
+
+// 返回需要 SPA 内导航的同源路径；返回 "" 时交给浏览器默认行为（新标签、下载、跨域等）。
+export function appLinkNavigationPath(click: AppLinkClick, link: { href: string; target?: string; download?: boolean }, origin: string) {
+  if (click.defaultPrevented || click.button !== 0) return ""
+  if (click.metaKey || click.ctrlKey || click.shiftKey || click.altKey) return ""
+  if ((link.target && link.target !== "_self") || link.download) return ""
+  let url: URL
+  try {
+    url = new URL(link.href, origin)
+  } catch {
+    return ""
+  }
+  if (url.origin !== origin) return ""
+  return `${url.pathname}${url.search}${url.hash}`
+}

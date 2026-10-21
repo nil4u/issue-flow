@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, Loader2, RefreshCw, Search } from "lucide-react"
 
+import { AppLink } from "@/components/app-link"
 import { Button } from "@/components/ui/button"
 import { EmptyPanel } from "@/components/empty-panel"
 import { api, formatWhen, type MergeRequestSummary, type RepoWorkspaceProps } from "@/issue-flow-model"
@@ -102,7 +103,7 @@ export function MergeRequestsBoard({ gitServer, user, project, repository, onLog
         <div className="merge-request-list">
           {mergeRequests.map((mergeRequest) => (
             <article key={mergeRequest.id || mergeRequest.number} className="merge-request-row">
-              <a className="merge-request-row-review" href={reviewHref(mergeRequest.number)} aria-label={`审阅 MR !${mergeRequest.number} ${mergeRequest.title}`}>
+              <AppLink className="merge-request-row-review" href={reviewHref(mergeRequest.number)} aria-label={`审阅 MR !${mergeRequest.number} ${mergeRequest.title}`}>
                 <div className="merge-request-primary">
                   <div className="merge-request-title-line">
                     <span className={`merge-request-state state-${stateLabel(mergeRequest).toLowerCase()}`}>{stateLabel(mergeRequest)}</span>
@@ -120,7 +121,7 @@ export function MergeRequestsBoard({ gitServer, user, project, repository, onLog
                   {mergeRequest.changedFilesCount > 0 ? <span>{mergeRequest.changedFilesCount} files</span> : null}
                   {mergeRequest.commentsCount > 0 ? <span>{mergeRequest.commentsCount} comments</span> : null}
                 </div>
-              </a>
+              </AppLink>
               <div className="merge-request-row-actions">
                 {mergeRequest.webUrl ? <Button asChild variant="ghost" size="icon-sm"><a href={mergeRequest.webUrl} target="_blank" rel="noreferrer" aria-label={`在 Git server 打开 MR !${mergeRequest.number}`}><ExternalLink className="size-4" /></a></Button> : null}
               </div>
