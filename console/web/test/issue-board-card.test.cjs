@@ -7,11 +7,11 @@ const board = readFileSync(join(__dirname, "../src/components/issues-board.tsx")
 const styles = readFileSync(join(__dirname, "../src/styles/issue-management.css"), "utf8")
 const card = board.slice(board.indexOf("function IssueBoardCard("))
 
-test("board card keeps the same native issue detail link as the list", () => {
+test("board card keeps the same in-app issue detail link as the list", () => {
   assert.match(board, /<IssueBoardCard[^>]*href=\{issueHref\(issue.number\)\}/)
   assert.match(board, /<IssueListRow[^>]*href=\{issueHref\(issue.number\)\}/)
   assert.match(card, /<article className="issue-card provider-issue-card">/)
-  assert.match(card, /<a className="provider-issue-card-link" href=\{href\}>\{issue.title\}<\/a>/)
+  assert.match(card, /<AppLink className="provider-issue-card-link" href=\{href\}>\{issue.title\}<\/AppLink>/)
   assert.doesNotMatch(card, /onClick=|target=/)
 })
 
@@ -22,6 +22,6 @@ test("issue detail link covers the card including padding and labels", () => {
 })
 
 test("Decision and Plan links remain separate above the card-wide issue link", () => {
-  assert.match(card, /<\/a>.*<a className="issue-review-link" href=\{reviewHref\}>/)
+  assert.match(card, /<\/AppLink>.*<AppLink className="issue-review-link" href=\{reviewHref\}>/)
   assert.match(styles, /\.provider-issue-card > \.issue-review-link\s*\{[^}]*position: relative;[^}]*z-index: 1;[^}]*justify-self: start;/)
 })

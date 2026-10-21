@@ -4,6 +4,7 @@ import { actOnOptimizationProposal, approveAllDecisions, approveVisionArtifact, 
 import { anchorSelector, findDataRef, formatPlanDataSnippet, parsePlanDataIsland, PLAN_DATA_ISLAND_ID, resolvePlanDataRef } from "./anchors";
 import { decisionItemsFromDocument, interactiveDecisionRefs, type DecisionItem, type DecisionOption } from "./decision-items";
 import { ArtifactReviewPanel } from "./ArtifactReviewPanel";
+import { AppLink } from "@/components/app-link";
 import { FileTree } from "@/components/review/file-tree";
 import { anchorOffsetForPoint, resolveVisualTargetPosition, visualTargetMarkerStyle, type MarkerFrameMetrics } from "./marker-position";
 import { addStoredReviewDraft, clearReviewStorage, deleteStoredReviewDraft, saveSubmittedReview, updateStoredReviewDraft } from "./review-storage";
@@ -1250,7 +1251,7 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
     <main className={`vision-plan-page artifact-engine is-review-workspace ${reviewCollapsed ? "is-comments-collapsed" : ""}`}>
       <header className="review-workspace-header">
         <div className="artifact-heading">
-          {!embedded ? <a className="artifact-back-link" href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues`} aria-label="返回 Issues 看板" title="返回 Issues 看板"><ArrowLeft size={17} /></a> : null}
+          {!embedded ? <AppLink className="artifact-back-link" href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/issues`} aria-label="返回 Issues 看板" title="返回 Issues 看板"><ArrowLeft size={17} /></AppLink> : null}
           <div>
             <strong>{currentArtifact ? `${artifactLabel(currentArtifact.type)}审阅` : "产物审阅"}</strong>
             <span>{issue ? issue.title : `议题 #${issueNumber}`}</span>
@@ -1266,13 +1267,13 @@ export function VisionPlanPage({ gitServerId, projectId, issueNumber, mergeReque
             </label>
           ) : null}
           {!embedded ? issue?.mergeRequests.map((mergeRequest) => (
-            <a
+            <AppLink
               key={mergeRequest.number}
               href={`/repos/${encodeURIComponent(gitServerId)}/${encodeURIComponent(projectId)}/merge-requests/${mergeRequest.number}`}
               title={mergeRequest.title}
             >
               <GitPullRequest size={16} />查看 MR #{mergeRequest.number}
-            </a>
+            </AppLink>
           )) : null}
         </div>
       </header>

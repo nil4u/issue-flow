@@ -3,7 +3,7 @@ import { useInstallation } from "./use-installation"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { gitServerAdminRoute, insightsRoute, parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
+import { APP_NAVIGATE_EVENT, currentAppLocation, gitServerAdminRoute, insightsRoute, parseWorkspaceRoute, sameWorkspaceRoute, setupRoute, userSettingsRoute, workspaceRoutePath, type WorkspaceRoute } from "@/app-route"
 import {
   api,
   ownerOf,
@@ -19,6 +19,7 @@ import {
   type UserSession,
   type WorkspaceTab,
 } from "@/issue-flow-model"
+import { SESSION_EXPIRED_EVENT } from "@/lib/console-session"
 import { notifyError } from "@/lib/errors"
 import {
   findSelectedRepository,
@@ -31,9 +32,11 @@ import { initializeIssueFlowSetup, type SetupInitializeInput } from "@/lib/setup
 
 export function useDashboardController() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
+  const [location, setLocation] = useState(currentAppLocation)
   const [booting, setBooting] = useState(true)
   const [setupStatus, setSetupStatus] = useState<SetupStatus>()
   const [loadingLoginState, setLoadingLoginState] = useState(true)
+  const [loginStateLoaded, setLoginStateLoaded] = useState(false)
   const [initializingSetup, setInitializingSetup] = useState(false)
   const [gitServers, setGitServers] = useState<GitServer[]>([])
   const [selectedGitServerId, setSelectedGitServerId] = useState(() => route.gitServerId)
@@ -129,6 +132,7 @@ export function useDashboardController() {
     if (path !== currentPath) {
       window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", path)
     }
+    setLocation(currentAppLocation())
     setRoute(normalized)
     if (normalized.view !== "repos") return
     setSelectedGitServerId(normalized.gitServerId)
@@ -233,7 +237,10 @@ export function useDashboardController() {
 
   async function loadLoginState() {
     setLoadingLoginState(true)
-    return Promise.all([loadGitServers(), loadUserSession()]).finally(() => setLoadingLoginState(false))
+    return Promise.all([loadGitServers(), loadUserSession()]).finally(() => {
+      setLoadingLoginState(false)
+      setLoginStateLoaded(true)
+    })
   }
 
   async function loadRepositories(gitServerId = selectedGitServerId, options: { page?: number; append?: boolean; includeSelectedProject?: boolean; selectedProjectId?: string; fallbackProject?: "first" | "none" } = {}) {
@@ -466,14 +473,18 @@ export function useDashboardController() {
     void loginGitLab(gitServerId).finally(() => setPendingGitServerId(""))
   }
 
+  function clearLocalSession() {
+    setUserSession({ authenticated: false })
+    setSessions({})
+    resetRepositoryState()
+    setSelectedProjectId("")
+    setPendingGitServerId("")
+  }
+
   async function logoutAll() {
     try {
       await api("/api/user/logout", { method: "POST" })
-      setUserSession({ authenticated: false })
-      setSessions({})
-      resetRepositoryState()
-      setSelectedProjectId("")
-      setPendingGitServerId("")
+      clearLocalSession()
     } catch (error) {
       notifyError(error, "退出失败")
     }
@@ -550,11 +561,17 @@ export function useDashboardController() {
 
   useEffect(() => {
     ;(async () => {
+      // setup 状态与登录态并行加载；未初始化时 /api/user/session 本就未登录，结果直接忽略。
+      const loginState = loadLoginState()
       try {
         const status = await loadSetupStatus()
-        if (status.needsSetup) return applyRoute(setupRoute, "replace")
+        if (status.needsSetup) {
+          void loginState.catch(() => undefined)
+          return applyRoute(setupRoute, "replace")
+        }
+        void loginState.catch((error) => notifyError(error, "加载登录状态失败"))
       } catch (error) {
-        setLoadingLoginState(false)
+        void loginState.catch(() => undefined)
         notifyError(error, "加载失败")
       } finally {
         setBooting(false)
@@ -563,8 +580,14 @@ export function useDashboardController() {
   }, [])
 
   useEffect(() => {
+    window.addEventListener(SESSION_EXPIRED_EVENT, clearLocalSession)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, clearLocalSession)
+  }, [])
+
+  useEffect(() => {
     function handlePopState() {
       const next = parseWorkspaceRoute()
+      setLocation(currentAppLocation())
       setRoute(next)
       if (next.view === "repos") {
         setSelectedGitServerId(next.gitServerId || gitServers[0]?.id || "")
@@ -576,13 +599,12 @@ export function useDashboardController() {
       setProjectAccess(undefined)
     }
     window.addEventListener("popstate", handlePopState)
-    return () => window.removeEventListener("popstate", handlePopState)
-  }, [gitServers])
-
-  useEffect(() => {
-    if (booting || !setupStatus || setupStatus.needsSetup) return
-    void loadLoginState().catch((error) => notifyError(error, "加载登录状态失败"))
-  }, [booting, setupStatus?.needsSetup])
+    window.addEventListener(APP_NAVIGATE_EVENT, handlePopState)
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+      window.removeEventListener(APP_NAVIGATE_EVENT, handlePopState)
+    }
+  }, [gitServers, repositories])
 
   useEffect(() => {
     if (!selectedGitServerId || !userSession.authenticated) return
@@ -690,11 +712,13 @@ export function useDashboardController() {
 
   return {
     booting,
+    location,
     setupStatus,
     initializingSetup,
     initializeSetup,
     userSession,
     loadingLoginState,
+    loginStateLoaded,
     gitServers,
     loginGitLab,
     reloadLoginState,
