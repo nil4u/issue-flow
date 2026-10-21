@@ -1,5 +1,7 @@
 import type { ReactNode } from "react"
 
+import { notifyIfConsoleSessionExpired } from "@/lib/console-session"
+
 export const API_BASE_URL = (
   import.meta.env.ISSUE_FLOW_WEB_API_BASE_URL
   || import.meta.env.ISSUE_FLOW_BASE_URL
@@ -874,6 +876,7 @@ export async function api<T = any>(path: string, options: ApiRequestInit = {}): 
 
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
+    notifyIfConsoleSessionExpired(response.status, body)
     const error = new Error(body.error || `HTTP ${response.status}`)
     ;(error as Error & { body?: unknown }).body = body
     throw error

@@ -1,6 +1,7 @@
 import { AlertCircle, Check, CircleDot, Lightbulb, Loader2, RefreshCw, Sparkles } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { AppLink } from "@/components/app-link"
 import { EmptyPanel } from "@/components/empty-panel"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,7 +99,7 @@ function AutomationInsightRow({ item, gitServerId, projectId, creating, onCreate
   const sourceHref = issueHref(gitServerId, projectId, issue.number)
   return (
     <article className="automation-insight-row">
-      <a className="automation-insight-issue" href={sourceHref}><span className={`provider-issue-state state-${issue.state}`}><CircleDot className="size-3.5" />{issue.state === "closed" ? "Closed" : "Open"}</span><div><strong>#{issue.number} {issue.title}</strong>{issue.author.name || issue.author.username ? <small>{issue.author.name || issue.author.username}</small> : null}</div></a>
+      <AppLink className="automation-insight-issue" href={sourceHref}><span className={`provider-issue-state state-${issue.state}`}><CircleDot className="size-3.5" />{issue.state === "closed" ? "Closed" : "Open"}</span><div><strong>#{issue.number} {issue.title}</strong>{issue.author.name || issue.author.username ? <small>{issue.author.name || issue.author.username}</small> : null}</div></AppLink>
       <div className="automation-insight-phases">{item.phases.map((phase) => <span key={phase.phase}>{phaseName(phase.phase)} <b>{phase.turns}</b></span>)}</div>
       <div className="automation-insight-action">
         {item.status === "available" ? <button type="button" className="metrics-optimization-action" disabled={creating} onClick={() => void onCreate()}>{creating ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}{creating ? "正在创建" : "分析优化"}</button>

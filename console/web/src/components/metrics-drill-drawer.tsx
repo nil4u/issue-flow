@@ -1,6 +1,7 @@
 import { Check, Loader2, Sparkles } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 
+import { AppLink } from "@/components/app-link"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
   api,
@@ -186,14 +187,14 @@ function IssueEvidenceList({
                 <span>#{issueNumber}</span>
                 {href
                   ? (
-                    <a
+                    <AppLink
                       className="metrics-drill-issue-link"
                       href={href}
                       aria-label={`打开 issue #${issueNumber}：${title}`}
                       title={title}
                     >
                       {title}
-                    </a>
+                    </AppLink>
                   )
                   : <strong title={title}>{title}</strong>}
                 <div>

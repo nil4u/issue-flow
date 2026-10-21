@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleDot, ExternalLink, Eye, GitBranch, GitMerge, LayoutGrid, List, Loader2, MessageCircle, Plus, RefreshCw, Search } from "lucide-react"
 
+import { AppLink } from "@/components/app-link"
+import { navigateApp } from "@/app-route"
 import { EmptyPanel } from "@/components/empty-panel"
 import { ProviderLabel, ProviderLabelPicker } from "@/components/issues/provider-label-picker"
 import { ProviderMarkdownEditor } from "@/components/issues/provider-markdown"
@@ -161,7 +163,7 @@ export function IssuesBoard({ gitServer, user, project, repository, onLogin }: R
     setCreating(true); setError("")
     try {
       const result = await api<{ issue: ProviderIssueSummary }>(baseApi, { method: "POST", body: JSON.stringify({ title: newTitle.trim(), body: newBody, labels: newLabels }) })
-      window.location.assign(issueHref(result.issue.number))
+      navigateApp(issueHref(result.issue.number))
     } catch (createError) { setError(createError instanceof Error ? createError.message : "创建 Issue 失败") }
     finally { setCreating(false) }
   }
@@ -188,9 +190,9 @@ function ListPagination({ page, hasMore, loading, onPage }: { page: number; hasM
 }
 
 function IssueListRow({ issue, href, artifact, reviewHref }: { issue: ProviderIssueSummary; href: string; artifact?: ReviewablePlanArtifact; reviewHref: string }) {
-  return <article className="provider-issue-row"><a href={href} className="provider-issue-row-main"><span className={`provider-issue-state state-${issue.state}`}><CircleDot className="size-4" />{issue.state === "closed" ? "Closed" : "Open"}</span><div><strong>#{issue.number} {issue.title}</strong><p>opened by {issue.author.name || issue.author.username || "Unknown"} · updated {formatWhen(issue.updatedAt) || "-"}</p>{issue.labels.length ? <div className="provider-issue-labels">{issue.labels.map((label) => <ProviderLabel key={label.name} label={label} />)}</div> : null}</div><span className="provider-issue-comments">{issue.commentsCount > 0 ? <><MessageCircle className="size-4" />{issue.commentsCount}</> : null}</span></a><div className="provider-issue-row-actions">{artifact ? <Button asChild variant="secondary" size="sm"><a href={reviewHref}><Eye className="size-4" />{artifact.type === "decision" ? "Decision" : "Plan"}</a></Button> : null}{issue.webUrl ? <Button asChild variant="ghost" size="icon-sm"><a href={issue.webUrl} target="_blank" rel="noreferrer" aria-label={`在 Git server 打开 issue #${issue.number}`}><ExternalLink className="size-4" /></a></Button> : null}</div></article>
+  return <article className="provider-issue-row"><AppLink href={href} className="provider-issue-row-main"><span className={`provider-issue-state state-${issue.state}`}><CircleDot className="size-4" />{issue.state === "closed" ? "Closed" : "Open"}</span><div><strong>#{issue.number} {issue.title}</strong><p>opened by {issue.author.name || issue.author.username || "Unknown"} · updated {formatWhen(issue.updatedAt) || "-"}</p>{issue.labels.length ? <div className="provider-issue-labels">{issue.labels.map((label) => <ProviderLabel key={label.name} label={label} />)}</div> : null}</div><span className="provider-issue-comments">{issue.commentsCount > 0 ? <><MessageCircle className="size-4" />{issue.commentsCount}</> : null}</span></AppLink><div className="provider-issue-row-actions">{artifact ? <Button asChild variant="secondary" size="sm"><AppLink href={reviewHref}><Eye className="size-4" />{artifact.type === "decision" ? "Decision" : "Plan"}</AppLink></Button> : null}{issue.webUrl ? <Button asChild variant="ghost" size="icon-sm"><a href={issue.webUrl} target="_blank" rel="noreferrer" aria-label={`在 Git server 打开 issue #${issue.number}`}><ExternalLink className="size-4" /></a></Button> : null}</div></article>
 }
 
 function IssueBoardCard({ issue, href, artifact, reviewHref }: { issue: ProviderIssueSummary; href: string; artifact?: ReviewablePlanArtifact; reviewHref: string }) {
-  return <article className="issue-card provider-issue-card"><header><strong>#{issue.number}</strong><small>{formatWhen(issue.updatedAt) || ""}</small></header><a className="provider-issue-card-link" href={href}>{issue.title}</a>{issue.labels.length ? <div className="provider-issue-labels">{issue.labels.slice(0, 4).map((label) => <ProviderLabel key={label.name} label={label} />)}</div> : null}{artifact ? <a className="issue-review-link" href={reviewHref}><Eye className="size-4" />{artifact.type === "decision" ? "Decision" : "Plan"}</a> : null}</article>
+  return <article className="issue-card provider-issue-card"><header><strong>#{issue.number}</strong><small>{formatWhen(issue.updatedAt) || ""}</small></header><AppLink className="provider-issue-card-link" href={href}>{issue.title}</AppLink>{issue.labels.length ? <div className="provider-issue-labels">{issue.labels.slice(0, 4).map((label) => <ProviderLabel key={label.name} label={label} />)}</div> : null}{artifact ? <AppLink className="issue-review-link" href={reviewHref}><Eye className="size-4" />{artifact.type === "decision" ? "Decision" : "Plan"}</AppLink> : null}</article>
 }

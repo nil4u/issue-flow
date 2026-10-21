@@ -1,5 +1,6 @@
 import { ExternalLink, Eye } from "lucide-react"
 
+import { AppLink } from "@/components/app-link"
 import type { IssueRow, ReviewablePlanArtifact } from "@/issue-flow-model"
 import { formatWhen } from "@/issue-flow-model"
 
@@ -48,7 +49,7 @@ function IssueCard({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueR
         <span className="issue-card-actions">
           <small>{formatWhen(issue.updatedAt || issue.openedAt || "")}</small>
           {reviewArtifacts.map((artifact) => (
-            <a
+            <AppLink
               key={artifact.type}
               className="issue-review-link"
               href={reviewHref(issue.issueNumber)}
@@ -57,7 +58,7 @@ function IssueCard({ issue, href, reviewArtifacts, reviewHref }: { issue: IssueR
             >
               <Eye className="size-4" />
               <span>{artifact.type === "decision" ? "Decision" : "Plan"}</span>
-            </a>
+            </AppLink>
           ))}
           <a
             className="issue-external-link"
