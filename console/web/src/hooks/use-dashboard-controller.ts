@@ -29,6 +29,9 @@ import {
 import { hasRepoSettingsData } from "@/lib/repo-settings"
 import { initializeIssueFlowSetup, type SetupInitializeInput } from "@/lib/setup-flow"
 
+// Repository list rows are summaries without settings; these tabs need the full detail (install state).
+const repositoryDetailTabs = new Set<WorkspaceTab>(["overview", "issues", "settings"])
+
 export function useDashboardController() {
   const [route, setRoute] = useState<WorkspaceRoute>(() => parseWorkspaceRoute())
   const [booting, setBooting] = useState(true)
@@ -44,6 +47,7 @@ export function useDashboardController() {
   const [selectedRepositorySnapshot, setSelectedRepositorySnapshot] = useState<Repository>()
   const repositoryRequestVersion = useRef(0)
   const [loadingRepositoryDetails, setLoadingRepositoryDetails] = useState(false)
+  const [failedRepositoryDetailId, setFailedRepositoryDetailId] = useState("")
   const [projects, setProjects] = useState<GitLabProject[]>([])
   const [repoPage, setRepoPage] = useState(1)
   const [repoHasMore, setRepoHasMore] = useState(false)
@@ -79,6 +83,13 @@ export function useDashboardController() {
   )
   const selectedProject = selectedRepoSummary ? repositoryToProject(selectedRepoSummary) : undefined
   const selectedRepo = selectedRepoSummary ? repositoryDetails[selectedRepoSummary.id] || selectedRepoSummary : undefined
+  const repositoryDetailPending = Boolean(
+    selectedRepoSummary?.id
+    && userSession.authenticated
+    && repositoryDetailTabs.has(activeTab)
+    && !repositoryDetails[selectedRepoSummary.id]?.settings
+    && failedRepositoryDetailId !== selectedRepoSummary.id,
+  )
   const pendingPluginMergeRequestHref = selectedRepo?.settings?.plugins?.items?.find((item) => item.key === "issue-flow")?.pendingMergeRequest?.webUrl || ""
   const { installCheck, setInstallCheck, installConflictPlan, setInstallConflictPlan, groupVariablePrompt, checkProgress, checking, applyInstallCheck, checkInstallStep, runInstallCheck, closeCheckProgress, resolveGroupVariablePrompt, setInstallVariable, setInstallWebhook, setInstallLabels, setInstallRunner, installPlugin, confirmInstallConflicts, cancelInstallConflicts } = useInstallation({
     selectedProject, selectedGitServerId, selectedRepo, projectAccess, rememberRepositoryDetail,
@@ -647,10 +658,19 @@ export function useDashboardController() {
   }, [activeTab, selectedGitServerId, selectedProject?.id, projectAccess?.canManage])
 
   useEffect(() => {
-    if ((activeTab !== "issues" && activeTab !== "settings") || !selectedGitServerId || !userSession.authenticated) return
+    setFailedRepositoryDetailId("")
+  }, [selectedRepoSummary?.id])
+
+  useEffect(() => {
+    if (!repositoryDetailTabs.has(activeTab) || !selectedGitServerId || !userSession.authenticated) return
     if (!selectedRepoSummary?.id || repositoryDetails[selectedRepoSummary.id]?.settings) return
-    void loadRepositoryDetail(selectedRepoSummary.id).catch((error) => notifyError(error, "加载仓库详情失败"))
-  }, [activeTab, selectedGitServerId, selectedRepoSummary?.id, userSession.authenticated, repositoryDetails])
+    if (failedRepositoryDetailId === selectedRepoSummary.id) return
+    const repoId = selectedRepoSummary.id
+    void loadRepositoryDetail(repoId).catch((error) => {
+      setFailedRepositoryDetailId(repoId)
+      notifyError(error, "加载仓库详情失败")
+    })
+  }, [activeTab, selectedGitServerId, selectedRepoSummary?.id, userSession.authenticated, repositoryDetails, failedRepositoryDetailId])
 
   useEffect(() => {
     if (activeTab !== "settings") {
@@ -767,7 +787,7 @@ export function useDashboardController() {
       checking,
       projectAccess,
       loadingProjectAccess,
-      loadingRepositoryDetails,
+      loadingRepositoryDetails: loadingRepositoryDetails || repositoryDetailPending,
       onLogin: () => loginGitLab(selectedGitServerId),
       onCheck: runInstallCheck,
       onCloseCheckProgress: closeCheckProgress,
